@@ -394,6 +394,41 @@ app.get('/api/leads/:id/mensagens', (req, res) => {
   res.json(db.data.mensagens.filter(m => m.lead_id === id).sort((a,b) => a.id - b.id));
 });
 
+// Número 2 — broadcast de templates (confirmações, lembretes, follow-ups)
+app.post('/api/leads/:id/broadcast', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const lead = db.data.leads.find(l => l.id === id);
+    if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
+    if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
+    if (!whatsapp.temBroadcast()) return res.status(503).json({ error: 'Número de broadcast não configurado. Adicione WHATSAPP_BROADCAST_TOKEN e WHATSAPP_BROADCAST_PHONE_ID nas variáveis.' });
+
+    const { templateName, variaveis = [], lang = 'pt_BR' } = req.body;
+    if (!templateName) return res.status(400).json({ error: 'templateName obrigatório' });
+
+    const resultado = await whatsapp.enviarBroadcast({ para: lead.telefone, templateName, variaveis, lang });
+    db.data.mensagens.push({
+      id: db.data.nextMensagemId++,
+      lead_id: lead.id, direcao: 'enviada', canal: 'broadcast',
+      texto: `[template: ${templateName}${variaveis.length ? ' | ' + variaveis.join(', ') : ''}]`,
+      wa_id: resultado.messages?.[0]?.id || '',
+      criada_em: nowLocal(),
+    });
+    lead.ultimo_contato = nowLocal();
+    await db.write();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('❌ broadcast:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Lista templates disponíveis (retorna os do .env ou padrão)
+app.get('/api/templates', (req, res) => {
+  const lista = (process.env.WA_TEMPLATES || 'hello_world').split(',').map(t => t.trim()).filter(Boolean);
+  res.json(lista);
+});
+
 // Webhook WhatsApp — verificação (Meta exige GET para validar URL)
 app.get('/webhooks/whatsapp', (req, res) => {
   const mode = req.query['hub.mode'];
