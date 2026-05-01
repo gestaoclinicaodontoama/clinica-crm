@@ -1,0 +1,17 @@
+{
+  "name": "clinica-crm",
+  "version": "1.0.0",
+  "description": "CRM próprio para clínica odontológica com rastreamento WhatsApp → Meta/Google",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "lowdb": "^7.0.1",
+    "dotenv": "^16.4.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
