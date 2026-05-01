@@ -1,74 +1,66 @@
 // ============================================================
 //  INTEGRAÇÃO WHATSAPP CLOUD API (Meta)
-//  Envio de mensagens, recepção via webhook, templates
+//  Número 1 (conversas/SDR): WHATSAPP_API_TOKEN + WHATSAPP_PHONE_NUMBER_ID
+//  Número 2 (broadcast/templates): WHATSAPP_BROADCAST_TOKEN + WHATSAPP_BROADCAST_PHONE_ID
 // ============================================================
 
-const WA_TOKEN = process.env.WHATSAPP_CLOUD_TOKEN || '';
+// Número 1 — conversas livres da SDR
+const WA_TOKEN    = process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN || '';
 const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
-const WA_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'meu_token_secreto_clinica_2026';
-const WA_API_VERSION = 'v21.0';
 
-function temToken() {
-  return WA_TOKEN && WA_PHONE_ID && WA_TOKEN !== 'SEU_TOKEN_AQUI';
-}
+// Número 2 — disparos de templates (se não configurado, usa o número 1 como fallback)
+const WA_BROADCAST_TOKEN    = process.env.WHATSAPP_BROADCAST_TOKEN || WA_TOKEN;
+const WA_BROADCAST_PHONE_ID = process.env.WHATSAPP_BROADCAST_PHONE_ID || WA_PHONE_ID;
+
+const WA_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'meu_token_secreto_clinica_2026';
+const WA_API_VERSION  = 'v21.0';
+
+function temToken()      { return !!(WA_TOKEN && WA_PHONE_ID); }
+function temBroadcast()  { return !!(WA_BROADCAST_TOKEN && WA_BROADCAST_PHONE_ID); }
 
 function limparNumero(num) {
   return String(num || '').replace(/\D/g, '');
 }
 
-// --------- ENVIAR MENSAGEM DE TEXTO ----------
-async function enviarTexto({ para, texto }) {
-  if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
-  const numero = limparNumero(para);
-  const url = `https://graph.facebook.com/${WA_API_VERSION}/${WA_PHONE_ID}/messages`;
-  const payload = {
-    messaging_product: 'whatsapp',
-    to: numero,
-    type: 'text',
-    text: { body: texto },
-  };
-  const r = await fetch(url, {
+async function _post(phoneId, token, payload) {
+  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${phoneId}/messages`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${WA_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const data = await r.json();
-  if (data.error) throw new Error(`WA API: ${data.error.message}`);
+  if (data.error) throw new Error(data.error.message);
   return data;
 }
 
-// --------- ENVIAR TEMPLATE (mensagem proativa para leads frios) ----------
-// Templates devem ser pré-aprovados no Meta Business Manager.
-async function enviarTemplate({ para, templateName, lang = 'pt_BR', variaveis = [] }) {
+// Número 1 — texto livre (SDR, janela de 24h)
+async function enviarTexto({ para, texto }) {
   if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
+  return _post(WA_PHONE_ID, WA_TOKEN, {
+    messaging_product: 'whatsapp', to: limparNumero(para),
+    type: 'text', text: { body: texto },
+  });
+}
+
+// Número 2 — template aprovado (broadcast, fora da janela)
+async function enviarBroadcast({ para, templateName, lang = 'pt_BR', variaveis = [] }) {
+  if (!temBroadcast()) throw new Error('Número de broadcast não configurado');
   const numero = limparNumero(para);
-  const payload = {
-    messaging_product: 'whatsapp',
-    to: numero,
+  return _post(WA_BROADCAST_PHONE_ID, WA_BROADCAST_TOKEN, {
+    messaging_product: 'whatsapp', to: numero,
     type: 'template',
     template: {
       name: templateName,
       language: { code: lang },
       ...(variaveis.length > 0 && {
-        components: [{
-          type: 'body',
-          parameters: variaveis.map(v => ({ type: 'text', text: String(v) })),
-        }],
+        components: [{ type: 'body', parameters: variaveis.map(v => ({ type: 'text', text: String(v) })) }],
       }),
     },
-  };
-  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${WA_PHONE_ID}/messages`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
   });
-  const data = await r.json();
-  if (data.error) throw new Error(`WA Template: ${data.error.message}`);
-  return data;
 }
+
+// Mantém compatibilidade — enviarTemplate usa o número 2 (broadcast)
+async function enviarTemplate(opts) { return enviarBroadcast(opts); }
 
 // --------- VERIFY TOKEN para webhook ----------
 function verifyToken() {
@@ -100,7 +92,9 @@ function parseMensagemRecebida(body) {
 module.exports = {
   enviarTexto,
   enviarTemplate,
+  enviarBroadcast,
   temToken,
+  temBroadcast,
   verifyToken,
   parseMensagemRecebida,
   limparNumero,
