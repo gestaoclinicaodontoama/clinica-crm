@@ -1,0 +1,14 @@
+# Variáveis de ambiente — nunca subir ao GitHub
+.env
+
+# Banco de dados local
+*.json
+!package.json
+!railway.json
+
+# Node modules
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
