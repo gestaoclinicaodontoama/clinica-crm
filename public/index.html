@@ -496,6 +496,33 @@ textarea { resize: vertical; min-height: 80px; }
 </div>
 </div>
 
+<!-- MODAL TEMPLATES -->
+<div class="modal-bg" id="modal-template-bg" onclick="if(event.target===this)fecharModalTemplate()">
+<div class="modal" style="max-width:480px">
+  <div class="modal-header">
+    <div class="modal-titulo">📢 Enviar Template</div>
+    <button class="modal-close" onclick="fecharModalTemplate()">×</button>
+  </div>
+  <p style="font-size:12.5px;color:var(--muted);margin-bottom:16px">Enviado pelo <strong>Número 2 (broadcast)</strong> — use para confirmações, lembretes e follow-ups fora da janela de 24h.</p>
+  <div class="form-group">
+    <label>Template</label>
+    <select id="tpl-select" style="width:100%" onchange="atualizarPreviewTemplate()">
+      <option value="">Carregando...</option>
+    </select>
+  </div>
+  <div class="form-group" id="tpl-vars-area" style="display:none">
+    <label>Variáveis (uma por linha)</label>
+    <textarea id="tpl-vars" rows="3" placeholder="Ex: João&#10;15/01 às 14h"></textarea>
+    <small style="color:var(--muted);font-size:11px">Preencha na ordem dos {{1}}, {{2}}... do template</small>
+  </div>
+  <div id="tpl-preview" style="background:var(--bg3);border-radius:8px;padding:12px;font-size:13px;margin-bottom:16px;display:none"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-ghost" onclick="fecharModalTemplate()">Cancelar</button>
+    <button class="btn btn-primary" onclick="enviarTemplate()">Enviar</button>
+  </div>
+</div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -953,6 +980,7 @@ async function abrirChat(leadId) {
         ${chatLeadAtual.ctwa_clid ? '<span class="ctwa-badge">📍 veio de anúncio</span>' : ''}
       </div>
     </div>
+    <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModalTemplate()">📢 Template</button>
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModal(${chatLeadAtual.id})">Ver perfil</button>
   `;
 
@@ -1008,6 +1036,51 @@ function chatKeyDown(e) {
 function autoResizeChat(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ============ TEMPLATES ============
+async function abrirModalTemplate() {
+  if (!chatLeadAtual) return;
+  const templates = await api('/api/templates');
+  const sel = document.getElementById('tpl-select');
+  sel.innerHTML = templates.map(t => `<option value="${t}">${t}</option>`).join('');
+  atualizarPreviewTemplate();
+  document.getElementById('modal-template-bg').classList.add('open');
+}
+
+function fecharModalTemplate() {
+  document.getElementById('modal-template-bg').classList.remove('open');
+}
+
+function atualizarPreviewTemplate() {
+  const nome = document.getElementById('tpl-select').value;
+  const prev = document.getElementById('tpl-preview');
+  if (nome) {
+    prev.style.display = 'block';
+    prev.innerHTML = `<span style="color:var(--muted);font-size:11px">TEMPLATE</span><br><strong>${nome}</strong>`;
+    document.getElementById('tpl-vars-area').style.display = 'block';
+  } else {
+    prev.style.display = 'none';
+  }
+}
+
+async function enviarTemplate() {
+  if (!chatLeadAtual) return;
+  const templateName = document.getElementById('tpl-select').value;
+  if (!templateName) { toast('Selecione um template', true); return; }
+  const varsRaw = document.getElementById('tpl-vars').value.trim();
+  const variaveis = varsRaw ? varsRaw.split('\n').map(v => v.trim()).filter(Boolean) : [];
+  try {
+    const r = await api(`/api/leads/${chatLeadAtual.id}/broadcast`, {
+      method: 'POST', body: JSON.stringify({ templateName, variaveis }),
+    });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('✅ Template enviado!');
+    fecharModalTemplate();
+    await carregarMensagensChat(chatLeadAtual.id);
+  } catch(e) {
+    toast('❌ Erro: ' + e.message, true);
+  }
 }
 
 loadDash();
