@@ -26,14 +26,18 @@ async function initDb() {
     leads: [],
     chamadas: [],
     mensagens: [],
+    templates: [],
     nextId: 1,
     nextChamadaId: 1,
     nextMensagemId: 1,
+    nextTemplateId: 1,
   });
   if (!db.data.chamadas) db.data.chamadas = [];
   if (!db.data.mensagens) db.data.mensagens = [];
+  if (!db.data.templates) db.data.templates = [];
   if (!db.data.nextChamadaId) db.data.nextChamadaId = 1;
   if (!db.data.nextMensagemId) db.data.nextMensagemId = 1;
+  if (!db.data.nextTemplateId) db.data.nextTemplateId = 1;
   await db.write();
   console.log(`✅ Banco: ${db.data.leads.length} leads, ${db.data.chamadas.length} chamadas, ${db.data.mensagens.length} msgs`);
 }
@@ -423,10 +427,110 @@ app.post('/api/leads/:id/broadcast', async (req, res) => {
   }
 });
 
-// Lista templates disponíveis (retorna os do .env ou padrão)
+// ========== TEMPLATES ==========
 app.get('/api/templates', (req, res) => {
-  const lista = (process.env.WA_TEMPLATES || 'hello_world').split(',').map(t => t.trim()).filter(Boolean);
-  res.json(lista);
+  const dbTpls = db.data.templates || [];
+  // Templates do env como fallback (só aparecem se não estiverem no DB)
+  const envNames = (process.env.WA_TEMPLATES || '').split(',').map(t => t.trim()).filter(Boolean);
+  const envObjs = envNames
+    .filter(n => !dbTpls.find(t => t.nome === n))
+    .map(n => ({ id: null, nome: n, titulo: n, corpo: '', categoria: 'MARKETING', status: 'aprovado' }));
+  res.json([...dbTpls, ...envObjs]);
+});
+
+app.post('/api/templates', async (req, res) => {
+  try {
+    const { nome, titulo, corpo, categoria = 'MARKETING' } = req.body;
+    if (!nome) return res.status(400).json({ error: 'nome obrigatório' });
+    const nomeLimpo = sanitizeStr(nome, 100).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    if (!nomeLimpo) return res.status(400).json({ error: 'nome inválido — use letras, números e underscore' });
+    if (db.data.templates.find(t => t.nome === nomeLimpo)) {
+      return res.status(409).json({ error: 'Já existe um template com esse nome' });
+    }
+    const tpl = {
+      id: db.data.nextTemplateId++,
+      nome: nomeLimpo,
+      titulo: sanitizeStr(titulo || nome, 200),
+      corpo: sanitizeStr(corpo || '', 4000),
+      categoria: ['MARKETING','UTILITY','AUTHENTICATION'].includes(categoria) ? categoria : 'MARKETING',
+      status: 'pendente',
+      criado_em: nowLocal(),
+    };
+    db.data.templates.push(tpl);
+    await db.write();
+    res.json({ ok: true, template: tpl });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/templates/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const tpl = db.data.templates.find(t => t.id === id);
+    if (!tpl) return res.status(404).json({ error: 'Template não encontrado' });
+    const allowed = ['titulo', 'corpo', 'categoria', 'status'];
+    for (const k of Object.keys(req.body)) {
+      if (allowed.includes(k)) tpl[k] = sanitizeStr(String(req.body[k]), 4000);
+    }
+    await db.write();
+    res.json({ ok: true, template: tpl });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/templates/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const idx = db.data.templates.findIndex(t => t.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Template não encontrado' });
+    db.data.templates.splice(idx, 1);
+    await db.write();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ========== IMPORTAR PACIENTES ==========
+app.post('/api/leads/importar', async (req, res) => {
+  try {
+    const { pacientes } = req.body;
+    if (!Array.isArray(pacientes) || !pacientes.length) {
+      return res.status(400).json({ error: 'pacientes deve ser array não vazio' });
+    }
+    let importados = 0, duplicados = 0, erros = 0;
+    for (const p of pacientes.slice(0, 5000)) {
+      const nome = sanitizeStr(p.nome || 'Paciente importado');
+      const telefone = sanitizeStr(p.telefone || '', 30).replace(/\D/g, '');
+      const email = sanitizeStr(p.email || '', 100);
+      const origem = sanitizeStr(p.origem || 'Importação', 100);
+      if (!nome && !telefone) { erros++; continue; }
+      if (telefone && db.data.leads.find(l => l.telefone === telefone)) { duplicados++; continue; }
+      db.data.leads.push({
+        id: db.data.nextId++,
+        nome, telefone, email, origem,
+        campanha: '', conteudo: '', fbclid: '', gclid: '', ctwa_clid: '',
+        status: 'Lead', valor: null, tipo_trat: '',
+        notas_sdr: sanitizeStr(p.observacoes || '', 4000),
+        notas_avaliacao: '', notas_comercial: '',
+        score_interesse: null, perfil_disc: '',
+        etiquetas: [], proximo_contato: null, ultimo_contato: null,
+        data_lead: nowLocal(),
+        data_agendamento: null, data_comparecimento: null,
+        data_avaliacao: null, data_orcamento: null, data_fechamento: null,
+        enviado_meta: false, enviado_google: false,
+        eventos_meta_enviados: [],
+        criado_em: nowLocal(), atualizado_em: nowLocal(),
+      });
+      importados++;
+    }
+    await db.write();
+    res.json({ ok: true, importados, duplicados, erros });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Webhook WhatsApp — verificação (Meta exige GET para validar URL)
