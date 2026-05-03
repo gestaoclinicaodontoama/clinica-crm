@@ -265,8 +265,12 @@ textarea { resize: vertical; min-height: 80px; }
 .tpl-card-corpo { font-size: 12px; color: var(--muted); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .tpl-card-footer { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .status-badge { display: inline-block; padding: 3px 9px; border-radius: 14px; font-size: 11px; font-weight: 600; }
-.status-aprovado { background: rgba(34,197,94,.15); color: var(--green); }
-.status-pendente { background: rgba(245,158,11,.15); color: var(--yellow); }
+.status-aprovado   { background: rgba(34,197,94,.15);   color: var(--green); }
+.status-pendente   { background: rgba(245,158,11,.15);  color: var(--yellow); }
+.status-submetido  { background: rgba(79,142,247,.15);  color: var(--accent); }
+.status-rejeitado  { background: rgba(239,68,68,.15);   color: var(--red); }
+.status-pausado    { background: rgba(107,114,128,.15); color: var(--muted); }
+.status-em_recurso { background: rgba(168,85,247,.15);  color: var(--purple); }
 .import-area { background: var(--bg3); border: 1.5px dashed var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
 .import-area textarea { background: transparent; border: none; padding: 0; font-family: 'DM Mono', monospace; font-size: 12px; min-height: 120px; resize: vertical; }
 .import-area textarea:focus { outline: none; }
@@ -403,8 +407,11 @@ textarea { resize: vertical; min-height: 80px; }
 
     <!-- PAINEL TEMPLATES -->
     <div class="disparos-panel">
-      <div class="disparos-panel-titulo">📋 Templates WhatsApp</div>
-      <div class="disparos-panel-sub">Crie os templates aqui e depois submeta-os para aprovação no Meta Business Manager.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+        <div class="disparos-panel-titulo">📋 Templates WhatsApp</div>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="syncMeta(this)">↻ Sincronizar com Meta</button>
+      </div>
+      <div class="disparos-panel-sub">Crie o template aqui, envie para a Meta aprovar — o status atualiza automaticamente.</div>
 
       <!-- Form criar template -->
       <div style="background:var(--bg3);border-radius:10px;padding:14px;margin-bottom:16px">
@@ -1201,7 +1208,21 @@ async function enviarTemplate() {
 let _importParsed = [];
 
 async function loadDisparos() {
-  await renderTemplatesLista();
+  await syncMeta(null, true); // sync silencioso ao abrir a aba
+}
+
+async function syncMeta(btn, silencioso = false) {
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Sincronizando...'; }
+  try {
+    const r = await api('/api/templates/sync-meta');
+    if (r.error) { if (!silencioso) toast('⚠️ ' + r.error, true); }
+    else if (!silencioso) toast(`✅ Sincronizado — ${r.atualizados} status atualizado(s)`);
+  } catch(e) {
+    if (!silencioso) toast('❌ Erro ao sincronizar', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sincronizar com Meta'; }
+    await renderTemplatesLista();
+  }
 }
 
 async function renderTemplatesLista() {
@@ -1216,17 +1237,25 @@ async function renderTemplatesLista() {
     const corpoHtml = t.corpo
       ? t.corpo.replace(/\{\{(\d+)\}\}/g, '<span class="var-highlight">{{$1}}</span>')
       : '<em style="color:var(--muted)">Corpo não definido</em>';
-    const statusCls = t.status === 'aprovado' ? 'status-aprovado' : 'status-pendente';
-    const statusLabel = t.status === 'aprovado' ? '✓ Aprovado na Meta' : '⏳ Pendente aprovação';
+    const STATUS_LABELS = {
+      aprovado:   { cls: 'status-aprovado',   label: '✓ Aprovado na Meta' },
+      submetido:  { cls: 'status-submetido',  label: '⏳ Aguardando Meta' },
+      pendente:   { cls: 'status-pendente',   label: '📝 Não enviado à Meta' },
+      rejeitado:  { cls: 'status-rejeitado',  label: '✗ Rejeitado pela Meta' },
+      pausado:    { cls: 'status-pausado',    label: '⏸ Pausado' },
+      em_recurso: { cls: 'status-em_recurso', label: '⚖️ Em recurso' },
+    };
+    const st = STATUS_LABELS[t.status] || STATUS_LABELS.pendente;
+    const podeEnviar = t.id && !['aprovado','submetido'].includes(t.status);
     return `<div class="tpl-card">
       <div class="tpl-card-nome">${t.nome}</div>
       <div class="tpl-card-titulo">${t.titulo || t.nome}</div>
       <div class="tpl-card-corpo">${corpoHtml}</div>
       <div class="tpl-card-footer">
-        <span class="status-badge ${statusCls}">${statusLabel}</span>
+        <span class="status-badge ${st.cls}">${st.label}</span>
         <span style="font-size:11px;color:var(--muted)">${t.categoria || 'MARKETING'}</span>
         <div style="margin-left:auto;display:flex;gap:6px">
-          ${t.status !== 'aprovado' && t.id ? `<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="marcarAprovado(${t.id})">Marcar aprovado</button>` : ''}
+          ${podeEnviar ? `<button class="btn btn-primary" style="font-size:11px;padding:5px 10px" onclick="submeterMeta(${t.id},this)">Enviar para Meta</button>` : ''}
           ${t.id ? `<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;color:var(--red)" onclick="deletarTemplate(${t.id})">Excluir</button>` : ''}
         </div>
       </div>
@@ -1249,11 +1278,17 @@ async function criarTemplate() {
   renderTemplatesLista();
 }
 
-async function marcarAprovado(id) {
-  const r = await api(`/api/templates/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'aprovado' }) });
-  if (r.error) { toast('❌ ' + r.error, true); return; }
-  toast('✅ Template marcado como aprovado');
-  renderTemplatesLista();
+async function submeterMeta(id, btn) {
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    const r = await api(`/api/templates/${id}/submeter-meta`, { method: 'POST', body: '{}' });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('✅ Template enviado à Meta — aguardando aprovação');
+    renderTemplatesLista();
+  } catch(e) {
+    toast('❌ Erro: ' + e.message, true);
+    btn.disabled = false; btn.textContent = 'Enviar para Meta';
+  }
 }
 
 async function deletarTemplate(id) {
