@@ -554,7 +554,7 @@ app.get('/api/templates/sync-meta', async (req, res) => {
     const TOKEN = process.env.META_ACCESS_TOKEN;
     if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado' });
 
-    let url = `${META_TPL_API}?fields=name,status,quality_score&limit=200&access_token=${TOKEN}`;
+    let url = `${META_TPL_API}?fields=name,status,category,components&limit=200&access_token=${TOKEN}`;
     const allMeta = [];
     while (url) {
       const r = await fetch(url);
@@ -564,10 +564,6 @@ app.get('/api/templates/sync-meta', async (req, res) => {
       url = data.paging?.next || null;
     }
 
-    // Mapa nome → status Meta
-    const metaMap = {};
-    for (const m of allMeta) metaMap[m.name] = m.status;
-
     const STATUS_MAP = {
       APPROVED: 'aprovado', PENDING: 'submetido',
       REJECTED: 'rejeitado', PAUSED: 'pausado',
@@ -575,15 +571,43 @@ app.get('/api/templates/sync-meta', async (req, res) => {
       PENDING_DELETION: 'pendente',
     };
 
+    // Atualiza status dos templates já existentes localmente
     let atualizados = 0;
     for (const tpl of db.data.templates) {
-      if (metaMap[tpl.nome]) {
-        const novoStatus = STATUS_MAP[metaMap[tpl.nome]] || metaMap[tpl.nome].toLowerCase();
+      const metaTpl = allMeta.find(m => m.name === tpl.nome);
+      if (metaTpl) {
+        const novoStatus = STATUS_MAP[metaTpl.status] || metaTpl.status.toLowerCase();
         if (tpl.status !== novoStatus) { tpl.status = novoStatus; atualizados++; }
+        if (metaTpl.id && !tpl.meta_id) tpl.meta_id = metaTpl.id;
       }
     }
+
+    // Importa templates da Meta que ainda não existem localmente
+    let importados = 0;
+    const nomesLocais = new Set(db.data.templates.map(t => t.nome));
+    for (const m of allMeta) {
+      if (nomesLocais.has(m.name)) continue;
+      // Extrai texto do componente BODY
+      const bodyComp = (m.components || []).find(c => c.type === 'BODY');
+      const corpo = bodyComp ? bodyComp.text : '';
+      const cat = ['MARKETING','UTILITY','AUTHENTICATION'].includes(m.category) ? m.category : 'MARKETING';
+      const status = STATUS_MAP[m.status] || m.status.toLowerCase();
+      const titulo = m.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      db.data.templates.push({
+        id: db.data.nextTemplateId++,
+        nome: m.name,
+        titulo,
+        corpo,
+        categoria: cat,
+        status,
+        meta_id: m.id || null,
+        criado_em: nowLocal(),
+      });
+      importados++;
+    }
+
     await db.write();
-    res.json({ ok: true, atualizados, total_meta: allMeta.length });
+    res.json({ ok: true, atualizados, importados, total_meta: allMeta.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
