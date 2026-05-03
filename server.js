@@ -493,6 +493,102 @@ app.delete('/api/templates/:id', async (req, res) => {
   }
 });
 
+// ========== TEMPLATES META API ==========
+const WA_BUSINESS_ACCOUNT_ID = process.env.WA_BUSINESS_ACCOUNT_ID || '938428135727130';
+const META_TPL_API = `https://graph.facebook.com/v21.0/${WA_BUSINESS_ACCOUNT_ID}/message_templates`;
+
+// Submete template para aprovação na Meta
+app.post('/api/templates/:id/submeter-meta', async (req, res) => {
+  try {
+    const TOKEN = process.env.META_ACCESS_TOKEN;
+    if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado' });
+
+    const id = parseInt(req.params.id, 10);
+    const tpl = db.data.templates.find(t => t.id === id);
+    if (!tpl) return res.status(404).json({ error: 'Template não encontrado' });
+
+    // Conta variáveis no corpo ({{1}}, {{2}}, ...)
+    const matches = (tpl.corpo || '').match(/\{\{(\d+)\}\}/g) || [];
+    const numVars = matches.length ? Math.max(...matches.map(m => parseInt(m.replace(/\D/g,'')))) : 0;
+
+    const components = [];
+    if (tpl.corpo) {
+      const comp = { type: 'BODY', text: tpl.corpo };
+      if (numVars > 0) {
+        comp.example = { body_text: [Array.from({length: numVars}, (_, i) => `Exemplo ${i+1}`)] };
+      }
+      components.push(comp);
+    }
+
+    const payload = {
+      name: tpl.nome,
+      language: 'pt_BR',
+      category: tpl.categoria || 'UTILITY',
+      components,
+    };
+
+    const r = await fetch(`${META_TPL_API}?access_token=${TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+
+    if (data.error) {
+      return res.status(400).json({ error: data.error.message || 'Erro na Meta API' });
+    }
+
+    // Atualiza status local para "submetido"
+    tpl.status = 'submetido';
+    tpl.meta_id = data.id || null;
+    await db.write();
+    res.json({ ok: true, meta_id: data.id, status: 'submetido' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sincroniza status de todos os templates com a Meta
+app.get('/api/templates/sync-meta', async (req, res) => {
+  try {
+    const TOKEN = process.env.META_ACCESS_TOKEN;
+    if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado' });
+
+    let url = `${META_TPL_API}?fields=name,status,quality_score&limit=200&access_token=${TOKEN}`;
+    const allMeta = [];
+    while (url) {
+      const r = await fetch(url);
+      const data = await r.json();
+      if (data.error) return res.status(400).json({ error: data.error.message });
+      if (data.data) allMeta.push(...data.data);
+      url = data.paging?.next || null;
+    }
+
+    // Mapa nome → status Meta
+    const metaMap = {};
+    for (const m of allMeta) metaMap[m.name] = m.status;
+
+    const STATUS_MAP = {
+      APPROVED: 'aprovado', PENDING: 'submetido',
+      REJECTED: 'rejeitado', PAUSED: 'pausado',
+      DISABLED: 'pausado', IN_APPEAL: 'em_recurso',
+      PENDING_DELETION: 'pendente',
+    };
+
+    let atualizados = 0;
+    for (const tpl of db.data.templates) {
+      if (metaMap[tpl.nome]) {
+        const novoStatus = STATUS_MAP[metaMap[tpl.nome]] || metaMap[tpl.nome].toLowerCase();
+        if (tpl.status !== novoStatus) { tpl.status = novoStatus; atualizados++; }
+      }
+    }
+    await db.write();
+    res.json({ ok: true, atualizados, total_meta: allMeta.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ========== IMPORTAR PACIENTES ==========
 app.post('/api/leads/importar', async (req, res) => {
   try {
