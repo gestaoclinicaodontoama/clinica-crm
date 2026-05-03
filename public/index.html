@@ -278,6 +278,44 @@ textarea { resize: vertical; min-height: 80px; }
 .import-preview table { font-size: 12px; }
 .import-preview td, .import-preview th { padding: 7px 12px; }
 .var-highlight { background: rgba(79,142,247,.2); color: var(--accent); border-radius: 4px; padding: 1px 4px; font-family: 'DM Mono', monospace; font-size: 11px; }
+
+/* ===== FUNIL VISUAL ===== */
+.funil-wrap { max-width: 720px; margin: 0 auto 32px; }
+.funil-etapa { display: flex; justify-content: center; position: relative; }
+.funil-bar {
+  height: 56px; border-radius: 10px; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 20px; cursor: pointer;
+  transition: filter .15s, transform .12s; position: relative; overflow: hidden; width: 100%;
+}
+.funil-bar:hover { filter: brightness(1.12); transform: scaleY(1.03); }
+.funil-bar.ativa { outline: 2.5px solid white; outline-offset: 2px; }
+.funil-bar::after { content:''; position:absolute; inset:0; background:linear-gradient(135deg,rgba(255,255,255,.12) 0%,transparent 60%); pointer-events:none; }
+.funil-bar-nome { font-size: 13.5px; font-weight: 600; color: white; text-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.funil-bar-right { text-align: right; }
+.funil-bar-count { font-size: 22px; font-weight: 700; color: white; font-family: 'DM Mono', monospace; line-height: 1.1; }
+.funil-bar-pct { font-size: 11.5px; color: rgba(255,255,255,.78); }
+.funil-conector {
+  display: flex; justify-content: center; align-items: center; height: 28px; gap: 8px;
+}
+.funil-conv-badge {
+  font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--bg2);
+}
+.funil-conv-alta  { color: var(--green); border-color: rgba(34,197,94,.3); }
+.funil-conv-media { color: var(--yellow); border-color: rgba(245,158,11,.3); }
+.funil-conv-baixa { color: var(--red); border-color: rgba(239,68,68,.3); }
+.funil-summary-cards { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px; }
+.funil-summary-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 16px; flex: 1; min-width: 130px;
+}
+.funil-perdidos-row {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  margin-top: 8px; cursor: pointer; transition: background .12s;
+}
+.funil-perdidos-row:hover { background: var(--bg3); }
+.funil-stage-detail { margin-top: 26px; }
 </style>
 </head>
 <body>
@@ -367,10 +405,29 @@ textarea { resize: vertical; min-height: 80px; }
   </div>
 </div>
 
-<!-- FUNIL KANBAN -->
+<!-- FUNIL -->
 <div id="page-funil" class="page">
   <h1>Funil de Pacientes</h1>
-  <div id="kanban" style="display:flex;gap:14px;overflow-x:auto;padding-bottom:14px;"></div>
+
+  <!-- Cards de resumo -->
+  <div class="funil-summary-cards" id="funil-summary"></div>
+
+  <!-- Funil visual -->
+  <div class="funil-wrap" id="funil-visual"></div>
+
+  <!-- Perdidos (fora do funil principal) -->
+  <div id="funil-perdidos"></div>
+
+  <!-- Detalhe da etapa selecionada -->
+  <div class="funil-stage-detail" id="funil-stage-detail" style="display:none">
+    <h2 id="funil-stage-titulo" style="margin-bottom:14px"></h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Telefone</th><th>Origem</th><th>Score</th><th>Valor</th><th>Último contato</th></tr></thead>
+        <tbody id="funil-stage-tbody"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <!-- CONVERSAS -->
@@ -762,38 +819,119 @@ async function loadLeads() {
     </tr>`).join('');
 }
 
-// ============ KANBAN ============
+// ============ FUNIL VISUAL ============
+let _funilLeads = [];
+let _funilEtapaSelecionada = null;
+
+const FUNIL_ETAPAS = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Enviado','Fechou'];
+const FUNIL_CORES  = {
+  'Lead':'#4f8ef7','Agendado':'#f59e0b','Compareceu':'#a855f7',
+  'Em Avaliação':'#06b6d4','Orçamento Enviado':'#ec4899','Fechou':'#22c55e',
+};
+
 async function loadKanban() {
-  const leads = await api('/api/leads');
-  const cols = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Enviado','Fechou','Perdido'];
-  const cores = {
-    'Lead':'var(--b-lead)','Agendado':'var(--b-agendado)','Compareceu':'var(--b-compareceu)',
-    'Em Avaliação':'var(--b-aval)','Orçamento Enviado':'var(--b-orcamento)',
-    'Fechou':'var(--b-fechou)','Perdido':'var(--b-perdido)'
-  };
-  const kb = document.getElementById('kanban');
-  kb.innerHTML = cols.map(col => {
-    const items = leads.filter(l => l.status === col);
-    return `<div style="min-width:230px;flex:1">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px">
-        <div style="width:8px;height:8px;border-radius:50%;background:${cores[col]}"></div>
-        <span style="font-size:13px;font-weight:600">${col}</span>
-        <span style="font-size:11.5px;color:var(--muted);margin-left:auto">${items.length}</span>
+  _funilLeads = await api('/api/leads');
+  renderFunil();
+}
+
+function renderFunil() {
+  const leads = _funilLeads;
+  const counts = {};
+  FUNIL_ETAPAS.forEach(e => counts[e] = leads.filter(l => l.status === e).length);
+  const perdidos = leads.filter(l => l.status === 'Perdido').length;
+  const total = leads.length;
+  const base = Math.max(counts['Lead'], 1);
+
+  // Summary cards
+  const taxaConv = base ? Math.round(counts['Fechou'] / base * 100) : 0;
+  const receita = leads.filter(l => l.status === 'Fechou' && l.valor).reduce((s,l) => s + l.valor, 0);
+  const potencial = leads.filter(l => ['Agendado','Compareceu','Em Avaliação','Orçamento Enviado'].includes(l.status) && l.valor).reduce((s,l) => s + l.valor, 0);
+  document.getElementById('funil-summary').innerHTML = [
+    { label:'Total no funil', val: total, mono: true },
+    { label:'Taxa Lead→Fechou', val: taxaConv+'%', color: taxaConv >= 20 ? 'var(--green)' : taxaConv >= 8 ? 'var(--yellow)' : 'var(--red)' },
+    { label:'Receita fechada', val: 'R$ '+Math.round(receita).toLocaleString('pt-BR'), color:'var(--green)' },
+    { label:'Potencial em aberto', val: 'R$ '+Math.round(potencial).toLocaleString('pt-BR'), color:'var(--accent)' },
+  ].map(c => `<div class="funil-summary-card">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">${c.label}</div>
+    <div style="font-size:20px;font-weight:700;font-family:'DM Mono',monospace;color:${c.color||'var(--text)'}">${c.val}</div>
+  </div>`).join('');
+
+  // Funil visual
+  const vis = document.getElementById('funil-visual');
+  vis.innerHTML = FUNIL_ETAPAS.map((etapa, i) => {
+    const count = counts[etapa];
+    const prev  = i > 0 ? counts[FUNIL_ETAPAS[i-1]] : count;
+    const pctBase  = base ? Math.round(count / base * 100) : 0;
+    const pctConv  = prev ? Math.round(count / prev * 100) : 0;
+    // Largura: 100% para Lead, proporcional para os demais, mínimo 22%
+    const largura = i === 0 ? 100 : Math.max(22, pctBase);
+    const cor = FUNIL_CORES[etapa];
+    const ativa = _funilEtapaSelecionada === etapa ? ' ativa' : '';
+
+    const conector = i > 0 ? (() => {
+      const cls = pctConv >= 60 ? 'funil-conv-alta' : pctConv >= 30 ? 'funil-conv-media' : 'funil-conv-baixa';
+      return `<div class="funil-conector">
+        <span style="color:var(--muted);font-size:18px;line-height:1">↓</span>
+        <span class="funil-conv-badge ${cls}">${pctConv}% avançaram</span>
+      </div>`;
+    })() : '';
+
+    return `${conector}
+    <div class="funil-etapa">
+      <div style="width:${largura}%;transition:width .4s ease">
+        <div class="funil-bar${ativa}" style="background:${cor}" onclick="selecionarEtapaFunil('${etapa}', this)">
+          <span class="funil-bar-nome">${etapa}</span>
+          <div class="funil-bar-right">
+            <div class="funil-bar-count">${count}</div>
+            <div class="funil-bar-pct">${i === 0 ? 'topo do funil' : pctBase+'% do topo'}</div>
+          </div>
+        </div>
       </div>
-      ${items.length === 0 ? '<div style="background:var(--bg2);border:1px dashed var(--border);border-radius:8px;padding:18px;text-align:center;color:var(--muted);font-size:12.5px">Vazio</div>'
-        : items.map(l => `<div onclick="abrirModal(${l.id})" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer">
-          <div style="font-weight:600;font-size:13px;margin-bottom:3px">${l.nome}</div>
-          <div style="font-size:11.5px;color:var(--muted)">${l.telefone || ''}</div>
-          <div style="font-size:11.5px;margin-top:6px"><span class="${COR_ORIG[l.origem]||''}">${l.origem}</span></div>
-          ${(l.score_interesse !== null && l.score_interesse !== undefined) || l.perfil_disc ? `<div style="font-size:11px;margin-top:5px;color:var(--muted)">
-            ${l.score_interesse !== null && l.score_interesse !== undefined ? 'Score '+l.score_interesse+'/10' : ''}
-            ${l.perfil_disc ? ' · DISC '+l.perfil_disc : ''}
-          </div>` : ''}
-          ${l.valor ? `<div style="font-size:12.5px;color:var(--green);font-family:'DM Mono',monospace;margin-top:5px;font-weight:500">R$ ${l.valor.toLocaleString('pt-BR')}</div>` : ''}
-        </div>`).join('')
-      }
     </div>`;
   }).join('');
+
+  // Perdidos
+  const perd = document.getElementById('funil-perdidos');
+  perd.innerHTML = perdidos > 0 ? `
+    <div class="funil-perdidos-row" onclick="selecionarEtapaFunil('Perdido', this)">
+      <span style="font-size:16px">💔</span>
+      <span style="font-size:13px;font-weight:500;color:var(--muted)">Perdidos: <strong style="color:var(--text)">${perdidos}</strong></span>
+      <span style="margin-left:auto;font-size:12px;color:var(--muted)">${total ? Math.round(perdidos/total*100) : 0}% do total · clique para ver</span>
+    </div>` : '';
+
+  // Atualiza detalhe se havia seleção
+  if (_funilEtapaSelecionada) renderDetalheEtapa(_funilEtapaSelecionada);
+}
+
+function selecionarEtapaFunil(etapa, el) {
+  _funilEtapaSelecionada = etapa;
+  document.querySelectorAll('.funil-bar').forEach(b => b.classList.remove('ativa'));
+  if (el && el.classList.contains('funil-bar')) el.classList.add('ativa');
+  renderDetalheEtapa(etapa);
+}
+
+function renderDetalheEtapa(etapa) {
+  const leads = _funilLeads.filter(l => l.status === etapa);
+  const detail = document.getElementById('funil-stage-detail');
+  const titulo = document.getElementById('funil-stage-titulo');
+  const tbody  = document.getElementById('funil-stage-tbody');
+
+  detail.style.display = 'block';
+  titulo.textContent = etapa + ' — ' + leads.length + ' lead' + (leads.length !== 1 ? 's' : '');
+
+  if (!leads.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-small">Nenhum lead nesta etapa</td></tr>';
+    return;
+  }
+  tbody.innerHTML = leads.sort((a,b) => b.id - a.id).map(l => `
+    <tr onclick="abrirModal(${l.id})" style="cursor:pointer">
+      <td><strong>${l.nome}</strong></td>
+      <td style="font-family:'DM Mono',monospace;font-size:12.5px">${l.telefone || '—'}</td>
+      <td><span class="${COR_ORIG[l.origem]||''}">${l.origem}</span></td>
+      <td>${l.score_interesse !== null && l.score_interesse !== undefined ? l.score_interesse+'/10' : '—'}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12.5px;color:var(--green)">${l.valor ? 'R$ '+l.valor.toLocaleString('pt-BR') : '—'}</td>
+      <td style="color:var(--muted);font-size:12.5px">${(l.ultimo_contato||l.criado_em||'').slice(0,10)}</td>
+    </tr>`).join('');
 }
 
 // ============ MODAL ============
@@ -950,7 +1088,7 @@ async function salvarLead() {
   fecharModal();
   loadDash();
   if (document.getElementById('page-leads').classList.contains('active')) loadLeads();
-  if (document.getElementById('page-funil').classList.contains('active')) loadKanban();
+  if (document.getElementById('page-funil').classList.contains('active')) { _funilLeads = await api('/api/leads'); renderFunil(); }
 }
 
 function abrirWhatsApp() {
