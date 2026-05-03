@@ -252,6 +252,28 @@ textarea { resize: vertical; min-height: 80px; }
 .chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 120px; min-height: 40px; line-height: 1.4; }
 .chat-textarea:focus { outline: none; border-color: var(--accent); }
 .ctwa-badge { background: rgba(79,142,247,.15); color: var(--accent); border-radius: 6px; font-size: 10.5px; font-weight: 600; padding: 2px 7px; }
+
+/* ===== DISPAROS ===== */
+.disparos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 900px) { .disparos-grid { grid-template-columns: 1fr; } }
+.disparos-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.disparos-panel-titulo { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.disparos-panel-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 18px; }
+.tpl-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+.tpl-card-nome { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 3px; }
+.tpl-card-titulo { font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
+.tpl-card-corpo { font-size: 12px; color: var(--muted); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.tpl-card-footer { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.status-badge { display: inline-block; padding: 3px 9px; border-radius: 14px; font-size: 11px; font-weight: 600; }
+.status-aprovado { background: rgba(34,197,94,.15); color: var(--green); }
+.status-pendente { background: rgba(245,158,11,.15); color: var(--yellow); }
+.import-area { background: var(--bg3); border: 1.5px dashed var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+.import-area textarea { background: transparent; border: none; padding: 0; font-family: 'DM Mono', monospace; font-size: 12px; min-height: 120px; resize: vertical; }
+.import-area textarea:focus { outline: none; }
+.import-preview { overflow-x: auto; margin-bottom: 14px; }
+.import-preview table { font-size: 12px; }
+.import-preview td, .import-preview th { padding: 7px 12px; }
+.var-highlight { background: rgba(79,142,247,.2); color: var(--accent); border-radius: 4px; padding: 1px 4px; font-family: 'DM Mono', monospace; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -273,6 +295,10 @@ textarea { resize: vertical; min-height: 80px; }
   <button class="nav-btn" data-page="conversas" onclick="setPage('conversas',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     Conversas
+  </button>
+  <button class="nav-btn" data-page="disparos" onclick="setPage('disparos',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
+    Disparos
   </button>
   <button class="nav-btn" data-page="config" onclick="setPage('config',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -367,6 +393,80 @@ textarea { resize: vertical; min-height: 80px; }
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- DISPAROS -->
+<div id="page-disparos" class="page">
+  <h1>Disparos</h1>
+  <div class="disparos-grid">
+
+    <!-- PAINEL TEMPLATES -->
+    <div class="disparos-panel">
+      <div class="disparos-panel-titulo">📋 Templates WhatsApp</div>
+      <div class="disparos-panel-sub">Crie os templates aqui e depois submeta-os para aprovação no Meta Business Manager.</div>
+
+      <!-- Form criar template -->
+      <div style="background:var(--bg3);border-radius:10px;padding:14px;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">+ Novo Template</div>
+        <div class="form-row" style="margin-bottom:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Nome (API) <small style="color:var(--muted)">snake_case, sem espaços</small></label>
+            <input id="tpl-new-nome" placeholder="ex: lembrete_consulta">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Título de exibição</label>
+            <input id="tpl-new-titulo" placeholder="ex: Lembrete de Consulta">
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label>Texto do template <small style="color:var(--muted)">use {{1}}, {{2}}... para variáveis</small></label>
+          <textarea id="tpl-new-corpo" rows="3" placeholder="Olá {{1}}, sua consulta está agendada para {{2}} às {{3}}. Confirme respondendo SIM."></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label>Categoria</label>
+          <select id="tpl-new-cat">
+            <option value="UTILITY">UTILITY — lembretes, confirmações, suporte</option>
+            <option value="MARKETING">MARKETING — promoções, ofertas</option>
+            <option value="AUTHENTICATION">AUTHENTICATION — códigos de verificação</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="criarTemplate()">Salvar Template</button>
+      </div>
+
+      <!-- Lista de templates -->
+      <div id="tpl-lista"><div class="empty-small">Carregando...</div></div>
+    </div>
+
+    <!-- PAINEL IMPORTAR -->
+    <div class="disparos-panel">
+      <div class="disparos-panel-titulo">📥 Importar Pacientes</div>
+      <div class="disparos-panel-sub">Cole ou faça upload de uma lista de pacientes. Duplicados (mesmo telefone) serão ignorados automaticamente.</div>
+
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">
+        <strong>Formato CSV:</strong> <code style="font-size:11.5px;background:var(--bg3);padding:2px 6px;border-radius:4px">nome, telefone, email (opcional), origem (opcional)</code><br>
+        <span style="font-size:11.5px;margin-top:4px;display:block">Primeira linha pode ser cabeçalho (será ignorada). Separador: vírgula ou ponto-e-vírgula.</span>
+      </div>
+
+      <div class="import-area">
+        <textarea id="import-texto" placeholder="Maria Silva, 5531999990001, maria@email.com, Indicação
+João Souza, 5531999990002
+Ana Paula, 5531988880003, ana@email.com"></textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn btn-ghost" style="font-size:12.5px" onclick="previewImportacao()">👁 Visualizar</button>
+        <label class="btn btn-ghost" style="font-size:12.5px;cursor:pointer">
+          📎 Upload CSV
+          <input type="file" accept=".csv,.txt" style="display:none" onchange="uploadCSV(event)">
+        </label>
+      </div>
+
+      <div id="import-preview" class="import-preview" style="display:none"></div>
+      <div id="import-stats" style="font-size:12.5px;color:var(--muted);margin-bottom:12px;display:none"></div>
+      <button id="btn-importar" class="btn btn-success" style="width:100%;display:none" onclick="confirmarImportacao()">✅ Importar Pacientes</button>
+    </div>
+
   </div>
 </div>
 
@@ -565,6 +665,7 @@ function setPage(p, btn) {
   if (p === 'funil') loadKanban();
   if (p === 'config') atualizarLinks();
   if (p === 'conversas') loadConversas();
+  if (p === 'disparos') loadDisparos();
   if (p !== 'conversas' && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
 }
 
@@ -1038,12 +1139,16 @@ function autoResizeChat(el) {
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
-// ============ TEMPLATES ============
+// ============ TEMPLATES (modal chat) ============
+let _templatesCache = [];
+
 async function abrirModalTemplate() {
   if (!chatLeadAtual) return;
-  const templates = await api('/api/templates');
+  _templatesCache = await api('/api/templates');
   const sel = document.getElementById('tpl-select');
-  sel.innerHTML = templates.map(t => `<option value="${t}">${t}</option>`).join('');
+  sel.innerHTML = _templatesCache.map(t =>
+    `<option value="${t.nome}">${t.titulo || t.nome}${t.status === 'aprovado' ? ' ✓' : ' (pendente)'}</option>`
+  ).join('');
   atualizarPreviewTemplate();
   document.getElementById('modal-template-bg').classList.add('open');
 }
@@ -1055,10 +1160,19 @@ function fecharModalTemplate() {
 function atualizarPreviewTemplate() {
   const nome = document.getElementById('tpl-select').value;
   const prev = document.getElementById('tpl-preview');
-  if (nome) {
+  const tpl = _templatesCache.find(t => t.nome === nome);
+  if (tpl) {
     prev.style.display = 'block';
-    prev.innerHTML = `<span style="color:var(--muted);font-size:11px">TEMPLATE</span><br><strong>${nome}</strong>`;
-    document.getElementById('tpl-vars-area').style.display = 'block';
+    const corpo = tpl.corpo
+      ? tpl.corpo.replace(/\{\{(\d+)\}\}/g, '<span class="var-highlight">{{$1}}</span>')
+      : '<span style="color:var(--muted);font-size:11.5px">Corpo não definido — preencha na aba Disparos</span>';
+    const numVars = tpl.corpo ? (tpl.corpo.match(/\{\{\d+\}\}/g) || []).length : 0;
+    prev.innerHTML = `<span style="color:var(--muted);font-size:10.5px">TEMPLATE · ${tpl.categoria || 'MARKETING'}</span><br><div style="margin-top:6px;line-height:1.5">${corpo}</div>`;
+    const va = document.getElementById('tpl-vars-area');
+    va.style.display = numVars > 0 ? 'block' : 'none';
+    if (numVars > 0) {
+      document.getElementById('tpl-vars').placeholder = Array.from({length: numVars}, (_, i) => `Variável ${i+1}`).join('\n');
+    }
   } else {
     prev.style.display = 'none';
   }
@@ -1080,6 +1194,157 @@ async function enviarTemplate() {
     await carregarMensagensChat(chatLeadAtual.id);
   } catch(e) {
     toast('❌ Erro: ' + e.message, true);
+  }
+}
+
+// ============ DISPAROS ============
+let _importParsed = [];
+
+async function loadDisparos() {
+  await renderTemplatesLista();
+}
+
+async function renderTemplatesLista() {
+  const el = document.getElementById('tpl-lista');
+  if (!el) return;
+  const tpls = await api('/api/templates');
+  if (!tpls.length) {
+    el.innerHTML = '<div class="empty-small">Nenhum template criado ainda.</div>';
+    return;
+  }
+  el.innerHTML = tpls.map(t => {
+    const corpoHtml = t.corpo
+      ? t.corpo.replace(/\{\{(\d+)\}\}/g, '<span class="var-highlight">{{$1}}</span>')
+      : '<em style="color:var(--muted)">Corpo não definido</em>';
+    const statusCls = t.status === 'aprovado' ? 'status-aprovado' : 'status-pendente';
+    const statusLabel = t.status === 'aprovado' ? '✓ Aprovado na Meta' : '⏳ Pendente aprovação';
+    return `<div class="tpl-card">
+      <div class="tpl-card-nome">${t.nome}</div>
+      <div class="tpl-card-titulo">${t.titulo || t.nome}</div>
+      <div class="tpl-card-corpo">${corpoHtml}</div>
+      <div class="tpl-card-footer">
+        <span class="status-badge ${statusCls}">${statusLabel}</span>
+        <span style="font-size:11px;color:var(--muted)">${t.categoria || 'MARKETING'}</span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          ${t.status !== 'aprovado' && t.id ? `<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="marcarAprovado(${t.id})">Marcar aprovado</button>` : ''}
+          ${t.id ? `<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;color:var(--red)" onclick="deletarTemplate(${t.id})">Excluir</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function criarTemplate() {
+  const nome = document.getElementById('tpl-new-nome').value.trim();
+  const titulo = document.getElementById('tpl-new-titulo').value.trim();
+  const corpo = document.getElementById('tpl-new-corpo').value.trim();
+  const categoria = document.getElementById('tpl-new-cat').value;
+  if (!nome) { toast('Nome obrigatório', true); return; }
+  const r = await api('/api/templates', { method: 'POST', body: JSON.stringify({ nome, titulo, corpo, categoria }) });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  document.getElementById('tpl-new-nome').value = '';
+  document.getElementById('tpl-new-titulo').value = '';
+  document.getElementById('tpl-new-corpo').value = '';
+  toast('✅ Template salvo!');
+  renderTemplatesLista();
+}
+
+async function marcarAprovado(id) {
+  const r = await api(`/api/templates/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'aprovado' }) });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  toast('✅ Template marcado como aprovado');
+  renderTemplatesLista();
+}
+
+async function deletarTemplate(id) {
+  if (!confirm('Excluir este template?')) return;
+  const r = await api(`/api/templates/${id}`, { method: 'DELETE' });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  toast('Template excluído');
+  renderTemplatesLista();
+}
+
+// ===== IMPORTAÇÃO =====
+function parseCSVTexto(texto) {
+  const linhas = texto.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!linhas.length) return [];
+  const ehCabecalho = l => /nome|name|telefon|phone|email|origem|source/i.test(l);
+  const inicio = ehCabecalho(linhas[0]) ? 1 : 0;
+  return linhas.slice(inicio).map(l => {
+    const cols = l.split(/[;,]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
+    return {
+      nome: cols[0] || '',
+      telefone: (cols[1] || '').replace(/\D/g, ''),
+      email: cols[2] || '',
+      origem: cols[3] || 'Importação',
+    };
+  }).filter(p => p.nome || p.telefone);
+}
+
+function previewImportacao() {
+  const texto = document.getElementById('import-texto').value;
+  _importParsed = parseCSVTexto(texto);
+  renderPreviewImportacao();
+}
+
+function uploadCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('import-texto').value = e.target.result;
+    previewImportacao();
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function renderPreviewImportacao() {
+  const prev = document.getElementById('import-preview');
+  const stats = document.getElementById('import-stats');
+  const btn = document.getElementById('btn-importar');
+  if (!_importParsed.length) {
+    prev.style.display = 'none'; stats.style.display = 'none'; btn.style.display = 'none';
+    toast('Nenhum paciente encontrado no texto', true);
+    return;
+  }
+  const amostra = _importParsed.slice(0, 10);
+  prev.style.display = 'block';
+  prev.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Nome</th><th>Telefone</th><th>Email</th><th>Origem</th></tr></thead>
+    <tbody>
+      ${amostra.map(p => `<tr>
+        <td>${p.nome || '—'}</td>
+        <td style="font-family:'DM Mono',monospace;font-size:11.5px">${p.telefone || '—'}</td>
+        <td style="font-size:11.5px;color:var(--muted)">${p.email || '—'}</td>
+        <td style="font-size:11.5px">${p.origem}</td>
+      </tr>`).join('')}
+      ${_importParsed.length > 10 ? `<tr><td colspan="4" style="text-align:center;color:var(--muted);font-size:11.5px">... e mais ${_importParsed.length - 10} pacientes</td></tr>` : ''}
+    </tbody>
+  </table></div>`;
+  stats.style.display = 'block';
+  stats.innerHTML = `<strong>${_importParsed.length}</strong> pacientes encontrados — duplicados serão ignorados automaticamente`;
+  btn.style.display = 'block';
+  btn.textContent = `✅ Importar ${_importParsed.length} Pacientes`;
+}
+
+async function confirmarImportacao() {
+  if (!_importParsed.length) return;
+  const btn = document.getElementById('btn-importar');
+  btn.disabled = true;
+  btn.textContent = 'Importando...';
+  try {
+    const r = await api('/api/leads/importar', { method: 'POST', body: JSON.stringify({ pacientes: _importParsed }) });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast(`✅ ${r.importados} importados · ${r.duplicados} duplicados ignorados`);
+    document.getElementById('import-texto').value = '';
+    document.getElementById('import-preview').style.display = 'none';
+    document.getElementById('import-stats').style.display = 'none';
+    btn.style.display = 'none';
+    _importParsed = [];
+  } catch(e) {
+    toast('❌ Erro: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
