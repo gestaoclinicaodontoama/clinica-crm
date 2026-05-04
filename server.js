@@ -162,6 +162,35 @@ app.get('/api/leads', (req, res) => {
   res.json(r);
 });
 
+// Criação manual de lead pelo CRM
+app.post('/api/leads', async (req, res) => {
+  try {
+    const { nome, telefone, email = '', origem = 'Direto', status = 'Lead', notas_sdr = '' } = req.body;
+    if (!nome) return res.status(400).json({ error: 'Nome obrigatório' });
+    const tel = sanitizeStr(telefone, 30).replace(/\D/g, '');
+    if (!tel) return res.status(400).json({ error: 'Telefone obrigatório' });
+    const lead = {
+      id: db.data.nextId++,
+      nome: sanitizeStr(nome), telefone: tel, email: sanitizeStr(email, 100),
+      origem: sanitizeStr(origem), campanha: '', conteudo: '', fbclid: '', gclid: '', ctwa_clid: '',
+      status: FUNIL.includes(status) ? status : 'Lead',
+      valor: null, tipo_trat: '',
+      notas_sdr: sanitizeStr(notas_sdr, 4000), notas_avaliacao: '', notas_comercial: '',
+      score_interesse: null, perfil_disc: '',
+      etiquetas: [], proximo_contato: null, ultimo_contato: null,
+      data_lead: nowLocal(), data_agendamento: null, data_comparecimento: null,
+      data_avaliacao: null, data_orcamento: null, data_fechamento: null,
+      enviado_meta: false, enviado_google: false, eventos_meta_enviados: [],
+      criado_em: nowLocal(), atualizado_em: nowLocal(),
+    };
+    db.data.leads.push(lead);
+    await db.write();
+    res.json({ ok: true, lead });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/leads/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
