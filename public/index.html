@@ -316,6 +316,19 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .funil-perdidos-row:hover { background: var(--bg3); }
 .funil-stage-detail { margin-top: 26px; }
+
+/* === NOTAS FISCAIS === */
+.nf-badge-Vieira        { background: rgba(79,142,247,.15); color: var(--b-lead); }
+.nf-badge-Martins       { background: rgba(34,197,94,.15);  color: var(--green); }
+.nf-badge-ReceitaSaude  { background: rgba(249,115,22,.15); color: var(--orange); }
+.nf-status-Pendente     { background: rgba(245,158,11,.15); color: var(--yellow); }
+.nf-status-Processando  { background: rgba(79,142,247,.15); color: var(--b-lead); }
+.nf-status-Emitida      { background: rgba(34,197,94,.15);  color: var(--green); }
+.nf-status-Erro         { background: rgba(239,68,68,.15);  color: var(--red); }
+.nf-actions { display:flex; gap:6px; }
+.nf-actions button { padding:4px 10px; font-size:11px; border-radius:6px; cursor:pointer; border:1px solid var(--border); background:var(--bg3); color:var(--text); }
+.nf-actions button:hover { border-color:var(--accent); color:var(--accent); }
+.nf-actions button.del:hover { border-color:var(--red); color:var(--red); }
 </style>
 </head>
 <body>
@@ -341,6 +354,10 @@ textarea { resize: vertical; min-height: 80px; }
   <button class="nav-btn" data-page="disparos" onclick="setPage('disparos',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
     Disparos
+  </button>
+  <button class="nav-btn" data-page="notas-fiscais" onclick="setPage('notas-fiscais',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+    Notas Fiscais
   </button>
   <button class="nav-btn" data-page="config" onclick="setPage('config',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -687,6 +704,116 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 </div>
 </div>
 
+<!-- NOTAS FISCAIS PAGE -->
+<div id="page-notas-fiscais" class="page" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <h1 style="margin:0">Notas Fiscais</h1>
+    <button class="btn btn-primary" onclick="abrirModalNota(null)">+ Nova Nota</button>
+  </div>
+  <div class="cards">
+    <div class="card"><div class="card-label">Total</div><div class="card-value" id="nf-total">–</div></div>
+    <div class="card"><div class="card-label">Pendentes</div><div class="card-value" id="nf-pendentes" style="color:var(--yellow)">–</div></div>
+    <div class="card"><div class="card-label">Emitidas</div><div class="card-value" id="nf-emitidas" style="color:var(--green)">–</div></div>
+    <div class="card"><div class="card-label">Valor Emitido</div><div class="card-value" id="nf-valor" style="color:var(--green);font-size:18px">–</div></div>
+  </div>
+  <div class="table-wrap">
+    <div class="table-head">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select class="filter-select" id="nf-fil-sistema" onchange="loadNotasFiscais()">
+          <option value="">Todos sistemas</option>
+          <option>Vieira</option><option>Martins</option><option>Receita Saude</option>
+        </select>
+        <select class="filter-select" id="nf-fil-status" onchange="loadNotasFiscais()">
+          <option value="">Todos status</option>
+          <option>Pendente</option><option>Processando</option><option>Emitida</option><option>Erro</option>
+        </select>
+        <input class="filter-select" id="nf-fil-comp" placeholder="Competência ex: 05-2026" style="width:170px" onkeyup="loadNotasFiscais()">
+      </div>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Sistema</th><th>Tomador / Paciente</th><th>CPF Tomador</th>
+        <th>Valor</th><th>Competência</th><th>Status</th><th>Nota #</th><th></th>
+      </tr></thead>
+      <tbody id="nf-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL NOTA FISCAL -->
+<div class="modal-bg" id="modal-nf-bg" onclick="if(event.target===this)fecharModalNota()">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-header">
+      <div class="modal-titulo" id="modal-nf-titulo">Nova Nota Fiscal</div>
+      <button class="modal-close" onclick="fecharModalNota()">×</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="form-group">
+        <label>Sistema *</label>
+        <select id="nf-sistema">
+          <option value="">Selecione...</option>
+          <option>Vieira</option><option>Martins</option><option>Receita Saude</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Competência (MM-AAAA) *</label>
+        <input id="nf-competencia" placeholder="05-2026" maxlength="7">
+      </div>
+      <div class="form-group">
+        <label>Tipo Tomador</label>
+        <select id="nf-tipo-tomador">
+          <option value="CPF">CPF</option><option value="CNPJ">CNPJ</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>CPF/CNPJ Tomador *</label>
+        <input id="nf-cpf-tomador" placeholder="000.000.000-00">
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Nome Tomador (quem paga) *</label>
+        <input id="nf-nome-tomador" placeholder="Nome completo">
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="nf-paciente-diff" onchange="togglePaciente()"> Paciente diferente do tomador (pai/mãe pagando pelo filho)
+        </label>
+      </div>
+      <div id="nf-paciente-area" style="display:none;grid-column:1/-1;display:none;grid-template-columns:1fr 1fr 1fr;gap:14px">
+        <div class="form-group">
+          <label>CPF Paciente</label>
+          <input id="nf-cpf-paciente" placeholder="000.000.000-00">
+        </div>
+        <div class="form-group">
+          <label>Nome Paciente</label>
+          <input id="nf-nome-paciente" placeholder="Nome do paciente">
+        </div>
+        <div class="form-group">
+          <label>Parentesco</label>
+          <input id="nf-parentesco" placeholder="ex: Filho, Filha, Mãe">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Data do Pagamento *</label>
+        <input id="nf-data-pgto" placeholder="04/05/2026">
+      </div>
+      <div class="form-group">
+        <label>Valor (R$) *</label>
+        <input id="nf-valor-input" type="number" placeholder="650">
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Descrição do Serviço</label>
+        <textarea id="nf-descricao" rows="2" placeholder="Tratamento ortodôntico, Protocolo superior e inferior..."></textarea>
+      </div>
+    </div>
+    <div id="nf-erro-area" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:8px;font-size:12px;color:var(--red)"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button class="btn btn-ghost" onclick="fecharModalNota()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNota()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -730,6 +857,7 @@ function setPage(p, btn) {
   if (p === 'config') atualizarLinks();
   if (p === 'conversas') loadConversas();
   if (p === 'disparos') loadDisparos();
+  if (p === 'notas-fiscais') loadNotasFiscais();
   if (p !== 'conversas' && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
 }
 
@@ -1522,6 +1650,152 @@ async function confirmarImportacao() {
 }
 
 loadDash();
+
+// ============ NOTAS FISCAIS ============
+let notaAtualId = null;
+
+function nfSistemaBadge(s) {
+  const cls = { 'Vieira':'nf-badge-Vieira', 'Martins':'nf-badge-Martins', 'Receita Saude':'nf-badge-ReceitaSaude' };
+  return `<span class="badge ${cls[s]||''}">${s}</span>`;
+}
+function nfStatusBadge(s) {
+  const cls = { 'Pendente':'nf-status-Pendente','Processando':'nf-status-Processando','Emitida':'nf-status-Emitida','Erro':'nf-status-Erro' };
+  return `<span class="badge ${cls[s]||''}">${s}</span>`;
+}
+function nfFmt(v) { return 'R$ ' + parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2}); }
+function nfMask(cpf) { return cpf ? cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '—'; }
+
+async function loadNotasFiscais() {
+  const sistema   = document.getElementById('nf-fil-sistema').value;
+  const status    = document.getElementById('nf-fil-status').value;
+  const competencia = document.getElementById('nf-fil-comp').value.trim();
+  const params = new URLSearchParams();
+  if (sistema) params.set('sistema', sistema);
+  if (status)  params.set('status',  status);
+  if (competencia) params.set('competencia', competencia);
+
+  const [notas, stats] = await Promise.all([
+    api('/api/notas-fiscais?' + params),
+    api('/api/notas-fiscais/stats' + (competencia ? '?competencia='+competencia : '')),
+  ]);
+
+  document.getElementById('nf-total').textContent = stats.total ?? '–';
+  document.getElementById('nf-pendentes').textContent = stats.pendentes ?? '–';
+  document.getElementById('nf-emitidas').textContent = stats.emitidas ?? '–';
+  document.getElementById('nf-valor').textContent = stats.valorEmitido != null ? nfFmt(stats.valorEmitido) : '–';
+
+  const tbody = document.getElementById('nf-tbody');
+  if (!notas.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">Nenhuma nota encontrada</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = notas.map(n => {
+    const paciente = n.nome_paciente ? `<br><small style="color:var(--muted)">Paciente: ${n.nome_paciente}${n.parentesco?' ('+n.parentesco+')':''}</small>` : '';
+    const nota_num = n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${n.num_nota}</span>` : '<span style="color:var(--muted)">—</span>';
+    return `<tr>
+      <td>${nfSistemaBadge(n.sistema)}</td>
+      <td>${n.nome_tomador}${paciente}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11.5px">${nfMask(n.cpf_tomador)}</td>
+      <td style="font-family:'DM Mono',monospace">${nfFmt(n.valor)}</td>
+      <td>${n.competencia}</td>
+      <td>${nfStatusBadge(n.status)}</td>
+      <td>${nota_num}</td>
+      <td><div class="nf-actions">
+        <button onclick="abrirModalNota(${n.id})">Editar</button>
+        ${n.caminho_pdf ? `<button onclick="verPdf(${n.id})">PDF</button>` : ''}
+        ${['Pendente','Erro'].includes(n.status) ? `<button class="del" onclick="deletarNota(${n.id})">✕</button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function togglePaciente() {
+  const area = document.getElementById('nf-paciente-area');
+  const checked = document.getElementById('nf-paciente-diff').checked;
+  area.style.display = checked ? 'grid' : 'none';
+}
+
+let _notaCache = {};
+
+async function abrirModalNota(id) {
+  notaAtualId = id;
+  document.getElementById('nf-erro-area').style.display = 'none';
+  document.getElementById('modal-nf-titulo').textContent = id ? 'Editar Nota' : 'Nova Nota Fiscal';
+
+  if (id) {
+    const notas = await api('/api/notas-fiscais');
+    const n = notas.find(x => x.id === id);
+    if (!n) return;
+    _notaCache = n;
+    document.getElementById('nf-sistema').value        = n.sistema;
+    document.getElementById('nf-competencia').value    = n.competencia;
+    document.getElementById('nf-tipo-tomador').value   = n.tipo_tomador;
+    document.getElementById('nf-cpf-tomador').value    = n.cpf_tomador;
+    document.getElementById('nf-nome-tomador').value   = n.nome_tomador;
+    document.getElementById('nf-data-pgto').value      = n.data_pagamento;
+    document.getElementById('nf-valor-input').value    = n.valor;
+    document.getElementById('nf-descricao').value      = n.descricao;
+    const diff = !!(n.cpf_paciente || n.nome_paciente);
+    document.getElementById('nf-paciente-diff').checked = diff;
+    document.getElementById('nf-cpf-paciente').value   = n.cpf_paciente || '';
+    document.getElementById('nf-nome-paciente').value  = n.nome_paciente || '';
+    document.getElementById('nf-parentesco').value     = n.parentesco || '';
+    document.getElementById('nf-paciente-area').style.display = diff ? 'grid' : 'none';
+  } else {
+    ['nf-sistema','nf-competencia','nf-cpf-tomador','nf-nome-tomador','nf-data-pgto','nf-valor-input','nf-descricao','nf-cpf-paciente','nf-nome-paciente','nf-parentesco'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('nf-tipo-tomador').value = 'CPF';
+    document.getElementById('nf-paciente-diff').checked = false;
+    document.getElementById('nf-paciente-area').style.display = 'none';
+  }
+  document.getElementById('modal-nf-bg').classList.add('open');
+}
+
+function fecharModalNota() {
+  document.getElementById('modal-nf-bg').classList.remove('open');
+  notaAtualId = null;
+}
+
+async function salvarNota() {
+  const diff = document.getElementById('nf-paciente-diff').checked;
+  const body = {
+    sistema:       document.getElementById('nf-sistema').value,
+    competencia:   document.getElementById('nf-competencia').value.trim(),
+    tipo_tomador:  document.getElementById('nf-tipo-tomador').value,
+    cpf_tomador:   document.getElementById('nf-cpf-tomador').value.trim(),
+    nome_tomador:  document.getElementById('nf-nome-tomador').value.trim(),
+    cpf_paciente:  diff ? document.getElementById('nf-cpf-paciente').value.trim() : '',
+    nome_paciente: diff ? document.getElementById('nf-nome-paciente').value.trim() : '',
+    parentesco:    diff ? document.getElementById('nf-parentesco').value.trim() : '',
+    data_pagamento: document.getElementById('nf-data-pgto').value.trim(),
+    valor:         document.getElementById('nf-valor-input').value,
+    descricao:     document.getElementById('nf-descricao').value.trim(),
+  };
+  const errArea = document.getElementById('nf-erro-area');
+  if (!body.sistema) { errArea.textContent='Selecione o sistema'; errArea.style.display='block'; return; }
+  if (!body.competencia.match(/^\d{2}-\d{4}$/)) { errArea.textContent='Competência deve estar no formato MM-AAAA ex: 05-2026'; errArea.style.display='block'; return; }
+  if (!body.cpf_tomador || !body.nome_tomador) { errArea.textContent='CPF e nome do tomador são obrigatórios'; errArea.style.display='block'; return; }
+
+  const url    = notaAtualId ? `/api/notas-fiscais/${notaAtualId}` : '/api/notas-fiscais';
+  const method = notaAtualId ? 'PATCH' : 'POST';
+  const r = await api(url, { method, body: JSON.stringify(body) });
+  if (r.error) { errArea.textContent = r.error; errArea.style.display = 'block'; return; }
+  fecharModalNota();
+  toast(notaAtualId ? '✅ Nota atualizada' : '✅ Nota criada');
+  loadNotasFiscais();
+}
+
+async function deletarNota(id) {
+  if (!confirm('Excluir esta nota? Esta ação não pode ser desfeita.')) return;
+  const r = await api(`/api/notas-fiscais/${id}`, { method: 'DELETE' });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  toast('🗑 Nota excluída');
+  loadNotasFiscais();
+}
+
+function verPdf(id) {
+  const n = _notaCache;
+  if (n && n.caminho_pdf) alert('Caminho do arquivo:\n' + n.caminho_pdf);
+}
 </script>
 </body>
 </html>

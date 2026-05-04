@@ -27,17 +27,21 @@ async function initDb() {
     chamadas: [],
     mensagens: [],
     templates: [],
+    notas_fiscais: [],
     nextId: 1,
     nextChamadaId: 1,
     nextMensagemId: 1,
     nextTemplateId: 1,
+    nextNotaId: 1,
   });
   if (!db.data.chamadas) db.data.chamadas = [];
   if (!db.data.mensagens) db.data.mensagens = [];
   if (!db.data.templates) db.data.templates = [];
+  if (!db.data.notas_fiscais) db.data.notas_fiscais = [];
   if (!db.data.nextChamadaId) db.data.nextChamadaId = 1;
   if (!db.data.nextMensagemId) db.data.nextMensagemId = 1;
   if (!db.data.nextTemplateId) db.data.nextTemplateId = 1;
+  if (!db.data.nextNotaId) db.data.nextNotaId = 1;
   await db.write();
   console.log(`✅ Banco: ${db.data.leads.length} leads, ${db.data.chamadas.length} chamadas, ${db.data.mensagens.length} msgs`);
 }
@@ -813,6 +817,125 @@ async function dispararConversaoGoogle(lead) {
   lead.enviado_google = true;
   await db.write();
 }
+
+// ========== NOTAS FISCAIS ==========
+const NF_SISTEMAS = ['Vieira', 'Martins', 'Receita Saude'];
+const NF_STATUS   = ['Pendente', 'Processando', 'Emitida', 'Erro'];
+
+app.get('/api/notas-fiscais', (req, res) => {
+  const { sistema, status, competencia } = req.query;
+  let r = [...db.data.notas_fiscais];
+  if (sistema) r = r.filter(n => n.sistema === sistema);
+  if (status)  r = r.filter(n => n.status === status);
+  if (competencia) r = r.filter(n => n.competencia === competencia);
+  r.sort((a, b) => b.id - a.id);
+  res.json(r);
+});
+
+app.get('/api/notas-fiscais/pendentes', (req, res) => {
+  const pendentes = db.data.notas_fiscais.filter(n => n.status === 'Pendente');
+  res.json(pendentes);
+});
+
+app.post('/api/notas-fiscais', async (req, res) => {
+  try {
+    const {
+      sistema, competencia, tipo_tomador = 'CPF',
+      cpf_tomador, nome_tomador,
+      cpf_paciente = '', nome_paciente = '', parentesco = '',
+      data_pagamento, valor, descricao = '',
+    } = req.body;
+    if (!sistema || !NF_SISTEMAS.includes(sistema))
+      return res.status(400).json({ error: `sistema inválido. Use: ${NF_SISTEMAS.join(', ')}` });
+    if (!cpf_tomador || !nome_tomador)
+      return res.status(400).json({ error: 'cpf_tomador e nome_tomador obrigatórios' });
+    if (!competencia || !/^\d{2}-\d{4}$/.test(competencia))
+      return res.status(400).json({ error: 'competencia deve estar no formato MM-AAAA ex: 05-2026' });
+
+    const nota = {
+      id: db.data.nextNotaId++,
+      sistema: sanitizeStr(sistema, 30),
+      competencia: sanitizeStr(competencia, 7),
+      status: 'Pendente',
+      tipo_tomador: tipo_tomador === 'CNPJ' ? 'CNPJ' : 'CPF',
+      cpf_tomador: sanitizeStr(cpf_tomador, 20).replace(/\D/g, ''),
+      nome_tomador: sanitizeStr(nome_tomador),
+      cpf_paciente: sanitizeStr(cpf_paciente, 20).replace(/\D/g, ''),
+      nome_paciente: sanitizeStr(nome_paciente),
+      parentesco: sanitizeStr(parentesco, 50),
+      data_pagamento: sanitizeStr(data_pagamento, 20),
+      valor: parseFloat(String(valor).replace(',', '.')) || 0,
+      descricao: sanitizeStr(descricao, 500),
+      num_nota: null,
+      data_emissao: null,
+      caminho_pdf: null,
+      erro_msg: null,
+      criado_em: nowLocal(),
+      atualizado_em: nowLocal(),
+    };
+    db.data.notas_fiscais.push(nota);
+    await db.write();
+    res.json({ ok: true, nota });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/notas-fiscais/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const nota = db.data.notas_fiscais.find(n => n.id === id);
+    if (!nota) return res.status(404).json({ error: 'Nota não encontrada' });
+
+    const ALLOWED_EDIT = [
+      'sistema','competencia','tipo_tomador','cpf_tomador','nome_tomador',
+      'cpf_paciente','nome_paciente','parentesco','data_pagamento','valor','descricao',
+    ];
+    const ALLOWED_RESULT = ['status','num_nota','data_emissao','caminho_pdf','erro_msg'];
+
+    for (const k of [...ALLOWED_EDIT, ...ALLOWED_RESULT]) {
+      if (!(k in req.body)) continue;
+      let v = req.body[k];
+      if (k === 'status' && !NF_STATUS.includes(v))
+        return res.status(400).json({ error: `status inválido. Use: ${NF_STATUS.join(', ')}` });
+      if (k === 'valor') v = parseFloat(String(v).replace(',', '.')) || 0;
+      if (typeof v === 'string') v = sanitizeStr(v, 500);
+      nota[k] = v;
+    }
+    nota.atualizado_em = nowLocal();
+    await db.write();
+    res.json({ ok: true, nota });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/notas-fiscais/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const idx = db.data.notas_fiscais.findIndex(n => n.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Nota não encontrada' });
+    if (['Emitida','Processando'].includes(db.data.notas_fiscais[idx].status))
+      return res.status(400).json({ error: 'Não é possível excluir uma nota já emitida ou em processamento' });
+    db.data.notas_fiscais.splice(idx, 1);
+    await db.write();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/notas-fiscais/stats', (req, res) => {
+  const { competencia } = req.query;
+  let notas = db.data.notas_fiscais;
+  if (competencia) notas = notas.filter(n => n.competencia === competencia);
+  const total = notas.length;
+  const pendentes = notas.filter(n => n.status === 'Pendente').length;
+  const emitidas = notas.filter(n => n.status === 'Emitida').length;
+  const erros = notas.filter(n => n.status === 'Erro').length;
+  const valorEmitido = notas.filter(n => n.status === 'Emitida').reduce((s, n) => s + (n.valor || 0), 0);
+  res.json({ total, pendentes, emitidas, erros, valorEmitido });
+});
 
 // ========== STATIC ==========
 app.use(express.static(path.join(__dirname, 'public')));
