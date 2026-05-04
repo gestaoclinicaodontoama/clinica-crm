@@ -76,6 +76,8 @@ function parseMensagemRecebida(body) {
     const msg = v?.messages?.[0];
     if (!msg) return null;
     const contato = v?.contacts?.[0];
+    // Anúncios CTWA (Click-to-WhatsApp): Meta inclui referral com ctwa_clid
+    const referral = msg.referral || null;
     return {
       from: msg.from,
       nome: contato?.profile?.name || '',
@@ -83,6 +85,9 @@ function parseMensagemRecebida(body) {
       tipo: msg.type,
       timestamp: msg.timestamp,
       id: msg.id,
+      ctwa_clid:   referral?.ctwa_clid  || '',
+      ad_id:       referral?.source_id  || '',   // ID do anúncio no Meta Ads
+      source_type: referral?.source_type || '',  // 'ad' | 'post' | etc
     };
   } catch (e) {
     return null;
