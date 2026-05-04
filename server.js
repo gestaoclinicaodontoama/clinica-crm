@@ -676,7 +676,9 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         id: db.data.nextId++,
         nome: m.nome || 'Lead WhatsApp',
         telefone: m.from, email: '',
-        origem: 'WhatsApp Direto', campanha: '', conteudo: '', fbclid: '', gclid: '',
+        origem: m.ctwa_clid ? 'Meta Ads' : 'WhatsApp Direto',
+        campanha: m.ad_id || '', conteudo: '', fbclid: '', gclid: '',
+        ctwa_clid: m.ctwa_clid || '',
         status: 'Lead', valor: null, tipo_trat: '',
         notas_sdr: '', notas_avaliacao: '', notas_comercial: '',
         score_interesse: null, perfil_disc: '',
@@ -685,10 +687,13 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         data_agendamento: null, data_comparecimento: null,
         data_avaliacao: null, data_orcamento: null, data_fechamento: null,
         enviado_meta: false, enviado_google: false,
+        eventos_meta_enviados: [],
         criado_em: nowLocal(), atualizado_em: nowLocal(),
       };
       db.data.leads.push(lead);
-      console.log(`✅ Novo lead via WA: ${m.nome} (${m.from})`);
+      console.log(`✅ Novo lead via WA: ${m.nome} (${m.from})${m.ctwa_clid ? ' [CTWA]' : ''}`);
+      // Dispara LeadSubmitted no CAPI imediatamente para leads de anúncio CTWA
+      if (m.ctwa_clid) dispararConversaoMeta(lead).catch(e => console.error('Meta CAPI:', e.message));
     } else {
       lead.ultimo_contato = nowLocal();
     }
