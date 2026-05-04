@@ -185,6 +185,7 @@ app.post('/api/leads', async (req, res) => {
     };
     db.data.leads.push(lead);
     await db.write();
+    dispararConversaoMeta(lead).catch(e => console.error('Meta CAPI:', e.message));
     res.json({ ok: true, lead });
   } catch (e) {
     res.status(500).json({ error: e.message });
