@@ -708,7 +708,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 </div>
 
 <!-- NOTAS FISCAIS PAGE -->
-<div id="page-notas-fiscais" class="page" style="display:none">
+<div id="page-notas-fiscais" class="page">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
     <h1 style="margin:0">Notas Fiscais</h1>
     <button class="btn btn-primary" onclick="abrirModalNota(null)">+ Nova Nota</button>
@@ -827,7 +827,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <input type="checkbox" id="nf-paciente-diff" onchange="togglePaciente()"> Paciente diferente do tomador (pai/mãe pagando pelo filho)
         </label>
       </div>
-      <div id="nf-paciente-area" style="display:none;grid-column:1/-1;display:none;grid-template-columns:1fr 1fr 1fr;gap:14px">
+      <div id="nf-paciente-area" style="display:none;grid-column:1/-1;grid-template-columns:1fr 1fr 1fr;gap:14px">
         <div class="form-group">
           <label>CPF Paciente</label>
           <input id="nf-cpf-paciente" placeholder="000.000.000-00">
