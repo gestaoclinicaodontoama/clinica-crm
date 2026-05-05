@@ -8,6 +8,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const crypto = require('crypto');
 const { JSONFilePreset } = require('lowdb/node');
 const totalvoice = require('./totalvoice');
@@ -28,6 +29,8 @@ async function initDb() {
     mensagens: [],
     templates: [],
     notas_fiscais: [],
+    inadimplentes_notas: [],
+    inadimplentes_cache: null,
     nextId: 1,
     nextChamadaId: 1,
     nextMensagemId: 1,
@@ -38,6 +41,7 @@ async function initDb() {
   if (!db.data.mensagens) db.data.mensagens = [];
   if (!db.data.templates) db.data.templates = [];
   if (!db.data.notas_fiscais) db.data.notas_fiscais = [];
+  if (!db.data.inadimplentes_notas) db.data.inadimplentes_notas = [];
   if (!db.data.nextChamadaId) db.data.nextChamadaId = 1;
   if (!db.data.nextMensagemId) db.data.nextMensagemId = 1;
   if (!db.data.nextTemplateId) db.data.nextTemplateId = 1;
@@ -965,6 +969,203 @@ app.get('/api/notas-fiscais/stats', (req, res) => {
   const erros = notas.filter(n => n.status === 'Erro').length;
   const valorEmitido = notas.filter(n => n.status === 'Emitida').reduce((s, n) => s + (n.valor || 0), 0);
   res.json({ total, pendentes, emitidas, erros, valorEmitido });
+});
+
+// ========== CLINICORP / INADIMPLENTES ==========
+function clinicorpGet(apiPath, params = {}) {
+  return new Promise((resolve, reject) => {
+    const user  = process.env.CLINICORP_USER  || 'clinicaama';
+    const token = process.env.CLINICORP_TOKEN || '';
+    const auth  = Buffer.from(`${user}:${token}`).toString('base64');
+    const qs = new URLSearchParams({
+      subscriber_id: process.env.CLINICORP_SUBSCRIBER_ID || 'clinicaama',
+      business_id:   process.env.CLINICORP_BUSINESS_ID   || 'clinicaama',
+      ...params,
+    }).toString();
+    const opts = {
+      hostname: 'api.clinicorp.com',
+      path: `/rest/v1${apiPath}?${qs}`,
+      method: 'GET',
+      headers: { 'Authorization': `Basic ${auth}`, 'X-Api-Key': token, 'Accept': 'application/json' },
+    };
+    const req = https.request(opts, res => {
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(body) }); }
+        catch(e) { resolve({ status: res.statusCode, data: null }); }
+      });
+    });
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout Clinicorp')); });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function processarInadimplentes(items, today) {
+  const todayDate = new Date(today);
+  const patMap = {};
+
+  items.forEach(i => {
+    const patId = String(i.PatientId || i.patientId || i.Patient_PersonId || '').trim();
+    if (!patId) return;
+
+    // Ignora registros já pagos
+    const paidDate = i.ReceivedDate || i.PaidDate || i.PaymentDate || i.paid_date || '';
+    if (paidDate) return;
+
+    const dueDate = i.DueDate || i.due_date || i.ScheduledDate || i.InstallmentDate || '';
+    if (!dueDate) return;
+
+    const amount    = Number(i.Amount || i.Value || i.TotalPostAmount || i.installment_value || 0);
+    const isOverdue = dueDate < today;
+    const isFuture  = dueDate >= today;
+
+    if (!patMap[patId]) {
+      patMap[patId] = {
+        id:   patId,
+        name: i.PatientName || i.patientName || i.Patient_PersonName || `Paciente ${patId}`,
+        phone: i.Phone || i.MobilePhone || i.phone || '',
+        overdueAmount: 0, futureAmount: 0,
+        overdueCount: 0,
+        oldestDueDate: null, nextDueDate: null,
+        treatmentValue: 0,  paidValue: 0,
+      };
+    }
+    const p = patMap[patId];
+    if (isOverdue) {
+      p.overdueAmount += amount;
+      p.overdueCount++;
+      if (!p.oldestDueDate || dueDate < p.oldestDueDate) p.oldestDueDate = dueDate;
+    } else if (isFuture) {
+      p.futureAmount += amount;
+      if (!p.nextDueDate || dueDate < p.nextDueDate) p.nextDueDate = dueDate;
+    }
+    const tv = Number(i.TreatmentValue || i.TotalTreatmentValue || 0);
+    if (tv) p.treatmentValue = Math.max(p.treatmentValue, tv);
+    const pv = Number(i.PaidValue || i.TotalPaidValue || i.AmountPaid || 0);
+    if (pv) p.paidValue = Math.max(p.paidValue, pv);
+  });
+
+  const patients = Object.values(patMap).filter(p => p.overdueCount > 0);
+  patients.forEach(p => {
+    p.diasDeAtraso    = p.oldestDueDate ? Math.floor((todayDate - new Date(p.oldestDueDate)) / 86400000) : 0;
+    p.diasParaProximo = p.nextDueDate   ? Math.floor((new Date(p.nextDueDate) - todayDate) / 86400000) : null;
+    // Classificação: sem futuro = 3, 1 parcela vencida = 1, 2+ parcelas = 2
+    p.grupo = (p.futureAmount <= 0) ? 3 : (p.overdueCount === 1) ? 1 : 2;
+  });
+
+  const byOverdue = (a, b) => b.overdueAmount - a.overdueAmount;
+  const grupo1 = patients.filter(p => p.grupo === 1).sort(byOverdue);
+  const grupo2 = patients.filter(p => p.grupo === 2).sort(byOverdue);
+  const grupo3 = patients.filter(p => p.grupo === 3).sort(byOverdue);
+  return {
+    grupo1, grupo2, grupo3,
+    totais: {
+      pacientes:    patients.length,
+      valorTotal:   patients.reduce((s, p) => s + p.overdueAmount, 0),
+      emCobranca:   grupo1.length,
+      renegociacao: grupo2.length,
+      criticos:     grupo3.length,
+    },
+  };
+}
+
+function mergeInadimplentesNotas(resultado) {
+  const notas = db.data.inadimplentes_notas || [];
+  const nm = {};
+  notas.forEach(n => { nm[n.patientId] = n; });
+  const addN = arr => arr.map(p => {
+    const n = nm[p.id] || {};
+    return { ...p, responsavel: n.responsavel || '', proximoPasso: n.proximoPasso || '', obs: n.obs || '' };
+  });
+  return { ...resultado, grupo1: addN(resultado.grupo1), grupo2: addN(resultado.grupo2), grupo3: addN(resultado.grupo3) };
+}
+
+// GET /api/inadimplentes
+// Cache de 2h para proteger o rate limit de 25 req/hora da Clinicorp
+// Use ?refresh=1 para forçar nova busca (consome 1 requisição)
+app.get('/api/inadimplentes', async (req, res) => {
+  try {
+    if (!process.env.CLINICORP_TOKEN) {
+      return res.status(503).json({ error: 'CLINICORP_TOKEN não configurado. Adicione nas variáveis de ambiente do Railway.' });
+    }
+    const forceRefresh = req.query.refresh === '1';
+    const cache = db.data.inadimplentes_cache;
+
+    if (!forceRefresh && cache && cache.data && cache.atualizado_em) {
+      const ageMs = Date.now() - new Date(cache.atualizado_em).getTime();
+      if (ageMs < 2 * 60 * 60 * 1000) {
+        const result = mergeInadimplentesNotas(cache.data);
+        return res.json({ ...result, from_cache: true, cache_min: Math.round(ageMs / 60000) });
+      }
+    }
+
+    const today   = new Date().toISOString().split('T')[0];
+    const futDate = new Date(); futDate.setFullYear(futDate.getFullYear() + 3);
+    const futStr  = futDate.toISOString().split('T')[0];
+
+    let items = [], endpointUsado = '';
+
+    // Tentativa 1: /receivable/list (parcelas a receber — pagas e em aberto)
+    try {
+      const r = await clinicorpGet('/receivable/list', { from: '2023-01-01', to: futStr });
+      console.log(`[Inadimplentes] /receivable/list → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,80)}`);
+      if (r.status === 200 && Array.isArray(r.data) && r.data.length > 0) {
+        items = r.data; endpointUsado = '/receivable/list';
+      }
+    } catch(e) { console.log('[Inadimplentes] /receivable/list erro:', e.message); }
+
+    // Tentativa 2 (fallback): /payment/list
+    if (!items.length) {
+      try {
+        const r = await clinicorpGet('/payment/list', { from: '2023-01-01', to: futStr });
+        console.log(`[Inadimplentes] /payment/list → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,80)}`);
+        if (r.status === 200 && Array.isArray(r.data)) { items = r.data; endpointUsado = '/payment/list'; }
+      } catch(e) { console.log('[Inadimplentes] /payment/list erro:', e.message); }
+    }
+
+    if (!items.length) {
+      return res.json({
+        grupo1: [], grupo2: [], grupo3: [],
+        totais: { pacientes: 0, valorTotal: 0, emCobranca: 0, renegociacao: 0, criticos: 0 },
+        from_cache: false, endpoint: endpointUsado || 'nenhum',
+        aviso: 'Nenhum dado retornado pela Clinicorp. Verifique as credenciais e tente novamente.',
+      });
+    }
+
+    const processado = processarInadimplentes(items, today);
+    db.data.inadimplentes_cache = { data: processado, atualizado_em: nowLocal(), endpoint: endpointUsado };
+    await db.write();
+    console.log(`[Inadimplentes] ✅ ${processado.totais.pacientes} inadimplentes via ${endpointUsado}`);
+
+    const result = mergeInadimplentesNotas(processado);
+    res.json({ ...result, from_cache: false, endpoint: endpointUsado });
+  } catch(e) {
+    console.error('❌ inadimplentes:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/inadimplentes/nota/:patientId — salva notas editáveis (Responsável, Próximo Passo, OBS)
+app.patch('/api/inadimplentes/nota/:patientId', async (req, res) => {
+  try {
+    const patientId = sanitizeStr(req.params.patientId, 50);
+    const { responsavel, proximoPasso, obs } = req.body;
+    let nota = db.data.inadimplentes_notas.find(n => n.patientId === patientId);
+    if (!nota) {
+      nota = { patientId, responsavel: '', proximoPasso: '', obs: '', atualizado_em: nowLocal() };
+      db.data.inadimplentes_notas.push(nota);
+    }
+    if (responsavel  !== undefined) nota.responsavel  = sanitizeStr(responsavel, 100);
+    if (proximoPasso !== undefined) nota.proximoPasso = sanitizeStr(proximoPasso, 1000);
+    if (obs          !== undefined) nota.obs          = sanitizeStr(obs, 2000);
+    nota.atualizado_em = nowLocal();
+    await db.write();
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ========== STATIC ==========

@@ -329,6 +329,34 @@ textarea { resize: vertical; min-height: 80px; }
 .nf-actions button { padding:4px 10px; font-size:11px; border-radius:6px; cursor:pointer; border:1px solid var(--border); background:var(--bg3); color:var(--text); }
 .nf-actions button:hover { border-color:var(--accent); color:var(--accent); }
 .nf-actions button.del:hover { border-color:var(--red); color:var(--red); }
+
+/* ===== INADIMPLENTES ===== */
+.inad-section { margin-bottom: 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.inad-section-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; cursor: pointer; user-select: none; }
+.inad-section-header:hover { background: var(--bg3); }
+.inad-section-color { width: 4px; height: 26px; border-radius: 2px; flex-shrink: 0; }
+.inad-section-title { font-size: 14px; font-weight: 700; flex: 1; }
+.inad-section-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.inad-section-toggle { color: var(--muted); transition: transform .2s; }
+.inad-section-toggle.open { transform: rotate(180deg); }
+.inad-section-body { border-top: 1px solid var(--border); overflow-x: auto; display: none; }
+.inad-section-body.open { display: block; }
+.inad-th { padding: 7px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; font-weight: 600; }
+.inad-td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; vertical-align: middle; }
+.inad-td-r { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; text-align: right; vertical-align: middle; }
+.inad-td-c { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; text-align: center; vertical-align: middle; }
+.inad-editable { background: transparent; border: none; border-bottom: 1px dashed transparent; padding: 2px 4px; color: var(--text); font-size: 12px; font-family: inherit; width: 100%; min-width: 80px; transition: border-color .15s; }
+.inad-editable:hover { border-bottom-color: var(--border); }
+.inad-editable:focus { outline: none; border-bottom-color: var(--accent); background: var(--bg3); border-radius: 4px; }
+.inad-select { background: var(--bg3); border: 1px solid transparent; border-radius: 6px; padding: 3px 6px; font-size: 12px; color: var(--text); font-family: inherit; cursor: pointer; }
+.inad-select:focus { outline: none; border-color: var(--accent); }
+.inad-dias-ok   { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; background:rgba(34,197,94,.15); color:var(--green); }
+.inad-dias-med  { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; background:rgba(245,158,11,.15); color:var(--yellow); }
+.inad-dias-crit { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; background:rgba(239,68,68,.15); color:var(--red); }
+.inad-wa { width: 28px; height: 28px; border-radius: 7px; background: #25D366; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: opacity .15s; }
+.inad-wa:hover { opacity: .8; }
+.inad-cache-bar { background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.3); border-radius: 8px; padding: 9px 14px; font-size: 12px; color: var(--yellow); display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.inad-nav-badge { margin-left: auto; font-size: 10px; font-weight: 700; background: rgba(239,68,68,.2); color: var(--red); padding: 1px 6px; border-radius: 10px; display: none; }
 </style>
 </head>
 <body>
@@ -358,6 +386,11 @@ textarea { resize: vertical; min-height: 80px; }
   <button class="nav-btn" data-page="notas-fiscais" onclick="setPage('notas-fiscais',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     Notas Fiscais
+  </button>
+  <button class="nav-btn" data-page="inadimplentes" onclick="setPage('inadimplentes',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Inadimplentes
+    <span class="inad-nav-badge" id="badge-inadimplentes"></span>
   </button>
   <button class="nav-btn" data-page="config" onclick="setPage('config',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -862,6 +895,120 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
   </div>
 </div>
 
+<!-- INADIMPLENTES PAGE -->
+<div id="page-inadimplentes" class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <h1 style="margin:0">Inadimplentes</h1>
+    <div style="display:flex;gap:10px;align-items:center">
+      <span id="inad-ultima-atualizacao" style="font-size:12px;color:var(--muted)"></span>
+      <button class="btn btn-primary" id="inad-refresh-btn" onclick="loadInadimplentes(true)">Atualizar dados</button>
+    </div>
+  </div>
+
+  <div id="inad-cache-bar" class="inad-cache-bar" style="display:none">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <span id="inad-cache-msg"></span>
+    <span style="margin-left:auto;text-decoration:underline;cursor:pointer" onclick="loadInadimplentes(true)">Buscar agora (usa 1 req da Clinicorp)</span>
+  </div>
+  <div id="inad-error-bar" style="display:none;padding:12px 16px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;color:var(--red);font-size:13px;margin-bottom:14px"></div>
+  <div id="inad-aviso-bar" style="display:none;padding:12px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;color:var(--yellow);font-size:13px;margin-bottom:14px"></div>
+
+  <div class="cards" style="margin-bottom:20px">
+    <div class="card"><div class="card-label">Total Inadimplentes</div><div class="card-value" id="inad-kpi-total">–</div></div>
+    <div class="card"><div class="card-label">Valor Total em Aberto</div><div class="card-value" id="inad-kpi-valor" style="color:var(--red);font-size:20px">–</div></div>
+    <div class="card"><div class="card-label">Em Cobrança</div><div class="card-value" id="inad-kpi-g1" style="color:var(--green)">–</div><div style="font-size:11px;color:var(--muted);margin-top:2px">1 parcela vencida</div></div>
+    <div class="card"><div class="card-label">Renegociação</div><div class="card-value" id="inad-kpi-g2" style="color:var(--yellow)">–</div><div style="font-size:11px;color:var(--muted);margin-top:2px">2+ parcelas vencidas</div></div>
+    <div class="card"><div class="card-label">Críticos</div><div class="card-value" id="inad-kpi-g3" style="color:var(--red)">–</div><div style="font-size:11px;color:var(--muted);margin-top:2px">sem parcelas futuras</div></div>
+  </div>
+
+  <div id="inad-empty" style="display:none;text-align:center;padding:60px 20px;color:var(--muted)">
+    <div style="font-size:36px;margin-bottom:12px">✅</div>
+    <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">Nenhum inadimplente encontrado</div>
+    <div style="font-size:13px">Clique em "Atualizar dados" para buscar da Clinicorp</div>
+  </div>
+
+  <!-- SEÇÃO 1: Em Cobrança -->
+  <div class="inad-section">
+    <div class="inad-section-header" onclick="toggleInadSection('inad-body1','inad-tog1')">
+      <div class="inad-section-color" style="background:var(--green)"></div>
+      <div class="inad-section-title">Em Cobrança <span style="color:var(--muted);font-weight:400;font-size:12px">(1 parcela vencida · tem parcelas futuras)</span></div>
+      <span class="inad-section-meta" id="inad-meta1"></span>
+      <svg id="inad-tog1" class="inad-section-toggle open" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="inad-section-body open" id="inad-body1">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th class="inad-th">Paciente</th>
+          <th class="inad-th" style="text-align:right">Total Vencido</th>
+          <th class="inad-th" style="text-align:right">Total à Vencer</th>
+          <th class="inad-th" style="text-align:center">Dias Atraso</th>
+          <th class="inad-th" style="text-align:center">Dias p/ Próximo</th>
+          <th class="inad-th">Responsável</th>
+          <th class="inad-th" style="min-width:130px">Próximo Passo</th>
+          <th class="inad-th" style="min-width:130px">OBS</th>
+          <th class="inad-th" style="text-align:center">WA</th>
+        </tr></thead>
+        <tbody id="inad-tbody1"><tr><td colspan="9" class="empty-small">Clique em "Atualizar dados" para carregar</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 2: Possível Renegociação -->
+  <div class="inad-section">
+    <div class="inad-section-header" onclick="toggleInadSection('inad-body2','inad-tog2')">
+      <div class="inad-section-color" style="background:var(--yellow)"></div>
+      <div class="inad-section-title">Possível Renegociação <span style="color:var(--muted);font-weight:400;font-size:12px">(2+ parcelas vencidas · tem parcelas futuras)</span></div>
+      <span class="inad-section-meta" id="inad-meta2"></span>
+      <svg id="inad-tog2" class="inad-section-toggle open" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="inad-section-body open" id="inad-body2">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th class="inad-th">Paciente</th>
+          <th class="inad-th" style="text-align:center">QTD</th>
+          <th class="inad-th" style="text-align:right">Total Vencido</th>
+          <th class="inad-th" style="text-align:right">Total à Vencer</th>
+          <th class="inad-th" style="text-align:center">Dias Atraso</th>
+          <th class="inad-th" style="text-align:center">Dias p/ Próximo</th>
+          <th class="inad-th">Responsável</th>
+          <th class="inad-th" style="min-width:130px">Próximo Passo</th>
+          <th class="inad-th" style="min-width:130px">OBS</th>
+          <th class="inad-th" style="text-align:center">WA</th>
+        </tr></thead>
+        <tbody id="inad-tbody2"><tr><td colspan="10" class="empty-small">Clique em "Atualizar dados" para carregar</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SEÇÃO 3: Críticos -->
+  <div class="inad-section">
+    <div class="inad-section-header" onclick="toggleInadSection('inad-body3','inad-tog3')">
+      <div class="inad-section-color" style="background:var(--red)"></div>
+      <div class="inad-section-title">Críticos — Todos os boletos vencidos <span style="color:var(--muted);font-weight:400;font-size:12px">(sem parcelas futuras)</span></div>
+      <span class="inad-section-meta" id="inad-meta3"></span>
+      <svg id="inad-tog3" class="inad-section-toggle open" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="inad-section-body open" id="inad-body3">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th class="inad-th">Paciente</th>
+          <th class="inad-th" style="text-align:center">QTD</th>
+          <th class="inad-th" style="text-align:right">Total Vencido</th>
+          <th class="inad-th" style="text-align:center">Dias Atraso</th>
+          <th class="inad-th" style="text-align:right">Valor do TTO</th>
+          <th class="inad-th" style="text-align:right">Valor Pago</th>
+          <th class="inad-th" style="text-align:right">Valor à Pagar</th>
+          <th class="inad-th">Responsável</th>
+          <th class="inad-th" style="min-width:130px">Próximo Passo</th>
+          <th class="inad-th" style="min-width:130px">OBS</th>
+          <th class="inad-th" style="text-align:center">WA</th>
+        </tr></thead>
+        <tbody id="inad-tbody3"><tr><td colspan="11" class="empty-small">Clique em "Atualizar dados" para carregar</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -906,6 +1053,7 @@ function setPage(p, btn) {
   if (p === 'conversas') loadConversas();
   if (p === 'disparos') loadDisparos();
   if (p === 'notas-fiscais') loadNotasFiscais();
+  if (p === 'inadimplentes') loadInadimplentes(false);
   if (p !== 'conversas' && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
 }
 
@@ -1875,6 +2023,166 @@ async function deletarNota(id) {
 function verPdf(id) {
   const n = _notaCache;
   if (n && n.caminho_pdf) alert('Caminho do arquivo:\n' + n.caminho_pdf);
+}
+
+// ===== INADIMPLENTES =====
+const _inadFmt = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+function inadDiasBadge(d) {
+  if (d === null || d === undefined) return '–';
+  const cls = d > 60 ? 'inad-dias-crit' : d > 30 ? 'inad-dias-med' : 'inad-dias-ok';
+  return `<span class="${cls}">${d}d</span>`;
+}
+
+function inadWaBtn(patientId, phone, name) {
+  const safe = (name||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  const clean = (phone||'').replace(/\D/g,'');
+  if (!clean) return `<button class="inad-wa" style="opacity:.35;cursor:default" disabled title="Sem telefone"><svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></button>`;
+  return `<button class="inad-wa" onclick="openWhatsAppInad('${patientId}','${clean}','${safe}')" title="WhatsApp"><svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></button>`;
+}
+
+function inadResponsavelSelect(patientId, current) {
+  const opts = ['', 'Gabi', 'Bruna', 'Dr. Marcos'].map(o =>
+    `<option value="${o}" ${current === o ? 'selected':''}>${o || '— —'}</option>`
+  ).join('');
+  return `<select class="inad-select" onchange="saveNotaInad('${patientId}','responsavel',this.value)">${opts}</select>`;
+}
+
+function inadEditInput(patientId, field, value, placeholder) {
+  const safe = (value||'').replace(/"/g,'&quot;');
+  return `<input class="inad-editable" value="${safe}" placeholder="${placeholder}" onblur="saveNotaInad('${patientId}','${field}',this.value)">`;
+}
+
+function renderInadSection(num, patients, isCritico) {
+  const meta = document.getElementById(`inad-meta${num}`);
+  const tbody = document.getElementById(`inad-tbody${num}`);
+  const totalVenc = patients.reduce((s,p) => s + p.overdueAmount, 0);
+  meta.textContent = `${patients.length} paciente${patients.length !== 1 ? 's' : ''} · ${_inadFmt(totalVenc)}`;
+
+  if (!patients.length) {
+    const cols = isCritico ? 11 : (num === 1 ? 9 : 10);
+    tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-small">Nenhum paciente neste grupo</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = patients.map(p => {
+    const pid = p.id;
+    const name = p.name || `Paciente ${pid}`;
+    const ppp  = inadResponsavelSelect(pid, p.responsavel);
+    const paso = inadEditInput(pid, 'proximoPasso', p.proximoPasso, 'Próximo passo...');
+    const obsEl = inadEditInput(pid, 'obs', p.obs, 'OBS...');
+    const wa   = inadWaBtn(pid, p.phone, name);
+
+    if (isCritico) {
+      return `<tr>
+        <td class="inad-td"><div style="font-weight:600">${name}</div><div style="font-size:10.5px;color:var(--muted)">#${pid}</div></td>
+        <td class="inad-td-c">${p.overdueCount}</td>
+        <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
+        <td class="inad-td-c">${inadDiasBadge(p.diasDeAtraso)}</td>
+        <td class="inad-td-r">${p.treatmentValue > 0 ? _inadFmt(p.treatmentValue) : '–'}</td>
+        <td class="inad-td-r">${p.paidValue > 0 ? _inadFmt(p.paidValue) : '–'}</td>
+        <td class="inad-td-r" style="color:var(--red)">${_inadFmt(p.overdueAmount)}</td>
+        <td class="inad-td">${ppp}</td>
+        <td class="inad-td">${paso}</td>
+        <td class="inad-td">${obsEl}</td>
+        <td class="inad-td-c">${wa}</td>
+      </tr>`;
+    }
+    const qtdCol = num === 1 ? '' : `<td class="inad-td-c">${p.overdueCount}</td>`;
+    return `<tr>
+      <td class="inad-td"><div style="font-weight:600">${name}</div><div style="font-size:10.5px;color:var(--muted)">#${pid}</div></td>
+      ${qtdCol}
+      <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
+      <td class="inad-td-r" style="color:var(--green)">${_inadFmt(p.futureAmount)}</td>
+      <td class="inad-td-c">${inadDiasBadge(p.diasDeAtraso)}</td>
+      <td class="inad-td-c">${p.diasParaProximo !== null ? inadDiasBadge(p.diasParaProximo) : '–'}</td>
+      <td class="inad-td">${ppp}</td>
+      <td class="inad-td">${paso}</td>
+      <td class="inad-td">${obsEl}</td>
+      <td class="inad-td-c">${wa}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadInadimplentes(forceRefresh = false) {
+  const btn = document.getElementById('inad-refresh-btn');
+  btn.textContent = 'Buscando...'; btn.disabled = true;
+  document.getElementById('inad-error-bar').style.display = 'none';
+  document.getElementById('inad-aviso-bar').style.display = 'none';
+  try {
+    const url = '/api/inadimplentes' + (forceRefresh ? '?refresh=1' : '');
+    const data = await api(url);
+
+    if (data.error) {
+      document.getElementById('inad-error-bar').textContent = '❌ ' + data.error;
+      document.getElementById('inad-error-bar').style.display = 'block';
+      return;
+    }
+    if (data.aviso) {
+      document.getElementById('inad-aviso-bar').textContent = '⚠️ ' + data.aviso;
+      document.getElementById('inad-aviso-bar').style.display = 'block';
+    }
+
+    const t = data.totais || {};
+    document.getElementById('inad-kpi-total').textContent = t.pacientes || 0;
+    document.getElementById('inad-kpi-valor').textContent = _inadFmt(t.valorTotal);
+    document.getElementById('inad-kpi-g1').textContent    = t.emCobranca   || 0;
+    document.getElementById('inad-kpi-g2').textContent    = t.renegociacao || 0;
+    document.getElementById('inad-kpi-g3').textContent    = t.criticos     || 0;
+
+    const badge = document.getElementById('badge-inadimplentes');
+    if (t.pacientes > 0) { badge.textContent = t.pacientes; badge.style.display = 'inline'; }
+    else badge.style.display = 'none';
+
+    const hasData = (data.grupo1||[]).length + (data.grupo2||[]).length + (data.grupo3||[]).length > 0;
+    document.getElementById('inad-empty').style.display = hasData ? 'none' : 'block';
+
+    renderInadSection(1, data.grupo1 || [], false);
+    renderInadSection(2, data.grupo2 || [], false);
+    renderInadSection(3, data.grupo3 || [], true);
+
+    const cacheBar = document.getElementById('inad-cache-bar');
+    const upd      = document.getElementById('inad-ultima-atualizacao');
+    if (data.from_cache) {
+      document.getElementById('inad-cache-msg').textContent =
+        `Dados em cache (${data.cache_min || 0} min atrás). Clinicorp tem limite de 25 req/hora.`;
+      cacheBar.style.display = 'flex';
+      upd.textContent = `Cache: ${data.cache_min || 0} min atrás`;
+    } else {
+      cacheBar.style.display = 'none';
+      upd.textContent = 'Atualizado agora · endpoint: ' + (data.endpoint || '');
+    }
+  } catch(e) {
+    document.getElementById('inad-error-bar').textContent = '❌ Erro de conexão: ' + e.message;
+    document.getElementById('inad-error-bar').style.display = 'block';
+  } finally {
+    btn.textContent = 'Atualizar dados'; btn.disabled = false;
+  }
+}
+
+async function saveNotaInad(patientId, field, value) {
+  try {
+    await fetch(`/api/inadimplentes/nota/${patientId}`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ [field]: value }),
+    });
+  } catch(e) { console.warn('[inad] saveNota erro:', e.message); }
+}
+
+function openWhatsAppInad(patientId, phone, name) {
+  const num = phone.startsWith('55') ? phone : '55' + phone;
+  const firstName = (name || '').split(' ')[0];
+  const msg = encodeURIComponent(`Olá ${firstName}! Tudo bem? Aqui é da Clínica AMA, entramos em contato sobre seu tratamento.`);
+  window.open(`https://wa.me/${num}?text=${msg}`, '_blank');
+}
+
+function toggleInadSection(bodyId, togId) {
+  const body = document.getElementById(bodyId);
+  const tog  = document.getElementById(togId);
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  tog.classList.toggle('open', !isOpen);
 }
 </script>
 </body>
