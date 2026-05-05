@@ -325,10 +325,24 @@ textarea { resize: vertical; min-height: 80px; }
 .nf-status-Processando  { background: rgba(79,142,247,.15); color: var(--b-lead); }
 .nf-status-Emitida      { background: rgba(34,197,94,.15);  color: var(--green); }
 .nf-status-Erro         { background: rgba(239,68,68,.15);  color: var(--red); }
-.nf-actions { display:flex; gap:6px; }
-.nf-actions button { padding:4px 10px; font-size:11px; border-radius:6px; cursor:pointer; border:1px solid var(--border); background:var(--bg3); color:var(--text); }
-.nf-actions button:hover { border-color:var(--accent); color:var(--accent); }
-.nf-actions button.del:hover { border-color:var(--red); color:var(--red); }
+.nf-sheet { width:100%; border-collapse:collapse; min-width:820px; }
+.nf-sheet th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:8px 10px; border-bottom:2px solid var(--border); text-align:left; white-space:nowrap; }
+.nf-sheet td { padding:7px 10px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
+.nf-sheet tbody tr:not(.nf-row-editing):hover td { background:var(--bg3); }
+.nf-row-editing > td { background:rgba(79,142,247,.06) !important; padding:0; }
+.nf-row-new > td { background:rgba(34,197,94,.05) !important; }
+.nf-edit-inner { padding:14px 16px; }
+.nf-field-label { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:4px; }
+.nf-ci { width:100%; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-family:inherit; font-size:13px; padding:5px 8px; border-radius:6px; outline:none; transition:border-color .15s; }
+.nf-ci:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(79,142,247,.15); }
+.nf-ci-sel { width:100%; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-family:inherit; font-size:13px; padding:5px 8px; border-radius:6px; outline:none; transition:border-color .15s; }
+.nf-ci-sel:focus { border-color:var(--accent); }
+.nf-row-btns { display:flex; gap:4px; }
+.nf-row-btns button { padding:3px 8px; font-size:11px; border-radius:5px; cursor:pointer; border:1px solid var(--border); background:var(--bg3); color:var(--text); font-family:inherit; transition:all .12s; }
+.nf-row-btns button:hover { border-color:var(--accent); color:var(--accent); }
+.nf-row-btns button.del:hover { border-color:var(--red); color:var(--red); }
+.nf-add-btn { margin-top:8px; width:100%; padding:8px; border:1.5px dashed var(--border); border-radius:8px; background:transparent; color:var(--muted); font-family:inherit; font-size:13px; cursor:pointer; transition:all .15s; text-align:center; }
+.nf-add-btn:hover { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.05); }
 
 /* ===== INADIMPLENTES ===== */
 .inad-section { margin-bottom: 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
@@ -607,7 +621,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 <div id="page-notas-fiscais" class="page">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
     <h1 style="margin:0">Notas Fiscais</h1>
-    <button class="btn btn-primary" onclick="abrirModalNota(null)">+ Nova Nota</button>
+    <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
   </div>
   <div class="cards">
     <div class="card"><div class="card-label">Total</div><div class="card-value" id="nf-total">–</div></div>
@@ -628,15 +642,17 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         </select>
         <input class="filter-select" id="nf-fil-comp" placeholder="Competência ex: 05-2026" style="width:170px" onkeyup="loadNotasFiscais()">
       </div>
-      <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
     </div>
-    <table>
-      <thead><tr>
-        <th>Sistema</th><th>Tomador / Paciente</th><th>CPF Tomador</th>
-        <th>Valor</th><th>Competência</th><th>Status</th><th>Nota #</th><th></th>
-      </tr></thead>
-      <tbody id="nf-tbody"></tbody>
-    </table>
+    <div style="overflow-x:auto">
+      <table class="nf-sheet">
+        <thead><tr>
+          <th>Sistema</th><th>Competência</th><th>CPF / CNPJ</th><th>Nome Tomador</th>
+          <th>Valor R$</th><th>Data Pgto</th><th>Descrição</th><th>Status</th><th>NF #</th><th></th>
+        </tr></thead>
+        <tbody id="nf-tbody"></tbody>
+      </table>
+    </div>
+    <button class="nf-add-btn" onclick="nfAddRow()">+ Adicionar linha</button>
   </div>
 </div>
 
@@ -819,79 +835,6 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <textarea id="nl-obs" class="search-input" style="width:100%;height:72px;resize:vertical" placeholder="opcional"></textarea>
       </div>
       <button class="btn btn-primary" style="width:100%" onclick="criarLeadManual(this)">Criar Lead</button>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL NOTA FISCAL -->
-<div class="modal-bg" id="modal-nf-bg" onclick="if(event.target===this)fecharModalNota()">
-  <div class="modal" style="max-width:620px">
-    <div class="modal-header">
-      <div class="modal-titulo" id="modal-nf-titulo">Nova Nota Fiscal</div>
-      <button class="modal-close" onclick="fecharModalNota()">×</button>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-      <div class="form-group">
-        <label>Sistema *</label>
-        <select id="nf-sistema">
-          <option value="">Selecione...</option>
-          <option>Vieira</option><option>Martins</option><option>Receita Saude</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Competência (MM-AAAA) *</label>
-        <input id="nf-competencia" placeholder="05-2026" maxlength="7">
-      </div>
-      <div class="form-group">
-        <label>Tipo Tomador</label>
-        <select id="nf-tipo-tomador">
-          <option value="CPF">CPF</option><option value="CNPJ">CNPJ</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>CPF/CNPJ Tomador *</label>
-        <input id="nf-cpf-tomador" placeholder="000.000.000-00">
-      </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label>Nome Tomador (quem paga) *</label>
-        <input id="nf-nome-tomador" placeholder="Nome completo">
-      </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input type="checkbox" id="nf-paciente-diff" onchange="togglePaciente()"> Paciente diferente do tomador (pai/mãe pagando pelo filho)
-        </label>
-      </div>
-      <div id="nf-paciente-area" style="display:none;grid-column:1/-1;grid-template-columns:1fr 1fr 1fr;gap:14px">
-        <div class="form-group">
-          <label>CPF Paciente</label>
-          <input id="nf-cpf-paciente" placeholder="000.000.000-00">
-        </div>
-        <div class="form-group">
-          <label>Nome Paciente</label>
-          <input id="nf-nome-paciente" placeholder="Nome do paciente">
-        </div>
-        <div class="form-group">
-          <label>Parentesco</label>
-          <input id="nf-parentesco" placeholder="ex: Filho, Filha, Mãe">
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Data do Pagamento *</label>
-        <input id="nf-data-pgto" placeholder="04/05/2026">
-      </div>
-      <div class="form-group">
-        <label>Valor (R$) *</label>
-        <input id="nf-valor-input" type="number" placeholder="650">
-      </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label>Descrição do Serviço</label>
-        <textarea id="nf-descricao" rows="2" placeholder="Tratamento ortodôntico, Protocolo superior e inferior..."></textarea>
-      </div>
-    </div>
-    <div id="nf-erro-area" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:8px;font-size:12px;color:var(--red)"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
-      <button class="btn btn-ghost" onclick="fecharModalNota()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarNota()">Salvar</button>
     </div>
   </div>
 </div>
@@ -1881,135 +1824,230 @@ async function confirmarImportacao() {
 loadDash();
 
 // ============ NOTAS FISCAIS ============
-let notaAtualId = null;
+let _nfEditingId = null;
+let _nfData = {};
 
 function nfSistemaBadge(s) {
-  const cls = { 'Vieira':'nf-badge-Vieira', 'Martins':'nf-badge-Martins', 'Receita Saude':'nf-badge-ReceitaSaude' };
+  const cls = {'Vieira':'nf-badge-Vieira','Martins':'nf-badge-Martins','Receita Saude':'nf-badge-ReceitaSaude'};
   return `<span class="badge ${cls[s]||''}">${s}</span>`;
 }
 function nfStatusBadge(s) {
-  const cls = { 'Pendente':'nf-status-Pendente','Processando':'nf-status-Processando','Emitida':'nf-status-Emitida','Erro':'nf-status-Erro' };
+  const cls = {'Pendente':'nf-status-Pendente','Processando':'nf-status-Processando','Emitida':'nf-status-Emitida','Erro':'nf-status-Erro'};
   return `<span class="badge ${cls[s]||''}">${s}</span>`;
 }
-function nfFmt(v) { return 'R$ ' + parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2}); }
-function nfMask(cpf) { return cpf ? cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '—'; }
+function nfFmt(v) { return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2}); }
+function nfMask(cpf) {
+  if (!cpf) return '—';
+  const d = cpf.replace(/\D/g,'');
+  if (d.length===11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4');
+  if (d.length===14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5');
+  return cpf;
+}
 
 async function loadNotasFiscais() {
-  const sistema   = document.getElementById('nf-fil-sistema').value;
-  const status    = document.getElementById('nf-fil-status').value;
-  const competencia = document.getElementById('nf-fil-comp').value.trim();
-  const params = new URLSearchParams();
+  const sistema = document.getElementById('nf-fil-sistema').value;
+  const status  = document.getElementById('nf-fil-status').value;
+  const comp    = document.getElementById('nf-fil-comp').value.trim();
+  const params  = new URLSearchParams();
   if (sistema) params.set('sistema', sistema);
-  if (status)  params.set('status',  status);
-  if (competencia) params.set('competencia', competencia);
+  if (status)  params.set('status', status);
+  if (comp)    params.set('competencia', comp);
 
   const [notas, stats] = await Promise.all([
     api('/api/notas-fiscais?' + params),
-    api('/api/notas-fiscais/stats' + (competencia ? '?competencia='+competencia : '')),
+    api('/api/notas-fiscais/stats' + (comp ? '?competencia='+comp : '')),
   ]);
 
-  document.getElementById('nf-total').textContent = stats.total ?? '–';
+  document.getElementById('nf-total').textContent     = stats.total ?? '–';
   document.getElementById('nf-pendentes').textContent = stats.pendentes ?? '–';
-  document.getElementById('nf-emitidas').textContent = stats.emitidas ?? '–';
-  document.getElementById('nf-valor').textContent = stats.valorEmitido != null ? nfFmt(stats.valorEmitido) : '–';
+  document.getElementById('nf-emitidas').textContent  = stats.emitidas ?? '–';
+  document.getElementById('nf-valor').textContent     = stats.valorEmitido != null ? nfFmt(stats.valorEmitido) : '–';
+
+  _nfEditingId = null;
+  _nfData = {};
+  notas.forEach(n => { _nfData[n.id] = n; });
 
   const tbody = document.getElementById('nf-tbody');
   if (!notas.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">Nenhuma nota encontrada</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:32px">Nenhuma nota encontrada — clique em + Adicionar linha para criar.</td></tr>`;
     return;
   }
-  tbody.innerHTML = notas.map(n => {
-    const paciente = n.nome_paciente ? `<br><small style="color:var(--muted)">Paciente: ${n.nome_paciente}${n.parentesco?' ('+n.parentesco+')':''}</small>` : '';
-    const nota_num = n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${n.num_nota}</span>` : '<span style="color:var(--muted)">—</span>';
-    return `<tr>
-      <td>${nfSistemaBadge(n.sistema)}</td>
-      <td>${n.nome_tomador}${paciente}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:11.5px">${nfMask(n.cpf_tomador)}</td>
-      <td style="font-family:'DM Mono',monospace">${nfFmt(n.valor)}</td>
-      <td>${n.competencia}</td>
-      <td>${nfStatusBadge(n.status)}</td>
-      <td>${nota_num}</td>
-      <td><div class="nf-actions">
-        <button onclick="abrirModalNota(${n.id})">Editar</button>
-        ${n.caminho_pdf ? `<button onclick="verPdf(${n.id})">PDF</button>` : ''}
-        ${['Pendente','Erro'].includes(n.status) ? `<button class="del" onclick="deletarNota(${n.id})">✕</button>` : ''}
-      </div></td>
-    </tr>`;
-  }).join('');
+  tbody.innerHTML = notas.map(n => nfViewRowHtml(n)).join('');
 }
 
-function togglePaciente() {
-  const area = document.getElementById('nf-paciente-area');
-  const checked = document.getElementById('nf-paciente-diff').checked;
-  area.style.display = checked ? 'grid' : 'none';
+function nfViewRowHtml(n) {
+  const pac = n.nome_paciente
+    ? `<br><small style="color:var(--muted);font-size:11px">Pac: ${n.nome_paciente}${n.parentesco?' ('+n.parentesco+')':''}</small>` : '';
+  const desc = n.descricao
+    ? `<span title="${n.descricao.replace(/"/g,'&quot;')}" style="color:var(--muted);font-size:11px;max-width:130px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.descricao}</span>` : '<span style="color:var(--muted)">—</span>';
+  const nota_num = n.num_nota
+    ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${n.num_nota}</span>` : '<span style="color:var(--muted)">—</span>';
+  const canEdit = ['Pendente','Erro'].includes(n.status);
+  return `<tr id="nf-vrow-${n.id}">
+    <td>${nfSistemaBadge(n.sistema)}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:12px">${n.competencia||'—'}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:11.5px">${nfMask(n.cpf_tomador)}</td>
+    <td>${n.nome_tomador||'—'}${pac}</td>
+    <td style="font-family:'DM Mono',monospace;white-space:nowrap">${nfFmt(n.valor)}</td>
+    <td style="font-size:12px">${n.data_pagamento||'—'}</td>
+    <td>${desc}</td>
+    <td>${nfStatusBadge(n.status)}</td>
+    <td>${nota_num}</td>
+    <td><div class="nf-row-btns">
+      ${canEdit ? `<button onclick="nfEditRow(${n.id})">✎</button>` : ''}
+      ${canEdit ? `<button class="del" onclick="deletarNota(${n.id})">✕</button>` : ''}
+      ${n.caminho_pdf ? `<button onclick="alert('Arquivo:\\n${n.caminho_pdf}')">📄</button>` : ''}
+    </div></td>
+  </tr>`;
 }
 
-let _notaCache = {};
+function nfEditFormHtml(n, rowId) {
+  const isNew = !n;
+  const v = f => n ? (n[f]||'') : '';
+  const sel = (field, opt) => (n?.[field]===opt || (!n?.[field] && opt==='CPF' && field==='tipo_tomador')) ? ' selected' : '';
+  const pac = !!(n?.nome_paciente||n?.cpf_paciente);
+  return `<tr id="nf-erow-${rowId}" class="nf-row-editing${isNew?' nf-row-new':''}">
+    <td colspan="10"><div class="nf-edit-inner">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px 16px">
+        <div>
+          <div class="nf-field-label">Sistema *</div>
+          <select class="nf-ci-sel" id="nfe-sistema">
+            <option value="">Selecione...</option>
+            <option${n?.sistema==='Vieira'?' selected':''}>Vieira</option>
+            <option${n?.sistema==='Martins'?' selected':''}>Martins</option>
+            <option value="Receita Saude"${n?.sistema==='Receita Saude'?' selected':''}>Receita Saude</option>
+          </select>
+        </div>
+        <div>
+          <div class="nf-field-label">Competência (MM-AAAA) *</div>
+          <input class="nf-ci" id="nfe-comp" placeholder="05-2026" value="${v('competencia')}" maxlength="7">
+        </div>
+        <div>
+          <div class="nf-field-label">Tipo Tomador</div>
+          <select class="nf-ci-sel" id="nfe-tipo">
+            <option${sel('tipo_tomador','CPF')}>CPF</option>
+            <option${sel('tipo_tomador','CNPJ')}>CNPJ</option>
+          </select>
+        </div>
+        <div>
+          <div class="nf-field-label">CPF / CNPJ Tomador *</div>
+          <input class="nf-ci" id="nfe-cpf" placeholder="000.000.000-00" value="${v('cpf_tomador')}">
+        </div>
+        <div style="grid-column:span 2">
+          <div class="nf-field-label">Nome Tomador (quem paga) *</div>
+          <input class="nf-ci" id="nfe-nome" placeholder="Nome completo" value="${v('nome_tomador')}">
+        </div>
+        <div>
+          <div class="nf-field-label">Valor (R$) *</div>
+          <input class="nf-ci" id="nfe-valor" type="number" placeholder="650" value="${v('valor')}">
+        </div>
+        <div>
+          <div class="nf-field-label">Data Pagamento</div>
+          <input class="nf-ci" id="nfe-data" placeholder="04/05/2026" value="${v('data_pagamento')}">
+        </div>
+        <div style="grid-column:span 4">
+          <div class="nf-field-label">Descrição do Serviço</div>
+          <input class="nf-ci" id="nfe-desc" placeholder="Tratamento ortodôntico, Protocolo superior e inferior..." value="${v('descricao')}">
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;color:var(--muted)">
+          <input type="checkbox" id="nfe-pac-diff" ${pac?'checked':''} onchange="nfeTogglePac()">
+          Paciente diferente do tomador (pai/mãe pagando pelo filho)
+        </label>
+      </div>
+      <div id="nfe-pac-area" style="display:${pac?'grid':'none'};grid-template-columns:1fr 1fr 1fr;gap:10px 16px;margin-top:8px">
+        <div>
+          <div class="nf-field-label">CPF Paciente</div>
+          <input class="nf-ci" id="nfe-cpf-pac" placeholder="000.000.000-00" value="${v('cpf_paciente')}">
+        </div>
+        <div>
+          <div class="nf-field-label">Nome Paciente</div>
+          <input class="nf-ci" id="nfe-nome-pac" placeholder="Nome do paciente" value="${v('nome_paciente')}">
+        </div>
+        <div>
+          <div class="nf-field-label">Parentesco</div>
+          <input class="nf-ci" id="nfe-parentesco" placeholder="ex: Filho, Filha, Mãe" value="${v('parentesco')}">
+        </div>
+      </div>
+      <div id="nfe-erro" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:7px;font-size:12px;color:var(--red)"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn btn-ghost" style="padding:5px 14px;font-size:12px" onclick="nfCancelEdit(${rowId})">Cancelar</button>
+        <button class="btn btn-primary" style="padding:5px 14px;font-size:12px" onclick="nfSaveRow(${rowId})">✓ Salvar</button>
+      </div>
+    </div></td>
+  </tr>`;
+}
 
-async function abrirModalNota(id) {
-  notaAtualId = id;
-  document.getElementById('nf-erro-area').style.display = 'none';
-  document.getElementById('modal-nf-titulo').textContent = id ? 'Editar Nota' : 'Nova Nota Fiscal';
+function nfEditRow(id) {
+  if (_nfEditingId !== null) nfCancelEdit(_nfEditingId);
+  _nfEditingId = id;
+  const vrow = document.getElementById('nf-vrow-' + id);
+  if (!vrow) return;
+  vrow.style.display = 'none';
+  vrow.insertAdjacentHTML('afterend', nfEditFormHtml(_nfData[id], id));
+  document.getElementById('nfe-sistema').focus();
+}
 
-  if (id) {
-    const notas = await api('/api/notas-fiscais');
-    const n = notas.find(x => x.id === id);
-    if (!n) return;
-    _notaCache = n;
-    document.getElementById('nf-sistema').value        = n.sistema;
-    document.getElementById('nf-competencia').value    = n.competencia;
-    document.getElementById('nf-tipo-tomador').value   = n.tipo_tomador;
-    document.getElementById('nf-cpf-tomador').value    = n.cpf_tomador;
-    document.getElementById('nf-nome-tomador').value   = n.nome_tomador;
-    document.getElementById('nf-data-pgto').value      = n.data_pagamento;
-    document.getElementById('nf-valor-input').value    = n.valor;
-    document.getElementById('nf-descricao').value      = n.descricao;
-    const diff = !!(n.cpf_paciente || n.nome_paciente);
-    document.getElementById('nf-paciente-diff').checked = diff;
-    document.getElementById('nf-cpf-paciente').value   = n.cpf_paciente || '';
-    document.getElementById('nf-nome-paciente').value  = n.nome_paciente || '';
-    document.getElementById('nf-parentesco').value     = n.parentesco || '';
-    document.getElementById('nf-paciente-area').style.display = diff ? 'grid' : 'none';
+function nfAddRow() {
+  if (_nfEditingId !== null) nfCancelEdit(_nfEditingId);
+  _nfEditingId = 0;
+  const tbody = document.getElementById('nf-tbody');
+  const rows = tbody.querySelectorAll('tr');
+  if (rows.length === 1 && !rows[0].classList.contains('nf-row-editing')) rows[0].remove();
+  tbody.insertAdjacentHTML('beforeend', nfEditFormHtml(null, 0));
+  document.getElementById('nfe-sistema').focus();
+}
+
+function nfeTogglePac() {
+  document.getElementById('nfe-pac-area').style.display =
+    document.getElementById('nfe-pac-diff').checked ? 'grid' : 'none';
+}
+
+function nfCancelEdit(rowId) {
+  const erow = document.getElementById('nf-erow-' + rowId);
+  if (erow) erow.remove();
+  if (rowId !== 0) {
+    const vrow = document.getElementById('nf-vrow-' + rowId);
+    if (vrow) vrow.style.display = '';
   } else {
-    ['nf-sistema','nf-competencia','nf-cpf-tomador','nf-nome-tomador','nf-data-pgto','nf-valor-input','nf-descricao','nf-cpf-paciente','nf-nome-paciente','nf-parentesco'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('nf-tipo-tomador').value = 'CPF';
-    document.getElementById('nf-paciente-diff').checked = false;
-    document.getElementById('nf-paciente-area').style.display = 'none';
+    const tbody = document.getElementById('nf-tbody');
+    if (!tbody.children.length) {
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:32px">Nenhuma nota encontrada — clique em + Adicionar linha para criar.</td></tr>`;
+    }
   }
-  document.getElementById('modal-nf-bg').classList.add('open');
+  _nfEditingId = null;
 }
 
-function fecharModalNota() {
-  document.getElementById('modal-nf-bg').classList.remove('open');
-  notaAtualId = null;
-}
-
-async function salvarNota() {
-  const diff = document.getElementById('nf-paciente-diff').checked;
+async function nfSaveRow(rowId) {
+  const diff = document.getElementById('nfe-pac-diff').checked;
   const body = {
-    sistema:       document.getElementById('nf-sistema').value,
-    competencia:   document.getElementById('nf-competencia').value.trim(),
-    tipo_tomador:  document.getElementById('nf-tipo-tomador').value,
-    cpf_tomador:   document.getElementById('nf-cpf-tomador').value.trim(),
-    nome_tomador:  document.getElementById('nf-nome-tomador').value.trim(),
-    cpf_paciente:  diff ? document.getElementById('nf-cpf-paciente').value.trim() : '',
-    nome_paciente: diff ? document.getElementById('nf-nome-paciente').value.trim() : '',
-    parentesco:    diff ? document.getElementById('nf-parentesco').value.trim() : '',
-    data_pagamento: document.getElementById('nf-data-pgto').value.trim(),
-    valor:         document.getElementById('nf-valor-input').value,
-    descricao:     document.getElementById('nf-descricao').value.trim(),
+    sistema:        document.getElementById('nfe-sistema').value,
+    competencia:    document.getElementById('nfe-comp').value.trim(),
+    tipo_tomador:   document.getElementById('nfe-tipo').value,
+    cpf_tomador:    document.getElementById('nfe-cpf').value.trim().replace(/\D/g,''),
+    nome_tomador:   document.getElementById('nfe-nome').value.trim(),
+    valor:          parseFloat(document.getElementById('nfe-valor').value)||0,
+    data_pagamento: document.getElementById('nfe-data').value.trim(),
+    descricao:      document.getElementById('nfe-desc').value.trim(),
+    cpf_paciente:   diff ? document.getElementById('nfe-cpf-pac').value.trim().replace(/\D/g,'') : '',
+    nome_paciente:  diff ? document.getElementById('nfe-nome-pac').value.trim() : '',
+    parentesco:     diff ? document.getElementById('nfe-parentesco').value.trim() : '',
   };
-  const errArea = document.getElementById('nf-erro-area');
-  if (!body.sistema) { errArea.textContent='Selecione o sistema'; errArea.style.display='block'; return; }
-  if (!body.competencia.match(/^\d{2}-\d{4}$/)) { errArea.textContent='Competência deve estar no formato MM-AAAA ex: 05-2026'; errArea.style.display='block'; return; }
-  if (!body.cpf_tomador || !body.nome_tomador) { errArea.textContent='CPF e nome do tomador são obrigatórios'; errArea.style.display='block'; return; }
-
-  const url    = notaAtualId ? `/api/notas-fiscais/${notaAtualId}` : '/api/notas-fiscais';
-  const method = notaAtualId ? 'PATCH' : 'POST';
-  const r = await api(url, { method, body: JSON.stringify(body) });
-  if (r.error) { errArea.textContent = r.error; errArea.style.display = 'block'; return; }
-  fecharModalNota();
-  toast(notaAtualId ? '✅ Nota atualizada' : '✅ Nota criada');
+  const errEl = document.getElementById('nfe-erro');
+  if (!body.sistema) { errEl.textContent='Selecione o sistema'; errEl.style.display='block'; return; }
+  if (!body.competencia.match(/^\d{2}-\d{4}$/)) { errEl.textContent='Competência: formato MM-AAAA (ex: 05-2026)'; errEl.style.display='block'; return; }
+  if (!body.cpf_tomador||!body.nome_tomador) { errEl.textContent='CPF e nome do tomador são obrigatórios'; errEl.style.display='block'; return; }
+  if (!body.valor) { errEl.textContent='Informe o valor'; errEl.style.display='block'; return; }
+  errEl.style.display = 'none';
+  const isNew = rowId === 0;
+  const r = await api(
+    isNew ? '/api/notas-fiscais' : `/api/notas-fiscais/${rowId}`,
+    { method: isNew ? 'POST' : 'PATCH', body: JSON.stringify(body) }
+  );
+  if (r.error) { errEl.textContent=r.error; errEl.style.display='block'; return; }
+  toast(isNew ? '✅ Nota criada' : '✅ Nota atualizada');
+  _nfEditingId = null;
   loadNotasFiscais();
 }
 
@@ -2019,11 +2057,6 @@ async function deletarNota(id) {
   if (r.error) { toast('❌ ' + r.error, true); return; }
   toast('🗑 Nota excluída');
   loadNotasFiscais();
-}
-
-function verPdf(id) {
-  const n = _notaCache;
-  if (n && n.caminho_pdf) alert('Caminho do arquivo:\n' + n.caminho_pdf);
 }
 
 // ===== INADIMPLENTES =====
