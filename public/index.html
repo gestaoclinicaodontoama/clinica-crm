@@ -669,10 +669,10 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
   <div class="nf-panel" id="nf-panel-colar">
     <h3>Colar do Excel / Google Sheets</h3>
     <div class="nf-col-map">Ordem das colunas esperada (copie o cabeçalho junto ou sem ele):<br>
-      A: Sistema &nbsp;·&nbsp; B: Competência &nbsp;·&nbsp; C: CPF/CNPJ Tomador &nbsp;·&nbsp; D: Nome Tomador &nbsp;·&nbsp;
-      E: Valor &nbsp;·&nbsp; F: Data Pgto &nbsp;·&nbsp; G: Descrição &nbsp;·&nbsp; H: Tipo (CPF/CNPJ) &nbsp;·&nbsp;
-      I: CPF Paciente &nbsp;·&nbsp; J: Nome Paciente &nbsp;·&nbsp; K: Parentesco<br>
-      <strong>Apenas A–E são obrigatórias. Colunas F em diante são opcionais.</strong>
+      A: Sistema &nbsp;·&nbsp; B: Competência &nbsp;·&nbsp; C: Tipo Tomador (CPF/CNPJ) &nbsp;·&nbsp; D: Nº CPF ou CNPJ &nbsp;·&nbsp; E: Nome do Pagador<br>
+      F: CPF Paciente/Benef. &nbsp;·&nbsp; G: Nome Paciente/Benef. &nbsp;·&nbsp; H: Parentesco &nbsp;·&nbsp;
+      I: Data do Pagamento &nbsp;·&nbsp; J: Valor (R$) &nbsp;·&nbsp; K: Descrição do Serviço<br>
+      <strong>A, B, D, E e J são obrigatórias. Demais são opcionais.</strong>
     </div>
     <textarea id="nf-colar-txt" rows="6" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text);outline:none;resize:vertical" placeholder="Cole aqui as células copiadas do Excel ou Google Sheets (Ctrl+C → Ctrl+V)"></textarea>
     <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:8px">
@@ -2216,15 +2216,15 @@ function nfParseColar() {
     _linha: start + i + 1,
     sistema:        r[0] || '',
     competencia:    r[1] || '',
-    cpf_tomador:    (r[2] || '').replace(/\D/g,''),
-    nome_tomador:   r[3] || '',
-    valor:          parseFloat((r[4]||'0').replace(',','.').replace(/[^\d.]/g,'')) || 0,
-    data_pagamento: r[5] || '',
-    descricao:      r[6] || '',
-    tipo_tomador:   r[7] || 'CPF',
-    cpf_paciente:   (r[8]||'').replace(/\D/g,''),
-    nome_paciente:  r[9] || '',
-    parentesco:     r[10] || '',
+    tipo_tomador:   r[2] || 'CPF',
+    cpf_tomador:    (r[3] || '').replace(/\D/g,''),
+    nome_tomador:   r[4] || '',
+    cpf_paciente:   (r[5] || '').replace(/\D/g,''),
+    nome_paciente:  r[6] || '',
+    parentesco:     r[7] || '',
+    data_pagamento: r[8] || '',
+    valor:          parseFloat((r[9]||'0').replace(',','.').replace(/[^\d.]/g,'')) || 0,
+    descricao:      r[10] || '',
   }));
   nfAbrirPreview(notas);
 }
@@ -2278,17 +2278,17 @@ function nfMapearColunas(rows) {
   const start  = hasHdr ? 1 : 0;
   return rows.slice(start).filter(r => r.some(c => c !== '')).map((r, i) => ({
     _linha: start + i + 1,
-    sistema:        hasHdr ? String(r[idx('sistema')]||'') : String(r[0]||''),
-    competencia:    hasHdr ? String(r[idx('competencia')]||'') : String(r[1]||''),
-    cpf_tomador:    String(hasHdr ? r[idx('cpf_tomador')]||'' : r[2]||'').replace(/\D/g,''),
-    nome_tomador:   hasHdr ? String(r[idx('nome_tomador')]||'') : String(r[3]||''),
-    valor:          parseFloat(String(hasHdr ? r[idx('valor')]||0 : r[4]||0).replace(',','.').replace(/[^\d.]/g,''))||0,
-    data_pagamento: hasHdr ? String(r[idx('data_pagamento')]||'') : String(r[5]||''),
-    descricao:      hasHdr ? String(r[idx('descricao')]||'') : String(r[6]||''),
-    tipo_tomador:   hasHdr ? String(r[idx('tipo_tomador')]||'CPF') : 'CPF',
-    cpf_paciente:   String(hasHdr ? r[idx('cpf_paciente')]||'' : '').replace(/\D/g,''),
-    nome_paciente:  hasHdr ? String(r[idx('nome_paciente')]||'') : '',
-    parentesco:     hasHdr ? String(r[idx('parentesco')]||'') : '',
+    sistema:        hasHdr ? String(r[idx('sistema')]||'')             : String(r[0]||''),
+    competencia:    hasHdr ? String(r[idx('competencia')]||'')         : String(r[1]||''),
+    tipo_tomador:   hasHdr ? String(r[idx('tipo_tomador')]||'CPF')     : String(r[2]||'CPF'),
+    cpf_tomador:    String(hasHdr ? r[idx('cpf_tomador')]||'' : r[3]||'').replace(/\D/g,''),
+    nome_tomador:   hasHdr ? String(r[idx('nome_tomador')]||'')        : String(r[4]||''),
+    cpf_paciente:   String(hasHdr ? r[idx('cpf_paciente')]||'' : r[5]||'').replace(/\D/g,''),
+    nome_paciente:  hasHdr ? String(r[idx('nome_paciente')]||'')       : String(r[6]||''),
+    parentesco:     hasHdr ? String(r[idx('parentesco')]||'')          : String(r[7]||''),
+    data_pagamento: hasHdr ? String(r[idx('data_pagamento')]||'')      : String(r[8]||''),
+    valor:          parseFloat(String(hasHdr ? r[idx('valor')]||0 : r[9]||0).replace(',','.').replace(/[^\d.]/g,''))||0,
+    descricao:      hasHdr ? String(r[idx('descricao')]||'')           : String(r[10]||''),
   }));
 }
 
