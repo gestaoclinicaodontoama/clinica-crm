@@ -602,6 +602,44 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <div id="links-prontos"></div>
   </div>
 </div>
+
+<!-- NOTAS FISCAIS -->
+<div id="page-notas-fiscais" class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <h1 style="margin:0">Notas Fiscais</h1>
+    <button class="btn btn-primary" onclick="abrirModalNota(null)">+ Nova Nota</button>
+  </div>
+  <div class="cards">
+    <div class="card"><div class="card-label">Total</div><div class="card-value" id="nf-total">–</div></div>
+    <div class="card"><div class="card-label">Pendentes</div><div class="card-value" id="nf-pendentes" style="color:var(--yellow)">–</div></div>
+    <div class="card"><div class="card-label">Emitidas</div><div class="card-value" id="nf-emitidas" style="color:var(--green)">–</div></div>
+    <div class="card"><div class="card-label">Valor Emitido</div><div class="card-value" id="nf-valor" style="color:var(--green);font-size:18px">–</div></div>
+  </div>
+  <div class="table-wrap">
+    <div class="table-head">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select class="filter-select" id="nf-fil-sistema" onchange="loadNotasFiscais()">
+          <option value="">Todos sistemas</option>
+          <option>Vieira</option><option>Martins</option><option>Receita Saude</option>
+        </select>
+        <select class="filter-select" id="nf-fil-status" onchange="loadNotasFiscais()">
+          <option value="">Todos status</option>
+          <option>Pendente</option><option>Processando</option><option>Emitida</option><option>Erro</option>
+        </select>
+        <input class="filter-select" id="nf-fil-comp" placeholder="Competência ex: 05-2026" style="width:170px" onkeyup="loadNotasFiscais()">
+      </div>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Sistema</th><th>Tomador / Paciente</th><th>CPF Tomador</th>
+        <th>Valor</th><th>Competência</th><th>Status</th><th>Nota #</th><th></th>
+      </tr></thead>
+      <tbody id="nf-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
 </main>
 </div>
 
@@ -738,43 +776,6 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <button class="btn btn-primary" onclick="enviarTemplate()">Enviar</button>
   </div>
 </div>
-</div>
-
-<!-- NOTAS FISCAIS PAGE -->
-<div id="page-notas-fiscais" class="page">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-    <h1 style="margin:0">Notas Fiscais</h1>
-    <button class="btn btn-primary" onclick="abrirModalNota(null)">+ Nova Nota</button>
-  </div>
-  <div class="cards">
-    <div class="card"><div class="card-label">Total</div><div class="card-value" id="nf-total">–</div></div>
-    <div class="card"><div class="card-label">Pendentes</div><div class="card-value" id="nf-pendentes" style="color:var(--yellow)">–</div></div>
-    <div class="card"><div class="card-label">Emitidas</div><div class="card-value" id="nf-emitidas" style="color:var(--green)">–</div></div>
-    <div class="card"><div class="card-label">Valor Emitido</div><div class="card-value" id="nf-valor" style="color:var(--green);font-size:18px">–</div></div>
-  </div>
-  <div class="table-wrap">
-    <div class="table-head">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <select class="filter-select" id="nf-fil-sistema" onchange="loadNotasFiscais()">
-          <option value="">Todos sistemas</option>
-          <option>Vieira</option><option>Martins</option><option>Receita Saude</option>
-        </select>
-        <select class="filter-select" id="nf-fil-status" onchange="loadNotasFiscais()">
-          <option value="">Todos status</option>
-          <option>Pendente</option><option>Processando</option><option>Emitida</option><option>Erro</option>
-        </select>
-        <input class="filter-select" id="nf-fil-comp" placeholder="Competência ex: 05-2026" style="width:170px" onkeyup="loadNotasFiscais()">
-      </div>
-      <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
-    </div>
-    <table>
-      <thead><tr>
-        <th>Sistema</th><th>Tomador / Paciente</th><th>CPF Tomador</th>
-        <th>Valor</th><th>Competência</th><th>Status</th><th>Nota #</th><th></th>
-      </tr></thead>
-      <tbody id="nf-tbody"></tbody>
-    </table>
-  </div>
 </div>
 
 <!-- MODAL NOVO LEAD -->
