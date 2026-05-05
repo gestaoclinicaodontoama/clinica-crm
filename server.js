@@ -959,6 +959,52 @@ app.delete('/api/notas-fiscais/:id', async (req, res) => {
   }
 });
 
+app.post('/api/notas-fiscais/lote', async (req, res) => {
+  try {
+    const { notas } = req.body;
+    if (!Array.isArray(notas) || !notas.length)
+      return res.status(400).json({ error: 'Campo notas deve ser um array não vazio' });
+    if (notas.length > 200)
+      return res.status(400).json({ error: 'Máximo de 200 notas por lote' });
+
+    const criadas = [];
+    const erros = [];
+
+    for (let i = 0; i < notas.length; i++) {
+      const b = notas[i];
+      const linha = i + 1;
+      if (!b.sistema || !NF_SISTEMAS.includes(b.sistema)) { erros.push({ linha, msg: `sistema inválido: "${b.sistema}"` }); continue; }
+      if (!b.cpf_tomador || !b.nome_tomador) { erros.push({ linha, msg: 'cpf_tomador e nome_tomador obrigatórios' }); continue; }
+      if (!b.competencia || !/^\d{2}-\d{4}$/.test(b.competencia)) { erros.push({ linha, msg: `competencia inválida: "${b.competencia}"` }); continue; }
+
+      const nota = {
+        id: db.data.nextNotaId++,
+        sistema: sanitizeStr(b.sistema, 30),
+        competencia: sanitizeStr(b.competencia, 7),
+        status: 'Pendente',
+        tipo_tomador: b.tipo_tomador === 'CNPJ' ? 'CNPJ' : 'CPF',
+        cpf_tomador: sanitizeStr(b.cpf_tomador, 20).replace(/\D/g, ''),
+        nome_tomador: sanitizeStr(b.nome_tomador),
+        cpf_paciente: sanitizeStr(b.cpf_paciente || '', 20).replace(/\D/g, ''),
+        nome_paciente: sanitizeStr(b.nome_paciente || ''),
+        parentesco: sanitizeStr(b.parentesco || '', 50),
+        data_pagamento: sanitizeStr(b.data_pagamento || '', 20),
+        valor: parseFloat(String(b.valor || '0').replace(',', '.')) || 0,
+        descricao: sanitizeStr(b.descricao || '', 500),
+        num_nota: null, data_emissao: null, caminho_pdf: null, erro_msg: null,
+        criado_em: nowLocal(), atualizado_em: nowLocal(),
+      };
+      db.data.notas_fiscais.push(nota);
+      criadas.push(nota);
+    }
+
+    await db.write();
+    res.json({ ok: true, criadas: criadas.length, erros });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/notas-fiscais/stats', (req, res) => {
   const { competencia } = req.query;
   let notas = db.data.notas_fiscais;

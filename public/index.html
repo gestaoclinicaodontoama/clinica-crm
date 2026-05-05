@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CRM Clínica</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root[data-theme="dark"] {
   --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
@@ -343,6 +344,29 @@ textarea { resize: vertical; min-height: 80px; }
 .nf-row-btns button.del:hover { border-color:var(--red); color:var(--red); }
 .nf-add-btn { margin-top:8px; width:100%; padding:8px; border:1.5px dashed var(--border); border-radius:8px; background:transparent; color:var(--muted); font-family:inherit; font-size:13px; cursor:pointer; transition:all .15s; text-align:center; }
 .nf-add-btn:hover { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.05); }
+/* Import painéis */
+.nf-import-bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+.nf-imp-btn { display:flex; align-items:center; gap:7px; padding:7px 14px; border:1px solid var(--border); border-radius:8px; background:var(--bg2); color:var(--text); font-family:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; }
+.nf-imp-btn:hover { border-color:var(--accent); color:var(--accent); }
+.nf-imp-btn.active { border-color:var(--accent); background:rgba(79,142,247,.1); color:var(--accent); }
+.nf-panel { display:none; background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
+.nf-panel.open { display:block; }
+.nf-panel h3 { font-size:13px; font-weight:600; margin-bottom:10px; }
+.nf-col-map { font-size:11px; color:var(--muted); background:var(--bg3); border-radius:6px; padding:8px 12px; margin-bottom:10px; font-family:'DM Mono',monospace; line-height:1.7; }
+/* Grade lote */
+.nf-grade { overflow-x:auto; }
+.nf-grade-table { border-collapse:collapse; min-width:900px; }
+.nf-grade-table th { font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:6px 8px; border-bottom:2px solid var(--border); text-align:left; white-space:nowrap; }
+.nf-grade-table td { padding:3px 4px; border-bottom:1px solid var(--border); }
+.nf-grade-table input,.nf-grade-table select { width:100%; border:1px solid transparent; background:transparent; color:var(--text); font-family:inherit; font-size:12px; padding:4px 6px; border-radius:5px; outline:none; }
+.nf-grade-table input:focus,.nf-grade-table select:focus { border-color:var(--accent); background:var(--bg); box-shadow:0 0 0 2px rgba(79,142,247,.15); }
+.nf-grade-table tr:hover td { background:var(--bg3); }
+/* Preview importação */
+.nf-preview-table { width:100%; border-collapse:collapse; font-size:12px; max-height:320px; overflow-y:auto; display:block; }
+.nf-preview-table th { font-size:10px; text-transform:uppercase; color:var(--muted); padding:5px 8px; border-bottom:1px solid var(--border); text-align:left; position:sticky; top:0; background:var(--bg2); }
+.nf-preview-table td { padding:5px 8px; border-bottom:1px solid var(--border); }
+.nf-preview-ok { color:var(--green); }
+.nf-preview-err { color:var(--red); font-size:11px; }
 
 /* ===== INADIMPLENTES ===== */
 .inad-section { margin-bottom: 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
@@ -619,9 +643,82 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 
 <!-- NOTAS FISCAIS -->
 <div id="page-notas-fiscais" class="page">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px">
     <h1 style="margin:0">Notas Fiscais</h1>
     <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
+  </div>
+
+  <!-- Barra de import -->
+  <div class="nf-import-bar">
+    <button class="nf-imp-btn" id="nf-btn-colar" onclick="nfTogglePanel('colar')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      Colar do Excel / Sheets
+    </button>
+    <button class="nf-imp-btn" id="nf-btn-arquivo" onclick="nfTogglePanel('arquivo')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Subir arquivo CSV / XLSX
+    </button>
+    <button class="nf-imp-btn" id="nf-btn-grade" onclick="nfTogglePanel('grade')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+      Lançamento em lote
+    </button>
+    <input type="file" id="nf-file-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="nfArquivoSelecionado(this)">
+  </div>
+
+  <!-- Painel 1: Colar TSV -->
+  <div class="nf-panel" id="nf-panel-colar">
+    <h3>Colar do Excel / Google Sheets</h3>
+    <div class="nf-col-map">Ordem das colunas esperada (copie o cabeçalho junto ou sem ele):<br>
+      A: Sistema &nbsp;·&nbsp; B: Competência &nbsp;·&nbsp; C: CPF/CNPJ Tomador &nbsp;·&nbsp; D: Nome Tomador &nbsp;·&nbsp;
+      E: Valor &nbsp;·&nbsp; F: Data Pgto &nbsp;·&nbsp; G: Descrição &nbsp;·&nbsp; H: Tipo (CPF/CNPJ) &nbsp;·&nbsp;
+      I: CPF Paciente &nbsp;·&nbsp; J: Nome Paciente &nbsp;·&nbsp; K: Parentesco<br>
+      <strong>Apenas A–E são obrigatórias. Colunas F em diante são opcionais.</strong>
+    </div>
+    <textarea id="nf-colar-txt" rows="6" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text);outline:none;resize:vertical" placeholder="Cole aqui as células copiadas do Excel ou Google Sheets (Ctrl+C → Ctrl+V)"></textarea>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:8px">
+      <button class="btn btn-ghost" style="font-size:12px" onclick="nfTogglePanel('colar')">Fechar</button>
+      <button class="btn btn-primary" style="font-size:12px" onclick="nfParseColar()">Analisar →</button>
+    </div>
+  </div>
+
+  <!-- Painel 2: Upload arquivo -->
+  <div class="nf-panel" id="nf-panel-arquivo">
+    <h3>Subir arquivo CSV ou XLSX</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      O arquivo deve ter uma linha de cabeçalho. Os nomes das colunas reconhecidos (não diferencia maiúsculas/minúsculas):<br>
+      <strong>sistema, competencia, cpf_tomador, nome_tomador, valor</strong> (obrigatórias) · data_pagamento, descricao, tipo_tomador, cpf_paciente, nome_paciente, parentesco (opcionais)
+    </p>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="btn btn-primary" style="font-size:12px" onclick="document.getElementById('nf-file-input').click()">Escolher arquivo…</button>
+      <span id="nf-arquivo-nome" style="font-size:12px;color:var(--muted)">Nenhum arquivo selecionado</span>
+    </div>
+  </div>
+
+  <!-- Painel 3: Grade lote -->
+  <div class="nf-panel" id="nf-panel-grade">
+    <h3>Lançamento em lote</h3>
+    <div class="nf-grade">
+      <table class="nf-grade-table">
+        <thead><tr>
+          <th style="width:110px">Sistema *</th>
+          <th style="width:100px">Competência *</th>
+          <th style="width:120px">CPF/CNPJ *</th>
+          <th>Nome Tomador *</th>
+          <th style="width:80px">Valor *</th>
+          <th style="width:100px">Data Pgto</th>
+          <th>Descrição</th>
+          <th style="width:32px"></th>
+        </tr></thead>
+        <tbody id="nf-grade-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:8px">
+      <button class="btn btn-ghost" style="font-size:12px" onclick="nfGradeAddLinha()">+ Linha</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="nfTogglePanel('grade')">Fechar</button>
+        <button class="btn btn-primary" style="font-size:12px" onclick="nfGradeSalvar()">✓ Salvar tudo</button>
+      </div>
+    </div>
   </div>
   <div class="cards">
     <div class="card"><div class="card-label">Total</div><div class="card-value" id="nf-total">–</div></div>
@@ -835,6 +932,30 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <textarea id="nl-obs" class="search-input" style="width:100%;height:72px;resize:vertical" placeholder="opcional"></textarea>
       </div>
       <button class="btn btn-primary" style="width:100%" onclick="criarLeadManual(this)">Criar Lead</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PRÉVIA IMPORTAÇÃO NF -->
+<div class="modal-bg" id="modal-nf-preview-bg" onclick="if(event.target===this)fecharPreviewNF()">
+  <div class="modal" style="max-width:780px">
+    <div class="modal-header">
+      <div class="modal-titulo">Prévia da importação</div>
+      <button class="modal-close" onclick="fecharPreviewNF()">×</button>
+    </div>
+    <div id="nf-preview-stats" style="font-size:13px;margin-bottom:12px"></div>
+    <div style="overflow:auto;max-height:340px;border:1px solid var(--border);border-radius:8px">
+      <table class="nf-preview-table" id="nf-preview-table">
+        <thead><tr>
+          <th>#</th><th>Sistema</th><th>Competência</th><th>CPF/CNPJ</th>
+          <th>Nome Tomador</th><th>Valor</th><th>Data Pgto</th><th>Descrição</th><th>Status</th>
+        </tr></thead>
+        <tbody id="nf-preview-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost" onclick="fecharPreviewNF()">Cancelar</button>
+      <button class="btn btn-primary" id="nf-preview-btn-import" onclick="nfConfirmarImport()">Importar</button>
     </div>
   </div>
 </div>
@@ -2057,6 +2178,224 @@ async function deletarNota(id) {
   if (r.error) { toast('❌ ' + r.error, true); return; }
   toast('🗑 Nota excluída');
   loadNotasFiscais();
+}
+
+// ======= IMPORT EM LOTE =======
+let _nfImportBuffer = [];
+
+function nfTogglePanel(which) {
+  const panels = { colar:'nf-panel-colar', arquivo:'nf-panel-arquivo', grade:'nf-panel-grade' };
+  const btns   = { colar:'nf-btn-colar', arquivo:'nf-btn-arquivo', grade:'nf-btn-grade' };
+  Object.keys(panels).forEach(k => {
+    const el = document.getElementById(panels[k]);
+    const btn = document.getElementById(btns[k]);
+    if (k === which) {
+      const opening = !el.classList.contains('open');
+      el.classList.toggle('open', opening);
+      btn.classList.toggle('active', opening);
+      if (k === 'grade' && opening && !document.getElementById('nf-grade-tbody').children.length) {
+        for (let i = 0; i < 5; i++) nfGradeAddLinha();
+      }
+    } else {
+      el.classList.remove('open');
+      btn.classList.remove('active');
+    }
+  });
+}
+
+// --- Opção 1: Colar TSV ---
+function nfParseColar() {
+  const raw = document.getElementById('nf-colar-txt').value.trim();
+  if (!raw) { toast('Cole os dados primeiro', true); return; }
+  const linhas = raw.split('\n').map(l => l.split('\t').map(c => c.trim()));
+  // detecta cabeçalho (linha que contém "sistema" ou "nome")
+  let start = 0;
+  const hdr = linhas[0].join('').toLowerCase();
+  if (hdr.includes('sistema') || hdr.includes('nome') || hdr.includes('cpf')) start = 1;
+  const notas = linhas.slice(start).filter(r => r.some(c => c)).map((r, i) => ({
+    _linha: start + i + 1,
+    sistema:        r[0] || '',
+    competencia:    r[1] || '',
+    cpf_tomador:    (r[2] || '').replace(/\D/g,''),
+    nome_tomador:   r[3] || '',
+    valor:          parseFloat((r[4]||'0').replace(',','.').replace(/[^\d.]/g,'')) || 0,
+    data_pagamento: r[5] || '',
+    descricao:      r[6] || '',
+    tipo_tomador:   r[7] || 'CPF',
+    cpf_paciente:   (r[8]||'').replace(/\D/g,''),
+    nome_paciente:  r[9] || '',
+    parentesco:     r[10] || '',
+  }));
+  nfAbrirPreview(notas);
+}
+
+// --- Opção 2: Upload arquivo ---
+function nfArquivoSelecionado(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('nf-arquivo-nome').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    let notas;
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      notas = nfMapearColunas(rows);
+    } catch (err) {
+      toast('❌ Erro ao ler arquivo: ' + err.message, true);
+      return;
+    }
+    input.value = '';
+    nfAbrirPreview(notas);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function nfMapearColunas(rows) {
+  if (!rows.length) return [];
+  // detectar linha de cabeçalho
+  const hdrRow = rows[0].map(c => String(c).toLowerCase().trim().replace(/[\s\/]/g,'_'));
+  const idx = f => {
+    const aliases = {
+      sistema:        ['sistema'],
+      competencia:    ['competencia','competência'],
+      cpf_tomador:    ['cpf_tomador','cpf','cnpj','cpf_cnpj','cpf/cnpj'],
+      nome_tomador:   ['nome_tomador','nome','tomador'],
+      valor:          ['valor','value'],
+      data_pagamento: ['data_pagamento','data','data_pgto'],
+      descricao:      ['descricao','descrição','descricao_servico','descrição_do_serviço'],
+      tipo_tomador:   ['tipo_tomador','tipo'],
+      cpf_paciente:   ['cpf_paciente'],
+      nome_paciente:  ['nome_paciente','paciente'],
+      parentesco:     ['parentesco'],
+    };
+    for (const a of (aliases[f]||[])) { const i = hdrRow.indexOf(a); if (i>=0) return i; }
+    return -1;
+  };
+  // fallback por posição se não encontrar cabeçalho reconhecido
+  const hasHdr = idx('sistema') >= 0 || idx('nome_tomador') >= 0;
+  const start  = hasHdr ? 1 : 0;
+  return rows.slice(start).filter(r => r.some(c => c !== '')).map((r, i) => ({
+    _linha: start + i + 1,
+    sistema:        hasHdr ? String(r[idx('sistema')]||'') : String(r[0]||''),
+    competencia:    hasHdr ? String(r[idx('competencia')]||'') : String(r[1]||''),
+    cpf_tomador:    String(hasHdr ? r[idx('cpf_tomador')]||'' : r[2]||'').replace(/\D/g,''),
+    nome_tomador:   hasHdr ? String(r[idx('nome_tomador')]||'') : String(r[3]||''),
+    valor:          parseFloat(String(hasHdr ? r[idx('valor')]||0 : r[4]||0).replace(',','.').replace(/[^\d.]/g,''))||0,
+    data_pagamento: hasHdr ? String(r[idx('data_pagamento')]||'') : String(r[5]||''),
+    descricao:      hasHdr ? String(r[idx('descricao')]||'') : String(r[6]||''),
+    tipo_tomador:   hasHdr ? String(r[idx('tipo_tomador')]||'CPF') : 'CPF',
+    cpf_paciente:   String(hasHdr ? r[idx('cpf_paciente')]||'' : '').replace(/\D/g,''),
+    nome_paciente:  hasHdr ? String(r[idx('nome_paciente')]||'') : '',
+    parentesco:     hasHdr ? String(r[idx('parentesco')]||'') : '',
+  }));
+}
+
+// --- Prévia compartilhada ---
+const NF_SISTEMAS_VALID = ['vieira','martins','receita saude'];
+function nfValidarLinha(n) {
+  if (!NF_SISTEMAS_VALID.includes(n.sistema.toLowerCase())) return `Sistema inválido: "${n.sistema}"`;
+  if (!/^\d{2}-\d{4}$/.test(n.competencia)) return `Competência inválida: "${n.competencia}"`;
+  if (!n.cpf_tomador) return 'CPF/CNPJ obrigatório';
+  if (!n.nome_tomador) return 'Nome tomador obrigatório';
+  if (!n.valor) return 'Valor obrigatório';
+  return null;
+}
+function nfNormalizarSistema(s) {
+  const map = {'vieira':'Vieira','martins':'Martins','receita saude':'Receita Saude','receitasaude':'Receita Saude'};
+  return map[s.toLowerCase().trim()] || s;
+}
+
+function nfAbrirPreview(notas) {
+  const validadas = notas.map(n => ({ ...n, sistema: nfNormalizarSistema(n.sistema), _erro: nfValidarLinha({ ...n, sistema: nfNormalizarSistema(n.sistema) }) }));
+  const ok  = validadas.filter(n => !n._erro).length;
+  const err = validadas.filter(n =>  n._erro).length;
+  _nfImportBuffer = validadas;
+
+  document.getElementById('nf-preview-stats').innerHTML =
+    `<strong>${validadas.length}</strong> linha(s) detectada(s) · ` +
+    `<span style="color:var(--green)">${ok} válidas</span> · ` +
+    `<span style="color:var(--red)">${err} com erro</span>`;
+  document.getElementById('nf-preview-btn-import').textContent = `Importar ${ok} nota(s)`;
+  document.getElementById('nf-preview-btn-import').disabled = ok === 0;
+
+  document.getElementById('nf-preview-tbody').innerHTML = validadas.map((n, i) => `<tr>
+    <td style="color:var(--muted)">${n._linha ?? i+1}</td>
+    <td>${nfSistemaBadge(n.sistema)}</td>
+    <td style="font-family:'DM Mono',monospace">${n.competencia}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:11px">${nfMask(n.cpf_tomador)}</td>
+    <td>${n.nome_tomador}</td>
+    <td style="font-family:'DM Mono',monospace">${nfFmt(n.valor)}</td>
+    <td style="font-size:11px">${n.data_pagamento||'—'}</td>
+    <td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.descricao||'—'}</td>
+    <td>${n._erro ? `<span class="nf-preview-err">✕ ${n._erro}</span>` : '<span class="nf-preview-ok">✓</span>'}</td>
+  </tr>`).join('');
+
+  document.getElementById('modal-nf-preview-bg').classList.add('open');
+}
+
+function fecharPreviewNF() {
+  document.getElementById('modal-nf-preview-bg').classList.remove('open');
+  _nfImportBuffer = [];
+}
+
+async function nfConfirmarImport() {
+  const validas = _nfImportBuffer.filter(n => !n._erro);
+  if (!validas.length) return;
+  const btn = document.getElementById('nf-preview-btn-import');
+  btn.disabled = true; btn.textContent = 'Importando…';
+  const r = await api('/api/notas-fiscais/lote', { method:'POST', body: JSON.stringify({ notas: validas }) });
+  if (r.error) { toast('❌ ' + r.error, true); btn.disabled=false; return; }
+  fecharPreviewNF();
+  // Fechar painéis
+  ['colar','arquivo','grade'].forEach(k => {
+    document.getElementById('nf-panel-'+k).classList.remove('open');
+    document.getElementById('nf-btn-'+k).classList.remove('active');
+  });
+  document.getElementById('nf-colar-txt').value = '';
+  document.getElementById('nf-arquivo-nome').textContent = 'Nenhum arquivo selecionado';
+  toast(`✅ ${r.criadas} nota(s) criadas${r.erros?.length ? ' · ' + r.erros.length + ' erros ignorados' : ''}`);
+  loadNotasFiscais();
+}
+
+// --- Opção 3: Grade lote ---
+let _nfGradeIdx = 0;
+function nfGradeAddLinha() {
+  const idx = _nfGradeIdx++;
+  const tr = document.createElement('tr');
+  tr.id = `nf-g-${idx}`;
+  tr.innerHTML = `
+    <td><select class="nf-g-sis" style="width:100%">
+      <option value="">—</option><option>Vieira</option><option>Martins</option><option value="Receita Saude">Receita Saude</option>
+    </select></td>
+    <td><input class="nf-g-comp" placeholder="05-2026" maxlength="7"></td>
+    <td><input class="nf-g-cpf" placeholder="000.000.000-00"></td>
+    <td><input class="nf-g-nome" placeholder="Nome completo"></td>
+    <td><input class="nf-g-val" type="number" placeholder="0"></td>
+    <td><input class="nf-g-data" placeholder="04/05/2026"></td>
+    <td><input class="nf-g-desc" placeholder="Descrição..."></td>
+    <td><button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:2px 6px" onclick="this.closest('tr').remove()" title="Remover linha">✕</button></td>`;
+  document.getElementById('nf-grade-tbody').appendChild(tr);
+}
+
+async function nfGradeSalvar() {
+  const rows = document.getElementById('nf-grade-tbody').querySelectorAll('tr');
+  const notas = [];
+  rows.forEach((tr, i) => {
+    const sistema     = tr.querySelector('.nf-g-sis').value;
+    const competencia = tr.querySelector('.nf-g-comp').value.trim();
+    const cpf_tomador = tr.querySelector('.nf-g-cpf').value.trim().replace(/\D/g,'');
+    const nome_tomador= tr.querySelector('.nf-g-nome').value.trim();
+    const valor       = parseFloat(tr.querySelector('.nf-g-val').value)||0;
+    if (!sistema && !cpf_tomador && !nome_tomador) return; // linha vazia, ignorar
+    notas.push({ _linha: i+1, sistema, competencia, cpf_tomador, nome_tomador, valor,
+      data_pagamento: tr.querySelector('.nf-g-data').value.trim(),
+      descricao:      tr.querySelector('.nf-g-desc').value.trim(),
+      tipo_tomador: 'CPF', cpf_paciente:'', nome_paciente:'', parentesco:'' });
+  });
+  if (!notas.length) { toast('Preencha pelo menos uma linha', true); return; }
+  nfAbrirPreview(notas);
 }
 
 // ===== INADIMPLENTES =====
