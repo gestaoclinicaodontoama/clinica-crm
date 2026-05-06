@@ -648,6 +648,16 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
   </div>
 
+  <!-- Agente local de emissão -->
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding:12px 16px;background:var(--bg2);border-radius:8px;border:1px solid var(--border);flex-wrap:wrap">
+    <span id="nf-agente-dot" style="font-size:18px;line-height:1">⚫</span>
+    <span id="nf-agente-msg" style="font-size:13px;color:var(--muted);flex:1;min-width:160px">Verificando agente local...</span>
+    <button id="nf-btn-emitir" class="btn btn-primary" style="font-size:13px;white-space:nowrap" onclick="agenteEmitir()" disabled>🖨️ Emitir Pendentes</button>
+  </div>
+  <div id="nf-agente-log-wrap" style="display:none;margin-bottom:14px">
+    <pre id="nf-agente-log" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;font-family:'DM Mono',monospace;max-height:180px;overflow-y:auto;white-space:pre-wrap;color:var(--text);margin:0"></pre>
+  </div>
+
   <!-- Barra de import -->
   <div class="nf-import-bar">
     <button class="nf-imp-btn" id="nf-btn-colar" onclick="nfTogglePanel('colar')">
@@ -1117,7 +1127,7 @@ function setPage(p, btn) {
   if (p === 'config') atualizarLinks();
   if (p === 'conversas') loadConversas();
   if (p === 'disparos') loadDisparos();
-  if (p === 'notas-fiscais') loadNotasFiscais();
+  if (p === 'notas-fiscais') { loadNotasFiscais(); agenteVerificar(); }
   if (p === 'inadimplentes') loadInadimplentes(false);
   if (p !== 'conversas' && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
 }
@@ -2396,6 +2406,62 @@ async function nfGradeSalvar() {
   });
   if (!notas.length) { toast('Preencha pelo menos uma linha', true); return; }
   nfAbrirPreview(notas);
+}
+
+// ===== AGENTE LOCAL =====
+const AGENTE = 'http://localhost:5555';
+let _agentePoll = null;
+
+async function agenteVerificar() {
+  try {
+    const r = await fetch(AGENTE + '/status', { signal: AbortSignal.timeout(1500) });
+    const d = await r.json();
+    document.getElementById('nf-agente-dot').textContent = d.rodando ? '🟡' : '🟢';
+    document.getElementById('nf-agente-msg').textContent = d.rodando
+      ? 'Emitindo notas...' : 'Agente conectado — pronto para emitir';
+    const btn = document.getElementById('nf-btn-emitir');
+    btn.disabled = d.rodando;
+    btn.textContent = d.rodando ? '⏳ Emitindo...' : '🖨️ Emitir Pendentes';
+  } catch(e) {
+    document.getElementById('nf-agente-dot').textContent = '⚫';
+    document.getElementById('nf-agente-msg').innerHTML =
+      'Agente offline &mdash; abra <strong>INICIAR AGENTE.bat</strong> na pasta nf-automation';
+    document.getElementById('nf-btn-emitir').disabled = true;
+    document.getElementById('nf-btn-emitir').textContent = '🖨️ Emitir Pendentes';
+  }
+}
+
+async function agenteEmitir() {
+  document.getElementById('nf-btn-emitir').disabled = true;
+  document.getElementById('nf-btn-emitir').textContent = '⏳ Emitindo...';
+  document.getElementById('nf-agente-log-wrap').style.display = '';
+  document.getElementById('nf-agente-log').textContent = 'Iniciando...\n';
+  try {
+    const r = await fetch(AGENTE + '/emitir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) { toast('❌ ' + d.erro, true); agenteVerificar(); return; }
+    if (_agentePoll) clearInterval(_agentePoll);
+    _agentePoll = setInterval(async () => {
+      await agenteVerificar();
+      try {
+        const rp = await fetch(AGENTE + '/progresso');
+        const dp = await rp.json();
+        if (dp.log?.length) {
+          const pre = document.getElementById('nf-agente-log');
+          pre.textContent = dp.log.join('\n');
+          pre.scrollTop = pre.scrollHeight;
+        }
+        if (!dp.rodando) {
+          clearInterval(_agentePoll); _agentePoll = null;
+          loadNotasFiscais();
+          toast('✅ Emissão concluída!');
+        }
+      } catch(e) {}
+    }, 2000);
+  } catch(e) {
+    toast('❌ Agente não respondeu', true);
+    agenteVerificar();
+  }
 }
 
 // ===== INADIMPLENTES =====
