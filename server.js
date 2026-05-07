@@ -1203,36 +1203,14 @@ app.get('/api/inadimplentes', async (req, res) => {
     const futStr  = futDate.toISOString().split('T')[0];
 
     let items = [], endpointUsado = '';
-    const FROM = '2019-01-01'; // cobre dívidas históricas
+    const FROM = '2019-01-01'; // cobre dívidas históricas desde 2019
 
-    // Tentativa 1: /financial/list_receipt (contas a receber — endpoint correto no Swagger Clinicorp)
+    // /payment/list — endpoint que retorna parcelas individuais com DueDate
     try {
-      const r = await clinicorpGet('/financial/list_receipt', { from: FROM, to: futStr });
-      console.log(`[Inadimplentes] /financial/list_receipt → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,120)}`);
-      if (r.status === 200 && Array.isArray(r.data) && r.data.length > 0) {
-        items = r.data; endpointUsado = '/financial/list_receipt';
-      }
-    } catch(e) { console.log('[Inadimplentes] /financial/list_receipt erro:', e.message); }
-
-    // Tentativa 2: /receivable/list
-    if (!items.length) {
-      try {
-        const r = await clinicorpGet('/receivable/list', { from: FROM, to: futStr });
-        console.log(`[Inadimplentes] /receivable/list → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,120)}`);
-        if (r.status === 200 && Array.isArray(r.data) && r.data.length > 0) {
-          items = r.data; endpointUsado = '/receivable/list';
-        }
-      } catch(e) { console.log('[Inadimplentes] /receivable/list erro:', e.message); }
-    }
-
-    // Tentativa 3 (fallback): /payment/list (legacy)
-    if (!items.length) {
-      try {
-        const r = await clinicorpGet('/payment/list', { from: FROM, to: futStr });
-        console.log(`[Inadimplentes] /payment/list → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,120)}`);
-        if (r.status === 200 && Array.isArray(r.data)) { items = r.data; endpointUsado = '/payment/list'; }
-      } catch(e) { console.log('[Inadimplentes] /payment/list erro:', e.message); }
-    }
+      const r = await clinicorpGet('/payment/list', { from: FROM, to: futStr });
+      console.log(`[Inadimplentes] /payment/list → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,120)}`);
+      if (r.status === 200 && Array.isArray(r.data)) { items = r.data; endpointUsado = '/payment/list'; }
+    } catch(e) { console.log('[Inadimplentes] /payment/list erro:', e.message); }
 
     if (!items.length) {
       return res.json({
