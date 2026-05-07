@@ -80,6 +80,21 @@ class Handler(BaseHTTPRequestHandler):
             with Estado.lock:
                 log = list(Estado.log)
             self._json({"log": log, "rodando": Estado.rodando})
+        elif self.path == "/version":
+            from pathlib import Path
+            try:
+                src = (Path(__file__).parent / "nfse_prefeitura.py").read_text(encoding="utf-8")
+                has_v3 = "[reforma v3-ibs]" in src
+                has_ibs = "_aguardar_frame_ibs" in src
+                has_old = "Mouse click em" in src
+                snippet = ""
+                for line in src.splitlines():
+                    if "_reforma_tributaria" in line or "v3-ibs" in line or "aguardar_frame_ibs" in line:
+                        snippet = line.strip()[:120]
+                        break
+                self._json({"v3": has_v3, "ibs": has_ibs, "old_diag": has_old, "snippet": snippet})
+            except Exception as e:
+                self._json({"error": str(e)})
         else:
             self._json({"erro": "rota não encontrada"}, 404)
 
