@@ -1142,6 +1142,7 @@ function setPage(p, btn) {
   document.getElementById('page-'+p).classList.add('active');
   btn.classList.add('active');
   window.scrollTo(0, 0);
+  document.querySelector('main').scrollTop = 0;
   if (p === 'dashboard') loadDash();
   if (p === 'leads') loadLeads();
   if (p === 'funil') loadKanban();
