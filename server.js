@@ -1244,8 +1244,8 @@ app.get('/api/inadimplentes', async (req, res) => {
   }
 });
 
-// GET /api/inadimplentes/debug — retorna amostra dos campos brutos da Clinicorp para diagnóstico
-app.get('/api/inadimplentes/debug', async (req, res) => {
+// GET /api/debug-inad — retorna amostra dos campos brutos da Clinicorp para diagnóstico
+app.get('/api/debug-inad', async (req, res) => {
   try {
     const today   = new Date().toISOString().split('T')[0];
     const futDate = new Date(); futDate.setFullYear(futDate.getFullYear() + 3);
