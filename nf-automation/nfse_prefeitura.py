@@ -628,8 +628,26 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
 
     # Descarta alerts (abrirIBSCBS usa alert() se codigo vazio)
     page.on("dialog", lambda d: d.dismiss())
-    found_loc.click(timeout=5000)
-    print("  Botão Reforma Tributária clicado")
+
+    # JS click é mais confiável em iframe — Playwright click dá timeout por coordenadas
+    clicou = False
+    for tentativa, metodo in enumerate(["js_btn", "js_jquery", "playwright"], 1):
+        try:
+            if metodo == "js_btn":
+                form.evaluate("document.querySelector('button#btnTributos').click()")
+            elif metodo == "js_jquery":
+                form.evaluate(
+                    "if(typeof $!=='undefined'){ $('button#btnTributos').trigger('click'); }"
+                )
+            else:
+                found_loc.click(timeout=4000)
+            clicou = True
+            print(f"  Botão Reforma Tributária clicado ({metodo})")
+            break
+        except Exception as e:
+            print(f"  Click {metodo} falhou: {e}")
+    if not clicou:
+        raise RuntimeError("Não foi possível clicar no botão Reforma Tributária.")
 
     # Aguarda iframe ibs_cbs_modal
     modal_frame = _aguardar_frame_ibs(page, timeout_s=12)
