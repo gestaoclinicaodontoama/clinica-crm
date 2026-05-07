@@ -339,7 +339,7 @@ app.get('/api/stats', (req, res) => {
     .filter(l => ['Agendado','Compareceu','Em Avaliação','Orçamento Enviado'].includes(l.status))
     .reduce((s, l) => s + (l.valor || 0), 0);
   const ultimosLeads = [...leads].sort((a, b) => b.id - a.id).slice(0, 10);
-  res.json({ total, porStatus, porOrigem, receita, ticketMedio, oportunidade, ultimosLeads });
+  res.json({ total, porStatus, porOrigem, receita, ticketMedio, oportunidade, ultimosLeads, _v: 4 });
 });
 
 // ========== TELEFONIA ==========

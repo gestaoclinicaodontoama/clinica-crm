@@ -24,11 +24,11 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; transition: background .2s, color .2s; }
 
-.shell { display: flex; min-height: 100vh; }
+.shell { display: flex; height: 100vh; overflow: hidden; }
 
 nav {
   width: 220px; background: var(--bg2); border-right: 1px solid var(--border);
-  padding: 22px 14px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; min-height: 100vh;
+  padding: 22px 14px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; height: 100vh; overflow-y: auto;
 }
 .logo { font-size: 18px; font-weight: 700; padding: 6px 12px 22px; letter-spacing: -.4px; }
 .logo span { color: var(--accent); }
@@ -48,7 +48,7 @@ nav {
 }
 .theme-btn:hover { background: var(--border); }
 
-main { flex: 1; padding: 28px; overflow-x: hidden; }
+main { flex: 1; padding: 28px; overflow-x: hidden; overflow-y: auto; height: 100vh; }
 .page { display: none; }
 .page.active { display: block; }
 
@@ -1141,7 +1141,6 @@ function setPage(p, btn) {
   document.querySelectorAll('.nav-btn').forEach(x => x.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   btn.classList.add('active');
-  window.scrollTo(0, 0);
   document.querySelector('main').scrollTop = 0;
   if (p === 'dashboard') loadDash();
   if (p === 'leads') loadLeads();
