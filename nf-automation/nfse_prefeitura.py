@@ -593,6 +593,7 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
     abrirIBSCBS (ibs_cbs.js) verifica input[name="codigo"] antes de criar o iframe;
     se vazio dispara alert() e retorna sem efeito. Por isso forçamos o valor primeiro.
     """
+    print("  [reforma v3-ibs]")
     form = _frame_formulario(page)
 
     # Garante codigo preenchido — abrirIBSCBS aborta silenciosamente se vazio
