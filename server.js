@@ -41,6 +41,7 @@ async function initDb() {
   if (!db.data.mensagens) db.data.mensagens = [];
   if (!db.data.templates) db.data.templates = [];
   if (!db.data.notas_fiscais) db.data.notas_fiscais = [];
+  db.data.notas_fiscais.forEach(n => { if (!n.historico) n.historico = []; });
   if (!db.data.inadimplentes_notas) db.data.inadimplentes_notas = [];
   if (!db.data.nextChamadaId) db.data.nextChamadaId = 1;
   if (!db.data.nextMensagemId) db.data.nextMensagemId = 1;
@@ -852,6 +853,43 @@ async function dispararConversaoGoogle(lead) {
   await db.write();
 }
 
+// ========== CAPTCHA MANUAL ==========
+let _captchaPendente = null; // { token, img_b64, resposta, criado_em }
+
+app.post('/api/nf-captcha', (req, res) => {
+  const { img_b64 } = req.body;
+  if (!img_b64) return res.status(400).json({ error: 'img_b64 obrigatório' });
+  const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  _captchaPendente = { token, img_b64, resposta: null, criado_em: Date.now() };
+  res.json({ ok: true, token });
+});
+
+app.get('/api/nf-captcha', (req, res) => {
+  if (!_captchaPendente || Date.now() - _captchaPendente.criado_em > 120000) {
+    _captchaPendente = null;
+    return res.json({ pendente: false });
+  }
+  // Já foi respondido — não reabre o modal
+  if (_captchaPendente.resposta) return res.json({ pendente: false });
+  res.json({ pendente: true, token: _captchaPendente.token, img_b64: _captchaPendente.img_b64 });
+});
+
+app.post('/api/nf-captcha/:token/resposta', (req, res) => {
+  const { digitos } = req.body;
+  if (!_captchaPendente || _captchaPendente.token !== req.params.token)
+    return res.status(404).json({ error: 'token inválido ou expirado' });
+  _captchaPendente.resposta = String(digitos || '').replace(/\D/g, '').slice(0, 4);
+  res.json({ ok: true });
+});
+
+app.get('/api/nf-captcha/:token/aguardar', (req, res) => {
+  if (!_captchaPendente || _captchaPendente.token !== req.params.token)
+    return res.json({ ok: false, expirado: true });
+  if (_captchaPendente.resposta)
+    return res.json({ ok: true, digitos: _captchaPendente.resposta });
+  res.json({ ok: false, aguardando: true });
+});
+
 // ========== NOTAS FISCAIS ==========
 const NF_SISTEMAS = ['Vieira', 'Martins', 'Receita Saude'];
 const NF_STATUS   = ['Pendente', 'Processando', 'Emitida', 'Erro'];
@@ -904,6 +942,7 @@ app.post('/api/notas-fiscais', async (req, res) => {
       data_emissao: null,
       caminho_pdf: null,
       erro_msg: null,
+      historico: [],
       criado_em: nowLocal(),
       atualizado_em: nowLocal(),
     };
@@ -927,6 +966,9 @@ app.patch('/api/notas-fiscais/:id', async (req, res) => {
     ];
     const ALLOWED_RESULT = ['status','num_nota','data_emissao','caminho_pdf','erro_msg'];
 
+    const statusAntes = nota.status;
+    const quem = req.body.quem === 'sistema' ? 'sistema' : 'manual';
+
     for (const k of [...ALLOWED_EDIT, ...ALLOWED_RESULT]) {
       if (!(k in req.body)) continue;
       let v = req.body[k];
@@ -936,6 +978,12 @@ app.patch('/api/notas-fiscais/:id', async (req, res) => {
       if (typeof v === 'string') v = sanitizeStr(v, 500);
       nota[k] = v;
     }
+
+    if (req.body.status && req.body.status !== statusAntes) {
+      if (!nota.historico) nota.historico = [];
+      nota.historico.push({ de: statusAntes, para: nota.status, quando: nowLocal(), quem });
+    }
+
     nota.atualizado_em = nowLocal();
     await db.write();
     res.json({ ok: true, nota });
@@ -992,6 +1040,7 @@ app.post('/api/notas-fiscais/lote', async (req, res) => {
         valor: parseFloat(String(b.valor || '0').replace(',', '.')) || 0,
         descricao: sanitizeStr(b.descricao || '', 500),
         num_nota: null, data_emissao: null, caminho_pdf: null, erro_msg: null,
+        historico: [],
         criado_em: nowLocal(), atualizado_em: nowLocal(),
       };
       db.data.notas_fiscais.push(nota);
@@ -1057,8 +1106,10 @@ function processarInadimplentes(items, today) {
     if (!patId) return;
 
     // Ignora registros já pagos
-    const paidDate = i.ReceivedDate || i.PaidDate || i.PaymentDate || i.paid_date || '';
-    if (paidDate) return;
+    // Clinicorp /payment/list: PaymentReceived='X' = pago; ausente = pendente
+    const isPaid = i.PaymentReceived === 'X' ||
+      (!i.PaymentReceived && (i.PaidDate || i.paid_date));
+    if (isPaid) return;
 
     const dueDate = i.DueDate || i.due_date || i.ScheduledDate || i.InstallmentDate || '';
     if (!dueDate) return;
@@ -1191,6 +1242,44 @@ app.get('/api/inadimplentes', async (req, res) => {
     console.error('❌ inadimplentes:', e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// GET /api/inadimplentes/debug — retorna amostra dos campos brutos da Clinicorp para diagnóstico
+app.get('/api/inadimplentes/debug', async (req, res) => {
+  try {
+    const today   = new Date().toISOString().split('T')[0];
+    const futDate = new Date(); futDate.setFullYear(futDate.getFullYear() + 3);
+    const futStr  = futDate.toISOString().split('T')[0];
+    const result  = { today, receivable: null, payment: null };
+
+    try {
+      const r = await clinicorpGet('/receivable/list', { from: '2023-01-01', to: futStr });
+      result.receivable = {
+        status: r.status,
+        isArray: Array.isArray(r.data),
+        total: Array.isArray(r.data) ? r.data.length : null,
+        errorMsg: !Array.isArray(r.data) ? JSON.stringify(r.data).slice(0, 300) : undefined,
+        sample: Array.isArray(r.data) ? r.data.slice(0, 2) : [],
+      };
+    } catch(e) { result.receivable = { error: e.message }; }
+
+    try {
+      const r = await clinicorpGet('/payment/list', { from: '2023-01-01', to: futStr });
+      result.payment = {
+        status: r.status,
+        isArray: Array.isArray(r.data),
+        total: Array.isArray(r.data) ? r.data.length : null,
+        errorMsg: !Array.isArray(r.data) ? JSON.stringify(r.data).slice(0, 300) : undefined,
+        sample: Array.isArray(r.data) ? r.data.slice(0, 2) : [],
+        futureCount: Array.isArray(r.data) ? r.data.filter(i => {
+          const d = i.DueDate || i.due_date || i.ScheduledDate || i.InstallmentDate || '';
+          return d >= today;
+        }).length : null,
+      };
+    } catch(e) { result.payment = { error: e.message }; }
+
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // PATCH /api/inadimplentes/nota/:patientId — salva notas editáveis (Responsável, Próximo Passo, OBS)

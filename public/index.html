@@ -326,6 +326,26 @@ textarea { resize: vertical; min-height: 80px; }
 .nf-status-Processando  { background: rgba(79,142,247,.15); color: var(--b-lead); }
 .nf-status-Emitida      { background: rgba(34,197,94,.15);  color: var(--green); }
 .nf-status-Erro         { background: rgba(239,68,68,.15);  color: var(--red); }
+.nf-sheet tbody tr.nf-row-clickable { cursor: pointer; }
+.captcha-modal-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1100;align-items:center;justify-content:center }
+.captcha-modal-overlay.ativo { display:flex }
+.captcha-modal { background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:28px 24px;max-width:480px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.35) }
+.captcha-modal img { width:100%;max-width:420px;border:1px solid var(--border);border-radius:6px;margin:14px auto;display:block;image-rendering:pixelated }
+.captcha-modal input { width:140px;text-align:center;font-size:22px;font-family:'DM Mono',monospace;letter-spacing:8px;padding:10px;border:2px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--text);outline:none }
+.captcha-modal input:focus { border-color:var(--accent) }
+.nf-drawer-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999 }
+.nf-drawer { display:none;position:fixed;right:0;top:0;height:100vh;width:460px;max-width:100vw;background:var(--bg2);border-left:1px solid var(--border);z-index:1000;overflow-y:auto;box-shadow:-6px 0 24px rgba(0,0,0,.18) }
+.nfd-section { padding:20px 22px;border-bottom:1px solid var(--border) }
+.nfd-label { font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px }
+.nfd-val { font-size:13px }
+.nfd-grid { display:grid;grid-template-columns:1fr 1fr;gap:12px 20px }
+.nfd-hist-item { display:flex;gap:10px;align-items:flex-start;font-size:12px;padding:7px 0;border-bottom:1px solid var(--border) }
+.nfd-hist-item:last-child { border:none }
+.nfd-hist-dot { width:8px;height:8px;border-radius:50%;margin-top:3px;flex-shrink:0 }
+.nfd-hist-dot-Pendente { background:var(--muted) }
+.nfd-hist-dot-Processando { background:var(--yellow) }
+.nfd-hist-dot-Emitida { background:var(--green) }
+.nfd-hist-dot-Erro { background:var(--red) }
 .nf-sheet { width:100%; border-collapse:collapse; min-width:820px; }
 .nf-sheet th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:8px 10px; border-bottom:2px solid var(--border); text-align:left; white-space:nowrap; }
 .nf-sheet td { padding:7px 10px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
@@ -1121,6 +1141,7 @@ function setPage(p, btn) {
   document.querySelectorAll('.nav-btn').forEach(x => x.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   btn.classList.add('active');
+  window.scrollTo(0, 0);
   if (p === 'dashboard') loadDash();
   if (p === 'leads') loadLeads();
   if (p === 'funil') loadKanban();
@@ -2014,7 +2035,7 @@ function nfViewRowHtml(n) {
   const nota_num = n.num_nota
     ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${n.num_nota}</span>` : '<span style="color:var(--muted)">—</span>';
   const canEdit = ['Pendente','Erro'].includes(n.status);
-  return `<tr id="nf-vrow-${n.id}">
+  return `<tr id="nf-vrow-${n.id}" class="nf-row-clickable" onclick="abrirDetalheNota(${n.id})">
     <td>${nfSistemaBadge(n.sistema)}</td>
     <td style="font-family:'DM Mono',monospace;font-size:12px">${n.competencia||'—'}</td>
     <td style="font-family:'DM Mono',monospace;font-size:11.5px">${nfMask(n.cpf_tomador)}</td>
@@ -2024,10 +2045,9 @@ function nfViewRowHtml(n) {
     <td>${desc}</td>
     <td>${nfStatusBadge(n.status)}</td>
     <td>${nota_num}</td>
-    <td><div class="nf-row-btns">
+    <td><div class="nf-row-btns" onclick="event.stopPropagation()">
       ${canEdit ? `<button onclick="nfEditRow(${n.id})">✎</button>` : ''}
       ${canEdit ? `<button class="del" onclick="deletarNota(${n.id})">✕</button>` : ''}
-      ${n.caminho_pdf ? `<button onclick="alert('Arquivo:\\n${n.caminho_pdf}')">📄</button>` : ''}
     </div></td>
   </tr>`;
 }
@@ -2409,7 +2429,7 @@ async function nfGradeSalvar() {
 }
 
 // ===== AGENTE LOCAL =====
-const AGENTE = 'http://localhost:5555';
+const AGENTE = 'https://nf-automation-production.up.railway.app';
 let _agentePoll = null;
 
 async function agenteVerificar() {
@@ -2425,13 +2445,27 @@ async function agenteVerificar() {
   } catch(e) {
     document.getElementById('nf-agente-dot').textContent = '⚫';
     document.getElementById('nf-agente-msg').innerHTML =
-      'Agente offline &mdash; abra <strong>INICIAR AGENTE.bat</strong> na pasta nf-automation';
+      'Serviço offline &mdash; aguarde o servidor inicializar ou contate o suporte';
     document.getElementById('nf-btn-emitir').disabled = true;
     document.getElementById('nf-btn-emitir').textContent = '🖨️ Emitir Pendentes';
   }
 }
 
+function _notificarConclusao(log) {
+  if (!('Notification' in window)) return;
+  const emitidas = log.filter(l => l.includes('Emitida') || l.includes('✅')).length;
+  const erros    = log.filter(l => l.includes('Erro') || l.includes('❌')).length;
+  const corpo    = emitidas ? `${emitidas} nota(s) emitida(s)${erros ? `, ${erros} erro(s)` : ''}` : 'Processo finalizado.';
+  if (Notification.permission === 'granted') {
+    new Notification('Clínica CRM — Notas Fiscais', { body: corpo, icon: '/favicon.ico' });
+  }
+}
+
 async function agenteEmitir() {
+  // Pede permissão de notificação na primeira vez
+  if ('Notification' in window && Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
   document.getElementById('nf-btn-emitir').disabled = true;
   document.getElementById('nf-btn-emitir').textContent = '⏳ Emitindo...';
   document.getElementById('nf-agente-log-wrap').style.display = '';
@@ -2455,6 +2489,7 @@ async function agenteEmitir() {
           clearInterval(_agentePoll); _agentePoll = null;
           loadNotasFiscais();
           toast('✅ Emissão concluída!');
+          _notificarConclusao(dp.log || []);
         }
       } catch(e) {}
     }, 2000);
@@ -2623,6 +2658,187 @@ function toggleInadSection(bodyId, togId) {
   body.classList.toggle('open', !isOpen);
   tog.classList.toggle('open', !isOpen);
 }
+
+// ===== CAPTCHA MANUAL =====
+let _captchaToken = null;        // token atualmente exibido
+const _captchasHandled = new Set(); // tokens já respondidos ou cancelados
+
+async function captchaVerificar() {
+  try {
+    const r = await api('/api/nf-captcha');
+    if (r.pendente && !_captchasHandled.has(r.token)) {
+      _captchaToken = r.token;
+      _captchasHandled.add(r.token);
+      document.getElementById('captcha-img').src = 'data:image/png;base64,' + r.img_b64;
+      document.getElementById('captcha-input').value = '';
+      document.getElementById('captcha-overlay').classList.add('ativo');
+      setTimeout(() => document.getElementById('captcha-input').focus(), 100);
+      if ('Notification' in window && Notification.permission === 'granted')
+        new Notification('Clínica CRM — Captcha', { body: 'Digite o código para continuar a emissão de notas.', icon: '/favicon.ico' });
+    }
+  } catch (_) {}
+}
+
+async function enviarCaptcha() {
+  const digitos = document.getElementById('captcha-input').value.replace(/\D/g,'');
+  if (digitos.length !== 4) { toast('Digite exatamente 4 dígitos', true); return; }
+  if (!_captchaToken) return;
+  await api(`/api/nf-captcha/${_captchaToken}/resposta`, {
+    method: 'POST', body: JSON.stringify({ digitos })
+  });
+  fecharCaptchaModal();
+  toast('Captcha enviado — automação continuando...');
+}
+
+function fecharCaptchaModal() {
+  document.getElementById('captcha-overlay').classList.remove('ativo');
+  // Não reseta _captchaToken para não reabrir o mesmo modal
+}
+
+// Inicia polling de captcha ao carregar a página
+setInterval(captchaVerificar, 3000);
+
+// ===== DRAWER DETALHE NOTA FISCAL =====
+function abrirDetalheNota(id) {
+  const n = _nfData[id];
+  if (!n) return;
+  document.getElementById('nf-drawer-overlay').style.display = 'block';
+  const drawer = document.getElementById('nf-drawer');
+  drawer.style.display = 'block';
+  _renderDetalheNota(n);
+}
+
+function fecharDetalheNota() {
+  document.getElementById('nf-drawer-overlay').style.display = 'none';
+  document.getElementById('nf-drawer').style.display = 'none';
+}
+
+function _renderDetalheNota(n) {
+  const pac = n.nome_paciente
+    ? `<div class="nfd-grid" style="margin-top:8px">
+        <div><div class="nfd-label">CPF Paciente</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfMask(n.cpf_paciente)||'—'}</div></div>
+        <div><div class="nfd-label">Nome Paciente</div><div class="nfd-val">${n.nome_paciente}</div></div>
+        ${n.parentesco?`<div><div class="nfd-label">Parentesco</div><div class="nfd-val">${n.parentesco}</div></div>`:''}
+      </div>` : '';
+
+  const erroHtml = n.erro_msg
+    ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:7px;font-size:12px;color:var(--red)">
+        <strong>Erro:</strong> ${n.erro_msg}
+       </div>` : '';
+
+  const podeReset = ['Processando','Erro'].includes(n.status);
+  const podeEditar = ['Pendente','Erro'].includes(n.status);
+
+  const histHtml = (n.historico && n.historico.length)
+    ? n.historico.slice().reverse().map(h => `
+        <div class="nfd-hist-item">
+          <div class="nfd-hist-dot nfd-hist-dot-${h.para}"></div>
+          <div>
+            <span style="font-weight:600">${h.de} → ${h.para}</span>
+            <span style="color:var(--muted);margin-left:8px">${h.quando}</span>
+            <span style="color:var(--muted);margin-left:6px;font-size:11px">${h.quem === 'sistema' ? '⚙ sistema' : '👤 manual'}</span>
+          </div>
+        </div>`).join('')
+    : `<div style="color:var(--muted);font-size:12px">Nenhuma alteração registrada ainda.</div>`;
+
+  document.getElementById('nf-drawer').innerHTML = `
+    <div class="nfd-section" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${nfSistemaBadge(n.sistema)}
+        ${nfStatusBadge(n.status)}
+        ${n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)">NF# ${n.num_nota}</span>` : ''}
+      </div>
+      <button onclick="fecharDetalheNota()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:2px 8px;line-height:1">✕</button>
+    </div>
+
+    <div class="nfd-section">
+      <div class="nfd-grid">
+        <div><div class="nfd-label">Competência</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${n.competencia||'—'}</div></div>
+        <div><div class="nfd-label">Tipo Tomador</div><div class="nfd-val">${n.tipo_tomador||'CPF'}</div></div>
+        <div><div class="nfd-label">CPF / CNPJ</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfMask(n.cpf_tomador)||'—'}</div></div>
+        <div><div class="nfd-label">Nome Tomador</div><div class="nfd-val">${n.nome_tomador||'—'}</div></div>
+        <div><div class="nfd-label">Valor</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfFmt(n.valor)}</div></div>
+        <div><div class="nfd-label">Data Pagamento</div><div class="nfd-val">${n.data_pagamento||'—'}</div></div>
+      </div>
+      <div style="margin-top:10px"><div class="nfd-label">Descrição</div><div class="nfd-val">${n.descricao||'—'}</div></div>
+      ${pac}
+      ${erroHtml}
+      ${n.data_emissao ? `<div style="margin-top:8px"><div class="nfd-label">Emitida em</div><div class="nfd-val">${n.data_emissao}</div></div>` : ''}
+    </div>
+
+    <div class="nfd-section">
+      <div class="nfd-label" style="margin-bottom:10px">Alterar status</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="nfd-status-sel" class="filter-select" style="flex:1;min-width:140px">
+          ${['Pendente','Processando','Emitida','Erro'].map(s => `<option${s===n.status?' selected':''}>${s}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="nfdSalvarStatus(${n.id})">Salvar</button>
+        ${podeReset ? `<button class="btn btn-ghost" style="font-size:12px;padding:6px 14px;color:var(--yellow)" onclick="nfdResetar(${n.id})">↺ Resetar para Pendente</button>` : ''}
+      </div>
+      ${podeEditar ? `<div style="margin-top:10px"><button class="btn btn-ghost" style="font-size:12px" onclick="fecharDetalheNota();nfEditRow(${n.id})">✎ Editar campos</button></div>` : ''}
+    </div>
+
+    <div class="nfd-section">
+      <div class="nfd-label" style="margin-bottom:8px">Histórico de status</div>
+      ${histHtml}
+    </div>
+
+    <div class="nfd-section" style="border:none">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${['Pendente','Erro'].includes(n.status) ? `<button class="btn btn-ghost" style="font-size:12px;color:var(--red)" onclick="fecharDetalheNota();deletarNota(${n.id})">🗑 Excluir nota</button>` : ''}
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+        Criada em ${n.criado_em||'—'} · Atualizada em ${n.atualizado_em||'—'}
+      </div>
+    </div>`;
+}
+
+async function nfdSalvarStatus(id) {
+  const sel = document.getElementById('nfd-status-sel');
+  if (!sel) return;
+  const novoStatus = sel.value;
+  const r = await api(`/api/notas-fiscais/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: novoStatus, quem: 'manual' })
+  });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  toast('✅ Status atualizado');
+  await loadNotasFiscais();
+  _nfData[id] = r.nota;
+  _renderDetalheNota(r.nota);
+}
+
+async function nfdResetar(id) {
+  const r = await api(`/api/notas-fiscais/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'Pendente', quem: 'manual', erro_msg: '' })
+  });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  toast('↺ Resetada para Pendente');
+  await loadNotasFiscais();
+  _nfData[id] = r.nota;
+  _renderDetalheNota(r.nota);
+}
 </script>
+
+<!-- Drawer Detalhe NF -->
+<div class="nf-drawer-overlay" id="nf-drawer-overlay" onclick="fecharDetalheNota()"></div>
+<div class="nf-drawer" id="nf-drawer"></div>
+
+<!-- Modal Captcha Manual -->
+<div class="captcha-modal-overlay" id="captcha-overlay">
+  <div class="captcha-modal">
+    <div style="font-size:15px;font-weight:700;margin-bottom:4px">Captcha necessário</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">A IA não conseguiu ler o captcha. Digite os 4 dígitos:</div>
+    <img id="captcha-img" src="" alt="captcha">
+    <input id="captcha-input" type="text" inputmode="numeric" maxlength="4" placeholder="0000"
+           onkeydown="if(event.key==='Enter')enviarCaptcha()">
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:16px">
+      <button class="btn btn-ghost" style="font-size:13px" onclick="fecharCaptchaModal()">Cancelar</button>
+      <button class="btn btn-primary" style="font-size:13px" onclick="enviarCaptcha()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
