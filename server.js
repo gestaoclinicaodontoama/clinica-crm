@@ -1106,15 +1106,15 @@ function processarInadimplentes(items, today) {
     if (!patId) return;
 
     // Ignora registros já pagos
-    // Clinicorp /payment/list: PaymentReceived='X' = pago; ausente = pendente
+    // PaymentReceived='X' = pago. ReceivedDate preenchido também indica pagamento.
     const isPaid = i.PaymentReceived === 'X' ||
-      (!i.PaymentReceived && (i.PaidDate || i.paid_date));
+      (i.ReceivedDate && i.ReceivedDate !== '' && i.ReceivedDate !== '0001-01-01');
     if (isPaid) return;
 
-    const dueDate = i.DueDate || i.due_date || i.ScheduledDate || i.InstallmentDate || '';
+    const dueDate = i.DueDate || i.due_date || i.PostDate || i.ScheduledDate || '';
     if (!dueDate) return;
 
-    const amount    = Number(i.Amount || i.Value || i.TotalPostAmount || i.installment_value || 0);
+    const amount = Number(i.Amount || i.TotalPostAmount || i.AmountWithDiscounts || 0);
     const isOverdue = dueDate < today;
     const isFuture  = dueDate >= today;
 
@@ -1138,9 +1138,9 @@ function processarInadimplentes(items, today) {
       p.futureAmount += amount;
       if (!p.nextDueDate || dueDate < p.nextDueDate) p.nextDueDate = dueDate;
     }
-    const tv = Number(i.TreatmentValue || i.TotalTreatmentValue || 0);
+    const tv = Number(i.TotalPostAmount || i.TreatmentValue || 0);
     if (tv) p.treatmentValue = Math.max(p.treatmentValue, tv);
-    const pv = Number(i.PaidValue || i.TotalPaidValue || i.AmountPaid || 0);
+    const pv = Number(i.AmountWithDiscounts || i.PaidValue || 0);
     if (pv) p.paidValue = Math.max(p.paidValue, pv);
   });
 
@@ -1205,11 +1205,12 @@ app.get('/api/inadimplentes', async (req, res) => {
     let items = [], endpointUsado = '';
     const FROM = '2019-01-01'; // cobre dívidas históricas desde 2019
 
-    // /payment/list — endpoint que retorna parcelas individuais com DueDate
+    // date_type=postDate → filtra por Data de Criação (não Data de Recebimento!)
+    // Sem postDate, a API filtra por ReceivedDate e inadimplentes ficam de fora.
     try {
-      const r = await clinicorpGet('/payment/list', { from: FROM, to: futStr });
-      console.log(`[Inadimplentes] /payment/list → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,120)}`);
-      if (r.status === 200 && Array.isArray(r.data)) { items = r.data; endpointUsado = '/payment/list'; }
+      const r = await clinicorpGet('/payment/list', { from: FROM, to: futStr, date_type: 'postDate' });
+      console.log(`[Inadimplentes] /payment/list?postDate → HTTP ${r.status}, itens: ${Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,120)}`);
+      if (r.status === 200 && Array.isArray(r.data)) { items = r.data; endpointUsado = '/payment/list?postDate'; }
     } catch(e) { console.log('[Inadimplentes] /payment/list erro:', e.message); }
 
     if (!items.length) {
