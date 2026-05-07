@@ -362,6 +362,7 @@ textarea { resize: vertical; min-height: 80px; }
 .nf-row-btns button { padding:3px 8px; font-size:11px; border-radius:5px; cursor:pointer; border:1px solid var(--border); background:var(--bg3); color:var(--text); font-family:inherit; transition:all .12s; }
 .nf-row-btns button:hover { border-color:var(--accent); color:var(--accent); }
 .nf-row-btns button.del:hover { border-color:var(--red); color:var(--red); }
+.nf-row-btns button.rst:hover { border-color:#f59e0b; color:#f59e0b; }
 .nf-add-btn { margin-top:8px; width:100%; padding:8px; border:1.5px dashed var(--border); border-radius:8px; background:transparent; color:var(--muted); font-family:inherit; font-size:13px; cursor:pointer; transition:all .15s; text-align:center; }
 .nf-add-btn:hover { border-color:var(--accent); color:var(--accent); background:rgba(79,142,247,.05); }
 /* Import painéis */
@@ -2046,6 +2047,7 @@ function nfViewRowHtml(n) {
     <td>${nfStatusBadge(n.status)}</td>
     <td>${nota_num}</td>
     <td><div class="nf-row-btns" onclick="event.stopPropagation()">
+      ${n.status === 'Erro' ? `<button class="rst" title="Resetar para Pendente" onclick="resetarNota(${n.id})">↩</button>` : ''}
       ${canEdit ? `<button onclick="nfEditRow(${n.id})">✎</button>` : ''}
       ${canEdit ? `<button class="del" onclick="deletarNota(${n.id})">✕</button>` : ''}
     </div></td>
@@ -2207,6 +2209,16 @@ async function deletarNota(id) {
   const r = await api(`/api/notas-fiscais/${id}`, { method: 'DELETE' });
   if (r.error) { toast('❌ ' + r.error, true); return; }
   toast('🗑 Nota excluída');
+  loadNotasFiscais();
+}
+
+async function resetarNota(id) {
+  const r = await api(`/api/notas-fiscais/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'Pendente', erro_msg: '' }),
+  });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  toast('↩ Nota resetada para Pendente');
   loadNotasFiscais();
 }
 
