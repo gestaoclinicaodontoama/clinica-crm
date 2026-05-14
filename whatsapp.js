@@ -12,7 +12,7 @@ const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 const WA_BROADCAST_TOKEN    = process.env.WHATSAPP_BROADCAST_TOKEN || WA_TOKEN;
 const WA_BROADCAST_PHONE_ID = process.env.WHATSAPP_BROADCAST_PHONE_ID || WA_PHONE_ID;
 
-const WA_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'meu_token_secreto_clinica_2026';
+const WA_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || '';
 const WA_API_VERSION  = 'v21.0';
 
 function temToken()      { return !!(WA_TOKEN && WA_PHONE_ID); }
@@ -64,6 +64,7 @@ async function enviarTemplate(opts) { return enviarBroadcast(opts); }
 
 // --------- VERIFY TOKEN para webhook ----------
 function verifyToken() {
+  if (!WA_VERIFY_TOKEN) console.warn('⚠️  WHATSAPP_VERIFY_TOKEN não configurado — configure esta variável de ambiente');
   return WA_VERIFY_TOKEN;
 }
 

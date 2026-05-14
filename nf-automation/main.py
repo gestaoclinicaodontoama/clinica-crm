@@ -139,6 +139,20 @@ def main():
 
     _cabecalho()
 
+    # Reseta notas presas em "Processando" (falha anterior sem cleanup)
+    try:
+        presas = crm_api.listar_por_status('Processando')
+        if presas:
+            print(f"\n  Resetando {len(presas)} nota(s) presa(s) em Processando → Pendente...")
+            for n in presas:
+                try:
+                    crm_api.resetar_para_pendente(n['id'])
+                    print(f"    #{n['id']} {n['nome_tomador']} → Pendente")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     if args.auto or args.entidade:
         entidades = [args.entidade] if args.entidade else ["Vieira", "Martins", "Receita Saude"]
         for ent in entidades:

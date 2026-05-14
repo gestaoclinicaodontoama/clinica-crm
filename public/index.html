@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CRM Clínica</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-pqL3fQw2a7lDeuWCu1k+Lu7DSdfyBO5Zo/dm+zv05hfHKd9pbd7YXax+ZGo0a2BL" crossorigin="anonymous"></script>
 <style>
 :root[data-theme="dark"] {
   --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
@@ -416,10 +416,49 @@ textarea { resize: vertical; min-height: 80px; }
 .inad-wa:hover { opacity: .8; }
 .inad-cache-bar { background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.3); border-radius: 8px; padding: 9px 14px; font-size: 12px; color: var(--yellow); display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .inad-nav-badge { margin-left: auto; font-size: 10px; font-weight: 700; background: rgba(239,68,68,.2); color: var(--red); padding: 1px 6px; border-radius: 10px; display: none; }
+
+/* ========== LOGIN SCREEN ========== */
+.login-screen {
+  display: none; position: fixed; inset: 0; z-index: 9999;
+  background: var(--bg); align-items: center; justify-content: center;
+}
+.login-screen.active { display: flex; }
+.login-box {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 16px;
+  padding: 40px 36px; width: 360px; max-width: 95vw;
+}
+.login-logo { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.login-logo span { color: var(--accent); }
+.login-sub { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+.login-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.login-field label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.login-field input { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 14px; font-family: inherit; }
+.login-field input:focus { outline: none; border-color: var(--accent); }
+.login-btn { width: 100%; padding: 11px; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px; transition: background .15s; }
+.login-btn:hover { background: var(--accent-hover); }
+.login-btn:disabled { opacity: .6; cursor: default; }
+.login-error { color: var(--red); font-size: 12px; margin-top: 8px; display: none; }
+.forgot-link { display:block; text-align:center; margin-top:12px; font-size:12px; color:var(--muted); text-decoration:none; cursor:pointer; }
+.forgot-link:hover { color:var(--accent); }
+.reset-msg { font-size:12px; margin-top:8px; display:none; text-align:center; }
+.reset-msg.ok { color:var(--green); }
+.reset-msg.error { color:var(--red); }
+.nav-logout { margin-top: 8px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
-<div class="shell">
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">CRM <span>Clínica</span></div>
+    <div class="login-sub">Entre com sua conta para continuar</div>
+    <div class="login-field"><label>E-mail</label><input type="email" id="login-email" placeholder="seu@email.com" autocomplete="username"></div>
+    <div class="login-field"><label>Senha</label><input type="password" id="login-senha" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="login-btn" id="login-btn" onclick="handleLogin()">Entrar</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+<div class="shell" id="app-shell" style="display:none">
 <nav>
   <div class="logo">Clínica <span>CRM</span></div>
   <button class="nav-btn active" data-page="dashboard" onclick="setPage('dashboard',this)">
@@ -451,11 +490,19 @@ textarea { resize: vertical; min-height: 80px; }
     Inadimplentes
     <span class="inad-nav-badge" id="badge-inadimplentes"></span>
   </button>
+  <button class="nav-btn" data-page="usuarios" id="nav-usuarios" onclick="setPage('usuarios',this)" style="display:none">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    Usuários
+  </button>
   <button class="nav-btn" data-page="config" onclick="setPage('config',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     Configurações
   </button>
-  <button class="theme-btn" onclick="toggleTheme()">
+  <button class="nav-btn nav-logout" onclick="handleLogout()">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Sair
+    </button>
+    <button class="theme-btn" onclick="toggleTheme()">
     <span id="theme-icon">🌙</span>
     <span id="theme-label">Modo escuro</span>
   </button>
@@ -493,7 +540,7 @@ textarea { resize: vertical; min-height: 80px; }
   <div class="table-wrap">
     <div class="table-head">
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <input class="search-input" placeholder="🔍 Buscar..." id="search-q" oninput="loadLeads()">
+        <input class="search-input" placeholder="🔍 Buscar..." id="search-q" oninput="clearTimeout(this._t);this._t=setTimeout(loadLeads,350)">
         <select class="filter-select" id="filter-status" onchange="loadLeads()">
           <option value="">Todos status</option>
           <option>Lead</option><option>Agendado</option><option>Compareceu</option>
@@ -655,10 +702,39 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <div class="form-group">
       <label>URL base do sistema</label>
       <input id="cfg-url" value="http://localhost:3000" oninput="atualizarLinks()">
-      <small style="color:var(--muted);font-size:11px">Quando subir pra nuvem, troque por https://seu-dominio.up.railway.app</small>
+      <small style="color:var(--muted);font-size:11px">Quando subir pra nuvem, troque pela URL do seu servidor (ex: https://seu-dominio.easypanel.host)</small>
     </div>
     <h2 style="margin-top:24px">Links prontos</h2>
     <div id="links-prontos"></div>
+  </div>
+</div>
+
+
+<!-- USUARIOS -->
+<div id="page-usuarios" class="page">
+  <h1>Usu&#225;rios</h1>
+  <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:22px;flex:0 0 300px">
+      <h2 style="margin-top:0">Novo Usu&#225;rio</h2>
+      <div class="form-group"><label>Nome</label><input id="nu-nome" placeholder="Nome completo"></div>
+      <div class="form-group"><label>E-mail</label><input type="email" id="nu-email" placeholder="email@exemplo.com"></div>
+      <div class="form-group"><label>Senha tempor&#225;ria</label><input type="password" id="nu-senha" placeholder="M&#237;nimo 6 caracteres"></div>
+      <div class="form-group"><label>Perfis</label><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-admin"> Admin</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_leads" checked> CRC Leads</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_comercial"> CRC Comercial</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_sucesso"> CRC Sucesso</label>
+      </div></div>
+      <button class="btn btn-primary" onclick="criarUsuario()" id="nu-btn" style="width:100%">Criar Usu&#225;rio</button>
+      <div id="nu-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
+    </div>
+    <div style="flex:1;min-width:280px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0">Cadastrados</h2>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="loadUsuarios()">&#8635; Atualizar</button>
+      </div>
+      <div id="usuarios-lista"><p style="color:var(--muted)">Carregando...</p></div>
+    </div>
   </div>
 </div>
 
@@ -768,7 +844,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <option value="">Todos status</option>
           <option>Pendente</option><option>Processando</option><option>Emitida</option><option>Erro</option>
         </select>
-        <input class="filter-select" id="nf-fil-comp" placeholder="Competência ex: 05-2026" style="width:170px" onkeyup="loadNotasFiscais()">
+        <input class="filter-select" id="nf-fil-comp" placeholder="Competência ex: 05-2026" style="width:170px" onkeyup="clearTimeout(this._t);this._t=setTimeout(loadNotasFiscais,400)">
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -888,7 +964,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 
   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;">
     <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
-    <button class="btn btn-primary" onclick="salvarLead()">Salvar</button>
+    <button id="btn-salvar-lead" class="btn btn-primary" onclick="salvarLead(this)">Salvar</button>
     <button class="btn btn-success" id="btn-whatsapp" onclick="abrirWhatsApp()" style="display:none">💬 WhatsApp</button>
     <button class="btn btn-call" id="btn-ligar" onclick="ligarLead()" style="display:none">📞 Ligar</button>
   </div>
@@ -1134,8 +1210,9 @@ const FUNIL = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Envia
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
 
-function classStatus(s) { return 's-' + s.replace(/ /g,'').replace('ç','c').replace('ã','a'); }
-function classBadge(s) { return 'badge-' + s.replace(/ /g,'').replace('ç','c').replace('ã','a'); }
+function classStatus(s) { return 's-' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,''); }
+function classBadge(s) { return 'badge-' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,''); }
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function setPage(p, btn) {
   document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
@@ -1147,6 +1224,7 @@ function setPage(p, btn) {
   if (p === 'leads') loadLeads();
   if (p === 'funil') loadKanban();
   if (p === 'config') atualizarLinks();
+  if (p === 'usuarios') loadUsuarios();
   if (p === 'conversas') loadConversas();
   if (p === 'disparos') loadDisparos();
   if (p === 'notas-fiscais') { loadNotasFiscais(); agenteVerificar(); }
@@ -1154,14 +1232,21 @@ function setPage(p, btn) {
   if (p !== 'conversas' && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
 }
 
+let _sbSession = null;
 async function api(url, opts={}) {
-  const r = await fetch(url, { headers: {'Content-Type':'application/json'}, ...opts });
+  const headers = { 'Content-Type': 'application/json' };
+  if (_sbSession && _sbSession.access_token) headers['Authorization'] = 'Bearer ' + _sbSession.access_token;
+  const r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...headers } });
+  const ct = r.headers.get('content-type') || '';
+  if (r.status === 401) { await handleLogout(); throw new Error('Sessao expirada. Faca login novamente.'); }
+  if (!r.ok && !ct.includes('application/json')) throw new Error('Erro ' + r.status);
   return r.json();
 }
 
 // ============ DASHBOARD ============
 async function loadDash() {
-  const s = await api('/api/stats');
+  try {
+    const s = await api('/api/stats');
   document.getElementById('d-total').textContent = s.total || 0;
   const fechou = s.porStatus.find(x => x.status === 'Fechou')?.n || 0;
   document.getElementById('d-fechou').textContent = fechou;
@@ -1190,7 +1275,7 @@ async function loadDash() {
       const cv = o.n ? Math.round(o.fechados / o.n * 100) : 0;
       return `<div class="chart-bar">
         <div class="chart-row">
-          <span style="width:110px;font-size:12.5px">${o.origem}</span>
+          <span style="width:110px;font-size:12.5px">${escHtml(o.origem)}</span>
           <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
           <span style="font-size:12px;font-family:'DM Mono',monospace;width:30px;text-align:right">${o.n}</span>
           <span style="font-size:11.5px;color:var(--green);width:90px;text-align:right">${o.fechados} fechou (${cv}%)</span>
@@ -1202,17 +1287,19 @@ async function loadDash() {
   const tb = document.getElementById('dash-recentes');
   tb.innerHTML = (s.ultimosLeads || []).map(l => `
     <tr onclick="abrirModal(${l.id})">
-      <td>${l.nome}</td>
-      <td><span class="${COR_ORIG[l.origem]||''}">${l.origem}</span></td>
-      <td style="color:var(--muted);font-size:12.5px">${l.campanha || '—'}</td>
+      <td>${escHtml(l.nome)}</td>
+      <td><span class="${COR_ORIG[l.origem]||''}">${escHtml(l.origem)}</span></td>
+      <td style="color:var(--muted);font-size:12.5px">${escHtml(l.campanha || '—')}</td>
       <td><span class="badge ${classBadge(l.status)}">${l.status}</span></td>
       <td style="color:var(--muted);font-size:12.5px">${(l.criado_em || '').slice(0,10)}</td>
     </tr>`).join('') || '<tr><td colspan="5" class="empty-small">Nenhum lead ainda</td></tr>';
+  } catch(e) { console.error('loadDash:', e); toast('⚠️ Erro ao carregar dashboard', true); }
 }
 
 // ============ LEADS LIST ============
 async function loadLeads() {
-  const q = document.getElementById('search-q')?.value || '';
+  try {
+    const q = document.getElementById('search-q')?.value || '';
   const status = document.getElementById('filter-status')?.value || '';
   const origem = document.getElementById('filter-origem')?.value || '';
   let url = '/api/leads?';
@@ -1229,15 +1316,16 @@ async function loadLeads() {
   tb.innerHTML = leads.map(l => `
     <tr onclick="abrirModal(${l.id})">
       <td style="color:var(--muted);font-family:'DM Mono',monospace">#${l.id}</td>
-      <td>${l.nome}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:12.5px">${l.telefone || '—'}</td>
-      <td><span class="${COR_ORIG[l.origem]||''}">${l.origem}</span></td>
+      <td>${escHtml(l.nome)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12.5px">${escHtml(l.telefone || '—')}</td>
+      <td><span class="${COR_ORIG[l.origem]||''}">${escHtml(l.origem)}</span></td>
       <td><span class="badge ${classBadge(l.status)}">${l.status}</span></td>
       <td>${l.score_interesse !== null && l.score_interesse !== undefined ? l.score_interesse + '/10' : '—'}</td>
       <td>${l.perfil_disc || '—'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12.5px">${l.valor ? 'R$ '+l.valor.toLocaleString('pt-BR') : '—'}</td>
       <td style="color:var(--muted);font-size:12.5px">${(l.criado_em || '').slice(0,10)}</td>
     </tr>`).join('');
+  } catch(e) { console.error('loadLeads:', e); toast('⚠️ Erro ao carregar leads', true); }
 }
 
 // ============ FUNIL VISUAL ============
@@ -1251,8 +1339,10 @@ const FUNIL_CORES  = {
 };
 
 async function loadKanban() {
-  _funilLeads = await api('/api/leads');
-  renderFunil();
+  try {
+    _funilLeads = await api('/api/leads');
+    renderFunil();
+  } catch(e) { console.error('loadKanban:', e); toast('⚠️ Erro ao carregar funil', true); }
 }
 
 function renderFunil() {
@@ -1346,9 +1436,9 @@ function renderDetalheEtapa(etapa) {
   }
   tbody.innerHTML = leads.sort((a,b) => b.id - a.id).map(l => `
     <tr onclick="abrirModal(${l.id})" style="cursor:pointer">
-      <td><strong>${l.nome}</strong></td>
-      <td style="font-family:'DM Mono',monospace;font-size:12.5px">${l.telefone || '—'}</td>
-      <td><span class="${COR_ORIG[l.origem]||''}">${l.origem}</span></td>
+      <td><strong>${escHtml(l.nome)}</strong></td>
+      <td style="font-family:'DM Mono',monospace;font-size:12.5px">${escHtml(l.telefone || '—')}</td>
+      <td><span class="${COR_ORIG[l.origem]||''}">${escHtml(l.origem)}</span></td>
       <td>${l.score_interesse !== null && l.score_interesse !== undefined ? l.score_interesse+'/10' : '—'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12.5px;color:var(--green)">${l.valor ? 'R$ '+l.valor.toLocaleString('pt-BR') : '—'}</td>
       <td style="color:var(--muted);font-size:12.5px">${(l.ultimo_contato||l.criado_em||'').slice(0,10)}</td>
@@ -1357,7 +1447,8 @@ function renderDetalheEtapa(etapa) {
 
 // ============ MODAL ============
 async function abrirModal(id) {
-  const l = await api(`/api/leads/${id}`);
+  try {
+    const l = await api(`/api/leads/${id}`);
   leadAtual = l;
   etiquetasAtual = l.etiquetas || [];
   discAtual = l.perfil_disc || '';
@@ -1373,11 +1464,11 @@ async function abrirModal(id) {
 
   // Resumo
   document.getElementById('resumo-card').innerHTML = `
-    <div class="resumo-item"><span class="l">Telefone</span><span class="v" style="font-family:'DM Mono',monospace">${l.telefone || '—'}</span></div>
-    <div class="resumo-item"><span class="l">Email</span><span class="v">${l.email || '—'}</span></div>
-    <div class="resumo-item"><span class="l">Origem</span><span class="v ${COR_ORIG[l.origem]||''}">${l.origem}</span></div>
-    <div class="resumo-item"><span class="l">Campanha</span><span class="v">${l.campanha || '—'}</span></div>
-    <div class="resumo-item"><span class="l">Cadastro</span><span class="v">${(l.data_lead || '').slice(0,16)}</span></div>
+    <div class="resumo-item"><span class="l">Telefone</span><span class="v" style="font-family:'DM Mono',monospace">${escHtml(l.telefone || '—')}</span></div>
+    <div class="resumo-item"><span class="l">Email</span><span class="v">${escHtml(l.email || '—')}</span></div>
+    <div class="resumo-item"><span class="l">Origem</span><span class="v ${COR_ORIG[l.origem]||''}">${escHtml(l.origem)}</span></div>
+    <div class="resumo-item"><span class="l">Campanha</span><span class="v">${escHtml(l.campanha || '—')}</span></div>
+    <div class="resumo-item"><span class="l">Cadastro</span><span class="v">${(l.criado_em || '').slice(0,16)}</span></div>
     <div class="resumo-item"><span class="l">Status</span><span class="badge ${classBadge(l.status)}">${l.status}</span></div>
   `;
 
@@ -1401,11 +1492,11 @@ async function abrirModal(id) {
 
   // Timeline
   const eventos = [
-    { label: 'Lead criado', data: l.data_lead, feito: true },
+    { label: 'Lead criado', data: l.criado_em, feito: true },
     { label: 'Agendamento', data: l.data_agendamento, feito: !!l.data_agendamento },
     { label: 'Comparecimento', data: l.data_comparecimento, feito: !!l.data_comparecimento },
-    { label: 'Avaliação', data: l.data_em_avaliacao, feito: !!l.data_em_avaliacao },
-    { label: 'Orçamento enviado', data: l.data_orcamento_enviado, feito: !!l.data_orcamento_enviado },
+    { label: 'Avaliação', data: l.data_avaliacao, feito: !!l.data_avaliacao },
+    { label: 'Orçamento enviado', data: l.data_orcamento, feito: !!l.data_orcamento },
     { label: 'Fechamento' + (l.valor ? ` — R$ ${Number(l.valor).toLocaleString('pt-BR')}` : ''), data: l.data_fechamento, feito: !!l.data_fechamento },
   ];
   document.getElementById('modal-timeline').innerHTML = eventos.map(e =>
@@ -1415,18 +1506,19 @@ async function abrirModal(id) {
     </li>`
   ).join('');
 
-  document.getElementById('btn-whatsapp').style.display = l.telefone ? 'inline-block' : 'none';
-  document.getElementById('btn-ligar').style.display = l.telefone ? 'inline-block' : 'none';
-  document.getElementById('modal-bg').classList.add('open');
-  setTab('dados', document.querySelector('.tab[data-tab="dados"]'));
-  carregarChamadas(id);
+    document.getElementById('btn-whatsapp').style.display = l.telefone ? 'inline-block' : 'none';
+    document.getElementById('btn-ligar').style.display = l.telefone ? 'inline-block' : 'none';
+    document.getElementById('modal-bg').classList.add('open');
+    setTab('dados', document.querySelector('.tab[data-tab="dados"]'));
+    carregarChamadas(id);
+  } catch(e) { toast('❌ Erro ao abrir lead: ' + e.message, true); }
 }
 
 function renderTags() {
   const tr = document.getElementById('tags-row');
   const all = [...new Set([...ETIQUETAS_PADRAO, ...etiquetasAtual])];
   tr.innerHTML = all.map(t =>
-    `<span class="tag-pill ${etiquetasAtual.includes(t) ? 'active' : ''}" onclick="toggleTag('${t}')">${t}</span>`
+    `<span class="tag-pill ${etiquetasAtual.includes(t) ? 'active' : ''}" data-tag="${escHtml(t)}" onclick="toggleTag(this.dataset.tag)">${escHtml(t)}</span>`
   ).join('') + `<span class="tag-pill" onclick="addTag()" style="opacity:.6">+ Nova</span>`;
 }
 
@@ -1478,21 +1570,26 @@ async function criarLeadManual(btn) {
   const tel   = document.getElementById('nl-tel').value.trim();
   if (!nome || !tel) { toast('⚠️ Nome e telefone são obrigatórios'); return; }
   btn.disabled = true; btn.textContent = 'Criando...';
-  const r = await api('/api/leads', { method: 'POST', body: JSON.stringify({
-    nome, telefone: tel,
-    email:    document.getElementById('nl-email').value.trim(),
-    origem:   document.getElementById('nl-origem').value,
-    status:   document.getElementById('nl-status').value,
-    notas_sdr: document.getElementById('nl-obs').value.trim(),
-  })});
-  btn.disabled = false; btn.textContent = 'Criar Lead';
-  if (r.ok) {
-    fecharModalNovoLead();
-    toast('✅ Lead criado com sucesso');
-    loadLeads();
-    loadDash();
-  } else {
-    toast('❌ ' + (r.error || 'Erro ao criar lead'));
+  try {
+    const r = await api('/api/leads', { method: 'POST', body: JSON.stringify({
+      nome, telefone: tel,
+      email:    document.getElementById('nl-email').value.trim(),
+      origem:   document.getElementById('nl-origem').value,
+      status:   document.getElementById('nl-status').value,
+      notas_sdr: document.getElementById('nl-obs').value.trim(),
+    })});
+    if (r.ok) {
+      fecharModalNovoLead();
+      toast('✅ Lead criado com sucesso');
+      loadLeads();
+      loadDash();
+    } else {
+      toast('❌ ' + (r.error || 'Erro ao criar lead'));
+    }
+  } catch(e) {
+    toast('❌ Erro: ' + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Criar Lead';
   }
 }
 
@@ -1516,7 +1613,7 @@ document.getElementById('m-status').addEventListener('change', function() {
   updateValorVisibility();
 });
 
-async function salvarLead() {
+async function salvarLead(btn) {
   if (!leadAtual) return;
   const body = {
     status: document.getElementById('m-status').value,
@@ -1528,20 +1625,23 @@ async function salvarLead() {
     etiquetas: etiquetasAtual,
   };
   const v = document.getElementById('m-valor').value;
-  if (v) body.valor = parseFloat(v);
-  const t = document.getElementById('m-tipo').value;
-  if (t) body.tipo_trat = t;
+  body.valor = v !== '' ? parseFloat(v) : '';
+  body.tipo_trat = document.getElementById('m-tipo').value;
 
-  const r = await api(`/api/leads/${leadAtual.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-  if (r.error) {
-    toast('❌ ' + r.error, true);
-    return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+  try {
+    const r = await api(`/api/leads/${leadAtual.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('✅ Lead salvo!');
+    fecharModal();
+    loadDash();
+    if (document.getElementById('page-leads').classList.contains('active')) loadLeads();
+    if (document.getElementById('page-funil').classList.contains('active')) { _funilLeads = await api('/api/leads'); renderFunil(); }
+  } catch(e) {
+    toast('❌ Erro: ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
   }
-  toast('✅ Lead salvo!');
-  fecharModal();
-  loadDash();
-  if (document.getElementById('page-leads').classList.contains('active')) loadLeads();
-  if (document.getElementById('page-funil').classList.contains('active')) { _funilLeads = await api('/api/leads'); renderFunil(); }
 }
 
 function abrirWhatsApp() {
@@ -1562,10 +1662,10 @@ async function carregarChamadas(leadId) {
       return `<div class="chamada-item">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
           <span><strong>${c.criada_em || ''}</strong></span>
-          <span style="color:var(--muted);font-size:11.5px">${c.status || 'iniciada'} · ${dur}</span>
+          <span style="color:var(--muted);font-size:11.5px">${escHtml(c.status || 'iniciada')} · ${dur}</span>
         </div>
         ${c.url_gravacao
-          ? `<audio controls src="${c.url_gravacao}"></audio>`
+          ? `<audio controls src="${escHtml(c.url_gravacao)}"></audio>`
           : '<span style="color:var(--muted);font-size:11.5px">Gravação não disponível ainda</span>'}
       </div>`;
     }).join('');
@@ -1610,8 +1710,8 @@ function atualizarLinks() {
     return `<div style="margin-bottom:14px">
       <div style="font-size:12.5px;font-weight:600;margin-bottom:5px">${o.label}</div>
       <div style="display:flex;gap:6px;align-items:center">
-        <code style="flex:1;background:var(--bg3);padding:9px 11px;border-radius:7px;font-size:11.5px;border:1px solid var(--border);word-break:break-all;font-family:'DM Mono',monospace;">${url}</code>
-        <button class="btn btn-ghost" style="font-size:12px;white-space:nowrap" onclick="navigator.clipboard.writeText('${url}');toast('📋 Copiado!')">Copiar</button>
+        <code style="flex:1;background:var(--bg3);padding:9px 11px;border-radius:7px;font-size:11.5px;border:1px solid var(--border);word-break:break-all;font-family:'DM Mono',monospace;">${escHtml(url)}</code>
+        <button class="btn btn-ghost" style="font-size:12px;white-space:nowrap" data-url="${escHtml(url)}" onclick="navigator.clipboard.writeText(this.dataset.url);toast('📋 Copiado!')">Copiar</button>
       </div>
     </div>`;
   }).join('');
@@ -1631,9 +1731,11 @@ let chatLeads = [];
 let chatPollInterval = null;
 
 async function loadConversas() {
-  const leads = await api('/api/leads');
-  chatLeads = leads;
-  renderChatList(leads);
+  try {
+    const leads = await api('/api/leads');
+    chatLeads = leads;
+    renderChatList(leads);
+  } catch(e) { console.error('loadConversas:', e); toast('⚠️ Erro ao carregar conversas', true); }
 }
 
 function filtrarChats() {
@@ -1650,10 +1752,10 @@ function renderChatList(leads) {
   el.innerHTML = leads.map(l => `
     <div class="chat-item ${chatLeadAtual?.id === l.id ? 'ativo' : ''}" onclick="abrirChat(${l.id})">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-        <span class="chat-item-nome">${l.nome}</span>
+        <span class="chat-item-nome">${escHtml(l.nome)}</span>
         ${l.ctwa_clid ? '<span class="ctwa-badge">📍 anúncio</span>' : ''}
       </div>
-      <div class="chat-item-preview">${l.telefone || 'sem telefone'}</div>
+      <div class="chat-item-preview">${escHtml(l.telefone || 'sem telefone')}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
         <span class="badge ${classBadge(l.status)}" style="font-size:10px">${l.status}</span>
         <span style="font-size:10.5px;color:var(--muted)">${(l.ultimo_contato||l.criado_em||'').slice(0,16)}</span>
@@ -1672,9 +1774,9 @@ async function abrirChat(leadId) {
 
   document.getElementById('chat-header').innerHTML = `
     <div style="flex:1;min-width:0">
-      <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${chatLeadAtual.nome}</div>
+      <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(chatLeadAtual.nome)}</div>
       <div style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <span>${chatLeadAtual.telefone||'sem telefone'}</span>
+        <span>${escHtml(chatLeadAtual.telefone||'sem telefone')}</span>
         <span class="badge ${classBadge(chatLeadAtual.status)}" style="font-size:10px">${chatLeadAtual.status}</span>
         ${chatLeadAtual.ctwa_clid ? '<span class="ctwa-badge">📍 veio de anúncio</span>' : ''}
       </div>
@@ -1690,20 +1792,24 @@ async function abrirChat(leadId) {
 }
 
 async function carregarMensagensChat(leadId, silencioso = false) {
-  const msgs = await api(`/api/leads/${leadId}/mensagens`);
-  const el = document.getElementById('chat-msgs');
-  const atFundo = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
-  if (!msgs.length) {
-    el.innerHTML = '<div class="empty-small" style="text-align:center;padding:30px">Nenhuma mensagem ainda.<br>Digite abaixo para iniciar a conversa.</div>';
-    return;
+  try {
+    const msgs = await api(`/api/leads/${leadId}/mensagens`);
+    const el = document.getElementById('chat-msgs');
+    const atFundo = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
+    if (!msgs.length) {
+      el.innerHTML = '<div class="empty-small" style="text-align:center;padding:30px">Nenhuma mensagem ainda.<br>Digite abaixo para iniciar a conversa.</div>';
+      return;
+    }
+    el.innerHTML = msgs.map(m => `
+      <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}">
+        <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${escHtml(m.texto).replace(/\n/g,'<br>')}</div>
+        <div class="msg-time">${(m.criada_em||'').slice(11,16)}</div>
+      </div>
+    `).join('');
+    if (!silencioso || atFundo) el.scrollTop = el.scrollHeight;
+  } catch(e) {
+    if (!silencioso) toast('❌ Erro ao carregar mensagens: ' + e.message, true);
   }
-  el.innerHTML = msgs.map(m => `
-    <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}">
-      <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${(m.texto||'').replace(/\n/g,'<br>')}</div>
-      <div class="msg-time">${(m.criada_em||'').slice(11,16)}</div>
-    </div>
-  `).join('');
-  if (!silencioso || atFundo) el.scrollTop = el.scrollHeight;
 }
 
 async function enviarMensagemChat() {
@@ -1742,13 +1848,15 @@ let _templatesCache = [];
 
 async function abrirModalTemplate() {
   if (!chatLeadAtual) return;
-  _templatesCache = await api('/api/templates');
-  const sel = document.getElementById('tpl-select');
-  sel.innerHTML = _templatesCache.map(t =>
-    `<option value="${t.nome}">${t.titulo || t.nome}${t.status === 'aprovado' ? ' ✓' : ' (pendente)'}</option>`
-  ).join('');
-  atualizarPreviewTemplate();
-  document.getElementById('modal-template-bg').classList.add('open');
+  try {
+    _templatesCache = await api('/api/templates');
+    const sel = document.getElementById('tpl-select');
+    sel.innerHTML = _templatesCache.map(t =>
+      `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}${t.status === 'aprovado' ? ' ✓' : ' (pendente)'}</option>`
+    ).join('');
+    atualizarPreviewTemplate();
+    document.getElementById('modal-template-bg').classList.add('open');
+  } catch(e) { toast('❌ Erro ao carregar templates: ' + e.message, true); }
 }
 
 function fecharModalTemplate() {
@@ -1762,10 +1870,11 @@ function atualizarPreviewTemplate() {
   if (tpl) {
     prev.style.display = 'block';
     const corpo = tpl.corpo
-      ? tpl.corpo.replace(/\{\{(\d+)\}\}/g, '<span class="var-highlight">{{$1}}</span>')
+      ? escHtml(tpl.corpo).replace(/\{\{(\d+)\}\}/g, '<span class="var-highlight">{{$1}}</span>')
       : '<span style="color:var(--muted);font-size:11.5px">Corpo não definido — preencha na aba Disparos</span>';
-    const numVars = tpl.corpo ? (tpl.corpo.match(/\{\{\d+\}\}/g) || []).length : 0;
-    prev.innerHTML = `<span style="color:var(--muted);font-size:10.5px">TEMPLATE · ${tpl.categoria || 'MARKETING'}</span><br><div style="margin-top:6px;line-height:1.5">${corpo}</div>`;
+    const _tplMatches = tpl.corpo ? (tpl.corpo.match(/\{\{\d+\}\}/g) || []) : [];
+    const numVars = _tplMatches.length ? Math.max(..._tplMatches.map(m => parseInt(m.replace(/\D/g,'')))) : 0;
+    prev.innerHTML = `<span style="color:var(--muted);font-size:10.5px">TEMPLATE · ${escHtml(tpl.categoria || 'MARKETING')}</span><br><div style="margin-top:6px;line-height:1.5">${corpo}</div>`;
     const va = document.getElementById('tpl-vars-area');
     va.style.display = numVars > 0 ? 'block' : 'none';
     if (numVars > 0) {
@@ -1805,7 +1914,7 @@ async function loadDisparos() {
 async function syncMeta(btn, silencioso = false) {
   if (btn) { btn.disabled = true; btn.textContent = '↻ Sincronizando...'; }
   try {
-    const r = await api('/api/templates/sync-meta');
+    const r = await api('/api/templates/sync-meta', { method: 'POST', body: '{}' });
     if (r.error) { if (!silencioso) toast('⚠️ ' + r.error, true); }
     else if (!silencioso) toast(`✅ Sincronizado — ${r.atualizados} status atualizado(s)`);
   } catch(e) {
@@ -1819,14 +1928,20 @@ async function syncMeta(btn, silencioso = false) {
 async function renderTemplatesLista() {
   const el = document.getElementById('tpl-lista');
   if (!el) return;
-  const tpls = await api('/api/templates');
+  let tpls;
+  try {
+    tpls = await api('/api/templates');
+  } catch(e) {
+    el.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar templates</div>';
+    return;
+  }
   if (!tpls.length) {
     el.innerHTML = '<div class="empty-small">Nenhum template criado ainda.</div>';
     return;
   }
   el.innerHTML = tpls.map(t => {
     const corpoHtml = t.corpo
-      ? t.corpo.replace(/\{\{(\d+)\}\}/g, '<span class="var-highlight">{{$1}}</span>')
+      ? escHtml(t.corpo).replace(/\{\{(\d+)\}\}/g, '<span class="var-highlight">{{$1}}</span>')
       : '<em style="color:var(--muted)">Corpo não definido</em>';
     const STATUS_LABELS = {
       aprovado:   { cls: 'status-aprovado',   label: '✓ Aprovado na Meta' },
@@ -1839,12 +1954,12 @@ async function renderTemplatesLista() {
     const st = STATUS_LABELS[t.status] || STATUS_LABELS.pendente;
     const podeEnviar = t.id && !['aprovado','submetido'].includes(t.status);
     return `<div class="tpl-card">
-      <div class="tpl-card-nome">${t.nome}</div>
-      <div class="tpl-card-titulo">${t.titulo || t.nome}</div>
+      <div class="tpl-card-nome">${escHtml(t.nome)}</div>
+      <div class="tpl-card-titulo">${escHtml(t.titulo || t.nome)}</div>
       <div class="tpl-card-corpo">${corpoHtml}</div>
       <div class="tpl-card-footer">
         <span class="status-badge ${st.cls}">${st.label}</span>
-        <span style="font-size:11px;color:var(--muted)">${t.categoria || 'MARKETING'}</span>
+        <span style="font-size:11px;color:var(--muted)">${escHtml(t.categoria || 'MARKETING')}</span>
         <div style="margin-left:auto;display:flex;gap:6px">
           ${podeEnviar ? `<button class="btn btn-primary" style="font-size:11px;padding:5px 10px" onclick="submeterMeta(${t.id},this)">Enviar para Meta</button>` : ''}
           ${t.id ? `<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;color:var(--red)" onclick="deletarTemplate(${t.id})">Excluir</button>` : ''}
@@ -1860,13 +1975,15 @@ async function criarTemplate() {
   const corpo = document.getElementById('tpl-new-corpo').value.trim();
   const categoria = document.getElementById('tpl-new-cat').value;
   if (!nome) { toast('Nome obrigatório', true); return; }
-  const r = await api('/api/templates', { method: 'POST', body: JSON.stringify({ nome, titulo, corpo, categoria }) });
-  if (r.error) { toast('❌ ' + r.error, true); return; }
-  document.getElementById('tpl-new-nome').value = '';
-  document.getElementById('tpl-new-titulo').value = '';
-  document.getElementById('tpl-new-corpo').value = '';
-  toast('✅ Template salvo!');
-  renderTemplatesLista();
+  try {
+    const r = await api('/api/templates', { method: 'POST', body: JSON.stringify({ nome, titulo, corpo, categoria }) });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    document.getElementById('tpl-new-nome').value = '';
+    document.getElementById('tpl-new-titulo').value = '';
+    document.getElementById('tpl-new-corpo').value = '';
+    toast('✅ Template salvo!');
+    renderTemplatesLista();
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
 
 async function submeterMeta(id, btn) {
@@ -1878,26 +1995,52 @@ async function submeterMeta(id, btn) {
     renderTemplatesLista();
   } catch(e) {
     toast('❌ Erro: ' + e.message, true);
+  } finally {
     btn.disabled = false; btn.textContent = 'Enviar para Meta';
   }
 }
 
 async function deletarTemplate(id) {
   if (!confirm('Excluir este template?')) return;
-  const r = await api(`/api/templates/${id}`, { method: 'DELETE' });
-  if (r.error) { toast('❌ ' + r.error, true); return; }
-  toast('Template excluído');
-  renderTemplatesLista();
+  try {
+    const r = await api(`/api/templates/${id}`, { method: 'DELETE' });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('Template excluído');
+    renderTemplatesLista();
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
 
 // ===== IMPORTAÇÃO =====
+function _csvCols(linha) {
+  const r = []; let i = 0;
+  while (i <= linha.length) {
+    if (i === linha.length) { r.push(''); break; }
+    if (linha[i] === '"') {
+      i++; let f = '';
+      while (i < linha.length) {
+        if (linha[i] === '"' && linha[i+1] === '"') { f += '"'; i += 2; }
+        else if (linha[i] === '"') { i++; break; }
+        else f += linha[i++];
+      }
+      r.push(f.trim());
+      if (linha[i] === ',' || linha[i] === ';') i++;
+    } else {
+      const s1 = linha.indexOf(',', i), s2 = linha.indexOf(';', i);
+      const sep = s1 < 0 ? s2 : s2 < 0 ? s1 : Math.min(s1, s2);
+      if (sep < 0) { r.push(linha.slice(i).trim().replace(/^['"]|['"]$/g, '')); break; }
+      r.push(linha.slice(i, sep).trim().replace(/^['"]|['"]$/g, '')); i = sep + 1;
+    }
+  }
+  return r;
+}
+
 function parseCSVTexto(texto) {
   const linhas = texto.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   if (!linhas.length) return [];
   const ehCabecalho = l => /nome|name|telefon|phone|email|origem|source/i.test(l);
   const inicio = ehCabecalho(linhas[0]) ? 1 : 0;
   return linhas.slice(inicio).map(l => {
-    const cols = l.split(/[;,]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
+    const cols = _csvCols(l);
     return {
       nome: cols[0] || '',
       telefone: (cols[1] || '').replace(/\D/g, ''),
@@ -1939,10 +2082,10 @@ function renderPreviewImportacao() {
     <thead><tr><th>Nome</th><th>Telefone</th><th>Email</th><th>Origem</th></tr></thead>
     <tbody>
       ${amostra.map(p => `<tr>
-        <td>${p.nome || '—'}</td>
-        <td style="font-family:'DM Mono',monospace;font-size:11.5px">${p.telefone || '—'}</td>
-        <td style="font-size:11.5px;color:var(--muted)">${p.email || '—'}</td>
-        <td style="font-size:11.5px">${p.origem}</td>
+        <td>${escHtml(p.nome || '—')}</td>
+        <td style="font-family:'DM Mono',monospace;font-size:11.5px">${escHtml(p.telefone || '—')}</td>
+        <td style="font-size:11.5px;color:var(--muted)">${escHtml(p.email || '—')}</td>
+        <td style="font-size:11.5px">${escHtml(p.origem)}</td>
       </tr>`).join('')}
       ${_importParsed.length > 10 ? `<tr><td colspan="4" style="text-align:center;color:var(--muted);font-size:11.5px">... e mais ${_importParsed.length - 10} pacientes</td></tr>` : ''}
     </tbody>
@@ -1971,10 +2114,10 @@ async function confirmarImportacao() {
     toast('❌ Erro: ' + e.message, true);
   } finally {
     btn.disabled = false;
+    btn.textContent = `✅ Importar ${_importParsed.length} Pacientes`;
   }
 }
 
-loadDash();
 
 // ============ NOTAS FISCAIS ============
 let _nfEditingId = null;
@@ -1982,11 +2125,11 @@ let _nfData = {};
 
 function nfSistemaBadge(s) {
   const cls = {'Vieira':'nf-badge-Vieira','Martins':'nf-badge-Martins','Receita Saude':'nf-badge-ReceitaSaude'};
-  return `<span class="badge ${cls[s]||''}">${s}</span>`;
+  return `<span class="badge ${cls[s]||''}">${escHtml(s)}</span>`;
 }
 function nfStatusBadge(s) {
   const cls = {'Pendente':'nf-status-Pendente','Processando':'nf-status-Processando','Emitida':'nf-status-Emitida','Erro':'nf-status-Erro'};
-  return `<span class="badge ${cls[s]||''}">${s}</span>`;
+  return `<span class="badge ${cls[s]||''}">${escHtml(s)}</span>`;
 }
 function nfFmt(v) { return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2}); }
 function nfMask(cpf) {
@@ -2006,9 +2149,10 @@ async function loadNotasFiscais() {
   if (status)  params.set('status', status);
   if (comp)    params.set('competencia', comp);
 
+  try {
   const [notas, stats] = await Promise.all([
     api('/api/notas-fiscais?' + params),
-    api('/api/notas-fiscais/stats' + (comp ? '?competencia='+comp : '')),
+    api('/api/notas-fiscais/stats?' + params),
   ]);
 
   document.getElementById('nf-total').textContent     = stats.total ?? '–';
@@ -2026,23 +2170,24 @@ async function loadNotasFiscais() {
     return;
   }
   tbody.innerHTML = notas.map(n => nfViewRowHtml(n)).join('');
+  } catch(e) { console.error('loadNotasFiscais:', e); toast('⚠️ Erro ao carregar notas fiscais', true); }
 }
 
 function nfViewRowHtml(n) {
   const pac = n.nome_paciente
-    ? `<br><small style="color:var(--muted);font-size:11px">Pac: ${n.nome_paciente}${n.parentesco?' ('+n.parentesco+')':''}</small>` : '';
+    ? `<br><small style="color:var(--muted);font-size:11px">Pac: ${escHtml(n.nome_paciente)}${n.parentesco?' ('+escHtml(n.parentesco)+')':''}</small>` : '';
   const desc = n.descricao
-    ? `<span title="${n.descricao.replace(/"/g,'&quot;')}" style="color:var(--muted);font-size:11px;max-width:130px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.descricao}</span>` : '<span style="color:var(--muted)">—</span>';
+    ? `<span title="${escHtml(n.descricao)}" style="color:var(--muted);font-size:11px;max-width:130px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(n.descricao)}</span>` : '<span style="color:var(--muted)">—</span>';
   const nota_num = n.num_nota
-    ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${n.num_nota}</span>` : '<span style="color:var(--muted)">—</span>';
+    ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${escHtml(n.num_nota)}</span>` : '<span style="color:var(--muted)">—</span>';
   const canEdit = ['Pendente','Erro'].includes(n.status);
   return `<tr id="nf-vrow-${n.id}" class="nf-row-clickable" onclick="abrirDetalheNota(${n.id})">
     <td>${nfSistemaBadge(n.sistema)}</td>
-    <td style="font-family:'DM Mono',monospace;font-size:12px">${n.competencia||'—'}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:12px">${escHtml(n.competencia||'—')}</td>
     <td style="font-family:'DM Mono',monospace;font-size:11.5px">${nfMask(n.cpf_tomador)}</td>
-    <td>${n.nome_tomador||'—'}${pac}</td>
+    <td>${escHtml(n.nome_tomador||'—')}${pac}</td>
     <td style="font-family:'DM Mono',monospace;white-space:nowrap">${nfFmt(n.valor)}</td>
-    <td style="font-size:12px">${n.data_pagamento||'—'}</td>
+    <td style="font-size:12px">${escHtml(n.data_pagamento||'—')}</td>
     <td>${desc}</td>
     <td>${nfStatusBadge(n.status)}</td>
     <td>${nota_num}</td>
@@ -2073,7 +2218,7 @@ function nfEditFormHtml(n, rowId) {
         </div>
         <div>
           <div class="nf-field-label">Competência (MM-AAAA) *</div>
-          <input class="nf-ci" id="nfe-comp" placeholder="05-2026" value="${v('competencia')}" maxlength="7">
+          <input class="nf-ci" id="nfe-comp" placeholder="05-2026" value="${escHtml(v('competencia'))}" maxlength="7">
         </div>
         <div>
           <div class="nf-field-label">Tipo Tomador</div>
@@ -2084,23 +2229,23 @@ function nfEditFormHtml(n, rowId) {
         </div>
         <div>
           <div class="nf-field-label">CPF / CNPJ Tomador *</div>
-          <input class="nf-ci" id="nfe-cpf" placeholder="000.000.000-00" value="${v('cpf_tomador')}">
+          <input class="nf-ci" id="nfe-cpf" placeholder="000.000.000-00" value="${escHtml(v('cpf_tomador'))}">
         </div>
         <div style="grid-column:span 2">
           <div class="nf-field-label">Nome Tomador (quem paga) *</div>
-          <input class="nf-ci" id="nfe-nome" placeholder="Nome completo" value="${v('nome_tomador')}">
+          <input class="nf-ci" id="nfe-nome" placeholder="Nome completo" value="${escHtml(v('nome_tomador'))}">
         </div>
         <div>
           <div class="nf-field-label">Valor (R$) *</div>
-          <input class="nf-ci" id="nfe-valor" type="number" placeholder="650" value="${v('valor')}">
+          <input class="nf-ci" id="nfe-valor" type="number" placeholder="650" value="${escHtml(v('valor'))}">
         </div>
         <div>
           <div class="nf-field-label">Data Pagamento</div>
-          <input class="nf-ci" id="nfe-data" placeholder="04/05/2026" value="${v('data_pagamento')}">
+          <input class="nf-ci" id="nfe-data" placeholder="04/05/2026" value="${escHtml(v('data_pagamento'))}">
         </div>
         <div style="grid-column:span 4">
           <div class="nf-field-label">Descrição do Serviço</div>
-          <input class="nf-ci" id="nfe-desc" placeholder="Tratamento ortodôntico, Protocolo superior e inferior..." value="${v('descricao')}">
+          <input class="nf-ci" id="nfe-desc" placeholder="Tratamento ortodôntico, Protocolo superior e inferior..." value="${escHtml(v('descricao'))}">
         </div>
       </div>
       <div style="margin-top:10px">
@@ -2112,15 +2257,15 @@ function nfEditFormHtml(n, rowId) {
       <div id="nfe-pac-area" style="display:${pac?'grid':'none'};grid-template-columns:1fr 1fr 1fr;gap:10px 16px;margin-top:8px">
         <div>
           <div class="nf-field-label">CPF Paciente</div>
-          <input class="nf-ci" id="nfe-cpf-pac" placeholder="000.000.000-00" value="${v('cpf_paciente')}">
+          <input class="nf-ci" id="nfe-cpf-pac" placeholder="000.000.000-00" value="${escHtml(v('cpf_paciente'))}">
         </div>
         <div>
           <div class="nf-field-label">Nome Paciente</div>
-          <input class="nf-ci" id="nfe-nome-pac" placeholder="Nome do paciente" value="${v('nome_paciente')}">
+          <input class="nf-ci" id="nfe-nome-pac" placeholder="Nome do paciente" value="${escHtml(v('nome_paciente'))}">
         </div>
         <div>
           <div class="nf-field-label">Parentesco</div>
-          <input class="nf-ci" id="nfe-parentesco" placeholder="ex: Filho, Filha, Mãe" value="${v('parentesco')}">
+          <input class="nf-ci" id="nfe-parentesco" placeholder="ex: Filho, Filha, Mãe" value="${escHtml(v('parentesco'))}">
         </div>
       </div>
       <div id="nfe-erro" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:7px;font-size:12px;color:var(--red)"></div>
@@ -2194,32 +2339,38 @@ async function nfSaveRow(rowId) {
   if (!body.valor) { errEl.textContent='Informe o valor'; errEl.style.display='block'; return; }
   errEl.style.display = 'none';
   const isNew = rowId === 0;
-  const r = await api(
-    isNew ? '/api/notas-fiscais' : `/api/notas-fiscais/${rowId}`,
-    { method: isNew ? 'POST' : 'PATCH', body: JSON.stringify(body) }
-  );
-  if (r.error) { errEl.textContent=r.error; errEl.style.display='block'; return; }
-  toast(isNew ? '✅ Nota criada' : '✅ Nota atualizada');
-  _nfEditingId = null;
-  loadNotasFiscais();
+  try {
+    const r = await api(
+      isNew ? '/api/notas-fiscais' : `/api/notas-fiscais/${rowId}`,
+      { method: isNew ? 'POST' : 'PATCH', body: JSON.stringify(body) }
+    );
+    if (r.error) { errEl.textContent=r.error; errEl.style.display='block'; return; }
+    toast(isNew ? '✅ Nota criada' : '✅ Nota atualizada');
+    _nfEditingId = null;
+    loadNotasFiscais();
+  } catch(e) { errEl.textContent = e.message; errEl.style.display='block'; }
 }
 
 async function deletarNota(id) {
   if (!confirm('Excluir esta nota? Esta ação não pode ser desfeita.')) return;
-  const r = await api(`/api/notas-fiscais/${id}`, { method: 'DELETE' });
-  if (r.error) { toast('❌ ' + r.error, true); return; }
-  toast('🗑 Nota excluída');
-  loadNotasFiscais();
+  try {
+    const r = await api(`/api/notas-fiscais/${id}`, { method: 'DELETE' });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('🗑 Nota excluída');
+    loadNotasFiscais();
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
 
 async function resetarNota(id) {
-  const r = await api(`/api/notas-fiscais/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: 'Pendente', erro_msg: '' }),
-  });
-  if (r.error) { toast('❌ ' + r.error, true); return; }
-  toast('↩ Nota resetada para Pendente');
-  loadNotasFiscais();
+  try {
+    const r = await api(`/api/notas-fiscais/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Pendente', erro_msg: '' }),
+    });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('↩ Nota resetada para Pendente');
+    loadNotasFiscais();
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
 
 // ======= IMPORT EM LOTE =======
@@ -2365,13 +2516,13 @@ function nfAbrirPreview(notas) {
   document.getElementById('nf-preview-tbody').innerHTML = validadas.map((n, i) => `<tr>
     <td style="color:var(--muted)">${n._linha ?? i+1}</td>
     <td>${nfSistemaBadge(n.sistema)}</td>
-    <td style="font-family:'DM Mono',monospace">${n.competencia}</td>
+    <td style="font-family:'DM Mono',monospace">${escHtml(n.competencia)}</td>
     <td style="font-family:'DM Mono',monospace;font-size:11px">${nfMask(n.cpf_tomador)}</td>
-    <td>${n.nome_tomador}</td>
+    <td>${escHtml(n.nome_tomador)}</td>
     <td style="font-family:'DM Mono',monospace">${nfFmt(n.valor)}</td>
-    <td style="font-size:11px">${n.data_pagamento||'—'}</td>
-    <td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.descricao||'—'}</td>
-    <td>${n._erro ? `<span class="nf-preview-err">✕ ${n._erro}</span>` : '<span class="nf-preview-ok">✓</span>'}</td>
+    <td style="font-size:11px">${escHtml(n.data_pagamento||'—')}</td>
+    <td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(n.descricao||'—')}</td>
+    <td>${n._erro ? `<span class="nf-preview-err">✕ ${escHtml(n._erro)}</span>` : '<span class="nf-preview-ok">✓</span>'}</td>
   </tr>`).join('');
 
   document.getElementById('modal-nf-preview-bg').classList.add('open');
@@ -2387,8 +2538,9 @@ async function nfConfirmarImport() {
   if (!validas.length) return;
   const btn = document.getElementById('nf-preview-btn-import');
   btn.disabled = true; btn.textContent = 'Importando…';
+  try {
   const r = await api('/api/notas-fiscais/lote', { method:'POST', body: JSON.stringify({ notas: validas }) });
-  if (r.error) { toast('❌ ' + r.error, true); btn.disabled=false; return; }
+  if (r.error) { toast('❌ ' + r.error, true); return; }
   fecharPreviewNF();
   // Fechar painéis
   ['colar','arquivo','grade'].forEach(k => {
@@ -2399,6 +2551,12 @@ async function nfConfirmarImport() {
   document.getElementById('nf-arquivo-nome').textContent = 'Nenhum arquivo selecionado';
   toast(`✅ ${r.criadas} nota(s) criadas${r.erros?.length ? ' · ' + r.erros.length + ' erros ignorados' : ''}`);
   loadNotasFiscais();
+  } catch(e) {
+    toast('❌ Erro ao importar: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = `Importar ${validas.length} nota(s)`;
+  }
 }
 
 // --- Opção 3: Grade lote ---
@@ -2521,22 +2679,20 @@ function inadDiasBadge(d) {
 }
 
 function inadWaBtn(patientId, phone, name) {
-  const safe = (name||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
   const clean = (phone||'').replace(/\D/g,'');
   if (!clean) return `<button class="inad-wa" style="opacity:.35;cursor:default" disabled title="Sem telefone"><svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></button>`;
-  return `<button class="inad-wa" onclick="openWhatsAppInad('${patientId}','${clean}','${safe}')" title="WhatsApp"><svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></button>`;
+  return `<button class="inad-wa" data-pid="${escHtml(String(patientId))}" data-phone="${clean}" data-name="${escHtml(name||'')}" onclick="openWhatsAppInadEl(this)" title="WhatsApp"><svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></button>`;
 }
 
 function inadResponsavelSelect(patientId, current) {
   const opts = ['', 'Gabi', 'Bruna', 'Dr. Marcos'].map(o =>
     `<option value="${o}" ${current === o ? 'selected':''}>${o || '— —'}</option>`
   ).join('');
-  return `<select class="inad-select" onchange="saveNotaInad('${patientId}','responsavel',this.value)">${opts}</select>`;
+  return `<select class="inad-select" data-pid="${escHtml(String(patientId))}" onchange="saveNotaInad(this.dataset.pid,'responsavel',this.value)">${opts}</select>`;
 }
 
 function inadEditInput(patientId, field, value, placeholder) {
-  const safe = (value||'').replace(/"/g,'&quot;');
-  return `<input class="inad-editable" value="${safe}" placeholder="${placeholder}" onblur="saveNotaInad('${patientId}','${field}',this.value)">`;
+  return `<input class="inad-editable" value="${escHtml(value||'')}" placeholder="${placeholder}" data-pid="${escHtml(String(patientId))}" data-field="${field}" onblur="saveNotaInad(this.dataset.pid,this.dataset.field,this.value)">`;
 }
 
 function renderInadSection(num, patients, isCritico) {
@@ -2554,6 +2710,7 @@ function renderInadSection(num, patients, isCritico) {
   tbody.innerHTML = patients.map(p => {
     const pid = p.id;
     const name = p.name || `Paciente ${pid}`;
+    const safeN = escHtml(name);
     const ppp  = inadResponsavelSelect(pid, p.responsavel);
     const paso = inadEditInput(pid, 'proximoPasso', p.proximoPasso, 'Próximo passo...');
     const obsEl = inadEditInput(pid, 'obs', p.obs, 'OBS...');
@@ -2561,7 +2718,7 @@ function renderInadSection(num, patients, isCritico) {
 
     if (isCritico) {
       return `<tr>
-        <td class="inad-td"><div style="font-weight:600">${name}</div><div style="font-size:10.5px;color:var(--muted)">#${pid}</div></td>
+        <td class="inad-td"><div style="font-weight:600">${safeN}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
         <td class="inad-td-c">${p.overdueCount}</td>
         <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
         <td class="inad-td-c">${inadDiasBadge(p.diasDeAtraso)}</td>
@@ -2576,7 +2733,7 @@ function renderInadSection(num, patients, isCritico) {
     }
     const qtdCol = num === 1 ? '' : `<td class="inad-td-c">${p.overdueCount}</td>`;
     return `<tr>
-      <td class="inad-td"><div style="font-weight:600">${name}</div><div style="font-size:10.5px;color:var(--muted)">#${pid}</div></td>
+      <td class="inad-td"><div style="font-weight:600">${safeN}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
       ${qtdCol}
       <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
       <td class="inad-td-r" style="color:var(--green)">${_inadFmt(p.futureAmount)}</td>
@@ -2648,7 +2805,7 @@ async function loadInadimplentes(forceRefresh = false) {
 
 async function saveNotaInad(patientId, field, value) {
   try {
-    await fetch(`/api/inadimplentes/nota/${patientId}`, {
+    await api(`/api/inadimplentes/nota/${patientId}`, {
       method: 'PATCH',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ [field]: value }),
@@ -2656,7 +2813,12 @@ async function saveNotaInad(patientId, field, value) {
   } catch(e) { console.warn('[inad] saveNota erro:', e.message); }
 }
 
+function openWhatsAppInadEl(el) {
+  openWhatsAppInad(el.dataset.pid, el.dataset.phone, el.dataset.name);
+}
+
 function openWhatsAppInad(patientId, phone, name) {
+  if (!phone) { toast('Paciente sem telefone cadastrado', true); return; }
   const num = phone.startsWith('55') ? phone : '55' + phone;
   const firstName = (name || '').split(' ')[0];
   const msg = encodeURIComponent(`Olá ${firstName}! Tudo bem? Aqui é da Clínica AMA, entramos em contato sobre seu tratamento.`);
@@ -2695,11 +2857,13 @@ async function enviarCaptcha() {
   const digitos = document.getElementById('captcha-input').value.replace(/\D/g,'');
   if (digitos.length !== 4) { toast('Digite exatamente 4 dígitos', true); return; }
   if (!_captchaToken) return;
-  await api(`/api/nf-captcha/${_captchaToken}/resposta`, {
-    method: 'POST', body: JSON.stringify({ digitos })
-  });
-  fecharCaptchaModal();
-  toast('Captcha enviado — automação continuando...');
+  try {
+    await api(`/api/nf-captcha/${_captchaToken}/resposta`, {
+      method: 'POST', body: JSON.stringify({ digitos })
+    });
+    fecharCaptchaModal();
+    toast('Captcha enviado — automação continuando...');
+  } catch(e) { toast('❌ Erro ao enviar captcha: ' + e.message, true); }
 }
 
 function fecharCaptchaModal() {
@@ -2707,8 +2871,8 @@ function fecharCaptchaModal() {
   // Não reseta _captchaToken para não reabrir o mesmo modal
 }
 
-// Inicia polling de captcha ao carregar a página
-setInterval(captchaVerificar, 3000);
+
+
 
 // ===== DRAWER DETALHE NOTA FISCAL =====
 function abrirDetalheNota(id) {
@@ -2729,13 +2893,13 @@ function _renderDetalheNota(n) {
   const pac = n.nome_paciente
     ? `<div class="nfd-grid" style="margin-top:8px">
         <div><div class="nfd-label">CPF Paciente</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfMask(n.cpf_paciente)||'—'}</div></div>
-        <div><div class="nfd-label">Nome Paciente</div><div class="nfd-val">${n.nome_paciente}</div></div>
-        ${n.parentesco?`<div><div class="nfd-label">Parentesco</div><div class="nfd-val">${n.parentesco}</div></div>`:''}
+        <div><div class="nfd-label">Nome Paciente</div><div class="nfd-val">${escHtml(n.nome_paciente)}</div></div>
+        ${n.parentesco?`<div><div class="nfd-label">Parentesco</div><div class="nfd-val">${escHtml(n.parentesco)}</div></div>`:''}
       </div>` : '';
 
   const erroHtml = n.erro_msg
     ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:7px;font-size:12px;color:var(--red)">
-        <strong>Erro:</strong> ${n.erro_msg}
+        <strong>Erro:</strong> ${escHtml(n.erro_msg)}
        </div>` : '';
 
   const podeReset = ['Processando','Erro'].includes(n.status);
@@ -2746,8 +2910,8 @@ function _renderDetalheNota(n) {
         <div class="nfd-hist-item">
           <div class="nfd-hist-dot nfd-hist-dot-${h.para}"></div>
           <div>
-            <span style="font-weight:600">${h.de} → ${h.para}</span>
-            <span style="color:var(--muted);margin-left:8px">${h.quando}</span>
+            <span style="font-weight:600">${escHtml(h.de)} → ${escHtml(h.para)}</span>
+            <span style="color:var(--muted);margin-left:8px">${escHtml(h.quando)}</span>
             <span style="color:var(--muted);margin-left:6px;font-size:11px">${h.quem === 'sistema' ? '⚙ sistema' : '👤 manual'}</span>
           </div>
         </div>`).join('')
@@ -2758,24 +2922,24 @@ function _renderDetalheNota(n) {
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         ${nfSistemaBadge(n.sistema)}
         ${nfStatusBadge(n.status)}
-        ${n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)">NF# ${n.num_nota}</span>` : ''}
+        ${n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)">NF# ${escHtml(n.num_nota)}</span>` : ''}
       </div>
       <button onclick="fecharDetalheNota()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:2px 8px;line-height:1">✕</button>
     </div>
 
     <div class="nfd-section">
       <div class="nfd-grid">
-        <div><div class="nfd-label">Competência</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${n.competencia||'—'}</div></div>
-        <div><div class="nfd-label">Tipo Tomador</div><div class="nfd-val">${n.tipo_tomador||'CPF'}</div></div>
+        <div><div class="nfd-label">Competência</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${escHtml(n.competencia||'—')}</div></div>
+        <div><div class="nfd-label">Tipo Tomador</div><div class="nfd-val">${escHtml(n.tipo_tomador||'CPF')}</div></div>
         <div><div class="nfd-label">CPF / CNPJ</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfMask(n.cpf_tomador)||'—'}</div></div>
-        <div><div class="nfd-label">Nome Tomador</div><div class="nfd-val">${n.nome_tomador||'—'}</div></div>
+        <div><div class="nfd-label">Nome Tomador</div><div class="nfd-val">${escHtml(n.nome_tomador||'—')}</div></div>
         <div><div class="nfd-label">Valor</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfFmt(n.valor)}</div></div>
-        <div><div class="nfd-label">Data Pagamento</div><div class="nfd-val">${n.data_pagamento||'—'}</div></div>
+        <div><div class="nfd-label">Data Pagamento</div><div class="nfd-val">${escHtml(n.data_pagamento||'—')}</div></div>
       </div>
-      <div style="margin-top:10px"><div class="nfd-label">Descrição</div><div class="nfd-val">${n.descricao||'—'}</div></div>
+      <div style="margin-top:10px"><div class="nfd-label">Descrição</div><div class="nfd-val">${escHtml(n.descricao||'—')}</div></div>
       ${pac}
       ${erroHtml}
-      ${n.data_emissao ? `<div style="margin-top:8px"><div class="nfd-label">Emitida em</div><div class="nfd-val">${n.data_emissao}</div></div>` : ''}
+      ${n.data_emissao ? `<div style="margin-top:8px"><div class="nfd-label">Emitida em</div><div class="nfd-val">${escHtml(n.data_emissao)}</div></div>` : ''}
     </div>
 
     <div class="nfd-section">
@@ -2809,27 +2973,31 @@ async function nfdSalvarStatus(id) {
   const sel = document.getElementById('nfd-status-sel');
   if (!sel) return;
   const novoStatus = sel.value;
-  const r = await api(`/api/notas-fiscais/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: novoStatus, quem: 'manual' })
-  });
-  if (r.error) { toast('❌ ' + r.error, true); return; }
-  toast('✅ Status atualizado');
-  await loadNotasFiscais();
-  _nfData[id] = r.nota;
-  _renderDetalheNota(r.nota);
+  try {
+    const r = await api(`/api/notas-fiscais/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: novoStatus, quem: 'manual' })
+    });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('✅ Status atualizado');
+    await loadNotasFiscais();
+    _nfData[id] = r.nota;
+    _renderDetalheNota(r.nota);
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
 
 async function nfdResetar(id) {
-  const r = await api(`/api/notas-fiscais/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: 'Pendente', quem: 'manual', erro_msg: '' })
-  });
-  if (r.error) { toast('❌ ' + r.error, true); return; }
-  toast('↺ Resetada para Pendente');
-  await loadNotasFiscais();
-  _nfData[id] = r.nota;
-  _renderDetalheNota(r.nota);
+  try {
+    const r = await api(`/api/notas-fiscais/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Pendente', quem: 'manual', erro_msg: '' })
+    });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('↺ Resetada para Pendente');
+    await loadNotasFiscais();
+    _nfData[id] = r.nota;
+    _renderDetalheNota(r.nota);
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
 </script>
 
@@ -2852,5 +3020,218 @@ async function nfdResetar(id) {
   </div>
 </div>
 
-</body>
+
+<script>
+// ========== SUPABASE AUTH ==========
+const _SUPABASE_URL = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
+const _SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
+const _sb = window.supabase ? window.supabase.createClient(_SUPABASE_URL, _SUPABASE_ANON_KEY) : null;
+
+function _showLogin() {
+  document.getElementById('login-screen').classList.add('active');
+  document.getElementById('app-shell').style.display = 'none';
+}
+function _showApp() {
+  document.getElementById('login-screen').classList.remove('active');
+  document.getElementById('app-shell').style.display = '';
+}
+
+async function handleLogin() {
+  if (!_sb) { alert('Supabase não configurado. Adicione SUPABASE_ANON_KEY.'); return; }
+  const email = document.getElementById('login-email').value.trim();
+  const senha = document.getElementById('login-senha').value;
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-error');
+  btn.disabled = true; btn.textContent = 'Entrando...'; err.style.display = 'none';
+  const { data, error } = await _sb.auth.signInWithPassword({ email, password: senha });
+  if (error) {
+    err.textContent = error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos' : error.message;
+    err.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Entrar';
+    return;
+  }
+  _sbSession = data.session;
+  _showApp();
+  iniciarApp();
+}
+
+async function handleLogout() {
+  if (_sb) await _sb.auth.signOut();
+  _sbSession = null;
+  _showLogin();
+}
+
+document.getElementById('login-senha').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+
+function iniciarApp() {
+  setInterval(captchaVerificar, 3000);
+  // Activate dashboard nav button on load
+  const btn = document.querySelector('.nav-btn[onclick*="dashboard"]');
+  if (btn) setPage('dashboard', btn);
+  else loadDash();
+}
+
+// Check existing session on load
+(async () => {
+  if (!_sb) {
+    // No Supabase config — show app in degraded mode (dev only)
+    _showApp();
+    iniciarApp();
+    return;
+  }
+  const { data: { session } } = await _sb.auth.getSession();
+  if (session) {
+    _sbSession = session;
+    _showApp();
+    iniciarApp();
+  } else {
+    _showLogin();
+  }
+  _sb.auth.onAuthStateChange((event, session) => {
+    _sbSession = session;
+    if (!session) _showLogin();
+  });
+})();
+
+// ========== GESTAO DE USUARIOS (ADMIN) ==========
+let _currentUser = null;
+
+async function loadCurrentUser() {
+  try {
+    const d = await api('/api/me');
+    _currentUser = d;
+    const navU = document.getElementById('nav-usuarios');
+    if (navU) navU.style.display = (d.roles && d.roles.includes('admin')) ? '' : 'none';
+  } catch(e) {}
+}
+
+async function loadUsuarios() {
+  const el = document.getElementById('usuarios-lista');
+  if (!el) return;
+  el.innerHTML = '<p style="color:var(--muted)">Carregando...</p>';
+  try {
+    const users = await api('/api/admin/users');
+    if (!users.length) { el.innerHTML = '<p style="color:var(--muted)">Nenhum usuario cadastrado.</p>'; return; }
+    el.innerHTML = users.map(u => `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div style="min-width:0">
+          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.nome || '—'}</div>
+          <div style="font-size:12px;color:var(--muted)">${u.email}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${(u.roles||[]).join(', ')}</div>
+        </div>
+        <button class="btn btn-ghost" style="font-size:11px;color:var(--red);white-space:nowrap" onclick="excluirUsuario('${u.id}','${u.email}')">Excluir</button>
+      </div>
+    `).join('');
+  } catch(e) { el.innerHTML = `<p style="color:var(--red)">${e.message}</p>`; }
+}
+
+async function criarUsuario() {
+  const nome = document.getElementById('nu-nome').value.trim();
+  const email = document.getElementById('nu-email').value.trim();
+  const senha = document.getElementById('nu-senha').value;
+  const msg = document.getElementById('nu-msg');
+  const btn = document.getElementById('nu-btn');
+  if (!nome || !email || !senha) { msg.style.color='var(--red)'; msg.textContent='Preencha todos os campos'; return; }
+  if (senha.length < 6) { msg.style.color='var(--red)'; msg.textContent='Senha minima: 6 caracteres'; return; }
+  const roles = [];
+  if (document.getElementById('nu-role-admin').checked) roles.push('admin');
+  if (document.getElementById('nu-role-crc_leads').checked) roles.push('crc_leads');
+  if (document.getElementById('nu-role-crc_comercial').checked) roles.push('crc_comercial');
+  if (document.getElementById('nu-role-crc_sucesso').checked) roles.push('crc_sucesso');
+  if (!roles.length) roles.push('crc_leads');
+  btn.disabled = true; btn.textContent = 'Criando...'; msg.textContent = '';
+  try {
+    await api('/api/admin/users', { method:'POST', body: JSON.stringify({nome, email, senha, roles}) });
+    msg.style.color='var(--green)'; msg.textContent='Usuario criado com sucesso!';
+    document.getElementById('nu-nome').value='';
+    document.getElementById('nu-email').value='';
+    document.getElementById('nu-senha').value='';
+    loadUsuarios();
+  } catch(e) { msg.style.color='var(--red)'; msg.textContent=e.message; }
+  finally { btn.disabled=false; btn.textContent='Criar Usuario'; }
+}
+
+async function excluirUsuario(id, email) {
+  if (!confirm('Excluir usuario ' + email + '?')) return;
+  try {
+    await api('/api/admin/users/' + id, {method:'DELETE'});
+    toast('Usuario ' + email + ' excluido');
+    loadUsuarios();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// ========== RECUPERAR SENHA ==========
+async function handleForgotPassword() {
+  const emailEl = document.getElementById('login-email');
+  const email = emailEl ? emailEl.value.trim() : '';
+  const msg = document.getElementById('reset-msg');
+  const link = document.getElementById('forgot-link');
+  if (!email) {
+    msg.className='reset-msg error'; msg.style.display='block';
+    msg.textContent='Digite seu e-mail antes de clicar em "Esqueceu a senha?"';
+    return;
+  }
+  if (link) link.textContent='Enviando...';
+  try {
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await _sb.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+    msg.className='reset-msg ok'; msg.style.display='block';
+    msg.textContent='Link de recuperacao enviado! Verifique seu e-mail.';
+  } catch(e) {
+    msg.className='reset-msg error'; msg.style.display='block';
+    msg.textContent='Erro: ' + e.message;
+  } finally { if (link) link.textContent='Esqueceu sua senha?'; }
+}
+
+// Handle password reset link (user clicked email link)
+(function checkPasswordReset() {
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  const combined = hash + '&' + search;
+  const isRecovery = combined.includes('type=recovery');
+  const tokenMatch = combined.match(/access_token=([^&#]+)/);
+  if (!isRecovery || !tokenMatch) return;
+  const token = tokenMatch[1];
+  if (document.readyState !== 'loading') { showResetPasswordForm(token); }
+  else { document.addEventListener('DOMContentLoaded', function() { showResetPasswordForm(token); }); }
+})();
+
+function showResetPasswordForm(token) {
+  const screen = document.getElementById('login-screen');
+  if (!screen) return;
+  const box = screen.querySelector('.login-box');
+  if (!box) return;
+  box.innerHTML =
+    '<div class="login-logo">CRM <span>Clinica</span></div>' +
+    '<div class="login-sub">Defina sua nova senha</div>' +
+    '<div class="login-field"><label>Nova senha</label><input type="password" id="reset-nova" placeholder="Minimo 6 caracteres" autocomplete="new-password"></div>' +
+    '<div class="login-field"><label>Confirmar senha</label><input type="password" id="reset-conf" placeholder="Repita a senha" autocomplete="new-password"></div>' +
+    '<button class="login-btn" id="reset-btn" onclick="submitNewPassword()">Salvar nova senha</button>' +
+    '<div class="login-error" id="reset-error"></div>';
+  screen.classList.add('active');
+  // Set session from token so updateUser works
+  if (_sb) _sb.auth.setSession({ access_token: token, refresh_token: '' }).catch(function(){});
+}
+
+async function submitNewPassword() {
+  const nova = document.getElementById('reset-nova').value;
+  const conf = document.getElementById('reset-conf').value;
+  const err = document.getElementById('reset-error');
+  const btn = document.getElementById('reset-btn');
+  if (nova.length < 6) { err.textContent='Minimo 6 caracteres'; err.style.display='block'; return; }
+  if (nova !== conf) { err.textContent='Senhas nao coincidem'; err.style.display='block'; return; }
+  btn.disabled=true; btn.textContent='Salvando...';
+  try {
+    const { error } = await _sb.auth.updateUser({ password: nova });
+    if (error) throw error;
+    err.style.display='none';
+    btn.textContent='Senha salva! Redirecionando...';
+    setTimeout(function() { window.location.href = window.location.pathname; }, 1500);
+  } catch(e) {
+    err.textContent=e.message; err.style.display='block';
+    btn.disabled=false; btn.textContent='Salvar nova senha';
+  }
+}
+</script></body>
 </html>

@@ -29,3 +29,10 @@ def salvar_pdf(download, pasta_base: str, competencia: str, num_nota: str, nome_
     destino = caminho_pdf(pasta_base, competencia, num_nota, nome_tomador)
     download.save_as(str(destino))
     return str(destino)
+
+
+def salvar_pdf_bytes(pdf_bytes: bytes, pasta_base: str, competencia: str, num_nota: str, nome_tomador: str) -> str:
+    """Recebe bytes de um PDF (via requests) e salva no caminho correto."""
+    destino = caminho_pdf(pasta_base, competencia, num_nota, nome_tomador)
+    destino.write_bytes(pdf_bytes)
+    return str(destino)
