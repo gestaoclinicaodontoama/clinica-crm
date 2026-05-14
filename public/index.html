@@ -465,36 +465,36 @@ textarea { resize: vertical; min-height: 80px; }
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
     Dashboard
   </button>
-  <button class="nav-btn" data-page="leads" onclick="setPage('leads',this)">
+  <button class="nav-btn" data-page="leads" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento" onclick="setPage('leads',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     Todos os Leads
   </button>
-  <button class="nav-btn" data-page="funil" onclick="setPage('funil',this)">
+  <button class="nav-btn" data-page="funil" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('funil',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
     Funil
   </button>
-  <button class="nav-btn" data-page="conversas" onclick="setPage('conversas',this)">
+  <button class="nav-btn" data-page="conversas" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('conversas',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     Conversas
   </button>
-  <button class="nav-btn" data-page="disparos" onclick="setPage('disparos',this)">
+  <button class="nav-btn" data-page="disparos" data-roles="admin,gestor,crc_comercial" onclick="setPage('disparos',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
     Disparos
   </button>
-  <button class="nav-btn" data-page="notas-fiscais" onclick="setPage('notas-fiscais',this)">
+  <button class="nav-btn" data-page="notas-fiscais" data-roles="admin,gestor" onclick="setPage('notas-fiscais',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     Notas Fiscais
   </button>
-  <button class="nav-btn" data-page="inadimplentes" onclick="setPage('inadimplentes',this)">
+  <button class="nav-btn" data-page="inadimplentes" data-roles="admin,gestor" onclick="setPage('inadimplentes',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     Inadimplentes
     <span class="inad-nav-badge" id="badge-inadimplentes"></span>
   </button>
-  <button class="nav-btn" data-page="usuarios" id="nav-usuarios" onclick="setPage('usuarios',this)" style="display:none">
+  <button class="nav-btn" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)" style="display:none">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     Usuários
   </button>
-  <button class="nav-btn" data-page="config" onclick="setPage('config',this)">
+  <button class="nav-btn" data-page="config" data-roles="admin,gestor" onclick="setPage('config',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     Configurações
   </button>
@@ -724,6 +724,8 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_leads" checked> CRC Leads</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_comercial"> CRC Comercial</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_sucesso"> CRC Sucesso</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_pos_tratamento"> CRC P&#243;s Tratamento</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-gestor"> Gestor</label>
       </div></div>
       <button class="btn btn-primary" onclick="criarUsuario()" id="nu-btn" style="width:100%">Criar Usu&#225;rio</button>
       <div id="nu-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
@@ -3064,8 +3066,8 @@ async function handleLogout() {
 document.getElementById('login-senha').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
 
 function iniciarApp() {
+  loadCurrentUser();
   setInterval(captchaVerificar, 3000);
-  // Activate dashboard nav button on load
   const btn = document.querySelector('.nav-btn[onclick*="dashboard"]');
   if (btn) setPage('dashboard', btn);
   else loadDash();
@@ -3100,8 +3102,17 @@ async function loadCurrentUser() {
   try {
     const d = await api('/api/me');
     _currentUser = d;
-    const navU = document.getElementById('nav-usuarios');
-    if (navU) navU.style.display = (d.roles && d.roles.includes('admin')) ? '' : 'none';
+    const roles = Array.isArray(d.roles) ? d.roles : [];
+    // Apply role-based nav visibility
+    document.querySelectorAll('.nav-btn[data-roles]').forEach(btn => {
+      const allowed = btn.dataset.roles.split(',');
+      const visible = roles.includes('admin') || allowed.some(r => roles.includes(r));
+      btn.style.display = visible ? '' : 'none';
+    });
+    // usuarios is admin-only and starts hidden — handled by data-roles above
+    // Update nav label with user name
+    const logo = document.querySelector('nav .logo');
+    if (logo && d.nome) logo.title = d.nome + ' (' + roles.join(', ') + ')';
   } catch(e) {}
 }
 
@@ -3138,6 +3149,8 @@ async function criarUsuario() {
   if (document.getElementById('nu-role-crc_leads').checked) roles.push('crc_leads');
   if (document.getElementById('nu-role-crc_comercial').checked) roles.push('crc_comercial');
   if (document.getElementById('nu-role-crc_sucesso').checked) roles.push('crc_sucesso');
+  if (document.getElementById('nu-role-crc_pos_tratamento').checked) roles.push('crc_pos_tratamento');
+  if (document.getElementById('nu-role-gestor').checked) roles.push('gestor');
   if (!roles.length) roles.push('crc_leads');
   btn.disabled = true; btn.textContent = 'Criando...'; msg.textContent = '';
   try {
