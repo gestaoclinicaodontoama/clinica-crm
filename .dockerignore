@@ -1,0 +1,7 @@
+﻿node_modules
+.env
+*.log
+nf-automation
+github_server.js
+github_index.html
+google_conversions.csv
