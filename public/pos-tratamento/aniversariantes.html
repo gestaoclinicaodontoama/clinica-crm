@@ -1,0 +1,59 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark')</script>
+  <title>Aniversariantes — Clínica AMA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/pos-tratamento.css">
+</head>
+<body>
+  <script>
+    window.__SUPABASE_URL__ = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
+    window.__SUPABASE_ANON__ = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
+  </script>
+
+  <div class="shell">
+    <nav id="crm-nav" class="crm-nav"></nav>
+    <main class="crm-main">
+      <div class="page-layout">
+        <div class="page-header">
+          <h1 class="page-title">Aniversariantes</h1>
+          <p class="page-subtitle">Pacientes com aniversário nos próximos 4 dias e últimos 4 dias</p>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <span class="kpi-card__label">Hoje</span>
+            <span class="kpi-card__value" id="kpi-hoje">—</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-card__label">Próximos 4 dias</span>
+            <span class="kpi-card__value" id="kpi-prox">—</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-card__label">Classe A hoje</span>
+            <span class="kpi-card__value kpi-card__value--green" id="kpi-a">—</span>
+          </div>
+        </div>
+
+        <div id="template-bar-aniv"></div>
+
+        <section class="calendar-section">
+          <div id="calendar-strip" class="calendar-strip"></div>
+        </section>
+
+        <section class="list-section">
+          <h2 class="list-section__title" id="lista-titulo">Selecione um dia</h2>
+          <div id="lista-aniversariantes"></div>
+          <div id="btn-marcar-wrap" class="btn-marcar-wrap hidden"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/pos-tratamento/nav.js"></script>
+  <script type="module" src="/js/pos-tratamento/aniversariantes.js"></script>
+</body>
+</html>

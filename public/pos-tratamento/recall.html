@@ -1,0 +1,68 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark')</script>
+  <title>Recall — Clínica AMA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/pos-tratamento.css">
+</head>
+<body>
+  <script>
+    window.__SUPABASE_URL__ = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
+    window.__SUPABASE_ANON__ = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
+  </script>
+
+  <div class="shell">
+    <nav id="crm-nav" class="crm-nav"></nav>
+    <main class="crm-main">
+      <div class="page-layout">
+        <div class="page-header">
+          <h1 class="page-title">Recall</h1>
+          <p class="page-subtitle">Pacientes A e B sem visita há 180+ dias e sem agenda futura</p>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <span class="kpi-card__label">Total A+B recall</span>
+            <span class="kpi-card__value" id="kpi-total">—</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-card__label">180–359 dias</span>
+            <span class="kpi-card__value kpi-card__value--amber" id="kpi-180">—</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-card__label">360+ dias</span>
+            <span class="kpi-card__value kpi-card__value--red" id="kpi-360">—</span>
+          </div>
+        </div>
+
+        <div id="template-bar-recall"></div>
+
+        <div class="controls-row">
+          <div class="tabs">
+            <button class="tab tab--active" data-tab="180">180–359 dias</button>
+            <button class="tab" data-tab="360">360+ dias</button>
+          </div>
+          <div class="chip-group">
+            <button class="chip chip--active" data-classe="A">Classe A</button>
+            <button class="chip chip--active" data-classe="B">Classe B</button>
+          </div>
+        </div>
+
+        <div class="progress-row">
+          <span id="progress-label" class="progress-label"></span>
+        </div>
+
+        <div id="recall-table-wrap"></div>
+        <div id="pagination" class="pagination"></div>
+        <div id="btn-marcar-recall-wrap" class="btn-marcar-wrap"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/pos-tratamento/nav.js"></script>
+  <script type="module" src="/js/pos-tratamento/recall.js"></script>
+</body>
+</html>

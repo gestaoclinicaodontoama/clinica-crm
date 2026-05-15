@@ -443,6 +443,13 @@ textarea { resize: vertical; min-height: 80px; }
 .reset-msg { font-size:12px; margin-top:8px; display:none; text-align:center; }
 .reset-msg.ok { color:var(--green); }
 .reset-msg.error { color:var(--red); }
+.nav-btn--section { font-weight: 600; color: var(--text); }
+.nav-submenu { padding-left: 10px; display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.nav-subitem { display: flex; align-items: center; padding: 7px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); text-decoration: none; transition: all .15s; }
+.nav-subitem:hover { background: var(--bg3); color: var(--text); }
+.badge-nav { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; border-radius: 999px; font-size: .65rem; font-weight: 700; padding: 0 .35rem; margin-left: auto; }
+.badge-nav--green { background: #D1FAE5; color: #065F46; }
+.badge-nav--amber { background: #FEF3C7; color: #92400E; }
 .nav-logout { margin-top: 8px; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -490,6 +497,25 @@ textarea { resize: vertical; min-height: 80px; }
     Inadimplentes
     <span class="inad-nav-badge" id="badge-inadimplentes"></span>
   </button>
+  <!-- Pos Tratamento submenu -->
+  <div class="nav-section" id="nav-section-pos">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('pos')">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z"/><path d="M8 4v4l2.5 2.5"/></svg>
+      Pós Tratamento
+      <svg class="nav-arrow" id="arrow-pos" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-pos" style="display:none">
+      <a href="/pos-tratamento/aniversariantes.html" class="nav-subitem">
+        Aniversariantes
+        <span class="badge-nav badge-nav--green" id="badge-aniv">0</span>
+      </a>
+      <a href="/pos-tratamento/recall.html" class="nav-subitem">
+        Recall
+        <span class="badge-nav badge-nav--amber" id="badge-recall">0</span>
+      </a>
+      <a href="/pos-tratamento/vips.html" class="nav-subitem">VIPs</a>
+    </div>
+  </div>
   <button class="nav-btn" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)" style="display:none">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     Usuários
@@ -1215,6 +1241,28 @@ const COR_ORIG = { 'Meta Ads':'orig-meta','Google Ads':'orig-google','Orgânico'
 function classStatus(s) { return 's-' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,''); }
 function classBadge(s) { return 'badge-' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,''); }
 function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function toggleNavSection(key) {
+  const sub = document.getElementById('submenu-' + key);
+  const arrow = document.getElementById('arrow-' + key);
+  if (!sub) return;
+  const isHidden = sub.style.display === 'none';
+  sub.style.display = isHidden ? 'flex' : 'none';
+  sub.style.flexDirection = 'column';
+  if (arrow) arrow.style.transform = isHidden ? 'rotate(180deg)' : '';
+}
+
+async function atualizarBadgesPosTratamento(supabaseClient) {
+  try {
+    const { data: anivHoje } = await supabaseClient.rpc('birthday_window', { offset_start: 0, offset_end: 0 });
+    const anivEl = document.getElementById('badge-aniv');
+    if (anivEl) anivEl.textContent = anivHoje?.length ?? 0;
+    const { count } = await supabaseClient.from('pacientes_abc').select('*', { count: 'exact', head: true })
+      .in('classe', ['A', 'B']).is('proxima_consulta', null).gte('dias_sem_visita', 180);
+    const recEl = document.getElementById('badge-recall');
+    if (recEl) recEl.textContent = count ?? 0;
+  } catch (e) { console.warn('badges pos-tratamento:', e); }
+}
 
 function setPage(p, btn) {
   document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
