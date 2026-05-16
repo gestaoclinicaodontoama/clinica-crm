@@ -6,8 +6,10 @@ const PAGE_SIZE = 100;
 let paginaAtual = 1, totalRegistros = 0;
 let filtroClasse = null, filtroDays = null, filtroSemAgenda = false, buscaTexto = "";
 let classTabFilter = "todos";
+let sortCol = "total_receita", sortAsc = false;
 let stats = {};
 let tmpl;
+let paginaRows = [];
 
 async function init() {
   const { data: { user } } = await sb.auth.getUser();
@@ -53,9 +55,9 @@ function renderDistBar(byClass, totalReceita) {
   const pA = (byClass.A.count / total * 100).toFixed(1);
   const pB = (byClass.B.count / total * 100).toFixed(1);
   const pC = (100 - parseFloat(pA) - parseFloat(pB)).toFixed(1);
-  const rA = byClass.A.receita / totalReceita * 100;
-  const rB = byClass.B.receita / totalReceita * 100;
-  const rC = byClass.C.receita / totalReceita * 100;
+  const rA = totalReceita ? byClass.A.receita / totalReceita * 100 : 0;
+  const rB = totalReceita ? byClass.B.receita / totalReceita * 100 : 0;
+  const rC = totalReceita ? byClass.C.receita / totalReceita * 100 : 0;
 
   document.getElementById("abc-bar").innerHTML = `
     <div class="abc-bar__a" style="width:${rA.toFixed(1)}%"></div>
@@ -66,9 +68,6 @@ function renderDistBar(byClass, totalReceita) {
     <span><span class="abc-dot abc-dot--a"></span> Classe A — ${byClass.A.count} pac. · ${rA.toFixed(1)}% do fat. · ${fmtK(byClass.A.receita)}</span>
     <span><span class="abc-dot abc-dot--b"></span> Classe B — ${byClass.B.count} pac. · ${rB.toFixed(1)}% do fat. · ${fmtK(byClass.B.receita)}</span>
     <span><span class="abc-dot abc-dot--c"></span> Classe C — ${byClass.C.count} pac. · ${rC.toFixed(1)}% do fat. · ${fmtK(byClass.C.receita)}</span>`;
-
-  const semRetornoByClass = {};
-  ["A","B","C"].forEach(c => { semRetornoByClass[c] = 0; });
 
   document.getElementById("abc-cards-row").innerHTML = ["A","B","C"].map(c => {
     const cl = byClass[c];
@@ -126,6 +125,7 @@ function setupListeners() {
   document.getElementById("abc-clear-btn").addEventListener("click", () => {
     filtroClasse = null; filtroDays = null; filtroSemAgenda = false; buscaTexto = "";
     classTabFilter = "todos";
+    sortCol = "total_receita"; sortAsc = false;
     document.getElementById("abc-search").value = "";
     document.querySelectorAll(".abc-chip").forEach(c => c.classList.remove("abc-chip--active"));
     document.querySelectorAll(".abc-tab").forEach(b => b.classList.remove("abc-tab--active"));
@@ -144,7 +144,7 @@ async function carregar() {
 
   let q = sb.from("pacientes_abc")
     .select("paciente_id, clinicorp_id, nome, classe, total_receita, ultima_visita, dias_sem_visita, proxima_consulta, telefone, pacientes!inner(id, telefone_celular)", { count: "exact" })
-    .order("total_receita", { ascending: false })
+    .order(sortCol, { ascending: sortAsc })
     .range(from, to);
 
   if (classTabFilter !== "todos") q = q.eq("classe", classTabFilter);
@@ -161,7 +161,8 @@ async function carregar() {
   document.getElementById("abc-list-count").textContent =
     totalRegistros.toLocaleString("pt-BR") + " pacientes · mostrando " + (from + 1) + "-" + shown;
 
-  renderTabela(data || []);
+  paginaRows = data || [];
+  renderTabela(paginaRows);
   renderPaginacao();
 }
 
@@ -171,14 +172,21 @@ function renderTabela(rows) {
     wrap.innerHTML = `<div class="empty-state"><p>Nenhum paciente encontrado</p></div>`;
     return;
   }
+
+  const sortInd = col => sortCol === col ? (sortAsc ? " ▲" : " ▼") : "";
+
   wrap.innerHTML = `
     <table class="data-table abc-table">
       <thead><tr>
         <th><input type="checkbox" id="chk-all"></th>
-        <th>PACIENTE</th><th>CLASSE</th><th>FATURAMENTO ▼</th>
-        <th>ÚLTIMO ATEND.</th><th>PRÓXIMA AGENDA</th><th>WHATSAPP</th>
+        <th class="sortable-th" data-col="nome">PACIENTE${sortInd("nome")}</th>
+        <th class="sortable-th" data-col="classe">CLASSE${sortInd("classe")}</th>
+        <th class="sortable-th" data-col="total_receita">FATURAMENTO${sortInd("total_receita")}</th>
+        <th class="sortable-th" data-col="dias_sem_visita">ÚLTIMO ATEND.${sortInd("dias_sem_visita")}</th>
+        <th class="sortable-th" data-col="proxima_consulta">PRÓXIMA AGENDA${sortInd("proxima_consulta")}</th>
+        <th>WHATSAPP</th>
       </tr></thead>
-      <tbody>${rows.map(p => {
+      <tbody>${rows.map((p, idx) => {
         const initials = (p.nome || "?").trim().split(/\s+/).slice(0,2).map(w => w[0]).join("").toUpperCase();
         const tel = p.pacientes?.telefone_celular || p.telefone || "";
         const daysColor = p.dias_sem_visita >= 365 ? "badge--red" : p.dias_sem_visita >= 180 ? "badge--amber" : "badge--green-soft";
@@ -200,7 +208,7 @@ function renderTabela(rows) {
           <td class="abc-receita">${fmtK(Number(p.total_receita||0))}</td>
           <td><span class="badge ${daysColor}">${p.dias_sem_visita != null ? p.dias_sem_visita + " dias" : "—"}</span></td>
           <td><div class="abc-agenda-cell">${agendaHtml}</div></td>
-          <td><button class="abc-wa-btn" onclick="window._abcWA(${JSON.stringify(tel)},${JSON.stringify(p.nome||'')})" title="WhatsApp">
+          <td><button class="abc-wa-btn" data-idx="${idx}" title="WhatsApp">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.556 4.12 1.529 5.854L0 24l6.335-1.52A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.797 9.797 0 01-5.032-1.386l-.36-.214-3.73.894.952-3.645-.234-.374A9.788 9.788 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182c5.43 0 9.818 4.388 9.818 9.818 0 5.43-4.388 9.818-9.818 9.818z"/></svg>
           </button></td>
         </tr>`;
@@ -211,9 +219,27 @@ function renderTabela(rows) {
   document.getElementById("chk-all").addEventListener("change", function() {
     document.querySelectorAll(".row-chk").forEach(c => c.checked = this.checked);
   });
-}
 
-window._abcWA = (tel, nome) => abrirWhatsApp(tel, tmpl?.getCorpo() || "", nome);
+  wrap.querySelectorAll(".sortable-th").forEach(th => {
+    th.style.cursor = "pointer";
+    th.addEventListener("click", () => {
+      const col = th.dataset.col;
+      if (sortCol === col) { sortAsc = !sortAsc; }
+      else { sortCol = col; sortAsc = ["nome", "classe", "proxima_consulta"].includes(col); }
+      paginaAtual = 1;
+      carregar();
+    });
+  });
+
+  wrap.querySelectorAll(".abc-wa-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = paginaRows[Number(btn.dataset.idx)];
+      if (!p) return;
+      const tel = p.pacientes?.telefone_celular || p.telefone || "";
+      abrirWhatsApp(tel, tmpl?.getCorpo() || "", p.nome || "");
+    });
+  });
+}
 
 function renderPaginacao() {
   const totalPags = Math.ceil(totalRegistros / PAGE_SIZE);

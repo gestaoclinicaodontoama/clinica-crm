@@ -54,10 +54,10 @@ async function carregar() {
       adicionado_em: r.adicionado_em,
       obs: r.obs || "",
       classe: abc.classe || null,
-      qtd_comparecimentos: abc.qtd_comparecimentos || 0,
+      qtd_comparecimentos: abc.qtd_comparecimentos ?? null,
       ultima_visita: abc.ultima_visita || null,
       proxima_consulta: abc.proxima_consulta || null,
-      dias_sem_visita: abc.dias_sem_visita || null,
+      dias_sem_visita: abc.dias_sem_visita ?? null,
     };
   });
 
@@ -70,17 +70,20 @@ async function carregar() {
 function renderGrid() {
   const grid = document.getElementById("vip-grid");
   if (!paginaData.length) {
-    grid.innerHTML = `<div class="empty-state"><p>Nenhum paciente VIP ainda</p><p class="empty-state__hint">Use o botão "Adicionar VIP" para começar</p></div>`;
+    grid.innerHTML = `<div class="empty-state"><p>Nenhum paciente VIP ainda</p><p class="empty-state__hint">Use o botao "Adicionar VIP" para comecar</p></div>`;
     return;
   }
-  grid.innerHTML = paginaData.map(p => {
+  grid.innerHTML = paginaData.map((p, idx) => {
     const classBadge = p.classe
       ? `<span class="badge badge--classe badge--classe-${p.classe.toLowerCase()}">${p.classe}</span>`
-      : `<span class="badge">Sem ABC</span>`;
+      : `<span class="badge badge--muted">Sem ABC</span>`;
     const agenda = p.proxima_consulta
       ? `<span class="badge badge--agenda">${formatarData(p.proxima_consulta)}</span>`
       : `<span class="badge badge--sem-agenda">Sem agenda</span>`;
     const avatarBg = COR_CLASSE[p.classe] || '#6B6A64';
+    const atendimentos = p.qtd_comparecimentos !== null
+      ? `${p.qtd_comparecimentos} atendimentos`
+      : `<span class="vip-sem-dados">Sincronizar ABC para ver histórico</span>`;
     return `
       <div class="vip-card" data-vip-id="${p.vip_id}" data-pac-id="${p.paciente_id}">
         <div class="vip-card__header">
@@ -89,14 +92,14 @@ function renderGrid() {
             <strong>${p.nome}</strong>
             <small>${p.clinicorp_id ? "#" + p.clinicorp_id + " · " : ""}${formatarTelefone(p.telefone_celular)}</small>
           </div>
-          <button class="btn btn--danger btn--xs vip-card__remove" data-vip-id="${p.vip_id}" data-nome="${p.nome}">Remover</button>
+          <button class="btn btn--danger btn--xs vip-card__remove" data-vip-id="${p.vip_id}" data-nome="${p.nome.replace(/"/g, '&quot;')}">Remover</button>
         </div>
         <div class="vip-card__body">
           <div class="vip-card__badges">${classBadge}${agenda}</div>
           <div class="vip-card__meta">
-            ${p.ultima_visita ? `<span>Última visita: ${formatarData(p.ultima_visita)}</span>` : ''}
-            <span>${p.qtd_comparecimentos} atendimentos</span>
-            ${p.dias_sem_visita ? `<span>${p.dias_sem_visita} dias sem visita</span>` : ''}
+            ${p.ultima_visita ? `<span>Ultima visita: ${formatarData(p.ultima_visita)}</span>` : ''}
+            <span>${atendimentos}</span>
+            ${p.dias_sem_visita !== null ? `<span>${p.dias_sem_visita} dias sem visita</span>` : ''}
           </div>
           <div class="vip-card__obs" data-vip-id="${p.vip_id}">
             ${p.obs
@@ -105,25 +108,29 @@ function renderGrid() {
           </div>
         </div>
         <div class="vip-card__footer">
-          <button class="btn btn--whatsapp" onclick="window._openWAVip(${JSON.stringify(p.telefone_celular)},${JSON.stringify(p.nome)})">WhatsApp</button>
+          <button class="btn btn--whatsapp vip-wa-btn" data-idx="${idx}">WhatsApp</button>
         </div>
       </div>`;
   }).join("");
 
-  // Remove buttons
+  grid.querySelectorAll(".vip-wa-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = paginaData[Number(btn.dataset.idx)];
+      if (!p) return;
+      abrirWhatsApp(p.telefone_celular, tmpl.getCorpo(), p.nome);
+    });
+  });
+
   grid.querySelectorAll(".vip-card__remove").forEach(btn => {
     btn.addEventListener("click", () => confirmarRemover(btn.dataset.vipId, btn.dataset.nome));
   });
 
-  // Edit obs buttons
   grid.querySelectorAll(".edit-obs-btn").forEach(btn => {
     const obsDiv = btn.closest(".vip-card__obs");
     const vipId = obsDiv.dataset.vipId;
     btn.addEventListener("click", () => editarObs(obsDiv, vipId));
   });
 }
-
-window._openWAVip = (tel, nome) => abrirWhatsApp(tel, tmpl.getCorpo(), nome);
 
 function editarObs(obsDiv, vipId) {
   const textoAtual = obsDiv.querySelector(".obs-text")?.textContent || "";
@@ -138,7 +145,7 @@ function editarObs(obsDiv, vipId) {
     const novaObs = obsDiv.querySelector(".obs-inline-ta").value.trim();
     const { error } = await sb.from("vip_pacientes").update({ obs: novaObs || null }).eq("id", vipId);
     if (error) { toast("Erro ao salvar: " + error.message, "error"); return; }
-    toast("Observação salva");
+    toast("Observacao salva");
     await carregar();
   };
 }
@@ -149,7 +156,7 @@ function confirmarRemover(vipId, nome) {
   const footer = card.querySelector(".vip-card__footer");
   footer.innerHTML = `
     <span class="confirm-inline__text">Remover ${nome}?</span>
-    <button class="btn btn--ghost btn--xs confirm-cancel">Não</button>
+    <button class="btn btn--ghost btn--xs confirm-cancel">Nao</button>
     <button class="btn btn--danger btn--xs confirm-ok">Sim, remover</button>`;
   footer.querySelector(".confirm-cancel").onclick = () => carregar();
   footer.querySelector(".confirm-ok").onclick = async () => {
@@ -190,7 +197,7 @@ async function renderBotaoMarcar() {
   }
   const totalPags = Math.ceil(totalVips / PAGE_SIZE);
   const label = totalPags > 1
-    ? `✓ Marcar ${naoMarcados.length} desta página como contatados`
+    ? `✓ Marcar ${naoMarcados.length} desta pagina como contatados`
     : `✓ Marcar como contatados — ${naoMarcados.length} VIP${naoMarcados.length !== 1 ? "s" : ""}`;
   wrap.innerHTML = `<button class="btn btn--primary" id="btn-marcar-vip">${label}</button>`;
   document.getElementById("btn-marcar-vip").onclick = async () => {
@@ -201,7 +208,6 @@ async function renderBotaoMarcar() {
   };
 }
 
-// --- Modal add VIP ---
 function abrirModal() {
   pacienteSelecionado = null;
   document.getElementById("busca-paciente").value = "";
@@ -232,7 +238,7 @@ async function buscarPacientes(q) {
   if (!filtrado.length) { results.innerHTML = `<p class="search-empty">Nenhum resultado</p>`; return; }
 
   results.innerHTML = filtrado.map(p => `
-    <div class="search-result-item" data-id="${p.id}" data-nome="${p.nome}" data-tel="${p.telefone_celular || ''}">
+    <div class="search-result-item" data-id="${p.id}" data-nome="${(p.nome||'').replace(/"/g,'&quot;')}" data-tel="${p.telefone_celular || ''}">
       <strong>${p.nome}</strong>
       <small>${p.telefone_celular || 'sem telefone'}</small>
     </div>`).join("");
