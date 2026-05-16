@@ -36,6 +36,12 @@
     '  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
     '  VIPs',
     '</a>',
+    '<div class="nav-actions">',
+    '  <button class="nav-action-btn" id="btn-sync-abc">',
+    '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+    '    Sincronizar ABC',
+    '  </button>',
+    '</div>',
     '<button class="theme-btn" id="nav-theme-btn"><span id="theme-icon"></span><span id="theme-label"></span></button>',
   ].join('\n');
 
@@ -77,5 +83,21 @@
         if (badge) { badge.textContent = count + ' hoje'; badge.classList.remove('hidden'); }
       }
     }).catch(function() {});
-  })();
+    document.getElementById('btn-sync-abc').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; btn.textContent = 'Sincronizando...';
+    fetch('/api/crc/sync-abc-completo', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .then(function() {
+      btn.textContent = 'Sync iniciado!';
+      setTimeout(function() { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Sincronizar ABC'; }, 5000);
+    }).catch(function() { btn.disabled = false; });
+  });
+})();
+  document.getElementById('btn-sync-abc').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; btn.textContent = 'Sincronizando...';
+    fetch('/api/crc/sync-abc-completo', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .then(function() {
+      btn.textContent = 'Sync iniciado!';
+      setTimeout(function() { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Sincronizar ABC'; }, 5000);
+    }).catch(function() { btn.disabled = false; });
+  });
 })();

@@ -1255,6 +1255,125 @@ app.post('/api/crc/rebuscar-telefones', async (req, res) => {
     res.status(500).json({ error: e.message, updated: 0 });
   }
 });
+// ========== CRC SYNC ABC COMPLETO ==========
+// Recalcula ABC completo usando pagamentos + agendamentos do Clinicorp
+// POST /api/crc/sync-abc-completo → dispara em background, retorna imediatamente
+app.post('/api/crc/sync-abc-completo', async (req, res) => {
+  res.json({ ok: true, msg: 'Sync ABC iniciado em background — pode demorar alguns minutos' });
+
+  (async function runSyncABC() {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const today = new Date().toISOString().slice(0, 10);
+    const futureEnd = new Date(); futureEnd.setMonth(futureEnd.getMonth() + 6);
+    const futureStr = futureEnd.toISOString().slice(0, 10);
+
+    // Helper: fetch Clinicorp JSON, handling duplicate-key issue
+    async function fetchC(path, params) {
+      const data = await clinicorpGet(path, params);
+      return Array.isArray(data) ? data : (data ? [data] : []);
+    }
+
+    console.log('[sync-abc] Iniciando sync completo...');
+
+    // 1. Fetch ALL payments in 6-month chunks (2023 to today)
+    const allPayments = [];
+    const payChunks = [
+      ['2023-01-01','2023-06-30'],['2023-07-01','2023-12-31'],
+      ['2024-01-01','2024-06-30'],['2024-07-01','2024-12-31'],
+      ['2025-01-01','2025-06-30'],['2025-07-01','2025-12-31'],
+      ['2026-01-01', today],
+    ];
+    for (const [from, to] of payChunks) {
+      try {
+        const rows = await fetchC('/payment/list', { from, to });
+        allPayments.push(...rows.filter(r => !r.Canceled && r.PatientId));
+        console.log(`[sync-abc] payments ${from}: ${rows.length} (total ${allPayments.length})`);
+      } catch (e) { console.error(`[sync-abc] payment chunk ${from}:`, e.message); }
+      await sleep(1200);
+    }
+
+    // 2. Fetch appointments (past 3yr + future 6mo)
+    const allAppts = [];
+    const apptChunks = [
+      ['2023-01-01','2023-06-30'],['2023-07-01','2023-12-31'],
+      ['2024-01-01','2024-06-30'],['2024-07-01','2024-12-31'],
+      ['2025-01-01','2025-06-30'],['2025-07-01','2025-12-31'],
+      ['2026-01-01', futureStr],
+    ];
+    for (const [from, to] of apptChunks) {
+      try {
+        const rows = await fetchC('/appointment/list', { from, to });
+        allAppts.push(...rows.filter(r => !r.Deleted && (r.Patient_PersonId || r.PatientId)));
+        console.log(`[sync-abc] appts ${from}: ${rows.length} (total ${allAppts.length})`);
+      } catch (e) { console.error(`[sync-abc] appt chunk ${from}:`, e.message); }
+      await sleep(1200);
+    }
+
+    // 3. Build per-patient map from payments
+    const patMap = {};
+    allPayments.forEach(r => {
+      const id = String(r.PatientId);
+      if (!patMap[id]) patMap[id] = { clinicorp_id: Number(id), nome: r.PatientName || '', telefone: r.MobilePhone || r.Phone || '', total_receita: 0, qtd_procedimentos: 0, ultimo_pagamento: null, ultima_visita: null, proxima_consulta: null, qtd_comparecimentos: 0 };
+      const amt = Number(r.Amount || r.TotalPostAmount || 0);
+      if (amt > 0) { patMap[id].total_receita += amt; patMap[id].qtd_procedimentos++; }
+      const d = (r.ReceivedDate || r.CheckOutDate || r.PaymentDate || '').slice(0, 10);
+      if (d && (!patMap[id].ultimo_pagamento || d > patMap[id].ultimo_pagamento)) patMap[id].ultimo_pagamento = d;
+    });
+
+    // 4. Process appointments
+    allAppts.forEach(a => {
+      const id = String(a.Patient_PersonId || a.PatientId || '');
+      if (!id) return;
+      const d = (a.date || a.Date || a.AppointmentDate || '').slice(0, 10);
+      if (!d) return;
+      if (!patMap[id]) patMap[id] = { clinicorp_id: Number(id), nome: a.PatientName || '', telefone: a.MobilePhone || '', total_receita: 0, qtd_procedimentos: 0, ultimo_pagamento: null, ultima_visita: null, proxima_consulta: null, qtd_comparecimentos: 0 };
+      if (d >= today) {
+        if (!patMap[id].proxima_consulta || d < patMap[id].proxima_consulta) patMap[id].proxima_consulta = d;
+      } else if (a.CheckinTime) {
+        patMap[id].qtd_comparecimentos++;
+        if (!patMap[id].ultima_visita || d > patMap[id].ultima_visita) patMap[id].ultima_visita = d;
+      }
+    });
+
+    // 5. Compute ABC classification (Pareto: A=top 80% revenue, B=80-95%, C=rest)
+    const pats = Object.values(patMap).filter(p => p.total_receita > 0).sort((a, b) => b.total_receita - a.total_receita);
+    const totalRev = pats.reduce((s, p) => s + p.total_receita, 0);
+    let cum = 0;
+    pats.forEach(p => {
+      cum += p.total_receita;
+      const pct = totalRev > 0 ? (cum / totalRev * 100) : 100;
+      p.pct_acumulado = pct;
+      p.classe = pct <= 80 ? 'A' : pct <= 95 ? 'B' : 'C';
+      p.dias_sem_visita = p.ultima_visita ? Math.floor((Date.now() - new Date(p.ultima_visita)) / 86400000) : null;
+    });
+
+    // 6. Get paciente_id mapping from supabase in batches
+    const ids = pats.map(p => p.clinicorp_id);
+    const idMap = {};
+    for (let i = 0; i < ids.length; i += 1000) {
+      const { data } = await supabase.from('pacientes').select('id, clinicorp_id').in('clinicorp_id', ids.slice(i, i + 1000));
+      (data || []).forEach(p => { idMap[p.clinicorp_id] = p.id; });
+    }
+
+    // 7. Upsert to pacientes_abc in batches of 100
+    const now = new Date().toISOString();
+    let upserted = 0;
+    const rows = pats.filter(p => idMap[p.clinicorp_id]).map(p => ({
+      paciente_id: idMap[p.clinicorp_id], clinicorp_id: p.clinicorp_id,
+      nome: p.nome, telefone: p.telefone, total_receita: p.total_receita,
+      qtd_procedimentos: p.qtd_procedimentos, qtd_comparecimentos: p.qtd_comparecimentos,
+      ultima_visita: p.ultima_visita, ultimo_pagamento: p.ultimo_pagamento,
+      proxima_consulta: p.proxima_consulta, pct_acumulado: p.pct_acumulado,
+      classe: p.classe, dias_sem_visita: p.dias_sem_visita, sincronizado_em: now,
+    }));
+    for (let i = 0; i < rows.length; i += 100) {
+      const { error } = await supabase.from('pacientes_abc').upsert(rows.slice(i, i + 100), { onConflict: 'clinicorp_id' });
+      if (!error) upserted += Math.min(100, rows.length - i);
+      await sleep(50);
+    }
+    console.log(`[sync-abc] Concluido: ${pats.length} pacientes processados, ${upserted} upserted`);
+  })().catch(e => console.error('[sync-abc] fatal:', e.message));
+});
 // ========== CRC AUTO-SYNC DIARIO ==========
 (function agendarSyncCRC() {
   let lastSyncDay = '';
