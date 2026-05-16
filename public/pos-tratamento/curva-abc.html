@@ -1,0 +1,101 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light')</script>
+  <title>Curva ABC — Clínica AMA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/pos-tratamento.css">
+</head>
+<body>
+  <script>
+    window.__SUPABASE_URL__ = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
+    window.__SUPABASE_ANON__ = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
+  </script>
+  <div class="shell">
+    <nav id="crm-nav" class="crm-nav"></nav>
+    <main class="crm-main">
+      <div class="page-layout">
+        <div class="page-header">
+          <h1 class="page-title">Curva ABC</h1>
+          <div class="abc-class-tabs" id="abc-class-tabs">
+            <button class="abc-tab abc-tab--active" data-filter="todos">Todos</button>
+            <button class="abc-tab" data-filter="A">Classe A</button>
+            <button class="abc-tab" data-filter="B">Classe B</button>
+            <button class="abc-tab" data-filter="C">Classe C</button>
+          </div>
+        </div>
+
+        <div class="kpi-row" id="abc-kpi-row">
+          <div class="kpi-card kpi-card--featured">
+            <span class="kpi-card__label">Total de Pacientes</span>
+            <span class="kpi-card__value" id="kpi-total">—</span>
+            <span class="kpi-card__sub" id="kpi-total-sub">com histórico</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-card__label">Pacientes Classe A</span>
+            <span class="kpi-card__value kpi-card__value--green" id="kpi-a">—</span>
+            <span class="kpi-card__sub" id="kpi-a-sub">—</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-card__label">Pacientes Sem Retorno +180d</span>
+            <span class="kpi-card__value kpi-card__value--amber" id="kpi-sem-retorno">—</span>
+            <span class="kpi-card__sub">precisam de contato</span>
+          </div>
+        </div>
+
+        <div class="abc-dist-section">
+          <div class="abc-dist-label">DISTRIBUIÇÃO ABC</div>
+          <div class="abc-bar" id="abc-bar"></div>
+          <div class="abc-bar-legend" id="abc-bar-legend"></div>
+          <div class="abc-cards-row" id="abc-cards-row"></div>
+        </div>
+
+        <div class="abc-list-section">
+          <div class="abc-list-header">
+            <span class="abc-list-title">LISTA DE PACIENTES</span>
+            <span class="abc-list-count" id="abc-list-count"></span>
+          </div>
+          <div class="abc-search-row">
+            <div class="abc-search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="abc-search" class="abc-search-input" placeholder="Buscar paciente...">
+            </div>
+            <button class="abc-clear-btn hidden" id="abc-clear-btn">× Limpar filtros</button>
+          </div>
+          <div class="abc-filters">
+            <div class="abc-filter-group">
+              <span class="abc-filter-label">CLASSE</span>
+              <div class="abc-chips">
+                <button class="abc-chip abc-chip--a" data-classe="A">A</button>
+                <button class="abc-chip abc-chip--b" data-classe="B">B</button>
+                <button class="abc-chip abc-chip--c" data-classe="C">C</button>
+              </div>
+            </div>
+            <div class="abc-filter-group">
+              <span class="abc-filter-label">TEMPO SEM RETORNO</span>
+              <div class="abc-chips">
+                <button class="abc-chip abc-chip--days" data-days="365">+365 dias</button>
+                <button class="abc-chip abc-chip--days180" data-days="180">+180 dias</button>
+                <button class="abc-chip abc-chip--days90" data-days="90">+90 dias</button>
+              </div>
+            </div>
+            <div class="abc-filter-group">
+              <span class="abc-filter-label">OUTROS</span>
+              <div class="abc-chips">
+                <button class="abc-chip abc-chip--agenda" data-filter="sem-agenda">Sem agenda</button>
+              </div>
+            </div>
+          </div>
+          <div id="abc-table-wrap"></div>
+          <div id="abc-pagination" class="pagination"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/pos-tratamento/nav.js"></script>
+  <script type="module" src="/js/pos-tratamento/curva-abc.js"></script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark')</script>
+  <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light')</script>
   <title>Aniversariantes — Clínica AMA</title>
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/pos-tratamento.css">
@@ -13,42 +13,68 @@
     window.__SUPABASE_URL__ = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
     window.__SUPABASE_ANON__ = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
   </script>
-
   <div class="shell">
     <nav id="crm-nav" class="crm-nav"></nav>
     <main class="crm-main">
       <div class="page-layout">
         <div class="page-header">
           <h1 class="page-title">Aniversariantes</h1>
-          <p class="page-subtitle">Pacientes com aniversário nos próximos 4 dias e últimos 4 dias</p>
         </div>
 
-        <div class="kpi-row">
-          <div class="kpi-card">
+        <!-- 4 KPIs -->
+        <div class="kpi-row kpi-row--aniv">
+          <div class="kpi-card kpi-card--featured kpi-card--aniv-hoje">
             <span class="kpi-card__label">Hoje</span>
-            <span class="kpi-card__value" id="kpi-hoje">—</span>
+            <div id="kpi-hoje"></div>
           </div>
           <div class="kpi-card">
-            <span class="kpi-card__label">Próximos 4 dias</span>
-            <span class="kpi-card__value" id="kpi-prox">—</span>
+            <span class="kpi-card__label">Selecionados (dia)</span>
+            <span class="kpi-card__value" id="kpi-selecionados">—</span>
+            <span class="kpi-card__sub" id="kpi-selecionados-data"></span>
           </div>
           <div class="kpi-card">
-            <span class="kpi-card__label">Classe A hoje</span>
-            <span class="kpi-card__value kpi-card__value--green" id="kpi-a">—</span>
+            <span class="kpi-card__label">Este Mês</span>
+            <span class="kpi-card__value" id="kpi-mes">—</span>
+            <div class="kpi-dots-row" id="kpi-mes-sub"></div>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-card__label">Classe A no Mês</span>
+            <span class="kpi-card__value kpi-card__value--green" id="kpi-a-mes">—</span>
+            <span class="kpi-card__sub">prioridade máxima</span>
           </div>
         </div>
 
         <div id="template-bar-aniv"></div>
 
-        <section class="calendar-section">
-          <div id="calendar-strip" class="calendar-strip"></div>
-        </section>
+        <!-- Calendar + List split -->
+        <div class="aniv-layout">
+          <!-- Left: calendar -->
+          <div class="aniv-cal-panel">
+            <div class="cal-header">
+              <button class="cal-nav-btn" id="cal-prev">&#8249;</button>
+              <span class="cal-month-label" id="cal-month-label"></span>
+              <button class="cal-nav-btn" id="cal-next">&#8250;</button>
+            </div>
+            <div class="cal-weekdays">
+              <span>DOM</span><span>SEG</span><span>TER</span>
+              <span>QUA</span><span>QUI</span><span>SEX</span><span>SÁB</span>
+            </div>
+            <div class="aniv-calendar" id="aniv-calendar"></div>
+            <div class="cal-legend">
+              <span><span class="cal-dot" style="background:#1E8449"></span> Classe A</span>
+              <span><span class="cal-dot" style="background:#1A5276"></span> Classe B</span>
+              <span><span class="cal-dot" style="background:#6B6A64"></span> Classe C</span>
+            </div>
+          </div>
 
-        <section class="list-section">
-          <h2 class="list-section__title" id="lista-titulo">Selecione um dia</h2>
-          <div id="lista-aniversariantes"></div>
-          <div id="btn-marcar-wrap" class="btn-marcar-wrap hidden"></div>
-        </section>
+          <!-- Right: patient list -->
+          <div class="aniv-list-panel">
+            <div class="aniv-list-title" id="aniv-list-title">Selecione um dia</div>
+            <div id="aniv-list-header"></div>
+            <div id="aniv-lista"></div>
+            <div id="btn-marcar-wrap" class="btn-marcar-wrap hidden"></div>
+          </div>
+        </div>
       </div>
     </main>
   </div>

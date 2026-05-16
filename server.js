@@ -1179,6 +1179,82 @@ app.patch('/api/inadimplentes/nota/:patientId', requireAuth, rateLimit, async (r
   }
 });
 
+// ========== CRC POS TRATAMENTO ==========
+app.post('/api/crc/sincronizar-novos', async (req, res) => {
+  try {
+    if (!process.env.CLINICORP_TOKEN)
+      return res.status(503).json({ error: 'CLINICORP_TOKEN nao configurado', inserted: 0 });
+    const since = new Date(); since.setDate(since.getDate() - 14);
+    const sinceStr = since.toISOString().slice(0, 10);
+    let payments = [];
+    try { payments = await clinicorpGet('/payment/list', { startDate: sinceStr }); }
+    catch { return res.json({ inserted: 0, skipped: 0, msg: 'Clinicorp indisponivel' }); }
+    const payArr = Array.isArray(payments) ? payments : (payments.Items || payments.items || []);
+    const uniqueIds = [...new Set(payArr.map(p => String(p.PatientId || p.patientId || '')).filter(Boolean))];
+    if (!uniqueIds.length) return res.json({ inserted: 0, skipped: 0, msg: 'Sem novos pagamentos' });
+    const existing = new Set();
+    const chunkSize = 500;
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+      const chunk = uniqueIds.slice(i, i + chunkSize).map(Number);
+      const { data } = await supabase.from('pacientes').select('clinicorp_id').in('clinicorp_id', chunk);
+      (data || []).forEach(r => existing.add(String(r.clinicorp_id)));
+    }
+    const newIds = uniqueIds.filter(id => !existing.has(id));
+    if (!newIds.length) return res.json({ inserted: 0, skipped: uniqueIds.length, msg: 'Todos ja cadastrados' });
+    let inserted = 0;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    for (const id of newIds.slice(0, 100)) {
+      try {
+        const p = await clinicorpGet('/patient/get', { id });
+        if (!p || !p.Name) continue;
+        const birth = (p.BirthDate || '').replace(/T.*/, '');
+        await supabase.from('pacientes').upsert({
+          clinicorp_id: Number(id), nome: p.Name || '',
+          data_nascimento: birth && birth >= '1900-01-01' && birth < new Date().toISOString().slice(0,10) ? birth : null,
+          telefone_celular: p.MobilePhone || '', telefone_fixo: p.Landline || '',
+          email: p.Email || '', cidade: p.City || '', estado: p.state || '',
+          bairro: p.Neighborhood || '', como_conheceu: p.HowDidMeet || '',
+          plano_saude: p.insurancePlanName || '', ativo: (p.Active || '') === 'X',
+          inserido_em: p.InsertDate || new Date().toISOString(),
+        }, { onConflict: 'clinicorp_id' });
+        inserted++;
+        await sleep(120);
+      } catch { /* skip */ }
+    }
+    res.json({ ok: true, inserted, skipped: uniqueIds.length - newIds.length });
+  } catch (e) {
+    console.error('CRC sincronizar-novos erro:', e.message);
+    res.status(500).json({ error: e.message, inserted: 0 });
+  }
+});
+
+app.post('/api/crc/rebuscar-telefones', async (req, res) => {
+  try {
+    if (!process.env.CLINICORP_TOKEN)
+      return res.status(503).json({ error: 'CLINICORP_TOKEN nao configurado', updated: 0 });
+    const { data: missing } = await supabase.from('pacientes_abc')
+      .select('clinicorp_id').in('classe', ['A', 'B'])
+      .or('telefone.is.null,telefone.eq.').limit(200);
+    if (!missing || !missing.length) return res.json({ updated: 0, msg: 'Todos ja tem telefone' });
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    let updated = 0;
+    for (const row of missing) {
+      try {
+        const p = await clinicorpGet('/patient/get', { id: String(row.clinicorp_id) });
+        const phone = p?.MobilePhone || p?.Landline || '';
+        if (!phone) continue;
+        await supabase.from('pacientes').update({ telefone_celular: p.MobilePhone || '', telefone_fixo: p.Landline || '', atualizado_em: new Date().toISOString() }).eq('clinicorp_id', row.clinicorp_id);
+        await supabase.from('pacientes_abc').update({ telefone: phone }).eq('clinicorp_id', row.clinicorp_id);
+        updated++;
+        await sleep(150);
+      } catch { /* skip */ }
+    }
+    res.json({ ok: true, updated, total: missing.length });
+  } catch (e) {
+    console.error('CRC rebuscar-telefones erro:', e.message);
+    res.status(500).json({ error: e.message, updated: 0 });
+  }
+});
 // ========== HEALTH CHECK ==========
 app.get('/health', (req, res) => res.json({ ok: true }));
 
