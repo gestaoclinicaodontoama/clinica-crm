@@ -1255,6 +1255,58 @@ app.post('/api/crc/rebuscar-telefones', async (req, res) => {
     res.status(500).json({ error: e.message, updated: 0 });
   }
 });
+// ========== CRC AUTO-SYNC DIARIO ==========
+(function agendarSyncCRC() {
+  let lastSyncDay = '';
+  async function autoSyncNovos() {
+    if (!process.env.CLINICORP_TOKEN) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (lastSyncDay === today) return;
+    lastSyncDay = today;
+    console.log('[CRC] Auto-sync iniciado:', today);
+    try {
+      const since = new Date(); since.setDate(since.getDate() - 14);
+      const sinceStr = since.toISOString().slice(0, 10);
+      const payments = await clinicorpGet('/payment/list', { startDate: sinceStr }).catch(() => []);
+      const payArr = Array.isArray(payments) ? payments : (payments.Items || payments.items || []);
+      const uniqueIds = [...new Set(payArr.map(p => String(p.PatientId || p.patientId || '')).filter(Boolean))];
+      if (!uniqueIds.length) { console.log('[CRC] Auto-sync: sem pagamentos recentes'); return; }
+      const existing = new Set();
+      for (let i = 0; i < uniqueIds.length; i += 500) {
+        const chunk = uniqueIds.slice(i, i + 500).map(Number);
+        const { data } = await supabase.from('pacientes').select('clinicorp_id').in('clinicorp_id', chunk);
+        (data || []).forEach(r => existing.add(String(r.clinicorp_id)));
+      }
+      const newIds = uniqueIds.filter(id => !existing.has(id));
+      if (!newIds.length) { console.log('[CRC] Auto-sync: todos ja cadastrados'); return; }
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      let inserted = 0;
+      for (const id of newIds.slice(0, 100)) {
+        try {
+          const p = await clinicorpGet('/patient/get', { id });
+          if (!p || !p.Name) continue;
+          const birth = (p.BirthDate || '').replace(/T.*/, '');
+          await supabase.from('pacientes').upsert({
+            clinicorp_id: Number(id), nome: p.Name,
+            data_nascimento: birth && birth >= '1900-01-01' && birth < today ? birth : null,
+            telefone_celular: p.MobilePhone || '', telefone_fixo: p.Landline || '',
+            email: p.Email || '', ativo: (p.Active || '') === 'X',
+            inserido_em: p.InsertDate || new Date().toISOString(),
+          }, { onConflict: 'clinicorp_id' });
+          inserted++;
+          await sleep(120);
+        } catch (e) { console.error('[CRC] Auto-sync paciente erro:', e.message); }
+      }
+      console.log(`[CRC] Auto-sync: ${inserted} novos pacientes inseridos`);
+    } catch (e) {
+      console.error('[CRC] Auto-sync erro:', e.message);
+    }
+  }
+  setInterval(() => {
+    const h = new Date().getHours();
+    if (h >= 3 && h < 4) autoSyncNovos();
+  }, 30 * 60 * 1000);
+})();
 // ========== HEALTH CHECK ==========
 app.get('/health', (req, res) => res.json({ ok: true }));
 

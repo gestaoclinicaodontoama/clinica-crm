@@ -39,10 +39,11 @@ function inicioDoDiaHoje() {
 }
 
 function abrirWhatsApp(telefone, templateCorpo, nomeCompleto) {
-  const tel = (telefone || '').replace(/\D/g, '');
+  let tel = (telefone || '').replace(/\D/g, '');
   if (!tel) { alert('Telefone nao disponivel para este paciente.'); return; }
+  if (tel.length === 10 || tel.length === 11) tel = '55' + tel;
   const primeiro = primeiroNome(nomeCompleto) || 'paciente';
-  const msg = templateCorpo.replace(/\{nome\}/g, primeiro);
+  const msg = (templateCorpo || '').replace(/\{nome\}/g, primeiro);
   window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
