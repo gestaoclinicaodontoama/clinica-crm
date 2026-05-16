@@ -1179,3 +1179,4 @@ html, body {
 .abc-wa-btn svg { width: 16px; height: 16px; }
 .badge--green-soft { background: #d1fae5; color: #065f46; }
 .page-ellipsis { font-size: .78rem; color: var(--color-text-muted); padding: .35rem .5rem; }
+.aniv-id { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 4px; }

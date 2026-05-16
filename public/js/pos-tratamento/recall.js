@@ -52,7 +52,7 @@ async function carregar() {
   const tipo = abaAtual === "180" ? "recall_180" : "recall_360";
 
   let q = sb.from("pacientes_abc")
-    .select("paciente_id, classe, dias_sem_visita, ultima_visita, total_receita, proxima_consulta, pacientes!inner(id, nome, telefone_celular)", { count: "exact" })
+    .select("paciente_id, clinicorp_id, classe, dias_sem_visita, ultima_visita, total_receita, proxima_consulta, pacientes!inner(id, nome, telefone_celular)", { count: "exact" })
     .in("classe", classesAtivas)
     .is("proxima_consulta", null)
     .order("dias_sem_visita", { ascending: false })
@@ -68,6 +68,7 @@ async function carregar() {
   paginaData = (data || []).map(r => ({
     paciente_id: r.paciente_id,
     nome: r.pacientes?.nome || "—",
+    clinicorp_id: r.clinicorp_id || null,
     telefone_celular: r.pacientes?.telefone_celular || "",
     classe: r.classe,
     dias_sem_visita: r.dias_sem_visita,
@@ -96,7 +97,7 @@ function renderTabela() {
       </tr></thead>
       <tbody>${paginaData.map(p => `
         <tr>
-          <td><strong>${p.nome}</strong><br><small>${formatarTelefone(p.telefone_celular)}</small></td>
+          <td><strong>${p.nome}</strong><br><small>${p.clinicorp_id ? "#" + p.clinicorp_id + " · " : ""}${formatarTelefone(p.telefone_celular)}</small></td>
           <td><span class="badge badge--classe badge--classe-${(p.classe || 'c').toLowerCase()}">${p.classe}</span></td>
           <td><span class="badge ${badgeCls}">${p.dias_sem_visita} dias</span></td>
           <td>${formatarData(p.ultima_visita)}</td>

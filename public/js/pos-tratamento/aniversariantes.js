@@ -188,7 +188,7 @@ function renderLista(pacs, isToday) {
       <input type="checkbox" class="aniv-chk" data-id="${p.paciente_id}" ${selectedPatients.has(p.paciente_id) ? "checked" : ""}>
       <div class="aniv-avatar" style="background:${COR_CLASSE[p.classe] || "#6B6A64"}">${initials}</div>
       <div class="aniv-info">
-        <div class="aniv-name">${p.nome || "—"}</div>
+        <div class="aniv-name">${p.nome || "—"}${p.clinicorp_id ? ` <span class="aniv-id">#${p.clinicorp_id}</span>` : ""}</div>
         <div class="aniv-meta">
           <span class="badge badge--classe badge--classe-${(p.classe||"c").toLowerCase()}">${p.classe||"?"}</span>
           ${idade != null ? `<span>${idade} anos</span>` : ""}

@@ -35,7 +35,7 @@ async function carregar() {
 
   const { data, count, error } = await sb.from("vip_pacientes")
     .select(`id, paciente_id, adicionado_em, obs,
-      pacientes!inner(id, nome, telefone_celular,
+      pacientes!inner(id, nome, telefone_celular, clinicorp_id,
         pacientes_abc(classe, qtd_comparecimentos, ultima_visita, proxima_consulta, dias_sem_visita))`,
       { count: "exact" })
     .order("adicionado_em", { ascending: false })
@@ -49,6 +49,7 @@ async function carregar() {
       vip_id: r.id,
       paciente_id: r.paciente_id,
       nome: r.pacientes?.nome || "—",
+      clinicorp_id: r.pacientes?.clinicorp_id || null,
       telefone_celular: r.pacientes?.telefone_celular || "",
       adicionado_em: r.adicionado_em,
       obs: r.obs || "",
@@ -86,7 +87,7 @@ function renderGrid() {
           <div class="patient-card__avatar" style="background:${avatarBg}">${(p.nome[0] || '?').toUpperCase()}</div>
           <div class="vip-card__name-block">
             <strong>${p.nome}</strong>
-            <small>${formatarTelefone(p.telefone_celular)}</small>
+            <small>${p.clinicorp_id ? "#" + p.clinicorp_id + " · " : ""}${formatarTelefone(p.telefone_celular)}</small>
           </div>
           <button class="btn btn--danger btn--xs vip-card__remove" data-vip-id="${p.vip_id}" data-nome="${p.nome}">Remover</button>
         </div>

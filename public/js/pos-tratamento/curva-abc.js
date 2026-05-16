@@ -20,23 +20,18 @@ async function init() {
 }
 
 async function carregarStats() {
-  const [rTotal, rClasses, rSemRetorno] = await Promise.all([
-    sb.from("pacientes_abc").select("*", { count: "exact", head: true }),
-    sb.from("pacientes_abc").select("classe, total_receita"),
-    sb.from("pacientes_abc").select("*", { count: "exact", head: true })
-      .is("proxima_consulta", null).gte("dias_sem_visita", 180),
-  ]);
+  const { data, error } = await sb.rpc("abc_stats");
+  if (error) { console.error("abc_stats:", error); return; }
+  const s = (Array.isArray(data) ? data[0] : data) || {};
 
-  const todos = rClasses.data || [];
-  const totalReceita = todos.reduce((s, p) => s + Number(p.total_receita || 0), 0);
+  const byClass = {
+    A: { count: Number(s.a_count || 0), receita: Number(s.a_receita || 0) },
+    B: { count: Number(s.b_count || 0), receita: Number(s.b_receita || 0) },
+    C: { count: Number(s.c_count || 0), receita: Number(s.c_receita || 0) },
+  };
+  const totalReceita = Number(s.total_receita || 0);
 
-  const byClass = { A: { count: 0, receita: 0 }, B: { count: 0, receita: 0 }, C: { count: 0, receita: 0 } };
-  todos.forEach(p => {
-    const c = p.classe; if (!byClass[c]) return;
-    byClass[c].count++; byClass[c].receita += Number(p.total_receita || 0);
-  });
-
-  stats = { total: rTotal.count ?? 0, byClass, totalReceita, semRetorno: rSemRetorno.count ?? 0 };
+  stats = { total: Number(s.total || 0), byClass, totalReceita, semRetorno: Number(s.sem_retorno || 0) };
 
   document.getElementById("kpi-total").textContent = stats.total.toLocaleString("pt-BR");
   document.getElementById("kpi-a").textContent = byClass.A.count.toLocaleString("pt-BR");
@@ -190,15 +185,14 @@ function renderTabela(rows) {
         const agendaHtml = p.proxima_consulta
           ? `<span class="abc-agenda-dot abc-agenda-dot--ok"></span><span class="abc-agenda-date">${formatarData(p.proxima_consulta)}</span>`
           : `<span class="abc-agenda-dot abc-agenda-dot--none"></span><span class="abc-agenda-none">Sem agenda</span>`;
-        const idNum = p.nome ? (p.nome.match(/\((\d+)\)$/) || ["",""])[1] : "";
         return `<tr>
           <td><input type="checkbox" class="row-chk" data-id="${p.paciente_id}"></td>
           <td>
             <div class="abc-patient-cell">
               <div class="abc-avatar abc-avatar--${(p.classe||"c").toLowerCase()}">${initials}</div>
               <div>
-                <div class="abc-patient-name">${(p.nome||"—").replace(/\s*\(\d+\)$/, "")}</div>
-                ${idNum ? `<div class="abc-patient-id">#${p.clinicorp_id}</div>` : ""}
+                <div class="abc-patient-name">${p.nome||"—"}</div>
+                ${p.clinicorp_id ? `<div class="abc-patient-id">#${p.clinicorp_id}</div>` : ""}
               </div>
             </div>
           </td>
