@@ -1050,37 +1050,42 @@ function clinicorpGet(apiPath, params = {}) {
 
 
 // GET /api/pacientes/clinicorp/:id — lookup por ID Clinicorp, usado no formulario NF
-app.get("/api/pacientes/clinicorp/:id", requireAuth, async (req, res) => {
+app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res) => {
   const clinicorpId = parseInt(req.params.id, 10);
-  if (!clinicorpId || isNaN(clinicorpId) || clinicorpId <= 0) {
-    return res.status(400).json({ erro: "ID invalido" });
+  if (Number.isNaN(clinicorpId) || clinicorpId <= 0) {
+    return res.status(400).json({ error: 'ID invalido' });
   }
-
-  // 1. Busca no Supabase (cache local)
-  const { data: row } = await supabase
-    .from("pacientes")
-    .select("cpf, nome")
-    .eq("clinicorp_id", clinicorpId)
-    .maybeSingle();
-
-  if (row?.cpf && row?.nome) {
-    return res.json({ cpf: row.cpf, nome: row.nome, fonte: "supabase" });
-  }
-
-  // 2. Fallback: Clinicorp API
-  // clinicorpGet resolve com { status, data } — objeto paciente esta em result.data
   try {
-    const result = await clinicorpGet("/patient/get", { id: String(clinicorpId) });
-    const p = result?.data;
-    const nome = p?.Name;
-    // Campo CPF varia — candidatos: DocumentNumber, CPF, TaxpayerNumber
-    const cpfRaw = p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber;
-    if (nome && cpfRaw) {
-      return res.json({ cpf: String(cpfRaw).replace(/\D/g, ""), nome, fonte: "clinicorp" });
-    }
-  } catch (_) { /* API indisponivel */ }
+    // 1. Supabase
+    const { data: row, error: dbErr } = await supabase
+      .from('pacientes')
+      .select('cpf, nome')
+      .eq('clinicorp_id', clinicorpId)
+      .maybeSingle();
+    if (dbErr) throw dbErr;
 
-  return res.status(404).json({ erro: "Paciente nao encontrado" });
+    if (row?.cpf && row?.nome) {
+      return res.json({ cpf: row.cpf, nome: row.nome, fonte: 'supabase' });
+    }
+
+    // 2. Fallback: Clinicorp API
+    try {
+      const result = await clinicorpGet('/patient/get', { id: String(clinicorpId) });
+      const p = result?.data;
+      const nome = p?.Name;
+      const cpfRaw = p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber;
+      if (nome && cpfRaw) {
+        return res.json({ cpf: String(cpfRaw).replace(/\D/g, ''), nome, fonte: 'clinicorp' });
+      }
+    } catch (e) {
+      console.error('Clinicorp API erro no lookup paciente:', e.message);
+    }
+
+    return res.status(404).json({ error: 'Paciente nao encontrado' });
+  } catch (e) {
+    console.error('lookup clinicorp paciente erro:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 function processarInadimplentes(items, today) {
