@@ -1073,7 +1073,7 @@ app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res)
       const result = await clinicorpGet('/patient/get', { id: String(clinicorpId) });
       const p = result?.data;
       const nome = p?.Name;
-      const cpfRaw = p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber;
+      const cpfRaw = p?.OtherDocumentId;
       if (nome && cpfRaw) {
         return res.json({ cpf: String(cpfRaw).replace(/\D/g, ''), nome, fonte: 'clinicorp' });
       }
