@@ -2409,9 +2409,8 @@ async function lookupClinicorp(target) {
       msgEl.style.color = '#22c55e';
       msgEl.textContent = 'Preenchido via ' + (data.fonte === 'supabase' ? 'cadastro local' : 'Clinicorp API');
       setTimeout(() => {
-        idInput.classList.remove('lookup-ok');
+        idInput.classList.remove('lookup-ok', 'lookup-erro');
         msgEl.textContent = '';
-        msgEl.style.color = '#ef4444';
       }, 3000);
     } else if (resp.status === 404) {
       idInput.classList.add('lookup-erro');
@@ -2420,7 +2419,8 @@ async function lookupClinicorp(target) {
       idInput.classList.add('lookup-erro');
       msgEl.textContent = 'Erro ' + resp.status + ' ao buscar';
     }
-  } catch (_) {
+  } catch (e) {
+    console.warn('lookupClinicorp:', e.message || e);
     idInput.classList.add('lookup-erro');
     msgEl.textContent = 'Erro de rede';
   } finally {
