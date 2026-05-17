@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -2278,6 +2278,14 @@ function nfEditFormHtml(n, rowId) {
           <div class="nf-field-label">Competência (MM-AAAA) *</div>
           <input class="nf-ci" id="nfe-comp" placeholder="05-2026" value="${escHtml(v('competencia'))}" maxlength="7">
         </div>
+        <div style="grid-column:span 4">
+          <div class="nf-field-label">ID Clinicorp &#8212; Tomador (opcional)</div>
+          <div class="lookup-row">
+            <input type="number" class="nf-ci" id="nf-clinicorp-id-tomador" placeholder="ex: 12345" min="1" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupClinicorp('tomador')}">
+            <button type="button" id="nf-lookup-btn-tomador" onclick="lookupClinicorp('tomador')">&#128269; Buscar</button>
+          </div>
+          <span class="lookup-msg" id="nf-lookup-msg-tomador"></span>
+        </div>
         <div>
           <div class="nf-field-label">Tipo Tomador</div>
           <select class="nf-ci-sel" id="nfe-tipo">
@@ -2311,6 +2319,14 @@ function nfEditFormHtml(n, rowId) {
           <input type="checkbox" id="nfe-pac-diff" ${pac?'checked':''} onchange="nfeTogglePac()">
           Paciente diferente do tomador (pai/mãe pagando pelo filho)
         </label>
+      </div>
+      <div id="nfe-pac-lookup-area" style="display:${pac?'block':'none'};margin-top:8px">
+        <div class="nf-field-label">ID Clinicorp &#8212; Paciente (opcional)</div>
+        <div class="lookup-row">
+          <input type="number" class="nf-ci" id="nf-clinicorp-id-paciente" placeholder="ex: 12345" min="1" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupClinicorp('paciente')}">
+          <button type="button" id="nf-lookup-btn-paciente" onclick="lookupClinicorp('paciente')">&#128269; Buscar</button>
+        </div>
+        <span class="lookup-msg" id="nf-lookup-msg-paciente"></span>
       </div>
       <div id="nfe-pac-area" style="display:${pac?'grid':'none'};grid-template-columns:1fr 1fr 1fr;gap:10px 16px;margin-top:8px">
         <div>
