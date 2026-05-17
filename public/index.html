@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -2374,6 +2374,60 @@ function nfAddRow() {
 function nfeTogglePac() {
   document.getElementById('nfe-pac-area').style.display =
     document.getElementById('nfe-pac-diff').checked ? 'grid' : 'none';
+}
+
+async function lookupClinicorp(target) {
+  const idInput   = document.getElementById('nf-clinicorp-id-' + target);
+  const btn       = document.getElementById('nf-lookup-btn-' + target);
+  const msgEl     = document.getElementById('nf-lookup-msg-' + target);
+  const cpfInput  = document.getElementById(target === 'tomador' ? 'nfe-cpf' : 'nfe-cpf-pac');
+  const nomeInput = document.getElementById(target === 'tomador' ? 'nfe-nome' : 'nfe-nome-pac');
+
+  const id = parseInt(idInput.value, 10);
+  if (!id || id <= 0) {
+    msgEl.textContent = 'Digite um ID valido';
+    idInput.classList.add('lookup-erro');
+    return;
+  }
+
+  idInput.disabled = true;
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  idInput.classList.remove('lookup-ok', 'lookup-erro');
+  msgEl.textContent = '';
+
+  try {
+    const token = (_sbSession && _sbSession.access_token) ? _sbSession.access_token : '';
+    const resp = await fetch('/api/pacientes/clinicorp/' + id, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      cpfInput.value  = data.cpf  || '';
+      nomeInput.value = data.nome || '';
+      idInput.classList.add('lookup-ok');
+      msgEl.style.color = '#22c55e';
+      msgEl.textContent = 'Preenchido via ' + (data.fonte === 'supabase' ? 'cadastro local' : 'Clinicorp API');
+      setTimeout(() => {
+        idInput.classList.remove('lookup-ok');
+        msgEl.textContent = '';
+        msgEl.style.color = '#ef4444';
+      }, 3000);
+    } else if (resp.status === 404) {
+      idInput.classList.add('lookup-erro');
+      msgEl.textContent = 'Paciente nao encontrado';
+    } else {
+      idInput.classList.add('lookup-erro');
+      msgEl.textContent = 'Erro ' + resp.status + ' ao buscar';
+    }
+  } catch (_) {
+    idInput.classList.add('lookup-erro');
+    msgEl.textContent = 'Erro de rede';
+  } finally {
+    idInput.disabled = false;
+    btn.disabled = false;
+    btn.textContent = '🔍 Buscar';
+  }
 }
 
 function nfCancelEdit(rowId) {
