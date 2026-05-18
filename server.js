@@ -1088,6 +1088,25 @@ app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res)
   }
 });
 
+// Endpoint temporario de diagnostico — remove apos confirmar funcionamento
+app.get('/api/admin/debug-patient/:id', requireAuth, async (req, res) => {
+  const idNum = parseInt(req.params.id, 10);
+  if (Number.isNaN(idNum)) return res.status(400).json({ error: 'ID invalido' });
+  const result = { id: idNum };
+  try {
+    const { data: row, error: dbErr } = await supabase
+      .from('pacientes').select('*')
+      .or(`clinicorp_id.eq.${idNum},numero_prontuario.eq.${idNum}`)
+      .maybeSingle();
+    result.supabase = { row, error: dbErr?.message };
+  } catch (e) { result.supabase = { error: e.message }; }
+  try {
+    const resp = await clinicorpGet('/patient/get', { id: String(idNum) });
+    result.clinicorp = { status: resp?.status, data: resp?.data };
+  } catch (e) { result.clinicorp = { error: e.message }; }
+  res.json(result);
+});
+
 function processarInadimplentes(items, today) {
   const todayDate = new Date(today);
   const patMap = {};
