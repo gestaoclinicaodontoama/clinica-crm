@@ -1070,7 +1070,8 @@ app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res)
 
     // 2. Fallback: Clinicorp API via clinicorp_id
     try {
-      const p = await clinicorpGet('/patient/get', { id: String(idNum) });
+      const resp = await clinicorpGet('/patient/get', { id: String(idNum) });
+      const p = resp?.data;
       const nome = p?.Name;
       const cpf  = (p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber || '').replace(/\D/g, '');
       if (nome) return res.json({ cpf, nome, fonte: 'clinicorp' });
@@ -1222,9 +1223,9 @@ app.post('/api/crc/sincronizar-novos', async (req, res) => {
     const since = new Date(); since.setDate(since.getDate() - 14);
     const sinceStr = since.toISOString().slice(0, 10);
     let payments = [];
-    try { payments = await clinicorpGet('/payment/list', { startDate: sinceStr }); }
+    try { const r = await clinicorpGet('/payment/list', { startDate: sinceStr }); payments = r?.data || []; }
     catch { return res.json({ inserted: 0, skipped: 0, msg: 'Clinicorp indisponivel' }); }
-    const payArr = Array.isArray(payments) ? payments : (payments.Items || payments.items || []);
+    const payArr = Array.isArray(payments) ? payments : (payments?.Items || payments?.items || []);
     const uniqueIds = [...new Set(payArr.map(p => String(p.PatientId || p.patientId || '')).filter(Boolean))];
     if (!uniqueIds.length) return res.json({ inserted: 0, skipped: 0, msg: 'Sem novos pagamentos' });
     const existing = new Set();
@@ -1240,7 +1241,8 @@ app.post('/api/crc/sincronizar-novos', async (req, res) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     for (const id of newIds.slice(0, 100)) {
       try {
-        const p = await clinicorpGet('/patient/get', { id });
+        const resp = await clinicorpGet('/patient/get', { id });
+        const p = resp?.data;
         if (!p || !p.Name) continue;
         const birth = (p.BirthDate || '').replace(/T.*/, '');
         await supabase.from('pacientes').upsert({
@@ -1275,7 +1277,8 @@ app.post('/api/crc/rebuscar-telefones', async (req, res) => {
     let updated = 0;
     for (const row of missing) {
       try {
-        const p = await clinicorpGet('/patient/get', { id: String(row.clinicorp_id) });
+        const resp = await clinicorpGet('/patient/get', { id: String(row.clinicorp_id) });
+        const p = resp?.data;
         const phone = p?.MobilePhone || p?.Landline || '';
         if (!phone) continue;
         await supabase.from('pacientes').update({ telefone_celular: p.MobilePhone || '', telefone_fixo: p.Landline || '', atualizado_em: new Date().toISOString() }).eq('clinicorp_id', row.clinicorp_id);
@@ -1304,7 +1307,8 @@ app.post('/api/crc/sync-abc-completo', async (req, res) => {
 
     // Helper: fetch Clinicorp JSON, handling duplicate-key issue
     async function fetchC(path, params) {
-      const data = await clinicorpGet(path, params);
+      const resp = await clinicorpGet(path, params);
+      const data = resp?.data;
       return Array.isArray(data) ? data : (data ? [data] : []);
     }
 
