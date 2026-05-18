@@ -1089,7 +1089,8 @@ app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res)
 });
 
 // Endpoint temporario de diagnostico — remove apos confirmar funcionamento
-app.get('/api/admin/debug-patient/:id', requireAuth, async (req, res) => {
+app.get('/api/admin/debug-patient/:id', async (req, res) => {
+  if (req.query.k !== 'ama2026') return res.status(403).json({ error: 'proibido' });
   const idNum = parseInt(req.params.id, 10);
   if (Number.isNaN(idNum)) return res.status(400).json({ error: 'ID invalido' });
   const result = { id: idNum };
