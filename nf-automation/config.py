@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-CRM_API_URL = os.getenv("CRM_API_URL", "https://clinica-crm-production.up.railway.app")
+CRM_API_URL = os.getenv("CRM_API_URL", "https://plataformaama-plataforma.uc5as5.easypanel.host")
 
 SIGISS_URL       = "https://ipatinga.meumunicipio.online/ISS/contribuinte/main.php"
 SIGISS_LOGIN_URL = "https://ipatinga.meumunicipio.online/ISS/contribuinte/login.php"
