@@ -1071,7 +1071,7 @@ app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res)
 
     // 2. Fallback: Clinicorp API via clinicorp_id
     try {
-      const resp = await clinicorpGet('/patient/get', { id: String(idNum) });
+      const resp = await clinicorpGet('/patient/get', { ID: String(idNum) });
       console.log(`[lookup-nf] id=${idNum} clinicorp → status=${resp?.status} data=${JSON.stringify(resp?.data).slice(0, 300)}`);
       const p = resp?.data;
       const nome = p?.Name;
@@ -1265,7 +1265,7 @@ app.post('/api/crc/sincronizar-novos', async (req, res) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     for (const id of newIds.slice(0, 100)) {
       try {
-        const resp = await clinicorpGet('/patient/get', { id });
+        const resp = await clinicorpGet('/patient/get', { ID: String(id) });
         const p = resp?.data;
         if (!p || !p.Name) continue;
         const birth = (p.BirthDate || '').replace(/T.*/, '');
@@ -1301,7 +1301,7 @@ app.post('/api/crc/rebuscar-telefones', async (req, res) => {
     let updated = 0;
     for (const row of missing) {
       try {
-        const resp = await clinicorpGet('/patient/get', { id: String(row.clinicorp_id) });
+        const resp = await clinicorpGet('/patient/get', { ID: String(row.clinicorp_id) });
         const p = resp?.data;
         const phone = p?.MobilePhone || p?.Landline || '';
         if (!phone) continue;
