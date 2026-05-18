@@ -1049,18 +1049,18 @@ function clinicorpGet(apiPath, params = {}) {
 }
 
 
-// GET /api/pacientes/clinicorp/:id — lookup por ID Clinicorp, usado no formulario NF
+// GET /api/pacientes/clinicorp/:id — lookup por ID Clinicorp (ou numero_prontuario), usado no formulario NF
 app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res) => {
-  const numeroProntuario = parseInt(req.params.id, 10);
-  if (Number.isNaN(numeroProntuario) || numeroProntuario <= 0) {
+  const idNum = parseInt(req.params.id, 10);
+  if (Number.isNaN(idNum) || idNum <= 0) {
     return res.status(400).json({ error: 'ID invalido' });
   }
   try {
-    // 1. Supabase — busca por ClinicalRecordNumber
+    // 1. Supabase — tenta clinicorp_id primeiro, depois numero_prontuario
     const { data: row, error: dbErr } = await supabase
       .from('pacientes')
       .select('cpf, nome, clinicorp_id')
-      .eq('numero_prontuario', numeroProntuario)
+      .or(`clinicorp_id.eq.${idNum},numero_prontuario.eq.${idNum}`)
       .maybeSingle();
     if (dbErr) throw dbErr;
 
@@ -1068,7 +1068,14 @@ app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res)
       return res.json({ cpf: row.cpf || '', nome: row.nome, fonte: 'supabase' });
     }
 
-    // 2. Fallback: Clinicorp API (requer clinicorp_id longo, nao disponivel aqui)
+    // 2. Fallback: Clinicorp API via clinicorp_id
+    try {
+      const p = await clinicorpGet('/patient/get', { id: String(idNum) });
+      const nome = p?.Name;
+      const cpf  = (p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber || '').replace(/\D/g, '');
+      if (nome) return res.json({ cpf, nome, fonte: 'clinicorp' });
+    } catch (_) { /* API indisponivel — continua para 404 */ }
+
     return res.status(404).json({ error: 'Paciente nao encontrado' });
   } catch (e) {
     console.error('lookup clinicorp paciente erro:', e.message);

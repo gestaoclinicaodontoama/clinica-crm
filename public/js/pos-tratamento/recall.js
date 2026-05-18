@@ -5,12 +5,7 @@ const sb = createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON__);
 const PAGE_SIZE = 50;
 let abaAtual = "180", classesAtivas = ["A", "B"], paginaAtual = 1, totalRegistros = 0, paginaData = [], userId, tmpl;
 
-async function init() {
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) { window.location.href = "/login.html"; return; }
-  userId = user.id;
-  tmpl = templateBar("template-bar-recall", "recall", sb);
-
+async function carregarKPIs() {
   const [r1, r2, r3] = await Promise.all([
     sb.from("pacientes_abc").select("*", { count: "exact", head: true })
       .in("classe", ["A", "B"]).is("proxima_consulta", null).gte("dias_sem_visita", 180),
@@ -22,6 +17,43 @@ async function init() {
   document.getElementById("kpi-total").textContent = r1.count ?? "—";
   document.getElementById("kpi-180").textContent = r2.count ?? "—";
   document.getElementById("kpi-360").textContent = r3.count ?? "—";
+}
+
+window._syncClinicorp = async function() {
+  const btn   = document.getElementById("btn-sync-clinicorp");
+  const label = document.getElementById("btn-sync-label");
+  btn.disabled = true;
+  btn.classList.add("loading");
+  label.textContent = "Sincronizando...";
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const res = await fetch("/api/admin/sync-clinicorp", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${session?.access_token || ""}` }
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.msg || "Erro no servidor");
+    label.textContent = "Aguardando...";
+    // Aguarda 5s para o sync processar os dados mais simples antes de recarregar
+    await new Promise(r => setTimeout(r, 5000));
+    await Promise.all([carregarKPIs(), carregar()]);
+    toast("Dados atualizados");
+  } catch (e) {
+    toast("Erro ao sincronizar: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("loading");
+    label.textContent = "Atualizar dados";
+  }
+};
+
+async function init() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) { window.location.href = "/login.html"; return; }
+  userId = user.id;
+  tmpl = templateBar("template-bar-recall", "recall", sb);
+
+  await carregarKPIs();
 
   document.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(b => b.classList.remove("tab--active"));

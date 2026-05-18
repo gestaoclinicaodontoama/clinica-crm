@@ -19,8 +19,17 @@
     <main class="crm-main">
       <div class="page-layout">
         <div class="page-header">
-          <h1 class="page-title">Recall</h1>
-          <p class="page-subtitle">Pacientes A e B sem visita há 180+ dias e sem agenda futura</p>
+          <div>
+            <h1 class="page-title">Recall</h1>
+            <p class="page-subtitle">Pacientes A e B sem visita há 180+ dias e sem agenda futura</p>
+          </div>
+          <button class="btn btn--ghost btn--sm btn--sync" id="btn-sync-clinicorp" onclick="window._syncClinicorp()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+            </svg>
+            <span id="btn-sync-label">Atualizar dados</span>
+          </button>
         </div>
 
         <div class="kpi-row">
