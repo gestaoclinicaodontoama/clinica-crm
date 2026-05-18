@@ -43,10 +43,10 @@ TOTALVOICE_BINA=
 ```
 Reinicie o servidor (Ctrl+C → `npm start`).
 
-### Se rodando no Railway:
-1. Vá no projeto Railway → **Variables**
+### Se rodando no Easypanel:
+1. Vá no painel Easypanel → **plataformaama → plataforma → Environment**
 2. Adicione `TOTALVOICE_TOKEN` com seu token
-3. Salve — Railway reinicia automaticamente
+3. Salve — Easypanel reinicia automaticamente
 
 ## A.5 — Adicionar crédito
 
@@ -54,12 +54,12 @@ Reinicie o servidor (Ctrl+C → `npm start`).
 2. Comece com **R$ 50** (paga ~7h de ligação)
 3. Pague com PIX ou cartão
 
-## A.6 — Configurar webhook (só se Railway)
+## A.6 — Configurar webhook
 
-⚠️ Webhook só funciona com URL pública (precisa do Guia 2 — Railway).
+⚠️ Webhook só funciona com URL pública (Easypanel em produção).
 
 1. No painel TotalVoice: **Configurações → Webhooks**
-2. URL: `https://SUA-URL.up.railway.app/webhooks/totalvoice`
+2. URL: `https://plataformaama-plataforma.uc5as5.easypanel.host/webhooks/totalvoice`
 3. Eventos: marque **"Chamada finalizada"** e **"Gravação disponível"**
 4. Salve
 
@@ -165,10 +165,10 @@ Use a aba **API Setup** do Meta para enviar a primeira mensagem:
 
 ## B.8 — Configurar webhook (recebe respostas do lead)
 
-⚠️ Só funciona com URL pública (Railway).
+⚠️ Só funciona com URL pública (Easypanel em produção).
 
 1. No painel Meta: **WhatsApp → Configuration → Webhooks**
-2. URL de callback: `https://SUA-URL.up.railway.app/webhooks/whatsapp`
+2. URL de callback: `https://plataformaama-plataforma.uc5as5.easypanel.host/webhooks/whatsapp`
 3. Verify token: cole o **mesmo** valor que está em `WHATSAPP_VERIFY_TOKEN`
 4. Clique em **Verify and save**
 5. Inscreva-se em **messages**
@@ -260,7 +260,7 @@ A melhor estratégia para sua clínica é:
 **Sequência sugerida pra implementar:**
 
 1. ✅ **Hoje**: CRM rodando local + botão wa.me funcionando (não custa nada)
-2. ⚙️ **Esta semana**: subir Railway (Guia 2) + ativar CAPI Meta (Guia 1)
+2. ⚙️ **Esta semana**: ativar CAPI Meta (Guia 1) — CRM já está no Easypanel
 3. 📞 **Semana 2**: ativar TotalVoice (Parte A) — discador real com gravação
 4. 💬 **Mês 2**: WhatsApp Cloud API (Parte B) quando tiver volume justificando
 
@@ -274,7 +274,7 @@ A melhor estratégia para sua clínica é:
 | "Token inválido" | Reverifique copy/paste sem espaços |
 | Ligação não chega | Confirme número com DDI: `5531987654321` (13 dígitos) |
 | Lead não atende | Bina pode estar bloqueada — adquira DID local (Passo A.8) |
-| Gravação não aparece | Webhook não chegou — confira config no Railway (Passo A.6) |
+| Gravação não aparece | Webhook não chegou — confira config no Easypanel (Passo A.6) |
 | Saldo zerado | Adicione crédito no painel + alerta automático |
 
 ## WhatsApp Cloud API
@@ -291,7 +291,7 @@ A melhor estratégia para sua clínica é:
 # ✅ Checklist final
 
 - [ ] TotalVoice: token configurado, primeira ligação de teste funcionou
-- [ ] TotalVoice: webhook configurado (se Railway), gravação aparece no CRM
+- [ ] TotalVoice: webhook configurado no Easypanel (Passo A.6), gravação aparece no CRM
 - [ ] WhatsApp wa.me: botão 💬 abre WhatsApp Web no número certo
 - [ ] (Opcional) WhatsApp Cloud API: número de teste enviou Hello World
 - [ ] (Opcional) Templates de boas-vindas e lembrete aprovados pela Meta
