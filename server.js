@@ -1051,36 +1051,24 @@ function clinicorpGet(apiPath, params = {}) {
 
 // GET /api/pacientes/clinicorp/:id — lookup por ID Clinicorp, usado no formulario NF
 app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res) => {
-  const clinicorpId = parseInt(req.params.id, 10);
-  if (Number.isNaN(clinicorpId) || clinicorpId <= 0) {
+  const numeroProntuario = parseInt(req.params.id, 10);
+  if (Number.isNaN(numeroProntuario) || numeroProntuario <= 0) {
     return res.status(400).json({ error: 'ID invalido' });
   }
   try {
-    // 1. Supabase
+    // 1. Supabase — busca por ClinicalRecordNumber
     const { data: row, error: dbErr } = await supabase
       .from('pacientes')
-      .select('cpf, nome')
-      .eq('clinicorp_id', clinicorpId)
+      .select('cpf, nome, clinicorp_id')
+      .eq('numero_prontuario', numeroProntuario)
       .maybeSingle();
     if (dbErr) throw dbErr;
 
-    if (row?.cpf && row?.nome) {
-      return res.json({ cpf: row.cpf, nome: row.nome, fonte: 'supabase' });
+    if (row?.nome) {
+      return res.json({ cpf: row.cpf || '', nome: row.nome, fonte: 'supabase' });
     }
 
-    // 2. Fallback: Clinicorp API
-    try {
-      const result = await clinicorpGet('/patient/get', { id: String(clinicorpId) });
-      const p = result?.data;
-      const nome = p?.Name;
-      const cpfRaw = p?.OtherDocumentId;
-      if (nome && cpfRaw) {
-        return res.json({ cpf: String(cpfRaw).replace(/\D/g, ''), nome, fonte: 'clinicorp' });
-      }
-    } catch (e) {
-      console.error('Clinicorp API erro no lookup paciente:', e.message);
-    }
-
+    // 2. Fallback: Clinicorp API (requer clinicorp_id longo, nao disponivel aqui)
     return res.status(404).json({ error: 'Paciente nao encontrado' });
   } catch (e) {
     console.error('lookup clinicorp paciente erro:', e.message);
@@ -1414,58 +1402,45 @@ app.post('/api/crc/sync-abc-completo', async (req, res) => {
     console.log(`[sync-abc] Concluido: ${pats.length} pacientes processados, ${upserted} upserted`);
   })().catch(e => console.error('[sync-abc] fatal:', e.message));
 });
-// ========== CRC AUTO-SYNC DIARIO ==========
-(function agendarSyncCRC() {
+// ========== CLINICORP SYNC DIÁRIO ==========
+// Roda às 2h todo dia. Se atingir 24 req/hora, aguarda 1h10m automaticamente e continua.
+const { runSync: runClinicorpSync } = require('./sync/clinicorp-sync');
+(function agendarSyncDiario() {
   let lastSyncDay = '';
-  async function autoSyncNovos() {
-    if (!process.env.CLINICORP_TOKEN) return;
+
+  async function executarSync() {
     const today = new Date().toISOString().slice(0, 10);
     if (lastSyncDay === today) return;
     lastSyncDay = today;
-    console.log('[CRC] Auto-sync iniciado:', today);
-    try {
-      const since = new Date(); since.setDate(since.getDate() - 14);
-      const sinceStr = since.toISOString().slice(0, 10);
-      const payments = await clinicorpGet('/payment/list', { startDate: sinceStr }).catch(() => []);
-      const payArr = Array.isArray(payments) ? payments : (payments.Items || payments.items || []);
-      const uniqueIds = [...new Set(payArr.map(p => String(p.PatientId || p.patientId || '')).filter(Boolean))];
-      if (!uniqueIds.length) { console.log('[CRC] Auto-sync: sem pagamentos recentes'); return; }
-      const existing = new Set();
-      for (let i = 0; i < uniqueIds.length; i += 500) {
-        const chunk = uniqueIds.slice(i, i + 500).map(Number);
-        const { data } = await supabase.from('pacientes').select('clinicorp_id').in('clinicorp_id', chunk);
-        (data || []).forEach(r => existing.add(String(r.clinicorp_id)));
-      }
-      const newIds = uniqueIds.filter(id => !existing.has(id));
-      if (!newIds.length) { console.log('[CRC] Auto-sync: todos ja cadastrados'); return; }
-      const sleep = ms => new Promise(r => setTimeout(r, ms));
-      let inserted = 0;
-      for (const id of newIds.slice(0, 100)) {
-        try {
-          const p = await clinicorpGet('/patient/get', { id });
-          if (!p || !p.Name) continue;
-          const birth = (p.BirthDate || '').replace(/T.*/, '');
-          await supabase.from('pacientes').upsert({
-            clinicorp_id: Number(id), nome: p.Name,
-            data_nascimento: birth && birth >= '1900-01-01' && birth < today ? birth : null,
-            telefone_celular: p.MobilePhone || '', telefone_fixo: p.Landline || '',
-            email: p.Email || '', ativo: (p.Active || '') === 'X',
-            inserido_em: p.InsertDate || new Date().toISOString(),
-          }, { onConflict: 'clinicorp_id' });
-          inserted++;
-          await sleep(120);
-        } catch (e) { console.error('[CRC] Auto-sync paciente erro:', e.message); }
-      }
-      console.log(`[CRC] Auto-sync: ${inserted} novos pacientes inseridos`);
-    } catch (e) {
-      console.error('[CRC] Auto-sync erro:', e.message);
-    }
+    const result = await runClinicorpSync();
+    if (!result.ok) console.error('[sync-diario] falhou:', result.error);
   }
-  setInterval(() => {
-    const h = new Date().getHours();
-    if (h >= 3 && h < 4) autoSyncNovos();
-  }, 30 * 60 * 1000);
+
+  // Calcula delay até a próxima 2h
+  function msAteProximas2h() {
+    const now  = new Date();
+    const next = new Date(now);
+    next.setHours(2, 0, 0, 0);
+    if (now >= next) next.setDate(next.getDate() + 1);
+    return next - now;
+  }
+
+  // Agenda a primeira execução e depois repete a cada 24h
+  setTimeout(function tick() {
+    executarSync().catch(e => console.error('[sync-diario] erro:', e.message));
+    setTimeout(tick, 24 * 60 * 60_000);
+  }, msAteProximas2h());
+
+  const h = Math.round(msAteProximas2h() / 60_000);
+  console.log(`[sync-diario] Próximo sync em ~${h} min (às 2h00)`);
 })();
+// ========== SYNC MANUAL ==========
+// POST /api/admin/sync-clinicorp  — dispara sync imediatamente (sem esperar as 2h)
+app.post('/api/admin/sync-clinicorp', requireAuth, async (req, res) => {
+  res.json({ ok: true, msg: 'Sync iniciado em background — acompanhe os logs do servidor' });
+  runClinicorpSync().catch(e => console.error('[sync-manual] erro:', e.message));
+});
+
 // ========== HEALTH CHECK ==========
 app.get('/health', (req, res) => res.json({ ok: true }));
 

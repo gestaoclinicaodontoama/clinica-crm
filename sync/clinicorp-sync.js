@@ -1,0 +1,323 @@
+// Sync diário Clinicorp → Supabase.
+// Atualiza: agendamentos, pagamentos, orçamentos e novos pacientes.
+// Rate limit tratado automaticamente por clinicorp-api.js (espera 1h10m se precisar).
+//
+// Uso direto: node sync/clinicorp-sync.js
+// Uso via server.js: const { runSync } = require('./sync/clinicorp-sync')
+
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+
+const { createClient } = require('@supabase/supabase-js');
+const ClinicorpApi     = require('./clinicorp-api');
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY,
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
+
+const api = new ClinicorpApi({
+  user:         'clinicaama',
+  token:        '48d8b02a-c51c-4a71-9041-2c5effdf377c',
+  subscriberId: 'clinicaama',
+  businessId:   'clinicaama',
+});
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function log(msg) {
+  const t = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  console.log(`[${t}] [clinicorp-sync] ${msg}`);
+}
+
+function toDate(v) {
+  if (!v) return null;
+  return String(v).split('T')[0]; // "2026-05-18T03:00:00Z" → "2026-05-18"
+}
+
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const diff = Date.now() - new Date(dateStr).getTime();
+  return Math.floor(diff / 86_400_000);
+}
+
+function dateStr(d) { return ClinicorpApi.toDateStr(d); }
+
+// ─── fases do sync ──────────────────────────────────────────────────────────
+
+/**
+ * Busca agendamentos (passados 30d + futuros 60d).
+ * Retorna mapa: clinicorp_id → { ultima_visita, proxima_consulta, proximo_dentista }
+ */
+async function fetchAppointments() {
+  const today      = new Date();
+  const past30     = new Date(today); past30.setDate(past30.getDate() - 30);
+  const future60   = new Date(today); future60.setDate(future60.getDate() + 60);
+
+  log('Buscando agendamentos passados (30 dias)...');
+  const past   = await api.get('/appointment/list', { from: dateStr(past30),   to: dateStr(today)    });
+  log('Buscando agendamentos futuros (60 dias)...');
+  const future = await api.get('/appointment/list', { from: dateStr(today),    to: dateStr(future60) });
+
+  const pastArr   = Array.isArray(past)   ? past   : [];
+  const futureArr = Array.isArray(future) ? future : [];
+  log(`Agendamentos: ${pastArr.length} passados, ${futureArr.length} futuros`);
+
+  const byId = {}; // clinicorp_id → dados
+
+  for (const a of pastArr) {
+    const id   = a.PatientId || a.patientId;
+    if (!id) continue;
+    const date = toDate(a.Date || a.date || a.AppointmentDate || a.ScheduleDate);
+    if (!byId[id]) byId[id] = {};
+    if (date && (!byId[id].ultima_visita || date > byId[id].ultima_visita)) {
+      byId[id].ultima_visita = date;
+    }
+  }
+
+  for (const a of futureArr) {
+    const id   = a.PatientId || a.patientId;
+    if (!id) continue;
+    const date = toDate(a.Date || a.date || a.AppointmentDate || a.ScheduleDate);
+    const doc  = a.ProfessionalName || a.professionalName || a.DoctorName || '';
+    if (!byId[id]) byId[id] = {};
+    if (date && (!byId[id].proxima_consulta || date < byId[id].proxima_consulta)) {
+      byId[id].proxima_consulta  = date;
+      byId[id].proximo_dentista  = doc;
+    }
+  }
+
+  return byId;
+}
+
+/**
+ * Busca pagamentos dos últimos 30 dias.
+ * Retorna mapa: clinicorp_id → { ultimo_pagamento, nome }
+ */
+async function fetchPayments() {
+  const today  = new Date();
+  const past30 = new Date(today); past30.setDate(past30.getDate() - 30);
+
+  log('Buscando pagamentos (30 dias)...');
+  const payments = await api.get('/payment/list', { from: dateStr(past30), to: dateStr(today) });
+  const arr = Array.isArray(payments) ? payments : [];
+  log(`Pagamentos encontrados: ${arr.length}`);
+
+  const byId = {};
+  for (const p of arr) {
+    const id   = p.PatientId || p.patientId;
+    if (!id) continue;
+    const date = toDate(p.ReceivedDate || p.CheckOutDate || p.PaymentDate || p.Date);
+    if (!byId[id]) {
+      byId[id] = {
+        nome:             p.PatientName || p.patientName || '',
+        telefone:         p.MobilePhone || p.Phone || p.phone || '',
+        ultimo_pagamento: date,
+      };
+    } else if (date && date > byId[id].ultimo_pagamento) {
+      byId[id].ultimo_pagamento = date;
+    }
+  }
+
+  return byId;
+}
+
+/**
+ * Busca orçamentos em aberto.
+ * Retorna Set de clinicorp_ids com orçamento aberto.
+ */
+async function fetchEstimates() {
+  log('Buscando orçamentos em aberto...');
+  const estimates = await api.get('/patient/list_estimates');
+  const arr = Array.isArray(estimates) ? estimates : [];
+  log(`Orçamentos em aberto: ${arr.length}`);
+
+  return new Set(
+    arr.map(e => String(e.PatientId || e.patientId)).filter(Boolean)
+  );
+}
+
+// ─── gravação no Supabase ────────────────────────────────────────────────────
+
+/**
+ * Dado um conjunto de clinicorp_ids, retorna mapa clinicorp_id → uuid (pacientes.id).
+ * Ids sem correspondência em pacientes são ignorados.
+ */
+async function getPatientUuids(clinicorpIds) {
+  if (!clinicorpIds.length) return {};
+  const { data, error } = await supabase
+    .from('pacientes')
+    .select('id, clinicorp_id')
+    .in('clinicorp_id', clinicorpIds);
+
+  if (error) { log(`ERRO getPatientUuids: ${error.message}`); return {}; }
+
+  const map = {};
+  for (const r of (data || [])) map[String(r.clinicorp_id)] = r.id;
+  return map;
+}
+
+/**
+ * Insere pacientes novos detectados via pagamentos que não estão em pacientes.
+ * Chama /patient/get para obter dados completos (nome, telefone, email, nascimento).
+ */
+async function insertNewPatients(payMap) {
+  const clinicorpIds = Object.keys(payMap).map(Number);
+  if (!clinicorpIds.length) return;
+
+  const { data: existing } = await supabase
+    .from('pacientes')
+    .select('clinicorp_id')
+    .in('clinicorp_id', clinicorpIds);
+
+  const existingSet = new Set((existing || []).map(r => String(r.clinicorp_id)));
+  const novos = clinicorpIds.filter(id => !existingSet.has(String(id)));
+
+  if (!novos.length) { log('Nenhum paciente novo detectado'); return; }
+  log(`${novos.length} pacientes novos — buscando dados via /patient/get...`);
+
+  const today = new Date().toISOString().slice(0, 10);
+  let inserted = 0;
+
+  for (const id of novos) {
+    try {
+      // Cada /patient/get consome 1 requisição — o rate limiter pausa automaticamente
+      const p = await api.get('/patient/get', { id: String(id) });
+      if (!p || !p.Name) {
+        // Fallback: insere com dados básicos do pagamento
+        await supabase.from('pacientes').upsert({
+          clinicorp_id:     id,
+          nome:             payMap[id]?.nome || `Paciente ${id}`,
+          telefone_celular: payMap[id]?.telefone || null,
+          inserido_em:      new Date().toISOString(),
+        }, { onConflict: 'clinicorp_id', ignoreDuplicates: true });
+        inserted++;
+        continue;
+      }
+
+      const birth = (p.BirthDate || '').replace(/T.*/, '');
+      await supabase.from('pacientes').upsert({
+        clinicorp_id:     id,
+        nome:             p.Name,
+        data_nascimento:  birth && birth >= '1900-01-01' && birth < today ? birth : null,
+        telefone_celular: p.MobilePhone || payMap[id]?.telefone || null,
+        telefone_fixo:    p.Landline    || null,
+        email:            p.Email       || null,
+        ativo:            (p.Active || '') === 'X',
+        inserido_em:      p.InsertDate  || new Date().toISOString(),
+      }, { onConflict: 'clinicorp_id', ignoreDuplicates: true });
+      inserted++;
+    } catch (e) {
+      log(`ERRO /patient/get id=${id}: ${e.message}`);
+    }
+  }
+
+  log(`Novos pacientes inseridos: ${inserted}/${novos.length}`);
+}
+
+/**
+ * Faz upsert em pacientes_abc com agendamentos + pagamentos.
+ * Conflict: paciente_id (UUID único).
+ */
+async function upsertAbcData(apptMap, payMap) {
+  // Coleta todos os clinicorp_ids envolvidos
+  const allIds = [...new Set([
+    ...Object.keys(apptMap),
+    ...Object.keys(payMap),
+  ])].map(Number).filter(Boolean);
+
+  if (!allIds.length) return;
+
+  const uuidMap = await getPatientUuids(allIds);
+  const now = new Date().toISOString();
+
+  const rows = allIds
+    .map(id => {
+      const sid = String(id);
+      const uid = uuidMap[sid];
+      if (!uid) return null; // paciente não encontrado — pula
+
+      const appt = apptMap[sid] || {};
+      const pay  = payMap[sid]  || {};
+
+      const ultVisita = appt.ultima_visita || null;
+
+      return {
+        paciente_id:       uid,
+        clinicorp_id:      id,
+        // Atualiza campos de agenda e pagamento; não sobrescreve ABC/receita
+        ...(appt.ultima_visita   && { ultima_visita:    appt.ultima_visita }),
+        ...(appt.proxima_consulta && { proxima_consulta: appt.proxima_consulta }),
+        ...(appt.proximo_dentista && { proximo_dentista: appt.proximo_dentista }),
+        ...(pay.ultimo_pagamento  && { ultimo_pagamento: pay.ultimo_pagamento }),
+        ...(ultVisita             && { dias_sem_visita:  daysSince(ultVisita) }),
+        ...(pay.nome              && { nome:             pay.nome }),
+        ...(pay.telefone          && { telefone:         pay.telefone }),
+        sincronizado_em: now,
+      };
+    })
+    .filter(Boolean);
+
+  if (!rows.length) return;
+
+  // Processa em lotes de 500 para não exceder limites do Supabase
+  const BATCH = 500;
+  let total = 0;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const { error } = await supabase
+      .from('pacientes_abc')
+      .upsert(chunk, { onConflict: 'paciente_id', ignoreDuplicates: false });
+
+    if (error) log(`ERRO upsert abc (batch ${i}): ${error.message}`);
+    else       total += chunk.length;
+  }
+
+  log(`pacientes_abc atualizado: ${total} registros`);
+}
+
+// ─── entrada principal ───────────────────────────────────────────────────────
+
+async function runSync() {
+  const start = Date.now();
+  log('══════════ SYNC CLINICORP INICIADO ══════════');
+
+  const result = { ok: false, steps: {}, duration_s: 0 };
+
+  try {
+    // Fase 1: agendamentos (2 requisições)
+    const apptMap = await fetchAppointments();
+    result.steps.agendamentos = Object.keys(apptMap).length;
+
+    // Fase 2: pagamentos (1 requisição)
+    const payMap = await fetchPayments();
+    result.steps.pagamentos = Object.keys(payMap).length;
+
+    // Fase 3: orçamentos (1 requisição)
+    const estimateIds = await fetchEstimates();
+    result.steps.orcamentos_abertos = estimateIds.size;
+
+    // Fase 4: inserir novos pacientes detectados
+    await insertNewPatients(payMap);
+
+    // Fase 5: upsert em pacientes_abc
+    await upsertAbcData(apptMap, payMap);
+
+    result.ok        = true;
+    result.req_count = api.reqCount; // requisições feitas nesta hora
+  } catch (err) {
+    log(`ERRO FATAL: ${err.message}`);
+    result.error = err.message;
+  }
+
+  result.duration_s = parseFloat(((Date.now() - start) / 1000).toFixed(1));
+  log(`══════════ SYNC ${result.ok ? 'CONCLUÍDO' : 'FALHOU'} em ${result.duration_s}s ══════════`);
+  return result;
+}
+
+// Chamada direta: node sync/clinicorp-sync.js
+if (require.main === module) {
+  runSync().then(r => process.exit(r.ok ? 0 : 1));
+}
+
+module.exports = { runSync };
