@@ -2372,8 +2372,15 @@ function nfAddRow() {
 }
 
 function nfeTogglePac() {
-  document.getElementById('nfe-pac-area').style.display =
-    document.getElementById('nfe-pac-diff').checked ? 'grid' : 'none';
+  const checked = document.getElementById('nfe-pac-diff').checked;
+  document.getElementById('nfe-pac-area').style.display = checked ? 'grid' : 'none';
+  document.getElementById('nfe-pac-lookup-area').style.display = checked ? 'block' : 'none';
+  if (!checked) {
+    const idInput = document.getElementById('nf-clinicorp-id-paciente');
+    if (idInput) { idInput.value = ''; idInput.classList.remove('lookup-ok', 'lookup-erro'); }
+    const msgEl = document.getElementById('nf-lookup-msg-paciente');
+    if (msgEl) { msgEl.textContent = ''; }
+  }
 }
 
 async function lookupClinicorp(target) {
@@ -2727,7 +2734,7 @@ async function nfGradeSalvar() {
 }
 
 // ===== AGENTE LOCAL =====
-const AGENTE = 'https://nf-automation-production.up.railway.app';
+const AGENTE = 'http://localhost:5555';
 let _agentePoll = null;
 
 async function agenteVerificar() {
