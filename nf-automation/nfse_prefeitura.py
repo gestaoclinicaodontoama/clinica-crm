@@ -854,6 +854,7 @@ def _preencher_valor(form, nota: dict):
     valor_str = f"{float(nota['valor']):.2f}".replace(".", ",")
     for sel in [
         'input[name="valor_servicos"]', 'input[name="valor_total"]',
+        'input[name="valor"]',          'input[name="valorServicos"]',
         'input[id="valor_servicos"]',   'input[id="valor_total"]',
         'input[name*="valorServico"]',  'input[name*="valor_servicos"]',
         'input[name*="valor_total"]',   'input[name*="valorTotal"]',
@@ -869,6 +870,19 @@ def _preencher_valor(form, nota: dict):
                 return True
         except Exception:
             continue
+    # Nenhum seletor funcionou — despeja todos os inputs visíveis para diagnóstico
+    try:
+        campos = form.evaluate("""
+            () => [...document.querySelectorAll('input,textarea')]
+                .filter(el => el.offsetParent !== null)
+                .map(el => el.name + '|' + el.id + '|' + el.placeholder + '|' + el.value)
+                .join('\\n')
+        """)
+        print("  [DIAG VALOR] Inputs visíveis no form:")
+        for linha in (campos or '').split('\n'):
+            print(f"    {linha}")
+    except Exception:
+        pass
     return False
 
 
