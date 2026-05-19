@@ -849,28 +849,44 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
 
 # ── formulário principal ───────────────────────────────────────────────────────
 
+def _preencher_valor(form, nota: dict):
+    """Preenche o campo Valor Total — chamado antes e depois da Reforma Tributária."""
+    valor_str = f"{float(nota['valor']):.2f}".replace(".", ",")
+    for sel in [
+        'input[name="valor_servicos"]', 'input[name="valor_total"]',
+        'input[id="valor_servicos"]',   'input[id="valor_total"]',
+        'input[name*="valorServico"]',  'input[name*="valor_servicos"]',
+        'input[name*="valor_total"]',   'input[name*="valorTotal"]',
+        'input[placeholder*="alor"]',
+    ]:
+        try:
+            loc = form.locator(sel).first
+            if loc.is_visible(timeout=2000):
+                loc.triple_click()
+                loc.fill(valor_str)
+                loc.dispatch_event('change')
+                print(f"  Valor {valor_str} preenchido via {sel}")
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _preencher_form(page, nota: dict):
     _pesquisar_tomador(page, nota.get("tipo_tomador", "CPF"), nota["cpf_tomador"])
     _selecionar_atividade(page, "412")
-    _reforma_tributaria(page)
 
     form = _frame_formulario(page)
 
-    # Valor Total da Nota
-    valor_str = f"{float(nota['valor']):.2f}".replace(".", ",")
-    preencheu_valor = False
-    for sel in ['input[name*="valor_total"]', 'input[id*="valor_total"]',
-                'input[name*="valorTotal"]', 'input[name*="valor"]',
-                'input[placeholder*="alor"]']:
-        try:
-            loc = form.locator(sel).first
-            if loc.is_visible(timeout=3000):
-                loc.fill(valor_str)
-                preencheu_valor = True
-                break
-        except Exception:
-            continue
-    if not preencheu_valor:
+    # Preenche valor ANTES da Reforma Tributária (o modal pode recalcular)
+    if not _preencher_valor(form, nota):
+        print("  Aviso: valor não preenchido antes da Reforma Tributária")
+
+    _reforma_tributaria(page)
+
+    # Volta ao form após modal e repreenche valor (garantia)
+    form = _frame_formulario(page)
+    if not _preencher_valor(form, nota):
         raise RuntimeError("Campo 'Valor Total da Nota' não encontrado.")
 
     # Situação de Tributação — primeira opção não-vazia
@@ -953,6 +969,11 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         post_url = f'{base_url}/ISS/contribuinte/nfe/nfe_exec.php'
     print(f"  POST → {post_url}")
 
+    # Log campos de valor antes do POST para diagnóstico
+    valor_campos = {k: v for k, v in form_data.items()
+                    if any(x in k.lower() for x in ['valor', 'total', 'liquido', 'servico', 'serviço'])}
+    print(f"  Campos valor no POST: {valor_campos}")
+
     # Extrai cookies da sessão autenticada do Playwright
     cookies = {c['name']: c['value'] for c in page.context.cookies()}
 
@@ -975,6 +996,13 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     html = r.text
     print(f"  HTTP {r.status_code} — resp {len(html)} chars")
     print(f"  Trecho: {html[:500]}")
+
+    # Detecta mensagem de erro no HTML retornado (campo hidden msg)
+    msg_erro = re.search(r'name=["\']msg["\'][^>]*value=["\']([^"\']+)["\']', html)
+    if not msg_erro:
+        msg_erro = re.search(r'value=["\']([^"\']+)["\'][^>]*name=["\']msg["\']', html)
+    if msg_erro and msg_erro.group(1).strip():
+        raise RuntimeError(f"Prefeitura rejeitou: {msg_erro.group(1)}")
 
     # Extrai número da nota da resposta HTML
     num_nota = ""
