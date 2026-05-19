@@ -870,59 +870,37 @@ def _preencher_valor(form, nota: dict):
     valor_str = f"{float(nota['valor']):.2f}".replace(".", ",")
     print(f"  Preenchendo valor: {valor_str} (frame: {form.url[:60]})")
 
-    # Tentativa 1: seletores por name/id — campo confirmado: name="valor", id="valor"
-    for sel in [
-        'input[name="valor"]',          'input#valor',
-        'input[name="valor_servicos"]', 'input[name="valor_total"]',
-        'input[name="valorServicos"]',  'input[id="valor_servicos"]',
-        'input[name*="valor_total"]',   'input[name*="valorTotal"]',
-        'input[placeholder*="alor"]',
-    ]:
-        try:
-            loc = form.locator(sel).first
-            if loc.is_visible(timeout=1500):
-                loc.triple_click()
-                loc.fill(valor_str)
-                loc.dispatch_event('change')
-                print(f"  Valor {valor_str} preenchido via {sel}")
-                return True
-        except Exception:
-            continue
-
-    # Tentativa 2: busca por label text "Valor Total" → input associado (JS)
+    # Tentativa 1: JS direto — campo confirmado name="valor" id="valor"
+    # Playwright is_visible() falha neste campo; JS bypassa essa verificação
     try:
         result = form.evaluate(f"""
             (val) => {{
-                // Procura input próximo ao texto "Valor Total"
-                const allEls = [...document.querySelectorAll('*')];
-                for (const el of allEls) {{
-                    const txt = (el.textContent || '').trim().toLowerCase();
-                    if (txt.includes('valor total') && txt.length < 60) {{
-                        // Próximo input irmão ou filho
-                        const inp = el.nextElementSibling?.querySelector?.('input')
-                                 || el.nextElementSibling
-                                 || el.parentElement?.querySelector('input[type="text"], input:not([type])');
-                        if (inp && inp.tagName === 'INPUT' && inp.offsetParent) {{
-                            inp.focus();
-                            inp.value = val;
-                            ['input','change','blur'].forEach(ev =>
-                                inp.dispatchEvent(new Event(ev, {{bubbles:true}})));
-                            return 'OK_LABEL:' + inp.name + '|' + inp.id;
-                        }}
-                    }}
-                }}
-                // Fallback: 3º input visível do form (geralmente é o valor)
-                const inputs = [...document.querySelectorAll('input[type="text"],input:not([type])')].filter(
-                    el => el.offsetParent !== null && !el.readOnly && !el.disabled
-                );
-                return 'INPUTS:' + inputs.map(i => i.name+'|'+i.id+'|'+i.placeholder).join('; ');
+                const inp = document.getElementById('valor')
+                         || document.querySelector('input[name="valor"]');
+                if (!inp) return 'NOT_FOUND';
+                inp.focus();
+                inp.value = val;
+                ['input', 'change', 'blur', 'keyup'].forEach(ev =>
+                    inp.dispatchEvent(new Event(ev, {{bubbles: true}})));
+                return 'OK:' + inp.name + '=' + inp.value;
             }}
         """, valor_str)
         print(f"  Valor JS: {result}")
-        if result and result.startswith('OK_LABEL:'):
+        if result and result.startswith('OK:'):
             return True
     except Exception as e:
         print(f"  Valor JS erro: {e}")
+
+    # Tentativa 2: Playwright locator (fallback)
+    for sel in ['input#valor', 'input[name="valor"]', 'input[name="valor_servicos"]']:
+        try:
+            loc = form.locator(sel).first
+            loc.fill(valor_str, force=True)
+            loc.dispatch_event('change')
+            print(f"  Valor preenchido via Playwright force: {sel}")
+            return True
+        except Exception:
+            continue
 
     # Diagnóstico: lista todos os inputs visíveis
     try:
