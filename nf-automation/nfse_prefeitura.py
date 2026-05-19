@@ -706,36 +706,90 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
         pass
     time.sleep(1.5)
 
-    # ── Município: select nativo #clocprestacao ───────────────────────────────
+    # ── Município: Select2 AJAX — abre dropdown, digita, seleciona ───────────
+    # O select#clocprestacao tem aria-hidden=true: Select2 controla visualmente.
+    # As opções só carregam via AJAX após abrir o dropdown.
     mun_ok = False
-    try:
-        result = modal_frame.evaluate(f"""
-            (mun) => {{
-                const sel = document.querySelector('select#clocprestacao, select[name="reforma[clocprestacao]"]');
-                if (!sel) return 'select_not_found';
-                const opts = [...sel.options];
-                const match = opts.find(o => o.text.toLowerCase().includes(mun.toLowerCase()));
-                if (match) {{
-                    sel.value = match.value;
-                    sel.dispatchEvent(new Event('change', {{bubbles: true}}));
-                    return 'OK:' + match.text + '=' + match.value;
-                }}
-                return 'NOT_FOUND:' + opts.slice(1,4).map(o=>o.text).join('|');
-            }}
-        """, municipio)
-        print(f"  Município select: {result}")
-        mun_ok = result.startswith('OK:')
-    except Exception as e:
-        print(f"  Aviso município: {e}")
 
-    if not mun_ok:
-        # Fallback: tenta select_option do Playwright por label parcial
+    # Passo 1: abre o dropdown Select2 via jQuery/Select2 API ou clique no container
+    try:
+        modal_frame.evaluate("""
+            () => {
+                if (window.$ && $('#clocprestacao').data('select2')) {
+                    $('#clocprestacao').select2('open');
+                } else {
+                    // Fallback: clica no container visual do Select2
+                    const cont = document.querySelector(
+                        '.select2-container--clocprestacao .select2-selection, ' +
+                        '[data-select2-id*="clocprestacao"] .select2-selection, ' +
+                        '.select2-container:has(+ select#clocprestacao) .select2-selection'
+                    );
+                    if (cont) cont.click();
+                    else {
+                        // Último recurso: localiza container pelo id gerado pelo Select2
+                        const span = document.querySelector('#select2-clocprestacao-container');
+                        if (span) span.closest('.select2-container')?.querySelector('.select2-selection')?.click();
+                    }
+                }
+            }
+        """)
+        time.sleep(1.0)
+    except Exception as e:
+        print(f"  Aviso ao abrir Select2: {e}")
+
+    # Passo 2: digita no campo de busca do dropdown aberto
+    try:
+        search = modal_frame.locator('.select2-search__field, .select2-search--dropdown input').first
+        search.wait_for(state='visible', timeout=5000)
+        search.fill(municipio)
+        print(f"  Digitou '{municipio}' no Select2 search")
+        time.sleep(2.0)  # aguarda AJAX carregar resultados
+    except Exception as e:
+        print(f"  Aviso busca Select2: {e}")
+
+    # Passo 3: clica na opção correspondente
+    for sel in [
+        f'.select2-results__option:has-text("{municipio}")',
+        f'.select2-result-label:has-text("{municipio}")',
+        f'li[role="option"]:has-text("{municipio}")',
+        f'.select2-results li:has-text("{municipio}")',
+    ]:
         try:
-            modal_frame.locator('select#clocprestacao').select_option(label=municipio)
-            mun_ok = True
-            print(f"  Município via select_option: {municipio}")
-        except Exception as e2:
-            print(f"  select_option falhou: {e2}")
+            loc = modal_frame.locator(sel).first
+            if loc.is_visible(timeout=3000):
+                loc.click()
+                mun_ok = True
+                print(f"  Município selecionado: {municipio}")
+                break
+        except Exception:
+            continue
+
+    # Passo 4 (fallback): se nenhuma opção apareceu, tenta via JS direto no Select2
+    if not mun_ok:
+        try:
+            result = modal_frame.evaluate(f"""
+                async (mun) => {{
+                    // Tenta pegar opções que já carregaram no select oculto
+                    const sel = document.querySelector('select#clocprestacao');
+                    if (!sel) return 'no_select';
+                    const opts = [...sel.options];
+                    if (opts.length > 1) {{
+                        const m = opts.find(o => o.text.toLowerCase().includes(mun.toLowerCase()));
+                        if (m) {{
+                            sel.value = m.value;
+                            if (window.$) $('#clocprestacao').trigger('change');
+                            else sel.dispatchEvent(new Event('change', {{bubbles:true}}));
+                            return 'OK_JS:' + m.text;
+                        }}
+                        return 'NOT_FOUND:' + opts.slice(0,3).map(o=>o.text).join('|');
+                    }}
+                    return 'EMPTY_SELECT:nenhuma_opcao_carregada';
+                }}
+            """, municipio)
+            print(f"  Município JS fallback: {result}")
+            mun_ok = result.startswith('OK_JS:')
+        except Exception as e:
+            print(f"  Fallback JS erro: {e}")
 
     if not mun_ok:
         raise RuntimeError(f"Opção '{municipio}' não encontrada no modal IBS/CBS.")
