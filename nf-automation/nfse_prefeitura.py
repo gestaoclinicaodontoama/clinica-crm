@@ -574,19 +574,43 @@ def _selecionar_atividade(page, codigo: str = "412"):
 
 # ── popup: Reforma Tributária ──────────────────────────────────────────────────
 
-def _aguardar_frame_ibs(page, timeout_s: int = 15):
-    """Aguarda iframe id=ibs_cbs_modal (injetado por abrirIBSCBS em ibs_cbs.js)."""
-    KEYWORDS = ['Componentes', 'reformaTributaria', 'ibs_cbs', 'componentes', 'tributo', 'Tributo', 'modal']
+def _aguardar_frame_ibs(page, frames_antes: set, timeout_s: int = 20):
+    """
+    Aguarda o frame do modal IBS/CBS aparecer após clique em btnTributos.
+
+    Estratégia dupla:
+    1. Qualquer frame com URL contendo keywords conhecidas
+    2. Qualquer frame NOVO (não existia antes do clique) — cobre o caso blank/about:blank
+       que o abrirIBSCBS cria antes de carregar Componentes.php
+    """
+    KEYWORDS = ['Componentes', 'reformaTributaria', 'ibs_cbs', 'componentes', 'tributo', 'Tributo']
     deadline = time.time() + timeout_s
+    candidate = None
     while time.time() < deadline:
         for f in page.frames:
             if f.url and any(k in f.url for k in KEYWORDS):
                 return f
+            # Frame novo (não estava na lista antes do clique)
+            if id(f) not in frames_antes:
+                candidate = f  # guarda e continua esperando URL carregar
+        if candidate:
+            # Tenta aguardar a URL carregar (pode estar blank ainda)
+            try:
+                candidate.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception:
+                pass
+            url = candidate.url or ''
+            print(f"  [DIAG] Frame novo detectado: {url!r}")
+            if url and 'login' not in url and 'nfe.php#' not in url:
+                return candidate
         time.sleep(0.4)
     # Diagnóstico: lista todos os frames disponíveis para ajudar a identificar a URL real
     print("  [DIAG] Frames disponíveis no timeout:")
     for f in page.frames:
         print(f"    frame url={f.url!r}")
+    if candidate:
+        print(f"  [DIAG] Usando frame candidato (blank/desconhecido): {candidate.url!r}")
+        return candidate
     return None
 
 
@@ -648,6 +672,9 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
     except Exception:
         pass
 
+    # Captura IDs de frames existentes antes do clique para detectar frames novos
+    frames_antes = {id(f) for f in page.frames}
+
     # JS click é mais confiável em iframe — Playwright click dá timeout por coordenadas
     clicou = False
     for tentativa, metodo in enumerate(["js_btn", "js_jquery", "playwright"], 1):
@@ -669,7 +696,7 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
         raise RuntimeError("Não foi possível clicar no botão Reforma Tributária.")
 
     # Aguarda iframe ibs_cbs_modal
-    modal_frame = _aguardar_frame_ibs(page, timeout_s=12)
+    modal_frame = _aguardar_frame_ibs(page, frames_antes, timeout_s=20)
     if modal_frame is None:
         raise RuntimeError("iframe IBS/CBS (Componentes.php) não apareceu após clique.")
     print(f"  Modal IBS: {modal_frame.url[:90]}")
