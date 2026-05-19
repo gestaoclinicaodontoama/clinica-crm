@@ -574,14 +574,19 @@ def _selecionar_atividade(page, codigo: str = "412"):
 
 # ── popup: Reforma Tributária ──────────────────────────────────────────────────
 
-def _aguardar_frame_ibs(page, timeout_s: int = 10):
+def _aguardar_frame_ibs(page, timeout_s: int = 15):
     """Aguarda iframe id=ibs_cbs_modal (injetado por abrirIBSCBS em ibs_cbs.js)."""
+    KEYWORDS = ['Componentes', 'reformaTributaria', 'ibs_cbs', 'componentes', 'tributo', 'Tributo', 'modal']
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         for f in page.frames:
-            if f.url and any(k in f.url for k in ['Componentes', 'reformaTributaria', 'ibs_cbs']):
+            if f.url and any(k in f.url for k in KEYWORDS):
                 return f
         time.sleep(0.4)
+    # Diagnóstico: lista todos os frames disponíveis para ajudar a identificar a URL real
+    print("  [DIAG] Frames disponíveis no timeout:")
+    for f in page.frames:
+        print(f"    frame url={f.url!r}")
     return None
 
 
@@ -627,7 +632,21 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
         raise RuntimeError("Botão Reforma Tributária não encontrado.")
 
     # Descarta alerts (abrirIBSCBS usa alert() se codigo vazio)
-    page.on("dialog", lambda d: d.dismiss())
+    alert_msgs = []
+    def _dismiss_dialog(d):
+        alert_msgs.append(d.message)
+        print(f"  [DIAG] Dialog capturado: {d.message!r}")
+        d.dismiss()
+    page.on("dialog", _dismiss_dialog)
+
+    # Relê código após possível preenchimento forçado
+    try:
+        codigo_final = form.evaluate(
+            "document.querySelector('input[name=\"codigo\"]')?.value || ''"
+        )
+        print(f"  codigo final antes do click={codigo_final!r}")
+    except Exception:
+        pass
 
     # JS click é mais confiável em iframe — Playwright click dá timeout por coordenadas
     clicou = False
