@@ -1102,11 +1102,17 @@ app.get('/api/admin/debug-patient/:id', async (req, res) => {
     result.supabase = { row, error: dbErr?.message };
   } catch (e) { result.supabase = { error: e.message }; }
   try {
-    const respPatientId = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
-    const respByCpf     = await clinicorpGet('/patient/get', { CPF: '01579481612' });
+    const r1 = await clinicorpGet('/patient/get',  { cpf: '01579481612' });
+    const r2 = await clinicorpGet('/patient/get',  { Nome: 'Vanessa' });
+    const r3 = await clinicorpGet('/patient/get',  { Name: 'Vanessa' });
+    const r4 = await clinicorpGet('/patient/list', { Name: 'Vanessa' });
+    const r5 = await clinicorpGet('/patient/list', { Nome: 'Vanessa' });
     result.clinicorp = {
-      'PatientId=7924': { status: respPatientId?.status, data: respPatientId?.data },
-      'CPF=01579481612': { status: respByCpf?.status, data: respByCpf?.data },
+      'get cpf=01579481612':  { status: r1?.status, data: r1?.data },
+      'get Nome=Vanessa':     { status: r2?.status, data: r2?.data },
+      'get Name=Vanessa':     { status: r3?.status, data: r3?.data },
+      'list Name=Vanessa':    { status: r4?.status, data: r4?.data },
+      'list Nome=Vanessa':    { status: r5?.status, data: r5?.data },
     };
   } catch (e) { result.clinicorp = { error: e.message }; }
   res.json(result);
