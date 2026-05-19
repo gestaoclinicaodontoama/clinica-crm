@@ -1071,11 +1071,11 @@ app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res)
 
     // 2. Fallback: Clinicorp API via clinicorp_id
     try {
-      const resp = await clinicorpGet('/patient/get', { ID: String(idNum) });
+      const resp = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
       console.log(`[lookup-nf] id=${idNum} clinicorp → status=${resp?.status} data=${JSON.stringify(resp?.data).slice(0, 300)}`);
       const p = resp?.data;
       const nome = p?.Name;
-      const cpf  = (p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber || '').replace(/\D/g, '');
+      const cpf  = (p?.OtherDocumentId || p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber || '').replace(/\D/g, '');
       if (nome) return res.json({ cpf, nome, fonte: 'clinicorp' });
     } catch (apiErr) {
       console.error(`[lookup-nf] id=${idNum} clinicorp erro:`, apiErr.message);
@@ -1106,17 +1106,13 @@ app.get('/api/admin/debug-patient/:id', async (req, res) => {
     result.supabase_vanessa = { byCpf, byNome };
   } catch (e) { result.supabase = { error: e.message }; }
   try {
-    const r1 = await clinicorpGet('/patient/get',  { cpf: '01579481612' });
-    const r2 = await clinicorpGet('/patient/get',  { Nome: 'Vanessa' });
-    const r3 = await clinicorpGet('/patient/get',  { Name: 'Vanessa' });
-    const r4 = await clinicorpGet('/patient/list', { Name: 'Vanessa' });
-    const r5 = await clinicorpGet('/patient/list', { Nome: 'Vanessa' });
+    const r1 = await clinicorpGet('/patient/get', { OtherDocumentId: '01579481612' });
+    const r2 = await clinicorpGet('/patient/get', { Name: 'Vanessa Aguiar' });
+    const r3 = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
     result.clinicorp = {
-      'get cpf=01579481612':  { status: r1?.status, data: r1?.data },
-      'get Nome=Vanessa':     { status: r2?.status, data: r2?.data },
-      'get Name=Vanessa':     { status: r3?.status, data: r3?.data },
-      'list Name=Vanessa':    { status: r4?.status, data: r4?.data },
-      'list Nome=Vanessa':    { status: r5?.status, data: r5?.data },
+      'OtherDocumentId=CPF': { status: r1?.status, data: r1?.data },
+      'Name=Vanessa Aguiar':  { status: r2?.status, data: r2?.data },
+      'PatientId=7924':       { status: r3?.status, data: r3?.data },
     };
   } catch (e) { result.clinicorp = { error: e.message }; }
   res.json(result);
@@ -1279,7 +1275,7 @@ app.post('/api/crc/sincronizar-novos', async (req, res) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     for (const id of newIds.slice(0, 100)) {
       try {
-        const resp = await clinicorpGet('/patient/get', { ID: String(id) });
+        const resp = await clinicorpGet('/patient/get', { PatientId: String(id) });
         const p = resp?.data;
         if (!p || !p.Name) continue;
         const birth = (p.BirthDate || '').replace(/T.*/, '');
@@ -1315,7 +1311,7 @@ app.post('/api/crc/rebuscar-telefones', async (req, res) => {
     let updated = 0;
     for (const row of missing) {
       try {
-        const resp = await clinicorpGet('/patient/get', { ID: String(row.clinicorp_id) });
+        const resp = await clinicorpGet('/patient/get', { PatientId: String(row.clinicorp_id) });
         const p = resp?.data;
         const phone = p?.MobilePhone || p?.Landline || '';
         if (!phone) continue;
