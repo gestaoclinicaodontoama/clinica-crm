@@ -1049,36 +1049,39 @@ function clinicorpGet(apiPath, params = {}) {
 }
 
 
-// GET /api/pacientes/clinicorp/:id — lookup por ID Clinicorp (ou numero_prontuario), usado no formulario NF
-app.get('/api/pacientes/clinicorp/:id', requireAuth, rateLimit, async (req, res) => {
-  const idNum = parseInt(req.params.id, 10);
-  if (Number.isNaN(idNum) || idNum <= 0) {
-    return res.status(400).json({ error: 'ID invalido' });
-  }
+// GET /api/pacientes/clinicorp/:termo — lookup por CPF (11 digitos) ou PatientId, usado no formulario NF
+app.get('/api/pacientes/clinicorp/:termo', requireAuth, rateLimit, async (req, res) => {
+  const termo = (req.params.termo || '').replace(/\D/g, '');
+  if (!termo) return res.status(400).json({ error: 'Termo invalido' });
+
+  const isCpf = termo.length === 11;
+
   try {
-    // 1. Supabase — tenta clinicorp_id primeiro, depois numero_prontuario
+    // 1. Supabase — busca por CPF ou clinicorp_id
     const { data: row, error: dbErr } = await supabase
       .from('pacientes')
       .select('cpf, nome, clinicorp_id')
-      .or(`clinicorp_id.eq.${idNum},numero_prontuario.eq.${idNum}`)
+      .eq(isCpf ? 'cpf' : 'clinicorp_id', isCpf ? termo : Number(termo))
       .maybeSingle();
     if (dbErr) throw dbErr;
-    console.log(`[lookup-nf] id=${idNum} supabase → row=${JSON.stringify(row)}`);
+    console.log(`[lookup-nf] termo=${termo} supabase → row=${JSON.stringify(row)}`);
 
     if (row?.nome) {
       return res.json({ cpf: row.cpf || '', nome: row.nome, fonte: 'supabase' });
     }
 
-    // 2. Fallback: Clinicorp API via clinicorp_id
+    // 2. Fallback: Clinicorp API — CPF via OtherDocumentId, senao PatientId
     try {
-      const resp = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
-      console.log(`[lookup-nf] id=${idNum} clinicorp → status=${resp?.status} data=${JSON.stringify(resp?.data).slice(0, 300)}`);
-      const p = resp?.data;
+      const params = isCpf ? { OtherDocumentId: termo } : { PatientId: termo };
+      const resp = await clinicorpGet('/patient/get', params);
+      console.log(`[lookup-nf] termo=${termo} clinicorp → status=${resp?.status}`);
+      const list = Array.isArray(resp?.data) ? resp.data : (resp?.data ? [resp.data] : []);
+      const p = list[0];
       const nome = p?.Name;
-      const cpf  = (p?.OtherDocumentId || p?.DocumentNumber || p?.CPF || p?.TaxpayerNumber || '').replace(/\D/g, '');
+      const cpf  = (p?.OtherDocumentId || '').replace(/\D/g, '');
       if (nome) return res.json({ cpf, nome, fonte: 'clinicorp' });
     } catch (apiErr) {
-      console.error(`[lookup-nf] id=${idNum} clinicorp erro:`, apiErr.message);
+      console.error(`[lookup-nf] clinicorp erro:`, apiErr.message);
     }
 
     return res.status(404).json({ error: 'Paciente nao encontrado' });
