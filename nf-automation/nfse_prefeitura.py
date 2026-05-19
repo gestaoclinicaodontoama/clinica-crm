@@ -706,112 +706,62 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
         pass
     time.sleep(1.5)
 
-    # Diagnóstico: despeja estrutura do modal para entender campos disponíveis
+    # ── Município: select nativo #clocprestacao ───────────────────────────────
+    mun_ok = False
     try:
-        estrutura = modal_frame.evaluate("""
-            () => {
-                const els = [...document.querySelectorAll('input,select,button,label,h1,h2,h3,h4,p')];
-                return els.map(el => {
-                    const tag = el.tagName.toLowerCase();
-                    const name = el.name || '';
-                    const id = el.id || '';
-                    const ph = el.placeholder || '';
-                    const val = el.value !== undefined ? el.value : '';
-                    const txt = (el.textContent||'').trim().slice(0,60);
-                    const vis = el.offsetParent !== null;
-                    return `${tag} name=${name} id=${id} ph=${ph} val=${val} vis=${vis} txt=${txt}`;
-                }).join('\\n');
-            }
-        """)
-        print("  [DIAG MODAL] Estrutura:")
-        for linha in (estrutura or '').split('\n')[:30]:
-            print(f"    {linha}")
-    except Exception as e:
-        print(f"  [DIAG MODAL] Erro ao inspecionar: {e}")
-
-    # Abre dropdown do município
-    modal_frame.evaluate("""
-        () => {
-            const s2 = document.querySelector('.select2-selection');
-            if (s2) { s2.click(); return; }
-            for (const el of document.querySelectorAll('*')) {
-                if (!el.children.length &&
-                    (el.textContent||'').trim().startsWith('Digite para pesquisar')) {
-                    el.click(); return;
-                }
-            }
-        }
-    """)
-    time.sleep(0.8)
-
-    # Digita município
-    digitou = False
-    for sel in [
-        '.select2-search__field', '.select2-input', '.select2-search input',
-        'input[placeholder*="nimo"]', 'input[placeholder*="2 car"]',
-        'input[placeholder*="aract"]', 'input[placeholder*="igite"]',
-        'input[placeholder*="esquisar"]', 'input[placeholder*="buscar"]',
-        'input[type="search"]',
-    ]:
-        try:
-            loc = modal_frame.locator(sel).first
-            if loc.is_visible(timeout=1000):
-                loc.fill(municipio)
-                time.sleep(1.5)
-                digitou = True
-                print(f"  Digitou município: {municipio!r} via {sel}")
-                break
-        except Exception:
-            continue
-
-    if not digitou:
-        try:
-            result = modal_frame.evaluate(f"""
-                (mun) => {{
-                    const inputs = [...document.querySelectorAll(
-                        'input[type="text"], input[type="search"], input:not([type])'
-                    )].filter(el => el.offsetParent !== null && !el.disabled);
-                    if (!inputs.length) return null;
-                    const inp = inputs[inputs.length - 1];
-                    inp.focus(); inp.value = mun;
-                    ['input','change','keydown','keyup'].forEach(ev =>
-                        inp.dispatchEvent(new Event(ev, {{bubbles:true}})));
-                    return inp.name + '|' + inp.placeholder;
+        result = modal_frame.evaluate(f"""
+            (mun) => {{
+                const sel = document.querySelector('select#clocprestacao, select[name="reforma[clocprestacao]"]');
+                if (!sel) return 'select_not_found';
+                const opts = [...sel.options];
+                const match = opts.find(o => o.text.toLowerCase().includes(mun.toLowerCase()));
+                if (match) {{
+                    sel.value = match.value;
+                    sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    return 'OK:' + match.text + '=' + match.value;
                 }}
-            """, municipio)
-            if result:
-                print(f"  Brute-force: {result}")
-                digitou = True
-                time.sleep(1.5)
-        except Exception:
-            pass
+                return 'NOT_FOUND:' + opts.slice(1,4).map(o=>o.text).join('|');
+            }}
+        """, municipio)
+        print(f"  Município select: {result}")
+        mun_ok = result.startswith('OK:')
+    except Exception as e:
+        print(f"  Aviso município: {e}")
 
-    if not digitou:
-        raise RuntimeError("Campo de busca do Município (Reforma Tributária) não encontrado.")
-
-    # Seleciona opção Ipatinga
-    clicou = False
-    for sel in [
-        f'li:has-text("{municipio}")',
-        '.select2-results__option:has-text("Ipatinga")',
-        'li:has-text("Ipatinga - MG")', 'li:has-text("Ipatinga")',
-        '[class*="option"]:has-text("Ipatinga")',
-        '.select2-result:has-text("Ipatinga")',
-    ]:
+    if not mun_ok:
+        # Fallback: tenta select_option do Playwright por label parcial
         try:
-            loc = modal_frame.locator(sel).first
-            if loc.is_visible(timeout=2000):
-                loc.click()
-                time.sleep(0.5)
-                clicou = True
-                print(f"  Selecionou {municipio}")
-                break
-        except Exception:
-            continue
-    if not clicou:
+            modal_frame.locator('select#clocprestacao').select_option(label=municipio)
+            mun_ok = True
+            print(f"  Município via select_option: {municipio}")
+        except Exception as e2:
+            print(f"  select_option falhou: {e2}")
+
+    if not mun_ok:
         raise RuntimeError(f"Opção '{municipio}' não encontrada no modal IBS/CBS.")
 
-    # Salvar
+    time.sleep(0.5)
+
+    # ── Retenção PIS/COFINS: seleciona primeiro valor válido ──────────────────
+    try:
+        modal_frame.evaluate("""
+            () => {
+                const sel = document.querySelector('select[name="reforma[tpretpiscofins]"]');
+                if (!sel) return;
+                const opt = [...sel.options].find(o => o.value !== '' && o.value !== 'Selecione');
+                if (opt) {
+                    sel.value = opt.value;
+                    sel.dispatchEvent(new Event('change', {bubbles: true}));
+                }
+            }
+        """)
+    except Exception:
+        pass
+
+    time.sleep(0.3)
+
+    # ── Salvar ────────────────────────────────────────────────────────────────
+    salvo = False
     for sel in ['button:has-text("Salvar")', 'button:has-text("Confirmar")',
                 'input[value*="Salvar"]', 'button[type="submit"]']:
         try:
@@ -823,13 +773,16 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
                     modal_frame.evaluate(
                         "[...document.querySelectorAll('button')].filter(b=>b.textContent.includes('Salvar')||b.textContent.includes('Confirmar')).pop()?.click()"
                     )
+                salvo = True
                 print("  Reforma Tributária salva")
                 break
         except Exception:
             continue
+    if not salvo:
+        print("  Aviso: botão Salvar não encontrado no modal IBS/CBS")
 
-    # Aguarda modal fechar
-    deadline = time.time() + 8
+    # ── Aguarda modal fechar ──────────────────────────────────────────────────
+    deadline = time.time() + 10
     while time.time() < deadline:
         if not any(f.url and 'Componentes' in f.url for f in page.frames):
             print("  Modal IBS fechado")
