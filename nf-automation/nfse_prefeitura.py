@@ -496,28 +496,54 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     except Exception as e:
         print(f"  Lookup onclick erro: {e}")
 
-    # Clica na linha do resultado
+    # Clica na linha do resultado via JS no contexto do lookup frame.
+    # Clicar via Playwright no <tr> não dispara onclick em filhos (td, a) — JS dispara no elemento certo.
     try:
-        lookup.locator('table tr').filter(has_text=cpf_limpo).first.click()
-    except Exception:
-        rows = lookup.locator('table tr').all()
-        for i, row in enumerate(rows):
-            if i == 0:
-                continue  # pula cabeçalho
-            if row.is_visible():
-                row.click()
-                break
+        resultado_click = lookup.evaluate("""
+            (cpf) => {
+                const rows = [...document.querySelectorAll('table tr')];
+                for (const r of rows) {
+                    if (!r.textContent.includes(cpf)) continue;
+                    // Prefere clicar no filho com onclick (td, a) para disparar no contexto correto
+                    const child = r.querySelector('[onclick]');
+                    if (child) { child.click(); return 'child:' + child.tagName; }
+                    if (r.getAttribute('onclick')) { r.click(); return 'tr'; }
+                    const link = r.querySelector('a, td');
+                    if (link) { link.click(); return 'link:' + link.tagName; }
+                    r.click();
+                    return 'tr_fallback';
+                }
+                // Não achou pelo CPF — clica na primeira linha não-cabeçalho
+                const allRows = [...document.querySelectorAll('table tr')].slice(1);
+                if (allRows.length) { allRows[0].click(); return 'first_row_fallback'; }
+                return 'nao_encontrado';
+            }
+        """, cpf_limpo)
+        print(f"  Click resultado lookup: {resultado_click}")
+    except Exception as e:
+        print(f"  Click resultado lookup JS erro: {e}")
+        try:
+            lookup.locator('table tr').filter(has_text=cpf_limpo).first.click()
+        except Exception:
+            rows = lookup.locator('table tr').all()
+            for i, row in enumerate(rows):
+                if i == 0:
+                    continue
+                if row.is_visible():
+                    row.click()
+                    break
 
     time.sleep(1.0)
 
-    # Tenta executar callback do onclick no frame do formulário (vincula tomador no SIGISS)
+    # Executa onclick explicitamente no LOOKUP frame (contexto correto: parent = nfe.php).
+    # Bug anterior: executava no form frame onde parent.retorno_tomador não existe.
     if onclick_linha:
         try:
-            form_tmp = _frame_formulario(page)
-            form_tmp.evaluate(f"() => {{ try {{ {onclick_linha} }} catch(e) {{ console.log('cb err', e); }} }}")
-            print(f"  Callback onclick executado no frame do form")
+            lookup.evaluate(f"() => {{ try {{ {onclick_linha} }} catch(e) {{ console.log('onclick err', e.message); }} }}")
+            print(f"  Onclick executado no lookup frame")
+            time.sleep(0.3)
         except Exception as e:
-            print(f"  Callback onclick erro: {e}")
+            print(f"  Onclick lookup frame erro: {e}")
 
     # Clica Ok para confirmar seleção do tomador — busca em todos os frames
     ok_lookup = False
@@ -540,13 +566,28 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
 
     time.sleep(1.5)
 
-    # Verifica se callback populou cnpj no form
+    # Verifica cnpj + campos ocultos pós-lookup — diagnóstico PFNI
     try:
         form_tmp2 = _frame_formulario(page)
         cnpj_after = form_tmp2.evaluate(
             "() => document.querySelector('input[name=\"cnpj\"]')?.value || ''"
         )
         print(f"  cnpj no form após lookup: {cnpj_after!r}")
+        hidden_tomador = form_tmp2.evaluate("""
+            () => {
+                const result = {};
+                document.querySelectorAll('input').forEach(el => {
+                    if (!el.name) return;
+                    const n = el.name.toLowerCase();
+                    if (el.type === 'hidden' || n.includes('tomador') || n.includes('pessoa')
+                        || n.includes('id_') || n.includes('codigo_t') || n.includes('retorno')) {
+                        result[el.name] = el.value;
+                    }
+                });
+                return result;
+            }
+        """)
+        print(f"  Campos hidden/tomador pós-lookup: {hidden_tomador}")
     except Exception:
         pass
 
