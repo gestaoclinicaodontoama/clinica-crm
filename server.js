@@ -1102,14 +1102,16 @@ app.get('/api/admin/debug-patient/:id', async (req, res) => {
     result.supabase = { row, error: dbErr?.message };
   } catch (e) { result.supabase = { error: e.message }; }
   try {
-    const qs = new URLSearchParams({
-      subscriber_id: process.env.CLINICORP_SUBSCRIBER_ID || 'clinicaama',
-      business_id:   process.env.CLINICORP_BUSINESS_ID   || 'clinicaama',
-      ID: String(idNum),
-    }).toString();
-    result.debug_url = '/rest/v1/patient/get?' + qs;
-    const resp = await clinicorpGet('/patient/get', { ID: String(idNum) });
-    result.clinicorp = { status: resp?.status, data: resp?.data };
+    const respID      = await clinicorpGet('/patient/get', { ID: String(idNum) });
+    const respid      = await clinicorpGet('/patient/get', { id: String(idNum) });
+    const respPerson  = await clinicorpGet('/patient/get', { PersonId: String(idNum) });
+    const respPatient = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
+    result.clinicorp = {
+      'ID':        { status: respID?.status,      data: respID?.data },
+      'id':        { status: respid?.status,       data: respid?.data },
+      'PersonId':  { status: respPerson?.status,  data: respPerson?.data },
+      'PatientId': { status: respPatient?.status, data: respPatient?.data },
+    };
   } catch (e) { result.clinicorp = { error: e.message }; }
   res.json(result);
 });
