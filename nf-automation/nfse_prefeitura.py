@@ -882,7 +882,13 @@ def _preencher_valor(form, nota: dict):
                 inp.value = val;
                 ['input', 'change', 'blur', 'keyup'].forEach(ev =>
                     inp.dispatchEvent(new Event(ev, {{bubbles: true}})));
-                return 'OK:' + inp.name + '=' + inp.value;
+                // garante base = valor se estiver zerado
+                const base = document.querySelector('input[name="base"]');
+                if (base && (!base.value || base.value === '0' || base.value === '0,00')) {{
+                    base.value = val;
+                    base.dispatchEvent(new Event('change', {{bubbles: true}}));
+                }}
+                return 'OK:' + inp.name + '=' + inp.value + ' base=' + (base ? base.value : 'n/a');
             }}
         """, valor_str)
         print(f"  Valor JS: {result}")
@@ -992,7 +998,8 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
             for (const el of form.elements) {
                 if (!el.name) continue;
                 if (el.type === 'checkbox') {
-                    data[el.name] = el.checked ? (el.value || '1') : '';
+                    // não envia checkboxes desmarcados (comportamento real do formulário HTML)
+                    if (el.checked) data[el.name] = el.value || '1';
                 } else if (el.type === 'radio') {
                     if (el.checked) data[el.name] = el.value;
                 } else {
@@ -1005,6 +1012,19 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     form_data = extracted.get('fields', {})
     form_action = extracted.get('action', '')
     print(f"  Campos extraídos do form: {len(form_data)}")
+
+    # DIAGNÓSTICO: mostra campos relevantes para identificar campos vazios
+    campos_criticos = ['cnpj', 'razao', 'codigo', 'aliquota', 'aliquotaSimples',
+                       'valor', 'base', 'situacao', 'dtEmissao', 'dtEmissaoPrest',
+                       'descricaoNF', 'localServico', 'exterior']
+    print("  [DIAG] Campos críticos no POST:")
+    for k in campos_criticos:
+        print(f"    {k}={form_data.get(k, '(ausente)')!r}")
+    # Campos com valor preenchido (exclui vazios e ocultos sem interesse)
+    print("  [DIAG] Todos com valor:")
+    for k, v in sorted(form_data.items()):
+        if v:
+            print(f"    {k}={v!r}")
 
     # Monta URL de POST: tenta usar action do form; fallback para path fixo
     if form_action and form_action.startswith('http'):
