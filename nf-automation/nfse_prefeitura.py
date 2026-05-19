@@ -562,9 +562,9 @@ def _selecionar_atividade(page, codigo: str = "412"):
     linha_ativ.click()
     time.sleep(0.5)
 
-    # Ok é necessário — modal abre sobre a página, busca em page e form
+    # Ok é necessário — busca em TODOS os frames (modal pode estar em frame separado)
     ok_clicado = False
-    for ctx in [page, form]:
+    for ctx in _todos_frames(page):
         for sel in ['button:has-text("Ok")', 'button:has-text("OK")',
                     'input[value="Ok"]', 'input[value="OK"]']:
             try:
@@ -572,15 +572,14 @@ def _selecionar_atividade(page, codigo: str = "412"):
                 if loc.is_visible(timeout=2000):
                     loc.click()
                     ok_clicado = True
+                    print(f"  Clicou Ok na atividade (frame: {ctx.url[:60]})")
                     break
             except Exception:
                 continue
         if ok_clicado:
             break
-    if ok_clicado:
-        print("  Clicou Ok na atividade")
-    else:
-        print("  Ok não encontrado (modal já fechou ao clicar linha)")
+    if not ok_clicado:
+        print("  Ok não encontrado em nenhum frame — modal pode ter fechado ao clicar linha")
     time.sleep(1.5)
 
 
@@ -926,7 +925,41 @@ def _preencher_valor(form, nota: dict):
 
 def _preencher_form(page, nota: dict):
     _pesquisar_tomador(page, nota.get("tipo_tomador", "CPF"), nota["cpf_tomador"])
+
+    # Força cnpj e razao — callback do lookup não dispara em modo headless
+    cpf_limpo = nota["cpf_tomador"].replace(".", "").replace("-", "").replace("/", "")
+    form_tmp = _frame_formulario(page)
+    form_tmp.evaluate("""
+        (d) => {
+            const set = (n, v) => {
+                const el = document.querySelector('input[name="'+n+'"]');
+                if (el) { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }
+            };
+            set('cnpj', d.cpf);
+            set('razao', d.nome);
+        }
+    """, {"cpf": cpf_limpo, "nome": nota.get("nome_tomador", "")})
+    print(f"  Forçou cnpj={cpf_limpo!r} razao={nota.get('nome_tomador','')!r}")
+
     _selecionar_atividade(page, "412")
+
+    # Verifica se callbacks do modal de atividade popularam aliquota
+    time.sleep(0.5)
+    form = _frame_formulario(page)
+    aliq = form.evaluate(
+        "() => document.querySelector('input[name=\"aliquota\"]')?.value || ''"
+    )
+    if not aliq or aliq in ("0", "0.00", "0,00"):
+        form.evaluate("""
+            () => {
+                const s = (n, v) => {
+                    const el = document.querySelector('input[name="'+n+'"]');
+                    if (el) { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }
+                };
+                s('aliquota', '3.00');
+            }
+        """)
+        print("  Alíquota forçada para 3.00 (callback não disparou)")
 
     form = _frame_formulario(page)
 
@@ -941,20 +974,29 @@ def _preencher_form(page, nota: dict):
     if not _preencher_valor(form, nota):
         raise RuntimeError("Campo 'Valor Total da Nota' não encontrado.")
 
-    # Situação de Tributação — primeira opção não-vazia
+    # Situação de Tributação — força via JS (select_option falha quando options não carregam)
     try:
-        sit = form.locator(
-            'select[name*="situacao"], select[id*="situacao"], '
-            'select[name*="tribut"], select[id*="tribut"]'
-        ).first
-        for opt in sit.locator("option").all():
-            val = opt.get_attribute("value") or ""
-            txt = opt.inner_text().strip()
-            if val and val not in ("0", "") and "Selecione" not in txt:
-                sit.select_option(value=val)
-                break
-    except Exception:
-        pass
+        sit_val = form.evaluate("""
+            () => {
+                const sel = document.querySelector(
+                    'select[name*="situacao"], select[id*="situacao"]'
+                );
+                if (!sel) return 'NOT_FOUND';
+                // seleciona a primeira opção válida (não vazia, não 'Selecione')
+                const opt = [...sel.options].find(o =>
+                    o.value && o.value !== '0' && !o.text.includes('Selecione')
+                );
+                if (opt) {
+                    sel.value = opt.value;
+                    sel.dispatchEvent(new Event('change', {bubbles: true}));
+                    return 'OK:' + opt.value;
+                }
+                return 'NO_VALID_OPTION';
+            }
+        """)
+        print(f"  Situação tributação: {sit_val}")
+    except Exception as e:
+        print(f"  Aviso situacao: {e}")
 
     # Descrição do Serviço Prestado
     descricao = nota.get("descricao") or "Servicos odontologicos"
