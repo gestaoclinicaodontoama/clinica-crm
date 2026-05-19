@@ -2279,9 +2279,9 @@ function nfEditFormHtml(n, rowId) {
           <input class="nf-ci" id="nfe-comp" placeholder="05-2026" value="${escHtml(v('competencia'))}" maxlength="7">
         </div>
         <div style="grid-column:span 4">
-          <div class="nf-field-label">CPF do Tomador &#8212; busca automática (opcional)</div>
+          <div class="nf-field-label">Buscar tomador por CPF ou nome (opcional)</div>
           <div class="lookup-row">
-            <input type="text" class="nf-ci" id="nf-clinicorp-id-tomador" placeholder="ex: 000.000.000-00" maxlength="14" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupClinicorp('tomador')}">
+            <input type="text" class="nf-ci" id="nf-clinicorp-id-tomador" placeholder="CPF ou nome do paciente" maxlength="80" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupClinicorp('tomador')}">
             <button type="button" id="nf-lookup-btn-tomador" onclick="lookupClinicorp('tomador')">&#128269; Buscar</button>
           </div>
           <span class="lookup-msg" id="nf-lookup-msg-tomador"></span>
@@ -2321,9 +2321,9 @@ function nfEditFormHtml(n, rowId) {
         </label>
       </div>
       <div id="nfe-pac-lookup-area" style="display:${pac?'block':'none'};margin-top:8px">
-        <div class="nf-field-label">CPF do Paciente &#8212; busca automática (opcional)</div>
+        <div class="nf-field-label">Buscar paciente por CPF ou nome (opcional)</div>
         <div class="lookup-row">
-          <input type="text" class="nf-ci" id="nf-clinicorp-id-paciente" placeholder="ex: 000.000.000-00" maxlength="14" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupClinicorp('paciente')}">
+          <input type="text" class="nf-ci" id="nf-clinicorp-id-paciente" placeholder="CPF ou nome do paciente" maxlength="80" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupClinicorp('paciente')}">
           <button type="button" id="nf-lookup-btn-paciente" onclick="lookupClinicorp('paciente')">&#128269; Buscar</button>
         </div>
         <span class="lookup-msg" id="nf-lookup-msg-paciente"></span>
@@ -2390,12 +2390,13 @@ async function lookupClinicorp(target) {
   const cpfInput  = document.getElementById(target === 'tomador' ? 'nfe-cpf' : 'nfe-cpf-pac');
   const nomeInput = document.getElementById(target === 'tomador' ? 'nfe-nome' : 'nfe-nome-pac');
 
-  const termo = idInput.value.replace(/\D/g, '');
-  if (!termo) {
-    msgEl.textContent = 'Digite o CPF para buscar';
+  const raw = idInput.value.trim();
+  if (!raw) {
+    msgEl.textContent = 'Digite CPF ou nome para buscar';
     idInput.classList.add('lookup-erro');
     return;
   }
+  const termo = encodeURIComponent(raw);
 
   idInput.disabled = true;
   btn.disabled = true;
