@@ -1102,15 +1102,11 @@ app.get('/api/admin/debug-patient/:id', async (req, res) => {
     result.supabase = { row, error: dbErr?.message };
   } catch (e) { result.supabase = { error: e.message }; }
   try {
-    const respID      = await clinicorpGet('/patient/get', { ID: String(idNum) });
-    const respid      = await clinicorpGet('/patient/get', { id: String(idNum) });
-    const respPerson  = await clinicorpGet('/patient/get', { PersonId: String(idNum) });
-    const respPatient = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
+    const respPatientId = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
+    const respByCpf     = await clinicorpGet('/patient/get', { CPF: '01579481612' });
     result.clinicorp = {
-      'ID':        { status: respID?.status,      data: respID?.data },
-      'id':        { status: respid?.status,       data: respid?.data },
-      'PersonId':  { status: respPerson?.status,  data: respPerson?.data },
-      'PatientId': { status: respPatient?.status, data: respPatient?.data },
+      'PatientId=7924': { status: respPatientId?.status, data: respPatientId?.data },
+      'CPF=01579481612': { status: respByCpf?.status, data: respByCpf?.data },
     };
   } catch (e) { result.clinicorp = { error: e.message }; }
   res.json(result);
