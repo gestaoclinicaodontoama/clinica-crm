@@ -478,6 +478,24 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
             pass
     time.sleep(2.5)
 
+    # Lê onclick da primeira linha de resultado ANTES de clicar (para executar callback depois)
+    onclick_linha = None
+    try:
+        onclick_linha = lookup.evaluate("""
+            () => {
+                const rows = [...document.querySelectorAll('table tr')];
+                for (const r of rows) {
+                    const oc = r.getAttribute('onclick') || r.querySelector('[onclick]')?.getAttribute('onclick');
+                    if (oc && oc.length > 5) return oc;
+                }
+                const links = [...document.querySelectorAll('a[onclick], input[onclick]')];
+                return links.length ? links[0].getAttribute('onclick') : null;
+            }
+        """)
+        print(f"  Lookup onclick: {onclick_linha!r}")
+    except Exception as e:
+        print(f"  Lookup onclick erro: {e}")
+
     # Clica na linha do resultado
     try:
         lookup.locator('table tr').filter(has_text=cpf_limpo).first.click()
@@ -492,19 +510,45 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
 
     time.sleep(1.0)
 
-    # Clica Ok para confirmar seleção do tomador (botão na parte inferior do lookup)
-    for ok_sel in ['button:has-text("Ok")', 'button:has-text("OK")',
-                   'input[value="Ok"]', 'input[value="OK"]', 'a:has-text("Ok")']:
+    # Tenta executar callback do onclick no frame do formulário (vincula tomador no SIGISS)
+    if onclick_linha:
         try:
-            loc = lookup.locator(ok_sel).first
-            if loc.is_visible(timeout=3000):
-                loc.click()
-                print("  Clicou Ok no lookup")
-                break
-        except Exception:
-            continue
+            form_tmp = _frame_formulario(page)
+            form_tmp.evaluate(f"() => {{ try {{ {onclick_linha} }} catch(e) {{ console.log('cb err', e); }} }}")
+            print(f"  Callback onclick executado no frame do form")
+        except Exception as e:
+            print(f"  Callback onclick erro: {e}")
+
+    # Clica Ok para confirmar seleção do tomador — busca em todos os frames
+    ok_lookup = False
+    for ctx in _todos_frames(page):
+        for ok_sel in ['button:has-text("Ok")', 'button:has-text("OK")',
+                       'input[value="Ok"]', 'input[value="OK"]',
+                       'button:has-text("Selecionar")', 'a:has-text("Ok")',
+                       'input[type="submit"]', 'button[type="submit"]']:
+            try:
+                loc = ctx.locator(ok_sel).first
+                if loc.is_visible(timeout=1500):
+                    loc.click()
+                    ok_lookup = True
+                    print(f"  Clicou Ok no lookup (frame: {ctx.url[:60]})")
+                    break
+            except Exception:
+                continue
+        if ok_lookup:
+            break
 
     time.sleep(1.5)
+
+    # Verifica se callback populou cnpj no form
+    try:
+        form_tmp2 = _frame_formulario(page)
+        cnpj_after = form_tmp2.evaluate(
+            "() => document.querySelector('input[name=\"cnpj\"]')?.value || ''"
+        )
+        print(f"  cnpj no form após lookup: {cnpj_after!r}")
+    except Exception:
+        pass
 
 
 # ── wizard: Atividade (lupa) ──────────────────────────────────────────────────
