@@ -1124,20 +1124,54 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     if msg_erro and msg_erro.group(1).strip():
         raise RuntimeError(f"Prefeitura rejeitou: {msg_erro.group(1)}")
 
-    # Extrai número da nota da resposta HTML
+    # Detecta sucesso: msg vazio + msg1 com texto de sucesso → segue redirect para nfe.php
+    # nfe_exec.php retorna form que faz POST automático para nfe.php com msg1="Dados registrados com sucesso."
+    msg1_match = re.search(r'name=["\']msg1["\'][^>]*value=["\']([^"\']*)["\']', html)
+    if not msg1_match:
+        msg1_match = re.search(r'value=["\']([^"\']*)["\'][^>]*name=["\']msg1["\']', html)
+    msg1_val = msg1_match.group(1).strip() if msg1_match else ""
+
+    html_pagina2 = ""
+    if msg1_val:
+        # Extrai todos os campos do form de redirect
+        redirect_data = {}
+        for m in re.finditer(r'<input[^>]+>', html, re.IGNORECASE):
+            tag = m.group(0)
+            nm = re.search(r'name=["\']([^"\']+)["\']', tag)
+            vl = re.search(r'value=["\']([^"\']*)["\']', tag)
+            if nm:
+                redirect_data[nm.group(1)] = vl.group(1) if vl else ""
+        redirect_url = f'{base_url}/ISS/contribuinte/nfe/nfe.php'
+        print(f"  Seguindo redirect → {redirect_url}  msg1={msg1_val!r}")
+        try:
+            r2 = session.post(
+                redirect_url, data=redirect_data,
+                headers={'Referer': post_url, 'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=20, allow_redirects=True,
+            )
+            html_pagina2 = r2.text
+            print(f"  Redirect resp: {len(html_pagina2)} chars")
+            print(f"  Trecho2: {html_pagina2[:800]}")
+        except Exception as e:
+            print(f"  Aviso redirect: {e}")
+
+    # Extrai número da nota — tenta resposta primária e redirect
     num_nota = ""
-    for pattern in [
-        r'[Nn][úu]mero[^\d]*(\d+)',
-        r'NFS[- ]?e[^\d]*(\d+)',
-        r'Nota[^\d]*(\d{4,})',
-        r'num_nota[^\d]*(\d+)',
-        r'RPS[^\d]*(\d+)',
-        r'>(\d{4,})<',
-    ]:
-        m = re.search(pattern, html)
-        if m:
-            num_nota = m.group(1)
-            print(f"  Número da nota extraído: {num_nota} (padrão: {pattern})")
+    for html_src in [html_pagina2, html]:
+        for pattern in [
+            r'[Nn][úu]mero[^\d]*(\d+)',
+            r'NFS[- ]?e[^\d]*(\d+)',
+            r'Nota[^\d]*(\d{4,})',
+            r'num_nota[^\d]*(\d+)',
+            r'nota[=:]["\s]*(\d+)',
+            r'>\s*(\d{4,})\s*<',
+        ]:
+            m = re.search(pattern, html_src)
+            if m:
+                num_nota = m.group(1)
+                print(f"  Número da nota: {num_nota} (padrão: {pattern})")
+                break
+        if num_nota:
             break
 
     # Tenta baixar PDF via HTTP — procura links diretos, redirects JS e URLs de impressão
