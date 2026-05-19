@@ -1055,6 +1055,18 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     form_action = extracted.get('action', '')
     print(f"  Campos extraídos do form: {len(form_data)}")
 
+    # O modal Reforma Tributária reseta aliquota/aliquotaSimples/situacao após salvar.
+    # O código já repreenche valor, mas esses campos ficam errados. Corrige aqui.
+    if not form_data.get('aliquota') or form_data.get('aliquota') in ('0', '0.00', '0,00'):
+        form_data['aliquota'] = '3.00'
+        print("  [FIX] aliquota → 3.00")
+    if not form_data.get('aliquotaSimples'):
+        form_data['aliquotaSimples'] = nota.get('aliquota_simples', '4,3547')
+        print(f"  [FIX] aliquotaSimples → {form_data['aliquotaSimples']}")
+    if not form_data.get('situacao'):
+        form_data['situacao'] = 'tp'
+        print("  [FIX] situacao → tp")
+
     # DIAGNÓSTICO: mostra campos relevantes para identificar campos vazios
     campos_criticos = ['cnpj', 'razao', 'codigo', 'aliquota', 'aliquotaSimples',
                        'valor', 'base', 'situacao', 'dtEmissao', 'dtEmissaoPrest',
