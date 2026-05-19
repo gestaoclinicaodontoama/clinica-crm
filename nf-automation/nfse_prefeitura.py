@@ -259,16 +259,28 @@ def _todos_frames(page):
 
 
 def _frame_formulario(page, timeout_s: int = 12):
-    """Aguarda e retorna o frame do formulário NFSe (iframe#detail com nfe.php)."""
+    """Aguarda e retorna o frame do formulário NFSe (nfe.php).
+
+    Prioriza 'nfe.php' para evitar retornar o frame do modal IBS/CBS que também
+    contém 'emissao' na URL.
+    """
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        for f in page.frames:
-            if f.url and any(k in f.url for k in ['nfe', 'nfse', 'emissao']):
+        frames = page.frames
+        # Prioridade 1: URL contém 'nfe.php' (forma exata)
+        for f in frames:
+            if f.url and 'nfe.php' in f.url and 'Componentes' not in f.url:
+                return f
+        # Prioridade 2: qualquer frame com nfe/nfse mas não modal
+        for f in frames:
+            if f.url and any(k in f.url for k in ['nfe', 'nfse']) and 'Componentes' not in f.url:
                 return f
         time.sleep(0.5)
     # fallback: qualquer frame não-principal com URL
     candidates = [f for f in page.frames
-                  if f != page.main_frame and f.url and f.url not in ('', 'about:blank', '_')]
+                  if f != page.main_frame and f.url
+                  and f.url not in ('', 'about:blank', '_')
+                  and 'Componentes' not in f.url]
     if candidates:
         return candidates[-1]
     raise RuntimeError("Frame do formulário NFSe não encontrado.")
@@ -851,18 +863,24 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
 
 def _preencher_valor(form, nota: dict):
     """Preenche o campo Valor Total — chamado antes e depois da Reforma Tributária."""
+    if form is None:
+        print("  [ERRO] _preencher_valor: form é None")
+        return False
+
     valor_str = f"{float(nota['valor']):.2f}".replace(".", ",")
+    print(f"  Preenchendo valor: {valor_str} (frame: {form.url[:60]})")
+
+    # Tentativa 1: seletores por name/id
     for sel in [
         'input[name="valor_servicos"]', 'input[name="valor_total"]',
         'input[name="valor"]',          'input[name="valorServicos"]',
         'input[id="valor_servicos"]',   'input[id="valor_total"]',
-        'input[name*="valorServico"]',  'input[name*="valor_servicos"]',
-        'input[name*="valor_total"]',   'input[name*="valorTotal"]',
-        'input[placeholder*="alor"]',
+        'input[name*="valor_servic"]',  'input[name*="valor_total"]',
+        'input[name*="valorTotal"]',    'input[placeholder*="alor"]',
     ]:
         try:
             loc = form.locator(sel).first
-            if loc.is_visible(timeout=2000):
+            if loc.is_visible(timeout=1500):
                 loc.triple_click()
                 loc.fill(valor_str)
                 loc.dispatch_event('change')
@@ -870,7 +888,43 @@ def _preencher_valor(form, nota: dict):
                 return True
         except Exception:
             continue
-    # Nenhum seletor funcionou — despeja todos os inputs visíveis para diagnóstico
+
+    # Tentativa 2: busca por label text "Valor Total" → input associado (JS)
+    try:
+        result = form.evaluate(f"""
+            (val) => {{
+                // Procura input próximo ao texto "Valor Total"
+                const allEls = [...document.querySelectorAll('*')];
+                for (const el of allEls) {{
+                    const txt = (el.textContent || '').trim().toLowerCase();
+                    if (txt.includes('valor total') && txt.length < 60) {{
+                        // Próximo input irmão ou filho
+                        const inp = el.nextElementSibling?.querySelector?.('input')
+                                 || el.nextElementSibling
+                                 || el.parentElement?.querySelector('input[type="text"], input:not([type])');
+                        if (inp && inp.tagName === 'INPUT' && inp.offsetParent) {{
+                            inp.focus();
+                            inp.value = val;
+                            ['input','change','blur'].forEach(ev =>
+                                inp.dispatchEvent(new Event(ev, {{bubbles:true}})));
+                            return 'OK_LABEL:' + inp.name + '|' + inp.id;
+                        }}
+                    }}
+                }}
+                // Fallback: 3º input visível do form (geralmente é o valor)
+                const inputs = [...document.querySelectorAll('input[type="text"],input:not([type])')].filter(
+                    el => el.offsetParent !== null && !el.readOnly && !el.disabled
+                );
+                return 'INPUTS:' + inputs.map(i => i.name+'|'+i.id+'|'+i.placeholder).join('; ');
+            }}
+        """, valor_str)
+        print(f"  Valor JS: {result}")
+        if result and result.startswith('OK_LABEL:'):
+            return True
+    except Exception as e:
+        print(f"  Valor JS erro: {e}")
+
+    # Diagnóstico: lista todos os inputs visíveis
     try:
         campos = form.evaluate("""
             () => [...document.querySelectorAll('input,textarea')]
@@ -878,7 +932,7 @@ def _preencher_valor(form, nota: dict):
                 .map(el => el.name + '|' + el.id + '|' + el.placeholder + '|' + el.value)
                 .join('\\n')
         """)
-        print("  [DIAG VALOR] Inputs visíveis no form:")
+        print("  [DIAG VALOR] Inputs visíveis:")
         for linha in (campos or '').split('\n'):
             print(f"    {linha}")
     except Exception:
