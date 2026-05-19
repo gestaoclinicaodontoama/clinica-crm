@@ -870,13 +870,13 @@ def _preencher_valor(form, nota: dict):
     valor_str = f"{float(nota['valor']):.2f}".replace(".", ",")
     print(f"  Preenchendo valor: {valor_str} (frame: {form.url[:60]})")
 
-    # Tentativa 1: seletores por name/id
+    # Tentativa 1: seletores por name/id — campo confirmado: name="valor", id="valor"
     for sel in [
+        'input[name="valor"]',          'input#valor',
         'input[name="valor_servicos"]', 'input[name="valor_total"]',
-        'input[name="valor"]',          'input[name="valorServicos"]',
-        'input[id="valor_servicos"]',   'input[id="valor_total"]',
-        'input[name*="valor_servic"]',  'input[name*="valor_total"]',
-        'input[name*="valorTotal"]',    'input[placeholder*="alor"]',
+        'input[name="valorServicos"]',  'input[id="valor_servicos"]',
+        'input[name*="valor_total"]',   'input[name*="valorTotal"]',
+        'input[placeholder*="alor"]',
     ]:
         try:
             loc = form.locator(sel).first
