@@ -706,6 +706,29 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
         pass
     time.sleep(1.5)
 
+    # Diagnóstico: despeja estrutura do modal para entender campos disponíveis
+    try:
+        estrutura = modal_frame.evaluate("""
+            () => {
+                const els = [...document.querySelectorAll('input,select,button,label,h1,h2,h3,h4,p')];
+                return els.map(el => {
+                    const tag = el.tagName.toLowerCase();
+                    const name = el.name || '';
+                    const id = el.id || '';
+                    const ph = el.placeholder || '';
+                    const val = el.value !== undefined ? el.value : '';
+                    const txt = (el.textContent||'').trim().slice(0,60);
+                    const vis = el.offsetParent !== null;
+                    return `${tag} name=${name} id=${id} ph=${ph} val=${val} vis=${vis} txt=${txt}`;
+                }).join('\\n');
+            }
+        """)
+        print("  [DIAG MODAL] Estrutura:")
+        for linha in (estrutura or '').split('\n')[:30]:
+            print(f"    {linha}")
+    except Exception as e:
+        print(f"  [DIAG MODAL] Erro ao inspecionar: {e}")
+
     # Abre dropdown do município
     modal_frame.evaluate("""
         () => {
