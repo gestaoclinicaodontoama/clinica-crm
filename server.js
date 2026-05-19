@@ -1100,6 +1100,10 @@ app.get('/api/admin/debug-patient/:id', async (req, res) => {
       .or(`clinicorp_id.eq.${idNum},numero_prontuario.eq.${idNum}`)
       .maybeSingle();
     result.supabase = { row, error: dbErr?.message };
+    // busca por CPF e nome para encontrar o PatientId real
+    const { data: byCpf } = await supabase.from('pacientes').select('clinicorp_id,nome,cpf').eq('cpf', '01579481612').maybeSingle();
+    const { data: byNome } = await supabase.from('pacientes').select('clinicorp_id,nome,cpf').ilike('nome', '%Vanessa%Alcantara%').limit(3);
+    result.supabase_vanessa = { byCpf, byNome };
   } catch (e) { result.supabase = { error: e.message }; }
   try {
     const r1 = await clinicorpGet('/patient/get',  { cpf: '01579481612' });
