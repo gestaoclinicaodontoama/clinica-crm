@@ -1102,7 +1102,7 @@ app.get('/api/admin/debug-patient/:id', async (req, res) => {
     result.supabase = { row, error: dbErr?.message };
   } catch (e) { result.supabase = { error: e.message }; }
   try {
-    const resp = await clinicorpGet('/patient/get', { id: String(idNum) });
+    const resp = await clinicorpGet('/patient/get', { ID: String(idNum) });
     result.clinicorp = { status: resp?.status, data: resp?.data };
   } catch (e) { result.clinicorp = { error: e.message }; }
   res.json(result);
