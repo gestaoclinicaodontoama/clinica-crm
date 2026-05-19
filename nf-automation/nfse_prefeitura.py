@@ -738,12 +738,14 @@ def _reforma_tributaria(page, municipio: str = "Ipatinga"):
         print(f"  Aviso ao abrir Select2: {e}")
 
     # Passo 2: digita no campo de busca do dropdown aberto
+    # Usa type() em vez de fill() para disparar keydown/keyup que o Select2 AJAX precisa
     try:
         search = modal_frame.locator('.select2-search__field, .select2-search--dropdown input').first
         search.wait_for(state='visible', timeout=5000)
-        search.fill(municipio)
+        search.click()
+        search.type(municipio, delay=80)  # digita char a char, dispara keyup
         print(f"  Digitou '{municipio}' no Select2 search")
-        time.sleep(2.0)  # aguarda AJAX carregar resultados
+        time.sleep(2.5)  # aguarda AJAX carregar resultados
     except Exception as e:
         print(f"  Aviso busca Select2: {e}")
 
