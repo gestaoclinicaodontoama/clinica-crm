@@ -1102,6 +1102,12 @@ app.get('/api/admin/debug-patient/:id', async (req, res) => {
     result.supabase = { row, error: dbErr?.message };
   } catch (e) { result.supabase = { error: e.message }; }
   try {
+    const qs = new URLSearchParams({
+      subscriber_id: process.env.CLINICORP_SUBSCRIBER_ID || 'clinicaama',
+      business_id:   process.env.CLINICORP_BUSINESS_ID   || 'clinicaama',
+      ID: String(idNum),
+    }).toString();
+    result.debug_url = '/rest/v1/patient/get?' + qs;
     const resp = await clinicorpGet('/patient/get', { ID: String(idNum) });
     result.clinicorp = { status: resp?.status, data: resp?.data };
   } catch (e) { result.clinicorp = { error: e.message }; }
