@@ -489,7 +489,14 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         time.sleep(0.5)
     print(f"  Lookup pós-pesquisa: {lookup.url[:80]}")
 
-    # Clica na linha do resultado — busca CPF formatado e sem formatação
+    # Log HTML completo do lookup — estrutura real para diagnóstico
+    try:
+        lookup_html = lookup.content()
+        print(f"  LOOKUP HTML ({len(lookup_html)} chars): {lookup_html[:1200]}")
+    except Exception as _e:
+        print(f"  Aviso log lookup HTML: {_e}")
+
+    # Clica na linha do resultado — tenta radio button PRIMEIRO (estrutura provável do SIGISS)
     cpf_fmt = (f"{cpf_limpo[:3]}.{cpf_limpo[3:6]}.{cpf_limpo[6:9]}-{cpf_limpo[9:]}"
                if len(cpf_limpo) == 11 else cpf_limpo)
     try:
@@ -497,22 +504,44 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
             (d) => {
                 const cpf = d.cpf; const fmt = d.fmt;
                 const rows = [...document.querySelectorAll('table tr')];
-                console.log('Rows no lookup:', rows.length);
+
+                // Procura linha com CPF (formatado ou limpo)
+                let target = null;
                 for (const r of rows) {
                     const t = r.textContent;
-                    if (!t.includes(cpf) && !t.includes(fmt)) continue;
-                    const child = r.querySelector('[onclick]');
-                    if (child) { child.click(); return 'child:' + child.tagName; }
-                    r.click();
-                    return 'tr:' + t.substring(0, 60).trim();
+                    if (t.includes(cpf) || t.includes(fmt)) { target = r; break; }
                 }
-                // Fallback: clica na primeira linha de dados (tem <td>)
-                const dataRows = rows.filter(r => r.querySelectorAll('td').length > 0);
-                if (dataRows.length > 0) {
-                    dataRows[0].click();
-                    return 'first_data_row:' + dataRows[0].textContent.substring(0, 60).trim();
+                // Fallback: primeira linha de dados se CPF não encontrado
+                if (!target) {
+                    const dataRows = rows.filter(r => r.querySelectorAll('td').length > 0);
+                    if (dataRows.length > 0) target = dataRows[0];
                 }
-                return 'nao_encontrado:' + rows.length + '_rows';
+                if (!target) return 'nao_encontrado:' + rows.length + '_rows';
+
+                // 1. Tenta radio button (mais comum em lookup forms SIGISS)
+                const radio = target.querySelector('input[type="radio"]');
+                if (radio) {
+                    radio.checked = true;
+                    radio.click();
+                    radio.dispatchEvent(new Event('change', {bubbles:true}));
+                    return 'radio:val=' + radio.value + ':' + target.textContent.substring(0, 60).trim();
+                }
+
+                // 2. Tenta checkbox
+                const check = target.querySelector('input[type="checkbox"]');
+                if (check) {
+                    check.checked = true;
+                    check.click();
+                    return 'checkbox:val=' + check.value;
+                }
+
+                // 3. Tenta elemento com onclick (link/botão embutido na célula)
+                const child = target.querySelector('a[onclick], td[onclick], button[onclick]');
+                if (child) { child.click(); return 'child:' + child.tagName + ':' + child.getAttribute('onclick')?.substring(0,60); }
+
+                // 4. Clica diretamente na linha
+                target.click();
+                return 'tr:' + target.textContent.substring(0, 60).trim();
             }
         """, {"cpf": cpf_limpo, "fmt": cpf_fmt})
         print(f"  Click resultado lookup: {resultado_click}")
@@ -1288,10 +1317,157 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     return {"num_nota": num_nota, "caminho_pdf": caminho}
 
 
+def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
+    """
+    Emite NFSe clicando o botão Emitir no próprio browser Playwright.
+    Usa a MESMA sessão PHP que registrou o tomador via lookup Ok —
+    garante que o servidor encontra o IM correto e não emite PFNI.
+    """
+    import re
+    from urllib.parse import urlparse
+
+    frame_url = form.url or page.url
+    parsed = urlparse(frame_url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+    # Encontra botão Emitir no form frame
+    emitir_loc = None
+    for sel in [
+        'button:has-text("Emitir")', 'input[value*="Emitir"]',
+        'input[type="submit"]', 'button[type="submit"]',
+        'input[value*="emitir"]',
+    ]:
+        try:
+            loc = form.locator(sel).first
+            if loc.is_visible(timeout=2000):
+                emitir_loc = loc
+                print(f"  Botão Emitir: {sel}")
+                break
+        except Exception:
+            continue
+
+    if not emitir_loc:
+        raise RuntimeError("Botão Emitir NFSe não encontrado no form frame")
+
+    # Captura resposta do nfe_exec.php via intercept (mesma sessão browser)
+    html_exec = ""
+    try:
+        with page.expect_response(
+            lambda r: 'nfe_exec' in r.url,
+            timeout=20000,
+        ) as resp_info:
+            emitir_loc.click()
+            print("  Clicou Emitir NFSe via Playwright")
+
+        resp = resp_info.value
+        html_exec = resp.text()
+        print(f"  nfe_exec.php: HTTP {resp.status} ({len(html_exec)} chars)")
+        print(f"  Trecho exec: {html_exec[:600]}")
+    except PWTimeout:
+        print("  Timeout nfe_exec.php — aguardando redirect direto")
+    except Exception as e:
+        print(f"  Aviso captura nfe_exec: {e}")
+
+    # Aguarda auto-redirect: nfe_exec retorna form que auto-submete para nfe.php
+    time.sleep(6.0)
+
+    # Lê HTML do frame nfe.php após redirect (contém número da nota + link PDF)
+    html_nfe = ""
+    for f in page.frames:
+        if f.url and 'nfe.php' in f.url and 'Componentes' not in f.url:
+            try:
+                html_nfe = f.content()
+                print(f"  nfe.php pós-emissão ({len(html_nfe)} chars)")
+                print(f"  Trecho nfe.php: {html_nfe[:2000]}")
+                hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_nfe)
+                print(f"  Hrefs nfe.php: {hrefs[:20]}")
+                break
+            except Exception as e:
+                print(f"  Aviso lendo nfe.php frame: {e}")
+
+    # Verifica mensagem de erro
+    for html_src in [html_nfe, html_exec]:
+        if not html_src:
+            continue
+        m = re.search(r'name=["\']msg["\'][^>]*value=["\']([^"\']+)["\']', html_src)
+        if not m:
+            m = re.search(r'value=["\']([^"\']+)["\'][^>]*name=["\']msg["\']', html_src)
+        if m and m.group(1).strip():
+            raise RuntimeError(f"Prefeitura rejeitou: {m.group(1)}")
+
+    # Extrai número da nota
+    num_nota = ""
+    for html_src in [html_nfe, html_exec]:
+        if not html_src:
+            continue
+        for pattern in [
+            r'[Nn][úu]mero[^\d]*(\d{3,})',
+            r'NFS[- ]?e[^\d]*(\d{3,})',
+            r'n[ºo°°]\s*(\d{3,})',
+            r'num_nfse[^\d]*(\d{3,})',
+            r'num_nota[^\d]*(\d{3,})',
+            r'>\s*(\d{3,})\s*<',
+        ]:
+            m = re.search(pattern, html_src)
+            if m:
+                num_nota = m.group(1)
+                print(f"  Número da nota: {num_nota} (padrão: {pattern})")
+                break
+        if num_nota:
+            break
+
+    # Captura URL de impressão/PDF
+    caminho = ""
+    print_url = ""
+    pdf_urls: list[str] = []
+    for html_src in [html_nfe, html_exec]:
+        if not html_src:
+            continue
+        pdf_urls += re.findall(r'href=["\']([^"\']*\.pdf[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*imprimir[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*download[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*nfe_print[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*print[^"\']*)["\']', html_src, re.IGNORECASE)
+    print(f"  PDF URLs: {pdf_urls[:5]}")
+
+    # Tenta baixar PDF via requests com cookies do Playwright
+    import requests as _req
+    cookies = {c['name']: c['value'] for c in page.context.cookies()}
+    for url in pdf_urls[:3]:
+        try:
+            full = url if url.startswith('http') else base_url + '/' + url.lstrip('/')
+            if not print_url:
+                print_url = full
+            pdf_r = _req.get(full, cookies=cookies, timeout=20)
+            ct = pdf_r.headers.get('content-type', '')
+            if 'pdf' in ct or len(pdf_r.content) > 5000:
+                from file_manager import salvar_pdf_bytes
+                caminho = salvar_pdf_bytes(
+                    pdf_r.content, pasta, nota["competencia"], num_nota, nota["nome_tomador"]
+                )
+                print(f"  PDF salvo: {caminho}")
+                break
+        except Exception as e:
+            print(f"  PDF não baixado ({url}): {e}")
+
+    if not caminho and print_url:
+        caminho = print_url
+        print(f"  URL impressão: {print_url}")
+
+    return {"num_nota": num_nota, "caminho_pdf": caminho}
+
+
 def _emitir_e_baixar(page, nota: dict, pasta: str) -> dict:
     _preencher_form(page, nota)
     form = _frame_formulario(page)
-    return _submeter_via_http(page, form, pasta, nota)
+
+    # Tenta emissão via Playwright (mesma sessão PHP que registrou tomador no lookup)
+    try:
+        return _emitir_playwright(page, form, nota, pasta)
+    except Exception as e:
+        print(f"  Playwright emissão falhou ({e}), tentando via HTTP...")
+        form = _frame_formulario(page)
+        return _submeter_via_http(page, form, pasta, nota)
 
 
 # ── ponto de entrada público ───────────────────────────────────────────────────
