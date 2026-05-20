@@ -345,11 +345,18 @@ def _abrir_form_emissao(page):
 # ── wizard: Pesquisar Contribuinte ────────────────────────────────────────────
 
 def _aguardar_frame_lookup(page, timeout_s: int = 8):
-    """Aguarda o frame nfe_lookup.php aparecer (carregado via iframe, não popup)."""
+    """
+    Aguarda o frame do wizard de busca de contribuinte.
+    Nome do frame no SIGISS Ipatinga: 'nfe_filtro_contribuinte'
+    """
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         for f in page.frames:
-            if f.url and 'nfe_lookup' in f.url:
+            # Prioridade 1: nome exato confirmado via DevTools
+            if f.name == 'nfe_filtro_contribuinte':
+                return f
+            # Prioridade 2: URL contém filtro_contribuinte ou nfe_lookup
+            if f.url and ('filtro_contribuinte' in f.url or 'nfe_lookup' in f.url):
                 return f
         time.sleep(0.4)
     return None
@@ -357,36 +364,34 @@ def _aguardar_frame_lookup(page, timeout_s: int = 8):
 
 def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     """
-    Seleciona Tipo de Tomador no form frame (select[name="local"]).
-    O SIGISS Ipatinga carrega o wizard de busca em iframe (nfe_lookup.php),
-    não em popup window — por isso usamos _aguardar_frame_lookup.
+    Seleciona Tipo de Tomador → abre wizard 'nfe_filtro_contribuinte' →
+    pesquisa CPF → clica tr.line (executa lineSelected) → clica #btnOk
+    (executa confirmSelection que copia ccm e id_tomador para nfe.php).
+
+    O servidor valida o tomador pelo campo id_tomador no POST para nfe_exec.php.
+    Sem esse campo preenchido o SIGISS emite PFNI.
     """
     form = _frame_formulario(page)
     cpf_limpo = cpf.replace(".", "").replace("-", "").replace("/", "")
 
     # Labels reais do SIGISS Ipatinga
-    if tipo_tomador == "CPF":
-        labels = ["Pessoa Física", "Pessoa Fisica"]
-    else:
-        labels = ["Jurídica do Município", "Juridica do Municipio",
-                  "Jurídica de Fora", "Juridica de Fora"]
+    labels = ["Pessoa Física", "Pessoa Fisica"] if tipo_tomador == "CPF" else [
+        "Jurídica do Município", "Juridica do Municipio",
+        "Jurídica de Fora", "Juridica de Fora",
+    ]
 
     tipo_sel = form.locator('select[name="local"], select#local').first
     tipo_sel.wait_for(state="visible", timeout=6000)
 
     # Reset para vazio — garante que onchange dispara mesmo com valor já selecionado
     try:
-        form.evaluate("""
-            () => {
-                const sel = document.querySelector('select[name="local"], select#local');
-                if (sel) sel.value = '';
-            }
-        """)
+        form.evaluate(
+            "() => { const s=document.querySelector('select[name=\"local\"],select#local'); if(s) s.value=''; }"
+        )
         time.sleep(0.3)
     except Exception:
         pass
 
-    # Seleciona o tipo — dispara onchange que carrega nfe_lookup.php no iframe lookup
     for lbl in labels:
         try:
             tipo_sel.select_option(label=lbl)
@@ -397,49 +402,15 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
 
     time.sleep(1.0)
 
-    # Aguarda o frame lookup (nfe_lookup.php) aparecer
     lookup = _aguardar_frame_lookup(page, timeout_s=8)
-
     if lookup is None:
-        # Fallback: tenta chamar a função JS diretamente
-        print("  Iframe lookup não apareceu, tentando chamar função JS...")
-        for fn in ["pop_tomador", "abreLookup", "openLookup", "abreTomador"]:
-            try:
-                form.evaluate(f"if (typeof {fn} === 'function') {fn}()")
-                time.sleep(1.5)
-                lookup = _aguardar_frame_lookup(page, timeout_s=5)
-                if lookup:
-                    print(f"  Lookup aberto via {fn}()")
-                    break
-            except Exception:
-                continue
+        raise RuntimeError("Frame nfe_filtro_contribuinte não apareceu após seleção do tipo tomador.")
 
-    if lookup is None:
-        # Último fallback: procura campo CPF em qualquer frame
-        print("  Lookup não encontrado, procurando campo CPF em frames...")
-        for ctx in _todos_frames(page):
-            for sel in ['input[name*="cpf"]', 'input[id*="cpf"]', 'input[placeholder*="CPF"]']:
-                try:
-                    loc = ctx.locator(sel).first
-                    if loc.is_visible(timeout=1000):
-                        loc.fill(cpf_limpo)
-                        ctx.locator('button:has-text("Pesquisar"), input[value*="Pesquisar"]').first.click()
-                        time.sleep(2.5)
-                        try:
-                            ctx.locator('table tr').filter(has_text=cpf_limpo).first.click()
-                        except Exception:
-                            pass
-                        time.sleep(1.5)
-                        return
-                except Exception:
-                    continue
-        raise RuntimeError("Frame lookup (nfe_lookup.php) não encontrado após seleção do tipo tomador.")
-
-    print(f"  Lookup carregado: {lookup.url[:70]}")
+    print(f"  Lookup carregado: name={lookup.name!r} url={lookup.url[:70]}")
     lookup.wait_for_load_state("domcontentloaded", timeout=8000)
     time.sleep(0.5)
 
-    # Preenche CPF/CNPJ no frame lookup
+    # Preenche CPF no campo de busca do lookup
     for sel in ['input[name*="cpf"]', 'input[id*="cpf"]',
                 'input[placeholder*="CPF"]', 'input[type="text"]']:
         try:
@@ -451,14 +422,12 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         except Exception:
             continue
 
-    # Clica Pesquisar — tenta múltiplos seletores
+    # Clica Pesquisar
     clicou_pesquisar = False
     for sel in [
-        'button:has-text("Pesquisar")', 'button:has-text("pesquisar")',
-        'input[value*="Pesquisar"]', 'input[value*="pesquisar"]',
-        'a:has-text("Pesquisar")', 'a:has-text("pesquisar")',
+        'button:has-text("Pesquisar")', 'input[value*="Pesquisar"]',
+        'button[type="submit"]', 'input[type="submit"]',
         '[onclick*="pesquis"]', '[onclick*="Pesquis"]',
-        'button[type="submit"]', 'input[type="submit"]', 'input[type="image"]',
     ]:
         try:
             loc = lookup.locator(sel).first
@@ -470,15 +439,15 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         except Exception:
             continue
     if not clicou_pesquisar:
-        print("  Botão Pesquisar não encontrado, pressionando Enter no campo CPF...")
+        print("  Pesquisar não encontrado, pressionando Enter...")
         try:
-            lookup.locator('input[type="text"], input[name*="cpf"]').first.press("Enter")
+            lookup.locator('input[type="text"]').first.press("Enter")
         except Exception:
             pass
 
-    # Aguarda resultados e RE-ADQUIRE o frame do lookup.
-    # O form de busca navega o próprio iframe ao submeter — a referência antiga fica stale.
+    # Aguarda resultados — o iframe pode navegar ao submeter o form de busca
     time.sleep(2.5)
+    # Re-adquire frame caso tenha navegado
     lookup2 = _aguardar_frame_lookup(page, timeout_s=6)
     if lookup2:
         lookup = lookup2
@@ -489,119 +458,102 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         time.sleep(0.5)
     print(f"  Lookup pós-pesquisa: {lookup.url[:80]}")
 
-    # Log HTML completo do lookup — estrutura real para diagnóstico
-    try:
-        lookup_html = lookup.content()
-        print(f"  LOOKUP HTML ({len(lookup_html)} chars): {lookup_html[:1200]}")
-    except Exception as _e:
-        print(f"  Aviso log lookup HTML: {_e}")
-
-    # Clica na linha do resultado — tenta radio button PRIMEIRO (estrutura provável do SIGISS)
+    # Clica tr.line — executa lineSelected(this) que preenche ccmTom e id_tomador no lookup
     cpf_fmt = (f"{cpf_limpo[:3]}.{cpf_limpo[3:6]}.{cpf_limpo[6:9]}-{cpf_limpo[9:]}"
                if len(cpf_limpo) == 11 else cpf_limpo)
     try:
         resultado_click = lookup.evaluate("""
             (d) => {
                 const cpf = d.cpf; const fmt = d.fmt;
+
+                // 1. tr.line é o seletor confirmado pelo SIGISS Ipatinga
+                const lines = [...document.querySelectorAll('tr.line')];
+                if (lines.length > 0) {
+                    const target = lines.find(r => {
+                        const t = r.textContent;
+                        return t.includes(cpf) || t.includes(fmt);
+                    }) || lines[0];
+                    target.click();
+                    return 'tr.line:' + target.textContent.substring(0, 80).trim();
+                }
+
+                // 2. Fallback genérico: qualquer tr com CPF
                 const rows = [...document.querySelectorAll('table tr')];
-
-                // Procura linha com CPF (formatado ou limpo)
-                let target = null;
-                for (const r of rows) {
+                const byDoc = rows.find(r => {
                     const t = r.textContent;
-                    if (t.includes(cpf) || t.includes(fmt)) { target = r; break; }
-                }
-                // Fallback: primeira linha de dados se CPF não encontrado
-                if (!target) {
-                    const dataRows = rows.filter(r => r.querySelectorAll('td').length > 0);
-                    if (dataRows.length > 0) target = dataRows[0];
-                }
-                if (!target) return 'nao_encontrado:' + rows.length + '_rows';
+                    return (t.includes(cpf) || t.includes(fmt)) && r.querySelectorAll('td').length > 0;
+                });
+                if (byDoc) { byDoc.click(); return 'tr_fallback:' + byDoc.textContent.substring(0, 80).trim(); }
 
-                // 1. Tenta radio button (mais comum em lookup forms SIGISS)
-                const radio = target.querySelector('input[type="radio"]');
-                if (radio) {
-                    radio.checked = true;
-                    radio.click();
-                    radio.dispatchEvent(new Event('change', {bubbles:true}));
-                    return 'radio:val=' + radio.value + ':' + target.textContent.substring(0, 60).trim();
-                }
+                // 3. Primeira linha de dados
+                const dataRow = rows.find(r => r.querySelectorAll('td').length > 0);
+                if (dataRow) { dataRow.click(); return 'first_data_row:' + dataRow.textContent.substring(0, 80).trim(); }
 
-                // 2. Tenta checkbox
-                const check = target.querySelector('input[type="checkbox"]');
-                if (check) {
-                    check.checked = true;
-                    check.click();
-                    return 'checkbox:val=' + check.value;
-                }
-
-                // 3. Tenta elemento com onclick (link/botão embutido na célula)
-                const child = target.querySelector('a[onclick], td[onclick], button[onclick]');
-                if (child) { child.click(); return 'child:' + child.tagName + ':' + child.getAttribute('onclick')?.substring(0,60); }
-
-                // 4. Clica diretamente na linha
-                target.click();
-                return 'tr:' + target.textContent.substring(0, 60).trim();
+                return 'nao_encontrado:' + rows.length + '_rows';
             }
         """, {"cpf": cpf_limpo, "fmt": cpf_fmt})
         print(f"  Click resultado lookup: {resultado_click}")
     except Exception as e:
         print(f"  Click resultado lookup JS erro: {e}")
-        try:
-            lookup.locator('table tr').filter(has_text=cpf_limpo).first.click()
-        except Exception:
-            rows = lookup.locator('table tr').all()
-            for i, row in enumerate(rows):
-                if i == 0:
-                    continue
-                if row.is_visible():
-                    row.click()
-                    break
 
     time.sleep(0.8)
 
-    # Clica Ok NO FRAME DO LOOKUP — o Ok faz POST ao servidor registrando o IM selecionado na sessão.
-    # Sem esse POST o servidor não sabe qual tomador foi escolhido e emite PFNI.
-    ok_lookup = False
-    for ok_sel in ['input[value="Ok"]', 'input[value="OK"]',
-                   'button:has-text("Ok")', 'button:has-text("OK")',
-                   'input[type="button"][value*="Ok"]']:
+    # Clica #btnOk — executa confirmSelection() que copia ccm e id_tomador para nfe.php
+    # SEM esses campos no form, nfe_exec.php emite PFNI.
+    ok_clicado = False
+    for ok_sel in ['#btnOk', 'input#btnOk', 'button#btnOk',
+                   'input[value="Ok"]', 'input[value="OK"]',
+                   'button:has-text("Ok")', 'button:has-text("OK")']:
         try:
             loc = lookup.locator(ok_sel).first
             if loc.is_visible(timeout=2000):
                 loc.click()
-                ok_lookup = True
-                print(f"  Clicou Ok no lookup")
+                ok_clicado = True
+                print(f"  Clicou Ok no lookup ({ok_sel})")
                 break
         except Exception:
             continue
-    if not ok_lookup:
+
+    if not ok_clicado:
+        print("  #btnOk não encontrado no lookup, tentando em todos os frames...")
         for ctx in _todos_frames(page):
-            for ok_sel in ['input[value="Ok"]', 'input[value="OK"]',
-                           'button:has-text("Ok")', 'button:has-text("OK")']:
+            for ok_sel in ['#btnOk', 'input[value="Ok"]', 'button:has-text("Ok")']:
                 try:
                     loc = ctx.locator(ok_sel).first
                     if loc.is_visible(timeout=1000):
                         loc.click()
-                        ok_lookup = True
-                        print(f"  Clicou Ok (fallback frame: {ctx.url[:60]})")
+                        ok_clicado = True
+                        print(f"  Ok clicado no frame: {ctx.url[:60]}")
                         break
                 except Exception:
                     continue
-            if ok_lookup:
+            if ok_clicado:
                 break
 
-    time.sleep(2.0)  # Aguarda servidor registrar IM na sessão após Ok
+    time.sleep(1.5)  # Aguarda confirmSelection() copiar campos para nfe.php
 
-    # Verifica cnpj pós-lookup
+    # Verifica se id_tomador e ccm foram copiados para o form principal
     try:
-        form_tmp2 = _frame_formulario(page)
-        cnpj_after = form_tmp2.evaluate(
-            "() => document.querySelector('input[name=\"cnpj\"]')?.value || ''"
-        )
-        print(f"  cnpj no form após lookup: {cnpj_after!r}")
-    except Exception:
-        pass
+        form2 = _frame_formulario(page)
+        diag = form2.evaluate("""
+            () => {
+                const g = id => document.querySelector('#'+id)?.value
+                             || document.querySelector('[name="'+id+'"]')?.value || '';
+                return {
+                    id_tomador: g('id_tomador'),
+                    ccm: g('ccm'),
+                    cnpj: g('cnpj'),
+                    razao: g('razao'),
+                };
+            }
+        """)
+        print(f"  Form pós-lookup: id_tomador={diag.get('id_tomador')!r} "
+              f"ccm={diag.get('ccm')!r} cnpj={diag.get('cnpj')!r} "
+              f"razao={diag.get('razao')!r}")
+        if not diag.get('id_tomador'):
+            print("  AVISO: id_tomador vazio após Ok — confirmSelection pode não ter rodado!")
+    except Exception as e:
+        print(f"  Aviso diagnóstico pós-lookup: {e}")
 
 
 # ── wizard: Atividade (lupa) ──────────────────────────────────────────────────
@@ -1023,20 +975,26 @@ def _preencher_valor(form, nota: dict):
 def _preencher_form(page, nota: dict):
     _pesquisar_tomador(page, nota.get("tipo_tomador", "CPF"), nota["cpf_tomador"])
 
-    # Força cnpj e razao — callback do lookup não dispara em modo headless
+    # confirmSelection() já preencheu id_tomador, ccm, cnpj, razao via JS.
+    # Garante cnpj e razao como fallback caso confirmSelection não tenha rodado.
     cpf_limpo = nota["cpf_tomador"].replace(".", "").replace("-", "").replace("/", "")
     form_tmp = _frame_formulario(page)
     form_tmp.evaluate("""
         (d) => {
-            const set = (n, v) => {
-                const el = document.querySelector('input[name="'+n+'"]');
-                if (el) { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }
+            const set = (id, name, v) => {
+                const el = document.getElementById(id)
+                         || document.querySelector('[name="'+name+'"]');
+                // só sobrescreve se estiver vazio (confirmSelection tem prioridade)
+                if (el && !el.value) {
+                    el.value = v;
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                }
             };
-            set('cnpj', d.cpf);
-            set('razao', d.nome);
+            set('cnpj', 'cnpj', d.cpf);
+            set('razao', 'razao', d.nome);
         }
     """, {"cpf": cpf_limpo, "nome": nota.get("nome_tomador", "")})
-    print(f"  Forçou cnpj={cpf_limpo!r} razao={nota.get('nome_tomador','')!r}")
+    print(f"  Fallback cnpj/razao (só se vazio): {cpf_limpo!r} / {nota.get('nome_tomador','')!r}")
 
     _selecionar_atividade(page, "412")
 
@@ -1165,7 +1123,10 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         print("  [FIX] situacao → tp")
 
     # DIAGNÓSTICO: mostra campos relevantes para identificar campos vazios
-    campos_criticos = ['cnpj', 'razao', 'codigo', 'aliquota', 'aliquotaSimples',
+    # id_tomador e ccm são os campos que o SIGISS usa para identificar o tomador.
+    # Se estiverem vazios a nota sai com PFNI.
+    campos_criticos = ['id_tomador', 'ccm', 'cnpj', 'razao',
+                       'codigo', 'aliquota', 'aliquotaSimples',
                        'valor', 'base', 'situacao', 'dtEmissao', 'dtEmissaoPrest',
                        'descricaoNF', 'localServico', 'exterior']
     print("  [DIAG] Campos críticos no POST:")
