@@ -445,18 +445,28 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         except Exception:
             pass
 
-    # Aguarda resultados — o iframe pode navegar ao submeter o form de busca
-    time.sleep(2.5)
-    # Re-adquire frame caso tenha navegado
-    lookup2 = _aguardar_frame_lookup(page, timeout_s=6)
+    # Aguarda resultados — o iframe navega de nfe_lookup.php para nfe_filtro_contribuinte.php
+    time.sleep(1.5)
+    lookup2 = _aguardar_frame_lookup(page, timeout_s=8)
     if lookup2:
         lookup = lookup2
         try:
             lookup.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
-        time.sleep(0.5)
     print(f"  Lookup pós-pesquisa: {lookup.url[:80]}")
+
+    # Aguarda tr.line aparecer — os resultados são renderizados depois do DOMContentLoaded
+    tr_line_ok = False
+    for _ in range(12):  # até ~6 segundos
+        count = lookup.evaluate("() => document.querySelectorAll('tr.line').length")
+        if count > 0:
+            print(f"  tr.line encontrados: {count}")
+            tr_line_ok = True
+            break
+        time.sleep(0.5)
+    if not tr_line_ok:
+        print("  AVISO: tr.line não apareceu após 6s — resultados podem não ter carregado")
 
     # Clica tr.line — executa lineSelected(this) que preenche ccmTom e id_tomador no lookup
     cpf_fmt = (f"{cpf_limpo[:3]}.{cpf_limpo[3:6]}.{cpf_limpo[6:9]}-{cpf_limpo[9:]}"
