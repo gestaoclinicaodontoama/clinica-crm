@@ -470,55 +470,51 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         except Exception:
             continue
     if not clicou_pesquisar:
-        # Fallback: pressiona Enter no campo CPF
         print("  Botão Pesquisar não encontrado, pressionando Enter no campo CPF...")
         try:
             lookup.locator('input[type="text"], input[name*="cpf"]').first.press("Enter")
         except Exception:
             pass
+
+    # Aguarda resultados e RE-ADQUIRE o frame do lookup.
+    # O form de busca navega o próprio iframe ao submeter — a referência antiga fica stale.
     time.sleep(2.5)
+    lookup2 = _aguardar_frame_lookup(page, timeout_s=6)
+    if lookup2:
+        lookup = lookup2
+        try:
+            lookup.wait_for_load_state("domcontentloaded", timeout=5000)
+        except Exception:
+            pass
+        time.sleep(0.5)
+    print(f"  Lookup pós-pesquisa: {lookup.url[:80]}")
 
-    # Lê onclick da primeira linha de resultado ANTES de clicar (para executar callback depois)
-    onclick_linha = None
-    try:
-        onclick_linha = lookup.evaluate("""
-            () => {
-                const rows = [...document.querySelectorAll('table tr')];
-                for (const r of rows) {
-                    const oc = r.getAttribute('onclick') || r.querySelector('[onclick]')?.getAttribute('onclick');
-                    if (oc && oc.length > 5) return oc;
-                }
-                const links = [...document.querySelectorAll('a[onclick], input[onclick]')];
-                return links.length ? links[0].getAttribute('onclick') : null;
-            }
-        """)
-        print(f"  Lookup onclick: {onclick_linha!r}")
-    except Exception as e:
-        print(f"  Lookup onclick erro: {e}")
-
-    # Clica na linha do resultado via JS no contexto do lookup frame.
-    # Clicar via Playwright no <tr> não dispara onclick em filhos (td, a) — JS dispara no elemento certo.
+    # Clica na linha do resultado — busca CPF formatado e sem formatação
+    cpf_fmt = (f"{cpf_limpo[:3]}.{cpf_limpo[3:6]}.{cpf_limpo[6:9]}-{cpf_limpo[9:]}"
+               if len(cpf_limpo) == 11 else cpf_limpo)
     try:
         resultado_click = lookup.evaluate("""
-            (cpf) => {
+            (d) => {
+                const cpf = d.cpf; const fmt = d.fmt;
                 const rows = [...document.querySelectorAll('table tr')];
+                console.log('Rows no lookup:', rows.length);
                 for (const r of rows) {
-                    if (!r.textContent.includes(cpf)) continue;
-                    // Prefere clicar no filho com onclick (td, a) para disparar no contexto correto
+                    const t = r.textContent;
+                    if (!t.includes(cpf) && !t.includes(fmt)) continue;
                     const child = r.querySelector('[onclick]');
                     if (child) { child.click(); return 'child:' + child.tagName; }
-                    if (r.getAttribute('onclick')) { r.click(); return 'tr'; }
-                    const link = r.querySelector('a, td');
-                    if (link) { link.click(); return 'link:' + link.tagName; }
                     r.click();
-                    return 'tr_fallback';
+                    return 'tr:' + t.substring(0, 60).trim();
                 }
-                // Não achou pelo CPF — clica na primeira linha não-cabeçalho
-                const allRows = [...document.querySelectorAll('table tr')].slice(1);
-                if (allRows.length) { allRows[0].click(); return 'first_row_fallback'; }
-                return 'nao_encontrado';
+                // Fallback: clica na primeira linha de dados (tem <td>)
+                const dataRows = rows.filter(r => r.querySelectorAll('td').length > 0);
+                if (dataRows.length > 0) {
+                    dataRows[0].click();
+                    return 'first_data_row:' + dataRows[0].textContent.substring(0, 60).trim();
+                }
+                return 'nao_encontrado:' + rows.length + '_rows';
             }
-        """, cpf_limpo)
+        """, {"cpf": cpf_limpo, "fmt": cpf_fmt})
         print(f"  Click resultado lookup: {resultado_click}")
     except Exception as e:
         print(f"  Click resultado lookup JS erro: {e}")
@@ -533,61 +529,48 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
                     row.click()
                     break
 
-    time.sleep(1.0)
+    time.sleep(0.8)
 
-    # Executa onclick explicitamente no LOOKUP frame (contexto correto: parent = nfe.php).
-    # Bug anterior: executava no form frame onde parent.retorno_tomador não existe.
-    if onclick_linha:
-        try:
-            lookup.evaluate(f"() => {{ try {{ {onclick_linha} }} catch(e) {{ console.log('onclick err', e.message); }} }}")
-            print(f"  Onclick executado no lookup frame")
-            time.sleep(0.3)
-        except Exception as e:
-            print(f"  Onclick lookup frame erro: {e}")
-
-    # Clica Ok para confirmar seleção do tomador — busca em todos os frames
+    # Clica Ok NO FRAME DO LOOKUP — o Ok faz POST ao servidor registrando o IM selecionado na sessão.
+    # Sem esse POST o servidor não sabe qual tomador foi escolhido e emite PFNI.
     ok_lookup = False
-    for ctx in _todos_frames(page):
-        for ok_sel in ['button:has-text("Ok")', 'button:has-text("OK")',
-                       'input[value="Ok"]', 'input[value="OK"]',
-                       'button:has-text("Selecionar")', 'a:has-text("Ok")',
-                       'input[type="submit"]', 'button[type="submit"]']:
-            try:
-                loc = ctx.locator(ok_sel).first
-                if loc.is_visible(timeout=1500):
-                    loc.click()
-                    ok_lookup = True
-                    print(f"  Clicou Ok no lookup (frame: {ctx.url[:60]})")
-                    break
-            except Exception:
-                continue
-        if ok_lookup:
-            break
+    for ok_sel in ['input[value="Ok"]', 'input[value="OK"]',
+                   'button:has-text("Ok")', 'button:has-text("OK")',
+                   'input[type="button"][value*="Ok"]']:
+        try:
+            loc = lookup.locator(ok_sel).first
+            if loc.is_visible(timeout=2000):
+                loc.click()
+                ok_lookup = True
+                print(f"  Clicou Ok no lookup")
+                break
+        except Exception:
+            continue
+    if not ok_lookup:
+        for ctx in _todos_frames(page):
+            for ok_sel in ['input[value="Ok"]', 'input[value="OK"]',
+                           'button:has-text("Ok")', 'button:has-text("OK")']:
+                try:
+                    loc = ctx.locator(ok_sel).first
+                    if loc.is_visible(timeout=1000):
+                        loc.click()
+                        ok_lookup = True
+                        print(f"  Clicou Ok (fallback frame: {ctx.url[:60]})")
+                        break
+                except Exception:
+                    continue
+            if ok_lookup:
+                break
 
-    time.sleep(1.5)
+    time.sleep(2.0)  # Aguarda servidor registrar IM na sessão após Ok
 
-    # Verifica cnpj + campos ocultos pós-lookup — diagnóstico PFNI
+    # Verifica cnpj pós-lookup
     try:
         form_tmp2 = _frame_formulario(page)
         cnpj_after = form_tmp2.evaluate(
             "() => document.querySelector('input[name=\"cnpj\"]')?.value || ''"
         )
         print(f"  cnpj no form após lookup: {cnpj_after!r}")
-        hidden_tomador = form_tmp2.evaluate("""
-            () => {
-                const result = {};
-                document.querySelectorAll('input').forEach(el => {
-                    if (!el.name) return;
-                    const n = el.name.toLowerCase();
-                    if (el.type === 'hidden' || n.includes('tomador') || n.includes('pessoa')
-                        || n.includes('id_') || n.includes('codigo_t') || n.includes('retorno')) {
-                        result[el.name] = el.value;
-                    }
-                });
-                return result;
-            }
-        """)
-        print(f"  Campos hidden/tomador pós-lookup: {hidden_tomador}")
     except Exception:
         pass
 
