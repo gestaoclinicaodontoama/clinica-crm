@@ -952,6 +952,27 @@ app.patch('/api/notas-fiscais/:id', rateLimit, async (req, res) => {
   }
 });
 
+app.get('/api/notas-fiscais/:id/pdf', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
+    const { data: nota } = await supabase.from('notas_fiscais').select('id,caminho_pdf,num_nota').eq('id', id).maybeSingle();
+    if (!nota) return res.status(404).json({ error: 'Nota não encontrada' });
+    const cp = nota.caminho_pdf || '';
+    if (!cp) return res.status(404).json({ error: 'PDF não disponível para esta nota' });
+    // Se caminho_pdf é uma URL HTTP (URL de impressão do SIGISS), redireciona
+    if (cp.startsWith('http')) return res.redirect(cp);
+    // Se é um caminho de arquivo local, serve o arquivo
+    const fs = require('fs');
+    if (!fs.existsSync(cp)) return res.status(404).json({ error: 'Arquivo PDF não encontrado no servidor' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="NF-${nota.num_nota || id}.pdf"`);
+    fs.createReadStream(cp).pipe(res);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/notas-fiscais/:id', rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);

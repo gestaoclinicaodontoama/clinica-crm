@@ -2237,7 +2237,8 @@ function nfViewRowHtml(n) {
   const desc = n.descricao
     ? `<span title="${escHtml(n.descricao)}" style="color:var(--muted);font-size:11px;max-width:130px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(n.descricao)}</span>` : '<span style="color:var(--muted)">—</span>';
   const nota_num = n.num_nota
-    ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${escHtml(n.num_nota)}</span>` : '<span style="color:var(--muted)">—</span>';
+    ? `<a href="/api/notas-fiscais/${n.id}/pdf" target="_blank" onclick="event.stopPropagation()" title="Abrir PDF" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);text-decoration:underline dotted">${escHtml(n.num_nota)}</a>`
+    : '<span style="color:var(--muted)">—</span>';
   const canEdit = ['Pendente','Erro'].includes(n.status);
   return `<tr id="nf-vrow-${n.id}" class="nf-row-clickable" onclick="abrirDetalheNota(${n.id})">
     <td>${nfSistemaBadge(n.sistema)}</td>
@@ -3059,6 +3060,7 @@ function _renderDetalheNota(n) {
         ${nfSistemaBadge(n.sistema)}
         ${nfStatusBadge(n.status)}
         ${n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)">NF# ${escHtml(n.num_nota)}</span>` : ''}
+        ${n.num_nota ? `<a href="/api/notas-fiscais/${n.id}/pdf" target="_blank" title="Abrir Nota Fiscal" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500">⬇ PDF</a>` : ''}
       </div>
       <button onclick="fecharDetalheNota()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:2px 8px;line-height:1">✕</button>
     </div>

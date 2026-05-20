@@ -1219,20 +1219,24 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
             )
             html_pagina2 = r2.text
             print(f"  Redirect resp: {len(html_pagina2)} chars")
-            print(f"  Trecho2: {html_pagina2[:800]}")
+            print(f"  Trecho2: {html_pagina2[:2000]}")
+            # Loga todos os hrefs para encontrar URL de impressão/PDF
+            hrefs2 = re.findall(r'href=["\']([^"\']+)["\']', html_pagina2, re.IGNORECASE)
+            print(f"  Hrefs Trecho2: {hrefs2[:20]}")
         except Exception as e:
             print(f"  Aviso redirect: {e}")
 
-    # Extrai número da nota — tenta resposta primária e redirect
+    # Extrai número da nota — tenta html_pagina2 (nfe.php) primeiro, depois html (nfe_exec.php)
+    # IMPORTANTE: não usar padrão genérico nota=(\d+) — captura campos hidden com valor "1"
     num_nota = ""
     for html_src in [html_pagina2, html]:
         for pattern in [
-            r'[Nn][úu]mero[^\d]*(\d+)',
-            r'NFS[- ]?e[^\d]*(\d+)',
-            r'Nota[^\d]*(\d{4,})',
-            r'num_nota[^\d]*(\d+)',
-            r'nota[=:]["\s]*(\d+)',
-            r'>\s*(\d{4,})\s*<',
+            r'[Nn][úu]mero[^\d]*(\d{3,})',     # "Número: 363" ou "Número da NFSe: 363"
+            r'NFS[- ]?e[^\d]*(\d{3,})',          # "NFS-e 363" ou "NFSe363"
+            r'n[ºo°°]\s*(\d{3,})',               # "nº 363"
+            r'num_nfse[^\d]*(\d{3,})',            # campo num_nfse=363
+            r'num_nota[^\d]*(\d{3,})',            # campo num_nota=363
+            r'>\s*(\d{3,})\s*<',                 # número isolado entre tags (3+ dígitos)
         ]:
             m = re.search(pattern, html_src)
             if m:
@@ -1242,21 +1246,27 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         if num_nota:
             break
 
-    # Tenta baixar PDF via HTTP — procura links diretos, redirects JS e URLs de impressão
+    # Tenta capturar URL de impressão/PDF — busca em html_pagina2 E html
     caminho = ""
+    print_url = ""
     pdf_urls: list[str] = []
-    pdf_urls += re.findall(r'href=["\']([^"\']*\.pdf[^"\']*)["\']', html, re.IGNORECASE)
-    pdf_urls += re.findall(r'href=["\']([^"\']*imprimir[^"\']*)["\']', html, re.IGNORECASE)
-    pdf_urls += re.findall(r'href=["\']([^"\']*download[^"\']*)["\']', html, re.IGNORECASE)
+    for html_src in [html_pagina2, html]:
+        pdf_urls += re.findall(r'href=["\']([^"\']*\.pdf[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*imprimir[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*download[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*nfe_print[^"\']*)["\']', html_src, re.IGNORECASE)
+        pdf_urls += re.findall(r'href=["\']([^"\']*nfse[^"\']*print[^"\']*)["\']', html_src, re.IGNORECASE)
     # Redirects JavaScript (location.href / window.location)
     js_locs = re.findall(
-        r'''(?:window\.location|location\.href)\s*=\s*['"]([^'"]+)['"]''', html
+        r'''(?:window\.location|location\.href)\s*=\s*['"]([^'"]+)['"]''', html_pagina2 or html
     )
-    pdf_urls += [u for u in js_locs if any(k in u for k in ('imprimir', 'pdf', 'nota', 'nfse'))]
+    pdf_urls += [u for u in js_locs if any(k in u for k in ('imprimir', 'pdf', 'nota', 'nfse', 'print'))]
 
     for url in pdf_urls[:3]:
         try:
             full_url = url if url.startswith('http') else base_url + '/' + url.lstrip('/')
+            if not print_url:
+                print_url = full_url  # guarda primeira URL encontrada como candidata
             pdf_r = session.get(full_url, timeout=20)
             ct = pdf_r.headers.get('content-type', '')
             if 'pdf' in ct or len(pdf_r.content) > 5000:
@@ -1268,6 +1278,12 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
                 break
         except Exception as e:
             print(f"  PDF não baixado ({url}): {e}")
+
+    # Se não baixou PDF, usa a URL de impressão como referência (stored in caminho_pdf)
+    if not caminho and print_url:
+        caminho = print_url
+        print(f"  URL impressão capturada: {print_url}")
+    print(f"  PDF URLs encontradas: {pdf_urls[:5]}")
 
     return {"num_nota": num_nota, "caminho_pdf": caminho}
 
