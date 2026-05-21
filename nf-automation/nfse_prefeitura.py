@@ -362,23 +362,83 @@ def _aguardar_frame_lookup(page, timeout_s: int = 8):
     return None
 
 
+def _parsear_tomador_html(html: str, cpf_limpo: str) -> dict:
+    """
+    Tenta extrair id_tomador/ccm de qualquer padrão de onclick/data-* no HTML.
+    Registrado separadamente para reutilizar com frame content e HTTP response.
+    """
+    import re as _re
+
+    # Padrões testados em ordem de especificidade
+    patterns = [
+        # lineSelected('id','ccm','cpf','nome')  — literal args
+        (r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"],\s*['\"]([^'\"]*)['\"],\s*['\"]([^'\"]*)['\"]",
+         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2), 'cnpj': m.group(3), 'razao': m.group(4)}),
+        # lineSelected('id','ccm')  — 2 args
+        (r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"]",
+         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
+        # onclick="selecionaLinha('id','ccm',...)" ou similar
+        (r"(?:selecionaLinha|selectLine|selectTomador|seleciona)\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"]",
+         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
+        # data-id="123" data-ccm="-456" em qualquer tag com o CPF
+        (r'data-(?:id|idTomador|id_tomador)[=\s]*["\'](\d+)["\'][^>]*data-(?:ccm|im|inscricao)[=\s]*["\'](-?\d+)["\']',
+         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
+        # valor em campo hidden ou JS var: id_tomador = '123'
+        (r"id_tomador\s*[=:]\s*['\"](\d+)['\"].*?ccm\s*[=:]\s*['\"](-?\d+)['\"]",
+         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
+    ]
+
+    for pattern, extractor in patterns:
+        # tenta linha com o CPF primeiro; depois qualquer linha (primeira ocorrência)
+        for scope in [cpf_limpo, None]:
+            try:
+                if scope:
+                    m = _re.search(pattern, ''.join(
+                        l for l in html.splitlines() if scope in l
+                    ))
+                else:
+                    m = _re.search(pattern, html)
+                if m:
+                    result = extractor(m)
+                    print(f"  Parse OK (padrão {pattern[:40]}...): {result}")
+                    return result
+            except Exception:
+                continue
+    return {}
+
+
 def _buscar_tomador_via_http(page, cpf_limpo: str) -> dict:
     """
-    HTTP lookup para extrair id_tomador/ccm do SIGISS.
+    Extrai id_tomador/ccm do SIGISS para contornar tr.line que não renderiza em headless.
 
-    Em modo headless tr.line não renderiza no iframe de lookup —
-    confirmSelection() não roda → id_tomador/ccm ficam vazios → PFNI.
-    Esta função faz o mesmo POST que o browser faria, parseia o HTML
-    e retorna os valores que lineSelected() teria extraído.
+    Estratégia 1: lê o HTML do frame Playwright já carregado (mais confiável — mesma sessão).
+    Estratégia 2: HTTP POST direto com cookies do Playwright (fallback).
+    Ambos usam _parsear_tomador_html() para diferentes padrões de onclick.
     """
     import re as _re
     import requests as _req
-    from urllib.parse import urlparse
 
+    # ── Estratégia 1: frame já carregado pelo Playwright ─────────────────────
+    # O frame navegou para nfe_filtro_contribuinte.php com os resultados PHP-renderizados.
+    # Ler o HTML daqui é mais confiável que um HTTP POST separado.
+    for f in page.frames:
+        if 'nfe_filtro_contribuinte' in f.url or 'nfe_lookup' in f.url:
+            try:
+                html_frame = f.content()
+                print(f"  Frame content: {len(html_frame)} chars ({f.url[:70]})")
+                result = _parsear_tomador_html(html_frame, cpf_limpo)
+                if result:
+                    return result
+                # Log diagnóstico — primeiros 2000 chars para inspecionar o HTML real
+                print(f"  [DIAG HTML frame] {html_frame[:2000]}")
+            except Exception as e:
+                print(f"  Frame content erro: {e}")
+
+    # ── Estratégia 2: HTTP POST com cookies do Playwright ─────────────────────
     base = 'https://ipatinga.meumunicipio.online'
-    url = f'{base}/ISS/contribuinte/nfe/nfe_filtro_contribuinte.php'
+    url_filtro = f'{base}/ISS/contribuinte/nfe/nfe_filtro_contribuinte.php'
     cookies = {c['name']: c['value'] for c in page.context.cookies()}
-    headers = {
+    headers_post = {
         'Referer': f'{base}/ISS/contribuinte/nfe/nfe_lookup.php',
         'Content-Type': 'application/x-www-form-urlencoded',
     }
@@ -390,32 +450,24 @@ def _buscar_tomador_via_http(page, cpf_limpo: str) -> dict:
     ]
     for data in payloads:
         try:
-            r = _req.post(url, data=data, cookies=cookies, headers=headers, timeout=15)
+            r = _req.post(url_filtro, data=data, cookies=cookies,
+                          headers=headers_post, timeout=15)
             html = r.text
-            # Formato: lineSelected('id_tomador','ccm','cpf','nome')
-            m = _re.search(
-                r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"],\s*['\"]([^'\"]*)['\"],\s*['\"]([^'\"]*)['\"]",
-                html,
-            )
-            if m:
-                result = {
-                    'id_tomador': m.group(1),
-                    'ccm': m.group(2),
-                    'cnpj': m.group(3),
-                    'razao': m.group(4),
-                }
-                print(f"  HTTP lookup OK: id_tomador={result['id_tomador']} ccm={result['ccm']}")
+            result = _parsear_tomador_html(html, cpf_limpo)
+            if result:
                 return result
-            # Padrão simplificado (2 args)
-            m2 = _re.search(r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"]", html)
-            if m2:
-                print(f"  HTTP lookup OK (2-arg): id_tomador={m2.group(1)} ccm={m2.group(2)}")
-                return {'id_tomador': m2.group(1), 'ccm': m2.group(2)}
-            print(f"  HTTP lookup ({list(data.keys())}): lineSelected não encontrado no HTML ({len(html)} chars)")
+            print(f"  HTTP POST ({list(data.keys())}): sem match ({len(html)} chars)")
         except Exception as e:
-            print(f"  HTTP lookup ({list(data.keys())}): {e}")
+            print(f"  HTTP POST ({list(data.keys())}): {e}")
             continue
-    print(f"  AVISO: HTTP lookup não encontrou id_tomador/ccm para CPF {cpf_limpo}")
+
+    # Log do HTML do último POST para diagnóstico (só se todos falharam)
+    try:
+        print(f"  [DIAG HTML http] {r.text[:2000]}")
+    except Exception:
+        pass
+
+    print(f"  AVISO: tomador não encontrado para CPF {cpf_limpo}")
     return {}
 
 
