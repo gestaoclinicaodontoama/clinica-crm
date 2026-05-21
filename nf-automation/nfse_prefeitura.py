@@ -1091,6 +1091,20 @@ def _preencher_form(page, nota: dict):
     """, {"cpf": cpf_limpo, "nome": nota.get("nome_tomador", "")})
     print(f"  Fallback cnpj/razao (só se vazio): {cpf_limpo!r} / {nota.get('nome_tomador','')!r}")
 
+    # Validação obrigatória: sem id_tomador o SIGISS emite PFNI.
+    # Melhor dar erro no CRM agora do que emitir nota errada.
+    form_check = _frame_formulario(page)
+    id_tomador_val = form_check.evaluate(
+        "() => document.querySelector('#id_tomador,[name=\"id_tomador\"]')?.value || ''"
+    )
+    if not id_tomador_val:
+        raise RuntimeError(
+            f"CPF {nota['cpf_tomador']} ({nota.get('nome_tomador','?')}) — "
+            "id_tomador vazio após lookup. Tomador pode não estar cadastrado no SIGISS "
+            "ou HTTP lookup falhou. Corrija o cadastro na Prefeitura e tente novamente."
+        )
+    print(f"  Validação tomador OK: id_tomador={id_tomador_val!r}")
+
     _selecionar_atividade(page, "412")
 
     # Verifica se callbacks do modal de atividade popularam aliquota
@@ -1216,6 +1230,13 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     if not form_data.get('situacao'):
         form_data['situacao'] = 'tp'
         print("  [FIX] situacao → tp")
+
+    # Segunda barreira anti-PFNI: não envia POST se id_tomador ausente.
+    if not form_data.get('id_tomador'):
+        raise RuntimeError(
+            f"id_tomador vazio no POST — abortando para evitar PFNI. "
+            f"CPF: {form_data.get('cnpj', '?')} — verifique lookup manual."
+        )
 
     # DIAGNÓSTICO: mostra campos relevantes para identificar campos vazios
     # id_tomador e ccm são os campos que o SIGISS usa para identificar o tomador.
