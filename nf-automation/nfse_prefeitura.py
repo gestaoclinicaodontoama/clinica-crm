@@ -362,6 +362,63 @@ def _aguardar_frame_lookup(page, timeout_s: int = 8):
     return None
 
 
+def _buscar_tomador_via_http(page, cpf_limpo: str) -> dict:
+    """
+    HTTP lookup para extrair id_tomador/ccm do SIGISS.
+
+    Em modo headless tr.line não renderiza no iframe de lookup —
+    confirmSelection() não roda → id_tomador/ccm ficam vazios → PFNI.
+    Esta função faz o mesmo POST que o browser faria, parseia o HTML
+    e retorna os valores que lineSelected() teria extraído.
+    """
+    import re as _re
+    import requests as _req
+    from urllib.parse import urlparse
+
+    base = 'https://ipatinga.meumunicipio.online'
+    url = f'{base}/ISS/contribuinte/nfe/nfe_filtro_contribuinte.php'
+    cookies = {c['name']: c['value'] for c in page.context.cookies()}
+    headers = {
+        'Referer': f'{base}/ISS/contribuinte/nfe/nfe_lookup.php',
+        'Content-Type': 'application/x-www-form-urlencoded',
+    }
+    payloads = [
+        {'cpf': cpf_limpo, 'local': 'F'},
+        {'cpf': cpf_limpo, 'tipo': 'F', 'local': 'F'},
+        {'cnpj': cpf_limpo, 'local': 'F'},
+        {'cpf': cpf_limpo},
+    ]
+    for data in payloads:
+        try:
+            r = _req.post(url, data=data, cookies=cookies, headers=headers, timeout=15)
+            html = r.text
+            # Formato: lineSelected('id_tomador','ccm','cpf','nome')
+            m = _re.search(
+                r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"],\s*['\"]([^'\"]*)['\"],\s*['\"]([^'\"]*)['\"]",
+                html,
+            )
+            if m:
+                result = {
+                    'id_tomador': m.group(1),
+                    'ccm': m.group(2),
+                    'cnpj': m.group(3),
+                    'razao': m.group(4),
+                }
+                print(f"  HTTP lookup OK: id_tomador={result['id_tomador']} ccm={result['ccm']}")
+                return result
+            # Padrão simplificado (2 args)
+            m2 = _re.search(r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"]", html)
+            if m2:
+                print(f"  HTTP lookup OK (2-arg): id_tomador={m2.group(1)} ccm={m2.group(2)}")
+                return {'id_tomador': m2.group(1), 'ccm': m2.group(2)}
+            print(f"  HTTP lookup ({list(data.keys())}): lineSelected não encontrado no HTML ({len(html)} chars)")
+        except Exception as e:
+            print(f"  HTTP lookup ({list(data.keys())}): {e}")
+            continue
+    print(f"  AVISO: HTTP lookup não encontrou id_tomador/ccm para CPF {cpf_limpo}")
+    return {}
+
+
 def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     """
     Seleciona Tipo de Tomador → abre wizard 'nfe_filtro_contribuinte' →
@@ -455,6 +512,10 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         except Exception:
             pass
     print(f"  Lookup pós-pesquisa: {lookup.url[:80]}")
+
+    # HTTP lookup — tr.line não renderiza em headless; extrai id_tomador/ccm via POST HTTP
+    # Chamado aqui (antes de clicar OK) enquanto a sessão ainda tem o resultado fresco
+    tomador_http = _buscar_tomador_via_http(page, cpf_limpo)
 
     # Aguarda tr.line aparecer — os resultados são renderizados depois do DOMContentLoaded
     tr_line_ok = False
@@ -562,6 +623,30 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
               f"razao={diag.get('razao')!r}")
         if not diag.get('id_tomador'):
             print("  AVISO: id_tomador vazio após Ok — confirmSelection pode não ter rodado!")
+            # Injeta via HTTP lookup (tomador_http já foi buscado antes do clique Ok)
+            if tomador_http:
+                inject = {k: v for k, v in tomador_http.items() if v}
+                inj_result = form2.evaluate("""
+                    (d) => {
+                        const changed = [];
+                        Object.entries(d).forEach(([name, val]) => {
+                            if (!val) return;
+                            const el = document.getElementById(name)
+                                || document.querySelector('[name="' + name + '"]');
+                            if (el) {
+                                el.value = val;
+                                ['input', 'change'].forEach(
+                                    ev => el.dispatchEvent(new Event(ev, {bubbles: true}))
+                                );
+                                changed.push(name + '=' + val);
+                            }
+                        });
+                        return changed.join(', ');
+                    }
+                """, inject)
+                print(f"  HTTP lookup injetado no form: {inj_result}")
+            else:
+                print("  AVISO CRÍTICO: HTTP lookup também falhou — nota pode sair como PFNI!")
     except Exception as e:
         print(f"  Aviso diagnóstico pós-lookup: {e}")
 
