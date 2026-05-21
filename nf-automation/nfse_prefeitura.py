@@ -344,19 +344,21 @@ def _abrir_form_emissao(page):
 
 # ── wizard: Pesquisar Contribuinte ────────────────────────────────────────────
 
-def _aguardar_frame_lookup(page, timeout_s: int = 8):
+def _aguardar_frame_lookup(page, timeout_s: int = 12):
     """
-    Aguarda o frame do wizard de busca de contribuinte.
-    Nome do frame no SIGISS Ipatinga: 'nfe_filtro_contribuinte'
+    Aguarda o frame de busca de contribuinte estar em nfe_filtro_contribuinte.php.
+
+    nfe_lookup.php é um placeholder vazio que o SIGISS usa como src inicial do
+    iframe detail — ele NÃO é o frame de busca. O JS de nfe.php muda o src para
+    nfe_filtro_contribuinte.php quando o tipo de tomador é selecionado.
+    Por isso ignoramos nfe_lookup.php e só retornamos quando o frame correto carrega.
     """
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         for f in page.frames:
-            # Prioridade 1: nome exato confirmado via DevTools
             if f.name == 'nfe_filtro_contribuinte':
                 return f
-            # Prioridade 2: URL contém filtro_contribuinte ou nfe_lookup
-            if f.url and ('filtro_contribuinte' in f.url or 'nfe_lookup' in f.url):
+            if f.url and 'filtro_contribuinte' in f.url:
                 return f
         time.sleep(0.4)
     return None
@@ -430,7 +432,7 @@ def _buscar_tomador_via_http(page, cpf_limpo: str) -> dict:
     # O frame navegou para nfe_filtro_contribuinte.php com os resultados PHP-renderizados.
     # Ler o HTML daqui é mais confiável que um HTTP POST separado.
     for f in page.frames:
-        if 'nfe_filtro_contribuinte' in f.url or 'nfe_lookup' in f.url:
+        if 'nfe_filtro_contribuinte' in f.url:
             try:
                 html_frame = f.content()
                 print(f"  Frame content: {len(html_frame)} chars ({f.url[:70]})")
@@ -556,13 +558,21 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
         except Exception:
             continue
     if not clicou_pesquisar:
-        print("  Pesquisar não encontrado, pressionando Enter...")
+        print("  Pesquisar não encontrado, submetendo form#busca via JS...")
         try:
-            lookup.locator('input[type="text"]').first.press("Enter")
-        except Exception:
-            pass
+            lookup.evaluate(
+                "() => { const f = document.getElementById('busca'); if(f) f.submit(); }"
+            )
+            clicou_pesquisar = True
+            print("  Submit via JS (form#busca)")
+        except Exception as e:
+            print(f"  JS submit erro: {e}")
+            try:
+                lookup.locator('input[type="text"]').first.press("Enter")
+            except Exception:
+                pass
 
-    # Aguarda resultados — o iframe navega de nfe_lookup.php para nfe_filtro_contribuinte.php
+    # Aguarda resultados — o iframe recarrega em nfe_filtro_contribuinte.php (POST response)
     time.sleep(1.5)
     lookup2 = _aguardar_frame_lookup(page, timeout_s=8)
     if lookup2:
