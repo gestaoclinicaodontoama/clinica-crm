@@ -364,46 +364,54 @@ def _aguardar_frame_lookup(page, timeout_s: int = 8):
 
 def _parsear_tomador_html(html: str, cpf_limpo: str) -> dict:
     """
-    Tenta extrair id_tomador/ccm de qualquer padrão de onclick/data-* no HTML.
-    Registrado separadamente para reutilizar com frame content e HTTP response.
+    Extrai id_tomador/ccm/cnpj/razao do HTML de nfe_filtro_contribuinte.php.
+
+    Formato confirmado (Cowork 2026-05-21):
+      <tr id="id_tomador<|>ccm<|>cnpj<|>nome" onclick="lineSelected(this);">
+    OK chama: window.parent.contribResult(selected.id) — passa o id completo para nfe.php.
     """
     import re as _re
 
-    # Padrões testados em ordem de especificidade
-    patterns = [
-        # lineSelected('id','ccm','cpf','nome')  — literal args
-        (r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"],\s*['\"]([^'\"]*)['\"],\s*['\"]([^'\"]*)['\"]",
-         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2), 'cnpj': m.group(3), 'razao': m.group(4)}),
-        # lineSelected('id','ccm')  — 2 args
-        (r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"]",
-         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
-        # onclick="selecionaLinha('id','ccm',...)" ou similar
-        (r"(?:selecionaLinha|selectLine|selectTomador|seleciona)\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"]",
-         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
-        # data-id="123" data-ccm="-456" em qualquer tag com o CPF
-        (r'data-(?:id|idTomador|id_tomador)[=\s]*["\'](\d+)["\'][^>]*data-(?:ccm|im|inscricao)[=\s]*["\'](-?\d+)["\']',
-         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
-        # valor em campo hidden ou JS var: id_tomador = '123'
-        (r"id_tomador\s*[=:]\s*['\"](\d+)['\"].*?ccm\s*[=:]\s*['\"](-?\d+)['\"]",
-         lambda m: {'id_tomador': m.group(1), 'ccm': m.group(2)}),
-    ]
-
-    for pattern, extractor in patterns:
-        # tenta linha com o CPF primeiro; depois qualquer linha (primeira ocorrência)
-        for scope in [cpf_limpo, None]:
-            try:
-                if scope:
-                    m = _re.search(pattern, ''.join(
-                        l for l in html.splitlines() if scope in l
-                    ))
-                else:
-                    m = _re.search(pattern, html)
-                if m:
-                    result = extractor(m)
-                    print(f"  Parse OK (padrão {pattern[:40]}...): {result}")
-                    return result
-            except Exception:
+    for scope_filter in [cpf_limpo, None]:
+        haystack = html
+        if scope_filter:
+            linhas = [l for l in html.splitlines() if scope_filter in l]
+            if linhas:
+                haystack = '\n'.join(linhas)
+            else:
                 continue
+
+        # ── Padrão principal confirmado: <tr id="id<|>ccm<|>cnpj<|>nome" ──
+        m = _re.search(
+            r'<tr[^>]+\bid="(\d+)<\|>(-?\d+)<\|>([^<"|]*)<\|>([^<"|]*)"',
+            haystack
+        )
+        if m:
+            result = {
+                'id_tomador': m.group(1),
+                'ccm': m.group(2),
+                'cnpj': m.group(3),
+                'razao': m.group(4).strip(),
+                '_id_string': f"{m.group(1)}<|>{m.group(2)}<|>{m.group(3)}<|>{m.group(4).strip()}",
+            }
+            print(f"  Parse <|> OK: id={result['id_tomador']} ccm={result['ccm']}")
+            return result
+
+        # ── Fallback: lineSelected('id','ccm','cpf','nome') literal ──
+        m2 = _re.search(
+            r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"],\s*['\"]([^'\"]*)['\"],\s*['\"]([^'\"]*)['\"]",
+            haystack
+        )
+        if m2:
+            result = {
+                'id_tomador': m2.group(1),
+                'ccm': m2.group(2),
+                'cnpj': m2.group(3),
+                'razao': m2.group(4),
+            }
+            print(f"  Parse lineSelected literal OK: {result}")
+            return result
+
     return {}
 
 
@@ -442,30 +450,30 @@ def _buscar_tomador_via_http(page, cpf_limpo: str) -> dict:
         'Referer': f'{base}/ISS/contribuinte/nfe/nfe_lookup.php',
         'Content-Type': 'application/x-www-form-urlencoded',
     }
+    # Campo confirmado pelo Cowork: form id="busca" usa campo "cnpj"
     payloads = [
-        {'cpf': cpf_limpo, 'local': 'F'},
-        {'cpf': cpf_limpo, 'tipo': 'F', 'local': 'F'},
         {'cnpj': cpf_limpo, 'local': 'F'},
+        {'cnpj': cpf_limpo},
+        {'cpf': cpf_limpo, 'local': 'F'},
         {'cpf': cpf_limpo},
     ]
+    last_html = ''
     for data in payloads:
         try:
             r = _req.post(url_filtro, data=data, cookies=cookies,
                           headers=headers_post, timeout=15)
-            html = r.text
-            result = _parsear_tomador_html(html, cpf_limpo)
+            last_html = r.text
+            result = _parsear_tomador_html(last_html, cpf_limpo)
             if result:
                 return result
-            print(f"  HTTP POST ({list(data.keys())}): sem match ({len(html)} chars)")
+            print(f"  HTTP POST ({list(data.keys())}): sem match ({len(last_html)} chars)")
         except Exception as e:
             print(f"  HTTP POST ({list(data.keys())}): {e}")
             continue
 
-    # Log do HTML do último POST para diagnóstico (só se todos falharam)
-    try:
-        print(f"  [DIAG HTML http] {r.text[:2000]}")
-    except Exception:
-        pass
+    # Log do HTML para diagnóstico quando todos os métodos falham
+    if last_html:
+        print(f"  [DIAG HTML http] {last_html[:2000]}")
 
     print(f"  AVISO: tomador não encontrado para CPF {cpf_limpo}")
     return {}
@@ -519,14 +527,14 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     lookup.wait_for_load_state("domcontentloaded", timeout=8000)
     time.sleep(0.5)
 
-    # Preenche CPF no campo de busca do lookup
-    for sel in ['input[name*="cpf"]', 'input[id*="cpf"]',
+    # Preenche CPF no campo de busca — campo confirmado: name="cnpj" (form id="busca")
+    for sel in ['input[name="cnpj"]', 'input[name*="cpf"]', 'input[id*="cpf"]',
                 'input[placeholder*="CPF"]', 'input[type="text"]']:
         try:
             loc = lookup.locator(sel).first
             if loc.is_visible(timeout=2000):
                 loc.fill(cpf_limpo)
-                print(f"  CPF preenchido no lookup: {cpf_limpo}")
+                print(f"  CPF preenchido no lookup ({sel}): {cpf_limpo}")
                 break
         except Exception:
             continue
@@ -675,30 +683,52 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
               f"razao={diag.get('razao')!r}")
         if not diag.get('id_tomador'):
             print("  AVISO: id_tomador vazio após Ok — confirmSelection pode não ter rodado!")
-            # Injeta via HTTP lookup (tomador_http já foi buscado antes do clique Ok)
             if tomador_http:
-                inject = {k: v for k, v in tomador_http.items() if v}
-                inj_result = form2.evaluate("""
-                    (d) => {
-                        const changed = [];
-                        Object.entries(d).forEach(([name, val]) => {
-                            if (!val) return;
-                            const el = document.getElementById(name)
-                                || document.querySelector('[name="' + name + '"]');
-                            if (el) {
-                                el.value = val;
-                                ['input', 'change'].forEach(
-                                    ev => el.dispatchEvent(new Event(ev, {bubbles: true}))
-                                );
-                                changed.push(name + '=' + val);
+                # Tenta chamar contribResult() — função nativa do nfe.php que recebe o
+                # id completo "id_tomador<|>ccm<|>cnpj<|>nome" e preenche os campos.
+                id_string = tomador_http.get('_id_string')
+                injetou = False
+                if id_string:
+                    try:
+                        cr = form2.evaluate("""
+                            (id_str) => {
+                                if (typeof contribResult === 'function') {
+                                    contribResult(id_str);
+                                    return 'OK:contribResult';
+                                }
+                                return 'NOT_FOUND';
                             }
-                        });
-                        return changed.join(', ');
-                    }
-                """, inject)
-                print(f"  HTTP lookup injetado no form: {inj_result}")
+                        """, id_string)
+                        print(f"  contribResult: {cr}")
+                        injetou = cr.startswith('OK:')
+                    except Exception as e:
+                        print(f"  contribResult erro: {e}")
+
+                if not injetou:
+                    # Fallback: inject campos individualmente
+                    inject = {k: v for k, v in tomador_http.items()
+                              if v and not k.startswith('_')}
+                    inj_result = form2.evaluate("""
+                        (d) => {
+                            const changed = [];
+                            Object.entries(d).forEach(([name, val]) => {
+                                if (!val) return;
+                                const el = document.getElementById(name)
+                                    || document.querySelector('[name="' + name + '"]');
+                                if (el) {
+                                    el.value = val;
+                                    ['input', 'change'].forEach(
+                                        ev => el.dispatchEvent(new Event(ev, {bubbles: true}))
+                                    );
+                                    changed.push(name + '=' + val);
+                                }
+                            });
+                            return changed.join(', ');
+                        }
+                    """, inject)
+                    print(f"  Injeção direta: {inj_result}")
             else:
-                print("  AVISO CRÍTICO: HTTP lookup também falhou — nota pode sair como PFNI!")
+                print("  AVISO CRÍTICO: lookup falhou — nota pode sair como PFNI!")
     except Exception as e:
         print(f"  Aviso diagnóstico pós-lookup: {e}")
 
