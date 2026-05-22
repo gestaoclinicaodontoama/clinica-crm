@@ -2416,7 +2416,8 @@ async function lookupClinicorp(target) {
       nomeInput.value = data.nome || '';
       idInput.classList.add('lookup-ok');
       msgEl.style.color = '#22c55e';
-      msgEl.textContent = 'Preenchido via ' + (data.fonte === 'supabase' ? 'cadastro local' : 'Clinicorp API');
+      const fonteLabel = data.fonte === 'historico' ? 'histórico de notas' : data.fonte === 'supabase' ? 'cadastro local' : 'Clinicorp API';
+      msgEl.textContent = 'Preenchido via ' + fonteLabel;
       setTimeout(() => {
         idInput.classList.remove('lookup-ok', 'lookup-erro');
         msgEl.textContent = '';

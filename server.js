@@ -1076,22 +1076,34 @@ app.get('/api/pacientes/clinicorp/:termo', requireAuth, rateLimit, async (req, r
   if (!raw) return res.status(400).json({ error: 'Termo invalido' });
 
   const soDigitos = raw.replace(/\D/g, '');
-  const isCpf = soDigitos.length === 11 && soDigitos === raw.replace(/[.\-]/g, '');
+  // isCpf: 11 dígitos exatos (com ou sem formatação padrão xxx.xxx.xxx-xx)
+  const isCpf = soDigitos.length === 11;
   const isNome = /[a-zA-ZÀ-ú]/.test(raw);
 
   try {
-    // 1. Supabase
-    let row = null;
+    // 1. Histórico local: busca em notas_fiscais (dados já usados em notas anteriores)
+    // Mais rápido e confiável que Clinicorp API — não tem limite de taxa.
     if (isCpf) {
-      const { data } = await supabase.from('pacientes').select('cpf,nome').eq('cpf', soDigitos).maybeSingle();
-      row = data;
+      const { data } = await supabase
+        .from('notas_fiscais').select('cpf_tomador,nome_tomador')
+        .eq('cpf_tomador', soDigitos)
+        .order('id', { ascending: false }).limit(1).maybeSingle();
+      if (data?.nome_tomador) {
+        console.log(`[lookup-nf] CPF "${soDigitos}" encontrado no histórico NF`);
+        return res.json({ cpf: data.cpf_tomador, nome: data.nome_tomador, fonte: 'historico' });
+      }
     } else if (isNome) {
-      const { data } = await supabase.from('pacientes').select('cpf,nome').ilike('nome', `%${raw}%`).limit(1).maybeSingle();
-      row = data;
+      const { data } = await supabase
+        .from('notas_fiscais').select('cpf_tomador,nome_tomador')
+        .ilike('nome_tomador', `%${raw}%`)
+        .order('id', { ascending: false }).limit(1).maybeSingle();
+      if (data?.nome_tomador) {
+        console.log(`[lookup-nf] Nome "${raw}" encontrado no histórico NF`);
+        return res.json({ cpf: data.cpf_tomador || '', nome: data.nome_tomador, fonte: 'historico' });
+      }
     }
-    if (row?.nome) return res.json({ cpf: row.cpf || '', nome: row.nome, fonte: 'supabase' });
 
-    // 2. Clinicorp API
+    // 2. Clinicorp API (fallback para pacientes sem histórico de NF)
     try {
       const params = isCpf ? { OtherDocumentId: soDigitos } : { Name: raw };
       const resp = await clinicorpGet('/patient/get', params);
