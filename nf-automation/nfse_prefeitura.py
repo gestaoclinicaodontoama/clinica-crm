@@ -368,24 +368,28 @@ def _parsear_tomador_html(html: str, cpf_limpo: str) -> dict:
     """
     Extrai id_tomador/ccm/cnpj/razao do HTML de nfe_filtro_contribuinte.php.
 
-    Formato confirmado (Cowork 2026-05-21):
-      <tr id="id_tomador<|>ccm<|>cnpj<|>nome" onclick="lineSelected(this);">
-    OK chama: window.parent.contribResult(selected.id) — passa o id completo para nfe.php.
+    Formato no HTML bruto (entities HTML):
+      <tr id="id&lt;|&gt;ccm&lt;|&gt;cnpj&lt;|&gt;nome..." onclick="lineSelected(this);">
+    O JS decodifica para <|> mas o HTML usa &lt;|&gt; — o regex precisa cobrir ambos.
     """
     import re as _re
+
+    # Separador pode ser &lt;|&gt; (HTML raw) ou <|> (já decodificado)
+    SEP = r'(?:&lt;\|&gt;|<\|>)'
 
     for scope_filter in [cpf_limpo, None]:
         haystack = html
         if scope_filter:
-            linhas = [l for l in html.splitlines() if scope_filter in l]
+            linhas = [l for l in html.splitlines() if scope_filter in l or
+                      cpf_limpo.replace(' ', '') in l]
             if linhas:
                 haystack = '\n'.join(linhas)
             else:
                 continue
 
-        # ── Padrão principal confirmado: <tr id="id<|>ccm<|>cnpj<|>nome" ──
+        # ── Padrão principal: <tr id="id<|>ccm<|>cnpj<|>nome" ──
         m = _re.search(
-            r'<tr[^>]+\bid="(\d+)<\|>(-?\d+)<\|>([^<"|]*)<\|>([^<"|]*)"',
+            rf'<tr[^>]*\bid="(\d+){SEP}(-?\d+){SEP}([^"&<\|]*){SEP}([^"&<\|]*)',
             haystack
         )
         if m:
@@ -396,88 +400,174 @@ def _parsear_tomador_html(html: str, cpf_limpo: str) -> dict:
                 'razao': m.group(4).strip(),
                 '_id_string': f"{m.group(1)}<|>{m.group(2)}<|>{m.group(3)}<|>{m.group(4).strip()}",
             }
-            print(f"  Parse <|> OK: id={result['id_tomador']} ccm={result['ccm']}")
-            return result
-
-        # ── Fallback: lineSelected('id','ccm','cpf','nome') literal ──
-        m2 = _re.search(
-            r"lineSelected\(['\"](\d+)['\"],\s*['\"](-?\d+)['\"],\s*['\"]([^'\"]*)['\"],\s*['\"]([^'\"]*)['\"]",
-            haystack
-        )
-        if m2:
-            result = {
-                'id_tomador': m2.group(1),
-                'ccm': m2.group(2),
-                'cnpj': m2.group(3),
-                'razao': m2.group(4),
-            }
-            print(f"  Parse lineSelected literal OK: {result}")
+            print(f"  Parse OK: id={result['id_tomador']} ccm={result['ccm']} razao={result['razao']!r}")
             return result
 
     return {}
 
 
-def _buscar_tomador_via_http(page, cpf_limpo: str) -> dict:
+def _buscar_tomador_via_http(page, cpf_limpo: str, form_frame=None, local: str = 'F') -> dict:
     """
-    Extrai id_tomador/ccm do SIGISS para contornar tr.line que não renderiza em headless.
+    Extrai id_tomador/ccm do SIGISS. Estratégias em ordem de confiabilidade:
 
-    Estratégia 1: lê o HTML do frame Playwright já carregado (mais confiável — mesma sessão).
-    Estratégia 2: HTTP POST direto com cookies do Playwright (fallback).
-    Ambos usam _parsear_tomador_html() para diferentes padrões de onclick.
+    S0: Submete form de busca dentro do iframe#detail via JS (sessão browser, sem HTTP externo).
+    S1: Lê frame nfe_filtro_contribuinte.php já carregado pelo Playwright.
+    S2: HTTP POST com campos reais extraídos do iframe#detail (URL com ?local= obrigatório).
+    S3: HTTP POST com campos mínimos (último recurso).
     """
-    import re as _re
     import requests as _req
 
-    # ── Estratégia 1: frame já carregado pelo Playwright ─────────────────────
-    # O frame navegou para nfe_filtro_contribuinte.php com os resultados PHP-renderizados.
-    # Ler o HTML daqui é mais confiável que um HTTP POST separado.
+    # ── S0: Submete form dentro do iframe#detail via JS ───────────────────────
+    # nfe.php tem iframe#detail contendo nfe_filtro_contribuinte.php (mesmo domínio).
+    # Preenchemos o campo cnpj e submetemos o form diretamente — sem roundtrip HTTP separado.
+    if form_frame:
+        try:
+            sub_result = form_frame.evaluate("""
+                (cpf) => {
+                    const detail = document.getElementById('detail');
+                    if (!detail) return 'no_detail';
+                    const idoc = detail.contentDocument
+                               || (detail.contentWindow && detail.contentWindow.document);
+                    if (!idoc) return 'no_idoc';
+                    const form = idoc.getElementById('busca');
+                    if (!form) return 'no_busca';
+                    const inp = form.querySelector('[name="cnpj"]');
+                    if (!inp) return 'no_cnpj_input';
+                    inp.value = cpf;
+                    const acao = form.querySelector('[name="acao"]');
+                    if (acao) acao.value = '1';
+                    form.submit();
+                    return 'submitted';
+                }
+            """, cpf_limpo)
+            print(f"  S0 iframe submit: {sub_result}")
+            if sub_result == 'submitted':
+                time.sleep(4.0)  # aguarda navegação do iframe
+                html_iframe = form_frame.evaluate("""
+                    () => {
+                        const detail = document.getElementById('detail');
+                        if (!detail) return '';
+                        const idoc = detail.contentDocument
+                                   || (detail.contentWindow && detail.contentWindow.document);
+                        return idoc ? idoc.documentElement.outerHTML : '';
+                    }
+                """)
+                if html_iframe:
+                    print(f"  S0 iframe HTML: {len(html_iframe)} chars")
+                    result = _parsear_tomador_html(html_iframe, cpf_limpo)
+                    if result:
+                        return result
+                    print(f"  [DIAG S0] {html_iframe[:1500]}")
+        except Exception as e:
+            print(f"  S0 erro: {e}")
+
+    # ── S1: frame já carregado pelo Playwright ───────────────────────────────
     for f in page.frames:
         if 'nfe_filtro_contribuinte' in f.url:
             try:
                 html_frame = f.content()
-                print(f"  Frame content: {len(html_frame)} chars ({f.url[:70]})")
+                print(f"  S1 frame: {len(html_frame)} chars ({f.url[:70]})")
                 result = _parsear_tomador_html(html_frame, cpf_limpo)
                 if result:
                     return result
-                # Log diagnóstico — primeiros 2000 chars para inspecionar o HTML real
-                print(f"  [DIAG HTML frame] {html_frame[:2000]}")
+                print(f"  [DIAG S1] {html_frame[:1500]}")
             except Exception as e:
-                print(f"  Frame content erro: {e}")
+                print(f"  S1 erro: {e}")
 
-    # ── Estratégia 2: HTTP POST com cookies do Playwright ─────────────────────
     base = 'https://ipatinga.meumunicipio.online'
-    url_filtro = f'{base}/ISS/contribuinte/nfe/nfe_filtro_contribuinte.php'
     cookies = {c['name']: c['value'] for c in page.context.cookies()}
     headers_post = {
-        'Referer': f'{base}/ISS/contribuinte/nfe/nfe_lookup.php',
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': f'{base}/ISS/contribuinte/nfe/nfe_filtro_contribuinte.php?local={local}',
     }
-    # Campo confirmado pelo Cowork: form id="busca" usa campo "cnpj"
-    payloads = [
-        {'cnpj': cpf_limpo, 'local': 'F'},
-        {'cnpj': cpf_limpo},
-        {'cpf': cpf_limpo, 'local': 'F'},
-        {'cpf': cpf_limpo},
-    ]
-    last_html = ''
-    for data in payloads:
+
+    # ── S2: HTTP POST com campos extraídos do iframe#detail ───────────────────
+    # URL confirmada via Playwright MCP: ?local= no query string é obrigatório.
+    # cnpjPrest/ccmPrest identificam o prestador — sem eles o SIGISS pode rejeitar.
+    if form_frame:
         try:
-            r = _req.post(url_filtro, data=data, cookies=cookies,
-                          headers=headers_post, timeout=15)
-            last_html = r.text
-            result = _parsear_tomador_html(last_html, cpf_limpo)
-            if result:
-                return result
-            print(f"  HTTP POST ({list(data.keys())}): sem match ({len(last_html)} chars)")
+            dom_info = form_frame.evaluate("""
+                (cpf) => {
+                    const detail = document.getElementById('detail');
+                    if (!detail) return null;
+                    const idoc = detail.contentDocument
+                               || (detail.contentWindow && detail.contentWindow.document);
+                    if (!idoc) return null;
+                    const form = idoc.getElementById('busca');
+                    if (!form) return null;
+                    const data = {};
+                    for (const el of form.elements) {
+                        if (el.name) data[el.name] = el.value || '';
+                    }
+                    data.cnpj = cpf;
+                    data.nome = '';
+                    data.acao = '1';
+                    return {action: form.action, data: data};
+                }
+            """, cpf_limpo)
+            if dom_info and dom_info.get('data'):
+                post_data = dom_info['data']
+                action = dom_info.get('action', '')
+                local_val = post_data.get('local', local)
+                if action and action.startswith('http'):
+                    url_s2 = action
+                elif action:
+                    url_s2 = base.rstrip('/') + '/' + action.lstrip('/')
+                else:
+                    url_s2 = f'{base}/ISS/contribuinte/nfe/nfe_filtro_contribuinte.php'
+                if '?local=' not in url_s2:
+                    sep = '&' if '?' in url_s2 else '?'
+                    url_s2 = f'{url_s2}{sep}local={local_val}'
+                print(f"  S2 POST → {url_s2}")
+                print(f"  S2 cnpjPrest={post_data.get('cnpjPrest','?')!r} ccmPrest={post_data.get('ccmPrest','?')!r}")
+                r = _req.post(url_s2, data=post_data, cookies=cookies,
+                              headers=headers_post, timeout=15)
+                html = r.text
+                print(f"  S2 resp: {len(html)} chars status={r.status_code}")
+                result = _parsear_tomador_html(html, cpf_limpo)
+                if result:
+                    return result
+                print(f"  [DIAG S2] {html[:1500]}")
+            else:
+                print(f"  S2 iframe inacessível: {dom_info}")
         except Exception as e:
-            print(f"  HTTP POST ({list(data.keys())}): {e}")
-            continue
+            print(f"  S2 erro: {e}")
 
-    # Log do HTML para diagnóstico quando todos os métodos falham
-    if last_html:
-        print(f"  [DIAG HTML http] {last_html[:2000]}")
+    # ── S3: HTTP POST com campos mínimos ──────────────────────────────────────
+    url_s3 = f'{base}/ISS/contribuinte/nfe/nfe_filtro_contribuinte.php?local={local}'
+    cnpj_prest = ''
+    ccm_prest = ''
+    if form_frame:
+        try:
+            prest = form_frame.evaluate("""
+                () => ({
+                    cnpjPrest: document.querySelector('[name="cnpjPrest"]')?.value || '',
+                    ccmPrest:  document.querySelector('[name="ccmPrest"]')?.value  || '',
+                })
+            """)
+            cnpj_prest = prest.get('cnpjPrest', '')
+            ccm_prest = prest.get('ccmPrest', '')
+        except Exception:
+            pass
+    post_data_s3 = {
+        'cnpj': cpf_limpo, 'nome': '', 'ccm': '', 'acao': '1', 'local': local,
+        'cnpjPrest': cnpj_prest, 'ccmPrest': ccm_prest,
+        'ccmTom': '', 'cnpjTom': '', 'razaoEle': '', 'cnpjEle': '',
+    }
+    print(f"  S3 POST → {url_s3} cnpjPrest={cnpj_prest!r}")
+    try:
+        r = _req.post(url_s3, data=post_data_s3, cookies=cookies,
+                      headers=headers_post, timeout=15)
+        html = r.text
+        print(f"  S3 resp: {len(html)} chars status={r.status_code}")
+        result = _parsear_tomador_html(html, cpf_limpo)
+        if result:
+            return result
+        print(f"  [DIAG S3] {html[:1500]}")
+    except Exception as e:
+        print(f"  S3 erro: {e}")
 
-    print(f"  AVISO: tomador não encontrado para CPF {cpf_limpo}")
+    print(f"  AVISO: tomador não encontrado para CPF {cpf_limpo} (todas as estratégias falharam)")
     return {}
 
 
@@ -525,11 +615,17 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     # Aguarda JS do SIGISS processar onchange (muda iframe src internamente)
     time.sleep(2.0)
 
-    # ── Busca id_tomador/ccm via HTTP POST direto ─────────────────────────────
-    # Não esperamos o iframe nfe_filtro_contribuinte.php aparecer como frame do
-    # Playwright (é lento e instável em headless). Fazemos o POST autenticado
-    # diretamente com os cookies da sessão Playwright.
-    tomador = _buscar_tomador_via_http(page, cpf_limpo)
+    # Lê valor real do select — usado como parâmetro ?local= no POST
+    local_val = 'F'
+    try:
+        local_val = form.evaluate(
+            "() => document.querySelector('select[name=\"local\"],select#local')?.value || 'F'"
+        ) or 'F'
+        print(f"  local value: {local_val!r}")
+    except Exception:
+        pass
+
+    tomador = _buscar_tomador_via_http(page, cpf_limpo, form_frame=form, local=local_val)
 
     if not tomador:
         raise RuntimeError(
