@@ -476,7 +476,7 @@ textarea { resize: vertical; min-height: 80px; }
 <div class="shell" id="app-shell" style="display:none">
 <nav>
   <div class="logo">Clínica <span>CRM</span></div>
-  <button class="nav-btn active" data-page="dashboard" onclick="setPage('dashboard',this)">
+  <button class="nav-btn active" data-page="dashboard" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento" onclick="setPage('dashboard',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
     Dashboard
   </button>
@@ -506,7 +506,7 @@ textarea { resize: vertical; min-height: 80px; }
     <span class="inad-nav-badge" id="badge-inadimplentes"></span>
   </button>
   <!-- Pos Tratamento submenu -->
-  <div class="nav-section" id="nav-section-pos">
+  <div class="nav-section" id="nav-section-pos" data-roles="admin,gestor,crc_sucesso,crc_pos_tratamento">
     <button class="nav-btn nav-btn--section" onclick="toggleNavSection('pos')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z"/><path d="M8 4v4l2.5 2.5"/></svg>
       Pós Tratamento
@@ -3246,12 +3246,19 @@ async function loadCurrentUser() {
     _currentUser = d;
     const roles = Array.isArray(d.roles) ? d.roles : [];
     // Apply role-based nav visibility
+    const _canSee = (rolesAttr) => roles.includes('admin') || rolesAttr.split(',').some(r => roles.includes(r));
     document.querySelectorAll('.nav-btn[data-roles]').forEach(btn => {
-      const allowed = btn.dataset.roles.split(',');
-      const visible = roles.includes('admin') || allowed.some(r => roles.includes(r));
-      btn.style.display = visible ? '' : 'none';
+      btn.style.display = _canSee(btn.dataset.roles) ? '' : 'none';
     });
-    // usuarios is admin-only and starts hidden — handled by data-roles above
+    document.querySelectorAll('.nav-section[data-roles]').forEach(sec => {
+      sec.style.display = _canSee(sec.dataset.roles) ? '' : 'none';
+    });
+    // Se o dashboard estiver oculto, redireciona para o primeiro módulo visível
+    const dashBtn = document.querySelector('.nav-btn[data-page="dashboard"]');
+    if (dashBtn && dashBtn.style.display === 'none') {
+      const first = document.querySelector('.nav-btn[data-page]:not([style*="none"])');
+      if (first) setPage(first.dataset.page, first);
+    }
     // Update nav label with user name
     const logo = document.querySelector('nav .logo');
     if (logo && d.nome) logo.title = d.nome + ' (' + roles.join(', ') + ')';
