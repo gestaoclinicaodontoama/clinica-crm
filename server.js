@@ -140,6 +140,8 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     });
     if (error) throw error;
     if (data?.error) return res.status(400).json({ error: data.error });
+    // Auto-confirma o email para que o usuario possa logar imediatamente
+    await supabase.rpc('admin_confirm_user', { p_admin_id: req.user.id, p_email: email });
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
