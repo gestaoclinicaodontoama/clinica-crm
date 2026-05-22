@@ -1380,27 +1380,56 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         except Exception as e:
             print(f"  Aviso redirect: {e}")
 
-    # Extrai número da nota — tenta html_pagina2 (nfe.php) primeiro, depois html (nfe_exec.php)
-    # IMPORTANTE: não usar padrão genérico nota=(\d+) — captura campos hidden com valor "1"
+    # Extrai número da nota — a tabela nfe.php lista TODAS as notas (antigas + nova)
+    # ordenadas crescente, então a nova nota tem o MAIOR número. Não usar 1ª ocorrência.
     num_nota = ""
-    for html_src in [html_pagina2, html]:
-        for pattern in [
-            r'[Nn][úu]mero[^\d]*(\d{3,})',     # "Número: 363" ou "Número da NFSe: 363"
-            r'NFS[- ]?e[^\d]*(\d{3,})',          # "NFS-e 363" ou "NFSe363"
-            r'n[ºo°°]\s*(\d{3,})',               # "nº 363"
-            r'num_nfse[^\d]*(\d{3,})',            # campo num_nfse=363
-            r'num_nota[^\d]*(\d{3,})',            # campo num_nota=363
-            r'>\s*(\d{3,})\s*<',                 # número isolado entre tags (3+ dígitos)
+
+    # Prioridade 1: print URL patterns — SIGISS insere onclick/href com nota= por nota
+    # Pega TODOS os números nesses padrões e usa o MÁXIMO (nova nota = maior número)
+    for src in [html_pagina2, html]:
+        for pat in [
+            r'(?:nfe_print|nfse_print|nfe_imprime|imprimir)[^"\'<>]*(?:nota|num_nfse|num)=(\d{3,})',
+            r'onclick="[^"]*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)"',
+            r"onclick='[^']*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)'",
+            r'[?&](?:nota|num_nfse)=(\d{3,})',
         ]:
-            m = re.search(pattern, html_src)
-            if m:
-                num_nota = m.group(1)
-                print(f"  Número da nota: {num_nota} (padrão: {pattern})")
+            todos = re.findall(pat, src, re.IGNORECASE)
+            if todos:
+                num_nota = str(max(int(x) for x in todos))
+                print(f"  Número da nota (print URL max): {num_nota}")
                 break
         if num_nota:
             break
 
-    # Tenta capturar URL de impressão/PDF — busca em html_pagina2 E html
+    # Prioridade 2: máximo de números em células <td> (nova nota = maior número na tabela)
+    if not num_nota and html_pagina2:
+        todos_td = re.findall(r'<td[^>]*>\s*(\d{3,})\s*</td>', html_pagina2)
+        if todos_td:
+            num_nota = str(max(int(x) for x in todos_td))
+            print(f"  Número da nota (max td): {num_nota}")
+
+    # Prioridade 3: padrões específicos em campos ocultos / texto de sucesso
+    if not num_nota:
+        for src in [html_pagina2, html]:
+            for pattern in [
+                r'num_nfse[^\d]*(\d{3,})',
+                r'num_nota[^\d]*(\d{3,})',
+                r'NFS[- ]?e\s+n[ºo°.]*\s*(\d{3,})',
+            ]:
+                m = re.search(pattern, src, re.IGNORECASE)
+                if m:
+                    num_nota = m.group(1)
+                    print(f"  Número da nota (texto): {num_nota}")
+                    break
+            if num_nota:
+                break
+
+    if num_nota:
+        print(f"  Número final da nota: {num_nota}")
+    else:
+        print("  AVISO: número da nota não encontrado")
+
+    # Captura URL de impressão/PDF
     caminho = ""
     print_url = ""
     pdf_urls: list[str] = []
@@ -1410,7 +1439,6 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         pdf_urls += re.findall(r'href=["\']([^"\']*download[^"\']*)["\']', html_src, re.IGNORECASE)
         pdf_urls += re.findall(r'href=["\']([^"\']*nfe_print[^"\']*)["\']', html_src, re.IGNORECASE)
         pdf_urls += re.findall(r'href=["\']([^"\']*nfse[^"\']*print[^"\']*)["\']', html_src, re.IGNORECASE)
-    # Redirects JavaScript (location.href / window.location)
     js_locs = re.findall(
         r'''(?:window\.location|location\.href)\s*=\s*['"]([^'"]+)['"]''', html_pagina2 or html
     )
@@ -1420,7 +1448,7 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         try:
             full_url = url if url.startswith('http') else base_url + '/' + url.lstrip('/')
             if not print_url:
-                print_url = full_url  # guarda primeira URL encontrada como candidata
+                print_url = full_url
             pdf_r = session.get(full_url, timeout=20)
             ct = pdf_r.headers.get('content-type', '')
             if 'pdf' in ct or len(pdf_r.content) > 5000:
@@ -1433,7 +1461,30 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         except Exception as e:
             print(f"  PDF não baixado ({url}): {e}")
 
-    # Se não baixou PDF, usa a URL de impressão como referência (stored in caminho_pdf)
+    # Se PDF não encontrado via href, tenta URLs padrão do SIGISS Ipatinga com o num_nota
+    if not caminho and num_nota:
+        for print_pat in [
+            f'{base_url}/ISS/contribuinte/nfe/nfe_print.php?nota={num_nota}',
+            f'{base_url}/ISS/contribuinte/nfe/nfse_imprime.php?nota={num_nota}',
+            f'{base_url}/ISS/contribuinte/nfe/nfe_print.php?num_nfse={num_nota}',
+        ]:
+            try:
+                pdf_r = session.get(print_pat, timeout=20)
+                ct = pdf_r.headers.get('content-type', '')
+                if 'pdf' in ct or len(pdf_r.content) > 10000:
+                    from file_manager import salvar_pdf_bytes
+                    caminho = salvar_pdf_bytes(
+                        pdf_r.content, pasta, nota["competencia"], num_nota, nota["nome_tomador"]
+                    )
+                    print(f"  PDF via print padrão: {caminho}")
+                    break
+                else:
+                    print(f"  Print URL resp: {pdf_r.status_code} {len(pdf_r.content)} chars ct={ct}")
+                    if not print_url:
+                        print_url = print_pat
+            except Exception as e:
+                print(f"  Print URL {print_pat}: {e}")
+
     if not caminho and print_url:
         caminho = print_url
         print(f"  URL impressão capturada: {print_url}")
@@ -1455,9 +1506,11 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
     parsed = urlparse(frame_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Encontra botão Emitir no form frame
+    # Encontra botão Emitir no form frame.
+    # is_visible() retorna False em headless para elementos em iframe — fallback via JS.
     emitir_loc = None
     for sel in [
+        'button#btnEmitirNF', 'input#btnEmitirNF',
         'button:has-text("Emitir")', 'input[value*="Emitir"]',
         'input[type="submit"]', 'button[type="submit"]',
         'input[value*="emitir"]',
@@ -1471,9 +1524,6 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
         except Exception:
             continue
 
-    if not emitir_loc:
-        raise RuntimeError("Botão Emitir NFSe não encontrado no form frame")
-
     # Captura resposta do nfe_exec.php via intercept (mesma sessão browser)
     html_exec = ""
     try:
@@ -1481,8 +1531,32 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
             lambda r: 'nfe_exec' in r.url,
             timeout=20000,
         ) as resp_info:
-            emitir_loc.click()
-            print("  Clicou Emitir NFSe via Playwright")
+            if emitir_loc:
+                emitir_loc.click()
+                print("  Clicou Emitir NFSe via Playwright")
+            else:
+                # JS fallback — is_visible() falha em headless para botões em iframe
+                js_result = form.evaluate("""
+                    () => {
+                        const cands = [
+                            document.getElementById('btnEmitirNF'),
+                            document.querySelector('input[onclick*="emitirNF"], input[onclick*="EmitirNF"]'),
+                            document.querySelector('button[onclick*="emitirNF"]'),
+                            document.querySelector('input[value*="Emitir"], input[value*="emitir"]'),
+                            [...document.querySelectorAll('button,input[type="button"],input[type="submit"]')]
+                                .find(b => /emitir/i.test((b.value || '') + (b.textContent || '') + (b.getAttribute('onclick') || ''))),
+                        ];
+                        const btn = cands.find(b => b);
+                        if (btn) {
+                            btn.click();
+                            return 'OK:' + (btn.id || btn.value || btn.textContent).slice(0, 40);
+                        }
+                        return 'NOT_FOUND';
+                    }
+                """)
+                print(f"  JS emitir: {js_result}")
+                if 'NOT_FOUND' in js_result:
+                    raise RuntimeError("Botão Emitir NFSe não encontrado no form frame")
 
         resp = resp_info.value
         html_exec = resp.text()
@@ -1520,26 +1594,57 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
         if m and m.group(1).strip():
             raise RuntimeError(f"Prefeitura rejeitou: {m.group(1)}")
 
-    # Extrai número da nota
+    # Extrai número da nota — tabela nfe.php lista TODAS as notas crescente,
+    # nova nota tem o MAIOR número. Usar MAX, não primeira ocorrência.
     num_nota = ""
+
+    # Prioridade 1: print URL patterns — pega TODOS e usa MAX
     for html_src in [html_nfe, html_exec]:
         if not html_src:
             continue
-        for pattern in [
-            r'[Nn][úu]mero[^\d]*(\d{3,})',
-            r'NFS[- ]?e[^\d]*(\d{3,})',
-            r'n[ºo°°]\s*(\d{3,})',
-            r'num_nfse[^\d]*(\d{3,})',
-            r'num_nota[^\d]*(\d{3,})',
-            r'>\s*(\d{3,})\s*<',
+        for pat in [
+            r'(?:nfe_print|nfse_print|nfe_imprime|imprimir)[^"\'<>]*(?:nota|num_nfse|num)=(\d{3,})',
+            r'onclick="[^"]*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)"',
+            r"onclick='[^']*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)'",
+            r'[?&](?:nota|num_nfse)=(\d{3,})',
         ]:
-            m = re.search(pattern, html_src)
-            if m:
-                num_nota = m.group(1)
-                print(f"  Número da nota: {num_nota} (padrão: {pattern})")
+            todos = re.findall(pat, html_src, re.IGNORECASE)
+            if todos:
+                num_nota = str(max(int(x) for x in todos))
+                print(f"  Número da nota (print URL max): {num_nota}")
                 break
         if num_nota:
             break
+
+    # Prioridade 2: máximo de números em células <td> (nova nota = maior número)
+    if not num_nota and html_nfe:
+        todos_td = re.findall(r'<td[^>]*>\s*(\d{3,})\s*</td>', html_nfe)
+        if todos_td:
+            num_nota = str(max(int(x) for x in todos_td))
+            print(f"  Número da nota (max td): {num_nota}")
+
+    # Prioridade 3: padrões específicos em campos ocultos / texto de sucesso
+    if not num_nota:
+        for html_src in [html_nfe, html_exec]:
+            if not html_src:
+                continue
+            for pattern in [
+                r'num_nfse[^\d]*(\d{3,})',
+                r'num_nota[^\d]*(\d{3,})',
+                r'NFS[- ]?e\s+n[ºo°.]*\s*(\d{3,})',
+            ]:
+                m = re.search(pattern, html_src, re.IGNORECASE)
+                if m:
+                    num_nota = m.group(1)
+                    print(f"  Número da nota (texto): {num_nota}")
+                    break
+            if num_nota:
+                break
+
+    if num_nota:
+        print(f"  Número final da nota: {num_nota}")
+    else:
+        print("  AVISO: número da nota não encontrado")
 
     # Captura URL de impressão/PDF
     caminho = ""
