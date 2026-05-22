@@ -483,12 +483,10 @@ def _buscar_tomador_via_http(page, cpf_limpo: str) -> dict:
 
 def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     """
-    Seleciona Tipo de Tomador → abre wizard 'nfe_filtro_contribuinte' →
-    pesquisa CPF → clica tr.line (executa lineSelected) → clica #btnOk
-    (executa confirmSelection que copia ccm e id_tomador para nfe.php).
-
-    O servidor valida o tomador pelo campo id_tomador no POST para nfe_exec.php.
-    Sem esse campo preenchido o SIGISS emite PFNI.
+    Seleciona Tipo de Tomador no form nfe.php, depois busca id_tomador/ccm
+    via HTTP POST direto para nfe_filtro_contribuinte.php (sem depender de
+    iframe Playwright — o iframe nunca navega no tempo esperado em headless).
+    Injeta os campos no form via contribResult() ou JS direto.
     """
     form = _frame_formulario(page)
     cpf_limpo = cpf.replace(".", "").replace("-", "").replace("/", "")
@@ -502,7 +500,7 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     tipo_sel = form.locator('select[name="local"], select#local').first
     tipo_sel.wait_for(state="visible", timeout=6000)
 
-    # Reset para vazio — garante que onchange dispara mesmo com valor já selecionado
+    # Reset para vazio — garante que onchange dispara mesmo se já selecionado
     try:
         form.evaluate(
             "() => { const s=document.querySelector('select[name=\"local\"],select#local'); if(s) s.value=''; }"
@@ -511,188 +509,98 @@ def _pesquisar_tomador(page, tipo_tomador: str, cpf: str):
     except Exception:
         pass
 
+    selecionou = False
     for lbl in labels:
         try:
             tipo_sel.select_option(label=lbl)
             print(f"  Tipo tomador selecionado: {lbl}")
+            selecionou = True
             break
         except Exception:
             continue
 
-    time.sleep(1.0)
+    if not selecionou:
+        raise RuntimeError("Não foi possível selecionar tipo de tomador no select#local.")
 
-    lookup = _aguardar_frame_lookup(page, timeout_s=8)
-    if lookup is None:
-        raise RuntimeError("Frame nfe_filtro_contribuinte não apareceu após seleção do tipo tomador.")
-
-    print(f"  Lookup carregado: name={lookup.name!r} url={lookup.url[:70]}")
-    try:
-        lookup.wait_for_load_state("domcontentloaded", timeout=8000)
-    except Exception:
-        pass
-    time.sleep(0.5)
-
-    # Diagnóstico: lista todos os inputs do frame para confirmar que o form carregou
-    try:
-        inputs_diag = lookup.evaluate("""
-            () => [...document.querySelectorAll('input,select,button')]
-                    .map(e => e.tagName + '[' + (e.name||e.id||e.type) + ']=' + e.value)
-                    .join(', ')
-        """)
-        print(f"  Inputs lookup: {inputs_diag[:300]}")
-    except Exception as e:
-        print(f"  Inputs diag erro: {e}")
-
-    # Preenche CPF via JS — is_visible() falha para elementos dentro de iframe em headless
-    # Não usa is_visible() nem loc.fill() com verificação de visibilidade
-    cpf_preenchido = False
-    try:
-        cpf_preenchido = lookup.evaluate("""
-            (cpf) => {
-                // Campo confirmado pelo Cowork: form id="busca", campo name="cnpj"
-                const inp = document.querySelector('input[name="cnpj"]')
-                         || document.querySelector('input[name*="cpf"]')
-                         || document.querySelector('input[type="text"]');
-                if (!inp) return false;
-                inp.value = cpf;
-                inp.dispatchEvent(new Event('input', {bubbles: true}));
-                inp.dispatchEvent(new Event('change', {bubbles: true}));
-                return inp.name + '=' + inp.value;
-            }
-        """, cpf_limpo)
-        print(f"  CPF preenchido JS: {cpf_preenchido}")
-    except Exception as e:
-        print(f"  CPF JS fill erro: {e}")
-
-    if not cpf_preenchido:
-        # Fallback: Playwright com force=True (bypassa visibilidade)
-        for sel in ['input[name="cnpj"]', 'input[type="text"]']:
-            try:
-                lookup.locator(sel).first.fill(cpf_limpo, force=True, timeout=3000)
-                cpf_preenchido = True
-                print(f"  CPF preenchido force: {sel}")
-                break
-            except Exception:
-                continue
-
-    # Submete o form via JS — form#busca.submit() é mais confiável que clicar botão em headless
-    try:
-        submit_result = lookup.evaluate("""
-            () => {
-                const f = document.getElementById('busca') || document.querySelector('form');
-                if (!f) return 'NO_FORM';
-                f.submit();
-                return 'OK:' + f.id;
-            }
-        """)
-        print(f"  Form submit JS: {submit_result}")
-    except Exception as e:
-        print(f"  Form submit JS erro: {e}")
-
-    # Aguarda resultados (iframe recarrega com POST response)
+    # Aguarda JS do SIGISS processar onchange (muda iframe src internamente)
     time.sleep(2.0)
-    lookup2 = _aguardar_frame_lookup(page, timeout_s=8)
-    if lookup2:
-        lookup = lookup2
-        try:
-            lookup.wait_for_load_state("domcontentloaded", timeout=5000)
-        except Exception:
-            pass
-    print(f"  Lookup pós-pesquisa: {lookup.url[:80]}")
 
-    # Lê HTML do frame para diagnóstico e tentativa de parse imediato
-    try:
-        html_frame_pos = lookup.content()
-        print(f"  Frame pós-submit: {len(html_frame_pos)} chars")
-        print(f"  [DIAG frame pós-submit] {html_frame_pos[:1500]}")
-    except Exception as e:
-        print(f"  Frame content pós-submit: {e}")
+    # ── Busca id_tomador/ccm via HTTP POST direto ─────────────────────────────
+    # Não esperamos o iframe nfe_filtro_contribuinte.php aparecer como frame do
+    # Playwright (é lento e instável em headless). Fazemos o POST autenticado
+    # diretamente com os cookies da sessão Playwright.
+    tomador = _buscar_tomador_via_http(page, cpf_limpo)
 
-    # Extrai id_tomador/ccm diretamente do frame (Strategy 1) ou via HTTP POST (Strategy 2)
-    tomador_http = _buscar_tomador_via_http(page, cpf_limpo)
+    if not tomador:
+        raise RuntimeError(
+            f"CPF {cpf} ({tipo_tomador}) — tomador não encontrado no SIGISS. "
+            "Verifique cadastro na Prefeitura de Ipatinga."
+        )
 
+    print(f"  Tomador OK: id={tomador['id_tomador']} ccm={tomador['ccm']} "
+          f"nome={tomador.get('razao','?')}")
+
+    # ── Injeta campos no form nfe.php ─────────────────────────────────────────
     form2 = _frame_formulario(page)
+    id_string = tomador.get('_id_string')
+    injetou = False
 
-    if tomador_http:
-        # Caminho principal: injeta via contribResult() — função nativa do nfe.php
-        # Recebe "id_tomador<|>ccm<|>cnpj<|>nome" e preenche todos os campos de uma vez.
-        id_string = tomador_http.get('_id_string')
-        injetou = False
-        if id_string:
-            try:
-                cr = form2.evaluate("""
-                    (id_str) => {
-                        if (typeof contribResult === 'function') {
-                            contribResult(id_str);
-                            return 'OK:contribResult';
-                        }
-                        // contribResult não definida — injeta manualmente
-                        return 'NOT_FOUND';
-                    }
-                """, id_string)
-                print(f"  contribResult({id_string!r}): {cr}")
-                injetou = cr.startswith('OK:')
-            except Exception as e:
-                print(f"  contribResult erro: {e}")
-
-        if not injetou:
-            # Fallback: injeta os quatro campos individualmente via JS
-            inject = {k: v for k, v in tomador_http.items() if v and not k.startswith('_')}
-            inj_result = form2.evaluate("""
-                (d) => {
-                    const changed = [];
-                    const set = (id, name, v) => {
-                        const el = document.getElementById(id)
-                                || document.querySelector('[name="' + name + '"]');
-                        if (el && v) {
-                            el.value = v;
-                            ['input', 'change'].forEach(
-                                ev => el.dispatchEvent(new Event(ev, {bubbles: true}))
-                            );
-                            changed.push(name + '=' + v);
-                        }
-                    };
-                    set('id_tomador', 'id_tomador', d.id_tomador);
-                    set('ccm',        'ccm',        d.ccm);
-                    set('cnpj',       'cnpj',       d.cnpj);
-                    set('razao',      'razao',       d.razao);
-                    return changed.join(', ');
-                }
-            """, inject)
-            print(f"  Injeção direta: {inj_result}")
-            injetou = bool(inj_result)
-    else:
-        # HTTP lookup falhou — tenta clicar btnOk via JS (sem is_visible, funciona em headless)
-        print("  HTTP lookup sem resultado — tentando btnOk via JS...")
+    # Tenta contribResult() — função nativa nfe.php que preenche tudo de uma vez
+    if id_string:
         try:
-            ok_js = lookup.evaluate("""
-                () => {
-                    const btn = document.getElementById('btnOk')
-                             || document.querySelector('input[value="Ok"]')
-                             || document.querySelector('button');
-                    if (btn) { btn.click(); return 'OK:' + (btn.id || btn.value || btn.textContent); }
+            cr = form2.evaluate("""
+                (s) => {
+                    if (typeof contribResult === 'function') {
+                        contribResult(s);
+                        return 'OK';
+                    }
                     return 'NOT_FOUND';
                 }
-            """)
-            print(f"  btnOk JS: {ok_js}")
+            """, id_string)
+            print(f"  contribResult: {cr}")
+            injetou = (cr == 'OK')
         except Exception as e:
-            print(f"  btnOk JS erro: {e}")
-        time.sleep(1.5)
+            print(f"  contribResult erro: {e}")
 
-    # Diagnóstico final: confirma campos no form nfe.php
+    if not injetou:
+        # Fallback: injeta os quatro campos críticos individualmente
+        inject = {k: v for k, v in tomador.items() if v and not k.startswith('_')}
+        inj_result = form2.evaluate("""
+            (d) => {
+                const changed = [];
+                const set = (n, v) => {
+                    const el = document.getElementById(n)
+                            || document.querySelector('[name="' + n + '"]');
+                    if (el && v) {
+                        el.value = v;
+                        ['input','change'].forEach(
+                            ev => el.dispatchEvent(new Event(ev, {bubbles:true}))
+                        );
+                        changed.push(n + '=' + v);
+                    }
+                };
+                set('id_tomador', d.id_tomador);
+                set('ccm',        d.ccm);
+                set('cnpj',       d.cnpj);
+                set('razao',      d.razao);
+                return changed.join(', ');
+            }
+        """, inject)
+        print(f"  Injeção direta: {inj_result}")
+
+    # Diagnóstico final
     try:
         diag = form2.evaluate("""
             () => {
-                const g = n => document.querySelector('#' + n)?.value
-                             || document.querySelector('[name="' + n + '"]')?.value || '';
+                const g = n => document.querySelector('#'+n)?.value
+                             || document.querySelector('[name="'+n+'"]')?.value || '';
                 return {id_tomador: g('id_tomador'), ccm: g('ccm'),
                         cnpj: g('cnpj'), razao: g('razao')};
             }
         """)
-        print(f"  Form pós-inject: id_tomador={diag.get('id_tomador')!r} "
-              f"ccm={diag.get('ccm')!r} cnpj={diag.get('cnpj')!r}")
+        print(f"  Form após inject: {diag}")
     except Exception as e:
-        print(f"  Diag form pós-inject: {e}")
+        print(f"  Diag pós-inject: {e}")
 
 
 # ── wizard: Atividade (lupa) ──────────────────────────────────────────────────
