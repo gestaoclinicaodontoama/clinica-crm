@@ -1124,36 +1124,6 @@ app.get('/api/pacientes/clinicorp/:termo', requireAuth, rateLimit, async (req, r
   }
 });
 
-// Endpoint temporario de diagnostico — remove apos confirmar funcionamento
-app.get('/api/admin/debug-patient/:id', async (req, res) => {
-  if (req.query.k !== 'ama2026') return res.status(403).json({ error: 'proibido' });
-  const idNum = parseInt(req.params.id, 10);
-  if (Number.isNaN(idNum)) return res.status(400).json({ error: 'ID invalido' });
-  const result = { id: idNum };
-  try {
-    const { data: row, error: dbErr } = await supabase
-      .from('pacientes').select('*')
-      .or(`clinicorp_id.eq.${idNum},numero_prontuario.eq.${idNum}`)
-      .maybeSingle();
-    result.supabase = { row, error: dbErr?.message };
-    // busca por CPF e nome para encontrar o PatientId real
-    const { data: byCpf } = await supabase.from('pacientes').select('clinicorp_id,nome,cpf').eq('cpf', '01579481612').maybeSingle();
-    const { data: byNome } = await supabase.from('pacientes').select('clinicorp_id,nome,cpf').ilike('nome', '%Vanessa%Alcantara%').limit(3);
-    result.supabase_vanessa = { byCpf, byNome };
-  } catch (e) { result.supabase = { error: e.message }; }
-  try {
-    const r1 = await clinicorpGet('/patient/get', { OtherDocumentId: '01579481612' });
-    const r2 = await clinicorpGet('/patient/get', { Name: 'Vanessa Aguiar' });
-    const r3 = await clinicorpGet('/patient/get', { PatientId: String(idNum) });
-    result.clinicorp = {
-      'OtherDocumentId=CPF': { status: r1?.status, data: r1?.data },
-      'Name=Vanessa Aguiar':  { status: r2?.status, data: r2?.data },
-      'PatientId=7924':       { status: r3?.status, data: r3?.data },
-    };
-  } catch (e) { result.clinicorp = { error: e.message }; }
-  res.json(result);
-});
-
 function processarInadimplentes(items, today) {
   const todayDate = new Date(today);
   const patMap = {};
