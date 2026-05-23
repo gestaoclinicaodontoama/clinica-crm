@@ -1427,7 +1427,10 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     if num_nota:
         print(f"  Número final da nota: {num_nota}")
     else:
-        print("  AVISO: número da nota não encontrado")
+        raise RuntimeError(
+            "Número da NFS-e não encontrado na resposta do SIGISS. "
+            "A nota pode não ter sido emitida — verifique manualmente no portal da Prefeitura."
+        )
 
     # Captura URL de impressão/PDF
     caminho = ""
@@ -1644,7 +1647,10 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
     if num_nota:
         print(f"  Número final da nota: {num_nota}")
     else:
-        print("  AVISO: número da nota não encontrado")
+        raise RuntimeError(
+            "Número da NFS-e não encontrado após emissão Playwright. "
+            "A nota pode não ter sido emitida — verifique manualmente no portal da Prefeitura."
+        )
 
     # Captura URL de impressão/PDF
     caminho = ""
