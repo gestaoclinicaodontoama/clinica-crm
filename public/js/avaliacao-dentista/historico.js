@@ -29,6 +29,15 @@ function isDono(consulta) {
   return uid && consulta.dentista_id === uid;
 }
 
+function hasCRCContent(c) {
+  if (!c) return false;
+  if (typeof c === 'string') return c.trim().length > 0;
+  return Object.values(c).some(v =>
+    v !== undefined && v !== null &&
+    (Array.isArray(v) ? v.length > 0 : String(v).trim().length > 0)
+  );
+}
+
 function copyToClipboard(text) {
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
@@ -209,7 +218,7 @@ function imprimirRelatorio(c) {
     </div>`;
   };
 
-  const comHtml = com ? (typeof com === 'string'
+  const comHtml = hasCRCContent(com) ? (typeof com === 'string'
     ? `<p style="font-size:13px;color:#111827;line-height:1.6;white-space:pre-wrap">${escHtml(com)}</p>`
     : [
         printField('Paciente', com.paciente),
@@ -224,7 +233,7 @@ function imprimirRelatorio(c) {
       ].join('')
   ) : '';
 
-  const sucHtml = suc ? (typeof suc === 'string'
+  const sucHtml = hasCRCContent(suc) ? (typeof suc === 'string'
     ? `<p style="font-size:13px;color:#111827;line-height:1.6;white-space:pre-wrap">${escHtml(suc)}</p>`
     : [
         printField('Resumo clínico', suc.resumo_clinico),
@@ -238,6 +247,11 @@ function imprimirRelatorio(c) {
   const notaCor2 = c.nota_final >= 7 ? '#22c55e' : c.nota_final >= 5 ? '#eab308' : '#ef4444';
 
   const win = window.open('', '_blank');
+  if (!win) {
+    showToast('Popup bloqueado. Permita popups neste site para imprimir.', 'warning');
+    return;
+  }
+  win.document.open('text/html', 'replace');
   win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head>
     <meta charset="utf-8">
     <title>Copiloto SPIN — Relatório da Consulta</title>
@@ -406,7 +420,7 @@ function renderDetalhe(c) {
       </div>` : ''}
 
       <!-- CRC Comercial -->
-      ${crcCom ? `
+      ${hasCRCContent(crcCom) ? `
       <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div style="font-size:13px;font-weight:700">📋 Relatório CRC Comercial</div>
@@ -416,7 +430,7 @@ function renderDetalhe(c) {
       </div>` : ''}
 
       <!-- CRC Sucesso -->
-      ${crcSuc ? `
+      ${hasCRCContent(crcSuc) ? `
       <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div style="font-size:13px;font-weight:700">🌟 Relatório CRC Sucesso do Cliente</div>
