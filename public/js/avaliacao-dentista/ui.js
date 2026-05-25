@@ -58,12 +58,14 @@ export async function showConsentModal(onAccept, onDecline) {
 
   const box = document.getElementById('avaliacao-modal');
   box.querySelector('#lgpd-btn-aceitar')?.addEventListener('click', () => {
+    const cb = _modalAccept;
     closeModal();
-    if (_modalAccept) _modalAccept();
+    if (cb) cb();
   });
   box.querySelector('#lgpd-btn-recusar')?.addEventListener('click', () => {
+    const cb = _modalDecline;
     closeModal();
-    if (_modalDecline) _modalDecline();
+    if (cb) cb();
   });
 }
 

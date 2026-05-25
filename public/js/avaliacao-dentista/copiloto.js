@@ -93,6 +93,11 @@ function setMicStatus(text) {
   if (el) el.textContent = text;
 }
 
+function setAudioStatus(active) {
+  const el = document.getElementById('avd-audio-status');
+  if (el) el.style.display = active ? 'flex' : 'none';
+}
+
 function appendTurnToUI(turn) {
   const container = document.getElementById('avd-transcript');
   if (!container) return;
@@ -344,6 +349,7 @@ async function handleIniciar() {
       setMicStatus('Pronto para upload');
       updateBtn('avd-btn-iniciar', true);
       updateBtn('avd-btn-finalizar', false);
+      setAudioStatus(true);
     });
   } else {
     _sessionActive = true;
@@ -358,6 +364,7 @@ async function handleFinalizar() {
   if (_mode === 'deepgram') stopAudio();
   setMicStatus('Finalizando...');
   updateBtn('avd-btn-finalizar', true);
+  setAudioStatus(false);
 
   const mySessionId = _sessionId; // guard: Iniciar can restart session during long upload
   let transcriptFinal = _transcript;
@@ -365,17 +372,14 @@ async function handleFinalizar() {
   if (_mode === 'audio') {
     const fileInput = document.getElementById('avd-audio-file');
     if (!fileInput?.files?.[0]) {
-      showToast('Selecione um arquivo de áudio.', 'warning');
-      _sessionActive = false;
-      _sessionId = null;
-      AvaliacaoApp.currentSession = null;
-      setMicStatus('Aguardando');
-      updateBtn('avd-btn-iniciar', false);
-      updateBtn('avd-btn-finalizar', true);
+      showToast('Selecione um arquivo de áudio antes de finalizar.', 'warning');
+      _sessionActive = true;
+      setAudioStatus(true);
+      updateBtn('avd-btn-finalizar', false);
       return;
     }
     transcriptFinal = await transcribeAudio(fileInput.files[0]);
-    if (!transcriptFinal) { updateBtn('avd-btn-finalizar', false); return; }
+    if (!transcriptFinal) { updateBtn('avd-btn-finalizar', false); setAudioStatus(true); return; }
     if (_sessionId !== mySessionId) return; // new session started during upload — discard
     _transcript = transcriptFinal;
   } else if (_mode === 'texto') {
@@ -735,6 +739,11 @@ function renderRoot() {
 </div>
 
 <div id="avd-pane-audio" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;display:none">
+  <div id="avd-audio-status" style="display:none;align-items:center;gap:8px;padding:10px 14px;border-radius:8px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);margin-bottom:12px;font-size:13px;color:var(--green);font-weight:500">
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;animation:avd-pulse 1.5s ease infinite"></div>
+    Sessão iniciada — selecione o arquivo e clique em "Finalizar e analisar"
+  </div>
+  <style>@keyframes avd-pulse{0%,100%{opacity:1}50%{opacity:.4}}</style>
   <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Formatos aceitos: MP3, WAV, M4A, FLAC, OGG, MP4, WebM — até 500MB</div>
   <input type="file" id="avd-audio-file" accept="audio/*,video/mp4,video/webm" style="margin-bottom:12px">
 </div>
@@ -781,6 +790,7 @@ function renderRoot() {
     const z3 = document.getElementById('avd-zona3');
     if (z3) { z3.style.display = 'none'; z3.innerHTML = ''; }
     setMicStatus('Aguardando');
+    setAudioStatus(false);
     updateBtn('avd-btn-iniciar', false);
     updateBtn('avd-btn-finalizar', true);
   };
