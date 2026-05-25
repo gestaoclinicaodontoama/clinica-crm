@@ -3,7 +3,10 @@ const RETRY_DELAY_MS = 5000;
 
 function getToken() {
   try {
-    const supabaseKey = Object.keys(localStorage).find(k => k.includes('supabase') && k.includes('auth'));
+    // Supabase JS v2 stores session under key "sb-{project-ref}-auth-token"
+    const supabaseKey = Object.keys(localStorage).find(
+      k => k.startsWith('sb-') && k.endsWith('-auth-token')
+    );
     if (supabaseKey) {
       const raw = localStorage.getItem(supabaseKey);
       const parsed = JSON.parse(raw);
