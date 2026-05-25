@@ -1719,7 +1719,7 @@ app.post('/api/avaliacoes/analisar', requireAuth, requireDentista, requireModulo
 
     const result = await geminiLib().analyzeTranscript({ dentistId: req.user.id, transcript, contextoPrompt: contexto_prompt, consultaId: consulta_id, supabase });
     const totalToks = (result.tokensIn || 0) + (result.tokensOut || 0);
-    if (totalToks > 0) await supabase.rpc('increment_token_counter', { p_dentista: req.user.id, p_tokens: totalToks }).catch(() => {});
+    if (totalToks > 0) { try { await supabase.rpc('increment_token_counter', { p_dentista: req.user.id, p_tokens: totalToks }); } catch (_) {} }
     res.json({ analysis: result.analysis, uso: { gemini_tokens_in: result.tokensIn, gemini_tokens_out: result.tokensOut, custo_usd: result.custoUsd } });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -2189,7 +2189,7 @@ app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireDentista
 
     const result = await geminiLib().detalharEtapa({ etapaIdx, etapaNome: etapa.nome, trechos: etapa.trechos || [], nota: etapa.nota, dentistId: dentistaId, supabase });
     const totalToks = (result.tokensIn || 0) + (result.tokensOut || 0);
-    if (totalToks > 0) await supabase.rpc('increment_token_counter', { p_dentista: dentistaId, p_tokens: totalToks }).catch(() => {});
+    if (totalToks > 0) { try { await supabase.rpc('increment_token_counter', { p_dentista: dentistaId, p_tokens: totalToks }); } catch (_) {} }
 
     const analysis = JSON.parse(JSON.stringify(consulta.analysis));
     analysis.etapas[etapaIdx].detalhe = result.detalhe;
