@@ -18,7 +18,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-.page-wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px; }
+.page-wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px; height: 100vh; overflow-y: auto; }
 h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
 .page-subtitle { font-size: 13px; color: var(--muted); margin-bottom: 22px; }
 
@@ -138,6 +138,7 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
   <div id="avaliacao-modal"></div>
 </div>
 
+<script src="/js/shared-nav.js" data-active="avaliacao-dentista"></script>
 <script type="module" src="/js/avaliacao-dentista/main.js"></script>
 </body>
 </html>

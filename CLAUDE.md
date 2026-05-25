@@ -31,6 +31,12 @@ Adicionar antes do botão "Usuários" em `public/index.html`:
 - `data-roles`: roles que podem ver o link. `admin` sempre tem acesso implícito.
 - O link navega para uma página separada (`/nome-do-modulo/index.html`).
 
+**Sidebar obrigatória em páginas separadas:**
+Toda página fora do `index.html` deve incluir o shared-nav para manter a sidebar visível:
+1. Incluir o script antes do script do módulo: `<script src="/js/shared-nav.js" data-active="slug-da-pagina"></script>`
+2. Também adicionar a entrada correspondente em `public/js/shared-nav.js` (lista de links do nav)
+3. O `data-active` deve ser o slug que identifica a página no menu (ex: `avaliacao-dentista`)
+
 ### Submódulo (dentro de seção existente, ex.: "Pós Tratamento")
 Adicionar dentro do `<div class="nav-submenu">` da seção pai:
 ```html
