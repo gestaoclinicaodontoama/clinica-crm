@@ -450,14 +450,11 @@ async function handleFinalizar() {
       updateBtn('avd-btn-finalizar', false);
       return;
     }
-    startStep('Submetendo áudio');
     transcriptFinal = await transcribeAudio(fileInput.files[0]);
     if (!transcriptFinal) {
-      completeLastStep(true);
       updateBtn('avd-btn-finalizar', false); setAudioStatus(true); return;
     }
     if (_sessionId !== mySessionId) return;
-    completeLastStep();
     _transcript = transcriptFinal;
   } else if (_mode === 'texto') {
     const ta = document.getElementById('avd-texto-input');
@@ -492,24 +489,47 @@ function parseTextTranscript(raw) {
 }
 
 async function transcribeAudio(file) {
-  startStep('Transcrevendo áudio');
+  // Step 1 — upload file (fast, responds immediately with jobId)
+  startStep('Submetendo áudio');
+  let jobId;
   try {
     const data = await postFile('/avaliacoes/transcrever', file);
-    const words = data.words ?? [];
-    if (!words.length) {
-      completeLastStep(true);
-      showToast('Nenhuma fala detectada no áudio.', 'warning');
-      return null;
-    }
+    jobId = data.jobId;
     completeLastStep();
-    return buildTurnsFromWords(words);
   } catch (e) {
     completeLastStep(true);
-    const msg = e.status === 429
-      ? 'Limite de transcrições atingido. Tente novamente em alguns minutos.'
-      : 'Erro na transcrição: ' + e.message;
-    showToast(msg, 'error');
+    showToast('Erro ao enviar áudio: ' + e.message, 'error');
     return null;
+  }
+
+  // Step 2 — poll until Deepgram finishes (avoids proxy timeout entirely)
+  startStep('Transcrevendo áudio');
+  while (true) {
+    await new Promise(r => setTimeout(r, 3000));
+    let job;
+    try {
+      job = await get(`/avaliacoes/transcrever/${jobId}`);
+    } catch (e) {
+      completeLastStep(true);
+      showToast('Erro ao verificar transcrição: ' + e.message, 'error');
+      return null;
+    }
+    if (job.status === 'done') {
+      const words = job.result?.words ?? [];
+      if (!words.length) {
+        completeLastStep(true);
+        showToast('Nenhuma fala detectada no áudio.', 'warning');
+        return null;
+      }
+      completeLastStep();
+      return buildTurnsFromWords(words);
+    }
+    if (job.status === 'error') {
+      completeLastStep(true);
+      showToast('Erro na transcrição: ' + job.error, 'error');
+      return null;
+    }
+    // status === 'pending' → keep polling (timer in progress UI updates automatically)
   }
 }
 

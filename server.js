@@ -1654,17 +1654,42 @@ app.post('/api/avaliacoes/deepgram-token', requireAuth, requireDentista, require
   }
 });
 
-// ── Transcrição server-side (upload de áudio) ──────────────────────────────
+// ── Transcrição server-side (upload de áudio, async + polling) ────────────
+// Browser envia arquivo → servidor responde imediatamente com jobId → cliente faz
+// polling em GET /transcrever/:jobId até status=done|error. Evita timeout do proxy.
 
-app.post('/api/avaliacoes/transcrever', requireAuth, requireDentista, requireModuloAtivo, (req, res) => {
-  const contentType = req.headers['content-type'] || 'audio/mpeg';
-  const contentLength = req.headers['content-length'];
-  deepgramLib().transcribeStream(req, contentType, contentLength)
-    .then(data => {
-      const words = data.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
-      res.json({ words });
-    })
-    .catch(e => res.status(e.status || 502).json({ error: e.message }));
+const _transcribeJobs = new Map(); // jobId → { status, result, error, userId }
+
+app.post('/api/avaliacoes/transcrever',
+  requireAuth, requireDentista, requireModuloAtivo,
+  express.raw({ type: '*/*', limit: '300mb' }),
+  (req, res) => {
+    const jobId = crypto.randomUUID();
+    const contentType = (req.headers['x-audio-content-type'] || req.headers['content-type'] || 'audio/mpeg')
+      .split(';')[0].trim();
+    const buffer = req.body; // Buffer from express.raw()
+
+    _transcribeJobs.set(jobId, { status: 'pending', result: null, error: null, userId: req.user.id });
+    res.json({ jobId }); // respond immediately — no proxy timeout
+
+    deepgramLib().transcribeBuffer(buffer, contentType)
+      .then(data => {
+        const words = data.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
+        _transcribeJobs.set(jobId, { status: 'done', result: { words }, error: null, userId: req.user.id });
+      })
+      .catch(e => {
+        _transcribeJobs.set(jobId, { status: 'error', result: null, error: e.message, userId: req.user.id });
+      });
+
+    setTimeout(() => _transcribeJobs.delete(jobId), 15 * 60 * 1000); // cleanup after 15min
+  }
+);
+
+app.get('/api/avaliacoes/transcrever/:jobId', requireAuth, requireDentista, (req, res) => {
+  const job = _transcribeJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job não encontrado ou expirado.' });
+  if (job.userId !== req.user.id) return res.status(403).json({ error: 'Acesso negado.' });
+  res.json({ status: job.status, result: job.result, error: job.error });
 });
 
 // ── Análise Gemini ─────────────────────────────────────────────────────────

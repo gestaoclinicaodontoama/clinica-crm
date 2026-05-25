@@ -60,7 +60,8 @@ export const del  = (path)        => request('DELETE', path);
 export async function postFile(path, file) {
   const token = getToken();
   const headers = {
-    'Content-Type': file.type || 'application/octet-stream',
+    'Content-Type': 'application/octet-stream', // express.raw() needs a generic type
+    'X-Audio-Content-Type': file.type || 'audio/mpeg', // real type forwarded to Deepgram
     'X-Filename': encodeURIComponent(file.name || 'audio'),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
