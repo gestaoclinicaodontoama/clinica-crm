@@ -2,7 +2,7 @@ import { AvaliacaoApp } from './state.js';
 import { get, post, patch, postFile } from './api.js';
 import { showToast, showConsentModal, showModal, closeModal, formatDate } from './ui.js';
 
-const ETAPAS = ['Situação', 'Problema', 'Implicação', 'Necessidade', 'Objeções', 'Compromisso', 'Fechamento', 'Pós-venda'];
+const ETAPAS = ['Acolhimento', 'Anamnese', 'Diagnóstico', 'Implicação', 'Solução', 'Preço', 'Objeções', 'Fechamento'];
 const IDB_STORE = 'avaliacao_session';
 const IDB_BUFFER_STORE = 'avaliacao_offline_buffer';
 

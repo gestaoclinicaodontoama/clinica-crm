@@ -27,27 +27,43 @@ Retorne um JSON com exatamente esta estrutura:
     {
       "nome": "<um dos 8 nomes exatos abaixo>",
       "nota": <número 0-10 com até 1 casa decimal>,
-      "feedback": "<o que o dentista fez bem nesta etapa, máx 2000 chars>",
-      "melhoria": "<o que poderia ter feito melhor, máx 2000 chars>",
+      "feedback": "<o que o dentista fez bem nesta etapa, máx 500 chars>",
+      "melhoria": "<o que poderia ter feito melhor nesta etapa, máx 500 chars>",
       "trechos": ["<trecho literal da conversa relevante para esta etapa, máx 500 chars cada>"],
       "detalhe": null
     }
   ],
   "relatorios": {
-    "comercial": "<análise do potencial comercial e próximos passos, máx 5000 chars>",
-    "sucesso": "<análise de como garantir sucesso do paciente com o tratamento, máx 5000 chars>"
+    "comercial": {
+      "paciente": "<nome do paciente ou 'Não mencionado'>",
+      "contato": "<telefone/email ou 'Não mencionado'>",
+      "queixa_principal": "<queixa principal relatada pela paciente>",
+      "tratamento_proposto": "<tratamento sugerido pelo dentista>",
+      "valor": "<valor apresentado ou 'Não definido'>",
+      "poder_de_compra": "<avaliação do perfil financeiro e sensibilidade a preço>",
+      "abordagem_followup": "<como abordar o acompanhamento pós-consulta>",
+      "objecoes": ["<objeção 1>", "<objeção 2>"],
+      "gatilhos_emocionais": ["<gatilho 1>", "<gatilho 2>"]
+    },
+    "sucesso": {
+      "resumo_clinico": "<resumo clínico da situação do paciente>",
+      "jornada_paciente": "<descrição da jornada, expectativas e motivações do paciente>",
+      "como_garantir_boa_experiencia": "<recomendações práticas para garantir a melhor experiência>",
+      "plano_de_fases": ["<fase 1>", "<fase 2>"],
+      "pontos_atencao_emocional": ["<ponto 1>", "<ponto 2>"]
+    }
   }
 }
 
 Os 8 nomes de etapa EXATOS (nesta ordem, sem variações):
-1. Situação
-2. Problema
-3. Implicação
-4. Necessidade
-5. Objeções
-6. Compromisso
-7. Fechamento
-8. Pós-venda
+1. Acolhimento
+2. Anamnese
+3. Diagnóstico
+4. Implicação
+5. Solução
+6. Preço
+7. Objeções
+8. Fechamento
 
 O array "etapas" deve ter exatamente 8 objetos, um para cada etapa, na ordem listada acima.
 Se uma etapa não ocorreu na consulta, atribua nota 0 e explique no "feedback" que a etapa não foi abordada.
