@@ -3332,6 +3332,7 @@ async function loadUsuarios() {
   try {
     const users = await api('/api/admin/users');
     if (!users.length) { el.innerHTML = '<p style="color:var(--muted)">Nenhum usuario cadastrado.</p>'; return; }
+    _usuariosCache = users;
     el.innerHTML = users.map(u => `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
         <div style="min-width:0">
@@ -3340,7 +3341,7 @@ async function loadUsuarios() {
           <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${_renderRoles(u.roles)}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn btn-ghost" style="font-size:11px;white-space:nowrap" onclick="abrirEdicaoUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}',${JSON.stringify(u.roles||[])})">Editar</button>
+          <button class="btn btn-ghost" style="font-size:11px;white-space:nowrap" onclick="abrirEdicaoUsuario('${u.id}')">Editar</button>
           <button class="btn btn-ghost" style="font-size:11px;color:var(--red);white-space:nowrap" onclick="excluirUsuario('${u.id}','${u.email}')">Excluir</button>
         </div>
       </div>
@@ -3392,10 +3393,14 @@ async function excluirUsuario(id, email) {
 
 const _EU_ROLES = ['admin','gestor','auxiliar_adm','crc_leads','crc_comercial','crc_sucesso','crc_pos_tratamento','dentista'];
 const _EU_MODS  = ['notas_fiscais','inadimplentes','avaliacao_dentista'];
+let _usuariosCache = [];
 
-function abrirEdicaoUsuario(id, nome, roles) {
+function abrirEdicaoUsuario(id) {
+  const u = _usuariosCache.find(u => u.id === id);
+  if (!u) return;
+  const roles = u.roles || [];
   document.getElementById('eu-id').value = id;
-  document.getElementById('eu-nome').value = nome;
+  document.getElementById('eu-nome').value = u.nome || '';
   document.getElementById('eu-msg').textContent = '';
   _EU_ROLES.forEach(r => { const el = document.getElementById('eu-role-' + r); if (el) el.checked = roles.includes(r); });
   _EU_MODS.forEach(m  => { const el = document.getElementById('eu-mod-' + m);  if (el) el.checked = roles.includes('mod_' + m); });
