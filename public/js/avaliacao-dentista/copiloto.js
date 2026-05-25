@@ -685,6 +685,10 @@ async function handleSalvar() {
     feedback_ia: feedbacks,
     paciente_nome: document.getElementById('avd-paciente-nome')?.value?.trim() || 'Paciente sem nome',
     paciente_vinculado: false,
+    // Required by DB constraint for deepgram/audio modes: user accepted LGPD consent modal
+    consentimento_manual_versao: (_mode !== 'texto')
+      ? (AvaliacaoApp.config?.termo_lgpd_versao_atual ?? '1.0')
+      : null,
     uso: _uso || null,
   };
 
