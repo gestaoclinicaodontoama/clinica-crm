@@ -1,0 +1,59 @@
+<div>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;color:var(--accent)">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    <h2 id="avaliacao-modal-title" style="font-size:18px;font-weight:700">Autorização de Gravação</h2>
+  </div>
+
+  <p style="font-size:13.5px;line-height:1.6;color:var(--text);margin-bottom:14px">
+    Esta consulta será <strong>gravada e transcrita automaticamente</strong> para fins de análise
+    de qualidade e treinamento da equipe clínica.
+  </p>
+
+  <p style="font-size:13.5px;line-height:1.6;color:var(--text);margin-bottom:14px">
+    O áudio e a transcrição gerada serão processados por:
+  </p>
+  <ul style="font-size:13px;line-height:1.8;margin-left:20px;margin-bottom:16px;color:var(--text)">
+    <li>
+      <strong>Deepgram Inc.</strong> (Estados Unidos) — transcrição de fala em texto.
+      <a href="https://deepgram.com/privacy" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-size:12px">Política de privacidade</a>
+    </li>
+    <li>
+      <strong>Google LLC / Gemini</strong> (Estados Unidos / Google Cloud) — análise e feedback da consulta.
+      <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-size:12px">Termos de uso</a>
+    </li>
+  </ul>
+
+  <p style="font-size:13.5px;line-height:1.6;color:var(--text);margin-bottom:14px">
+    Seus dados são tratados de acordo com a <strong>Lei Geral de Proteção de Dados (LGPD — Lei 13.709/2018)</strong>.
+    A base legal aplicável é o <em>legítimo interesse</em> da clínica na melhoria da qualidade do atendimento
+    (art. 7º, IX) combinado com seu <em>consentimento explícito</em> (art. 7º, I).
+  </p>
+
+  <p style="font-size:13.5px;line-height:1.6;color:var(--text);margin-bottom:14px">
+    O áudio bruto é retido por até <strong>365 dias</strong> e então removido automaticamente,
+    permanecendo apenas o texto da análise para fins de histórico clínico.
+  </p>
+
+  <p style="font-size:13.5px;line-height:1.6;color:var(--text);margin-bottom:20px">
+    Você pode <strong>revogar este consentimento</strong> a qualquer momento solicitando ao responsável
+    da clínica. Para exercer seus direitos de acesso, correção ou exclusão de dados, entre em contato
+    com nossa Encarregada de Dados (DPO):
+    <a href="mailto:gestao.clinicaodontoama@gmail.com" style="color:var(--accent)">gestao.clinicaodontoama@gmail.com</a>.
+    <em style="font-size:11.5px;color:var(--muted);display:block;margin-top:4px">(Texto do termo sujeito a revisão jurídica antes do deploy em produção — versão: v1-2026-05-24)</em>
+  </p>
+
+  <div style="display:flex;gap:10px;justify-content:flex-end">
+    <button
+      id="lgpd-btn-recusar"
+      style="padding:10px 20px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit"
+      aria-label="Recusar autorização de gravação"
+    >Recusar</button>
+    <button
+      id="lgpd-btn-aceitar"
+      style="padding:10px 22px;border-radius:8px;border:none;background:var(--accent);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit"
+      aria-label="Autorizar gravação desta consulta"
+    >Autorizar gravação</button>
+  </div>
+</div>

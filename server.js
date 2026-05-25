@@ -16,10 +16,15 @@ const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
 const FUNIL = ['Lead', 'Agendado', 'Compareceu', 'Em Avaliação', 'Orçamento Enviado', 'Fechou', 'Perdido'];
 
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
+  process.exit(1);
+}
+
 // --------- SUPABASE ---------
 const supabase = createClient(
   process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
@@ -107,13 +112,65 @@ app.get('/api/me', requireAuth, async (req, res) => {
   }
 });
 
+// ========== ROLE MIDDLEWARES ==========
+async function loadProfile(req) {
+  if (req.user.profile) return req.user.profile;
+  const { data } = await supabase.from('profiles')
+    .select('id, nome, roles').eq('id', req.user.id).maybeSingle();
+  req.user.profile = data || { roles: [] };
+  return req.user.profile;
+}
+
+function requireRole(...allowed) {
+  return async (req, res, next) => {
+    const p = await loadProfile(req);
+    if (!allowed.some(r => (p.roles || []).includes(r))) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+    next();
+  };
+}
+const requireDentista = requireRole('dentista', 'admin');
+const requireGestor   = requireRole('gestor', 'admin');
+
 // ========== ADMIN MIDDLEWARE ==========
-function requireAdmin(req, res, next) {
-  const roles = req.user?.user_metadata?.roles || req.user?.app_metadata?.roles || [];
+// TODO(remover-em-2026-06-23): fallback de role em user_metadata
+async function requireAdmin(req, res, next) {
+  const p = await loadProfile(req);
+  let roles = p.roles || [];
+  if (roles.length === 0) {
+    const metaRoles = req.user?.user_metadata?.roles || req.user?.app_metadata?.roles || [];
+    // [deprecated] fallback: roles vindas de user_metadata enquanto profiles.roles não está populado
+    if (metaRoles.length > 0) {
+      console.warn('[deprecated] role from metadata for user ' + req.user.id);
+      roles = metaRoles;
+    }
+  }
   if (!Array.isArray(roles) || !roles.includes('admin')) {
     return res.status(403).json({ error: 'Acesso restrito a administradores' });
   }
   next();
+}
+
+// ========== MODULO ATIVO MIDDLEWARE ==========
+let _moduloAtivoCache = { value: null, ts: 0 };
+async function requireModuloAtivo(req, res, next) {
+  try {
+    const now = Date.now();
+    if (now - _moduloAtivoCache.ts > 30000) {
+      const { data, error } = await supabase.from('avaliacao_dentista_config')
+        .select('valor').eq('chave', 'modulo_ativo').maybeSingle();
+      if (error) throw error;
+      _moduloAtivoCache = { value: data?.valor ?? 'false', ts: now };
+    }
+    if (_moduloAtivoCache.value !== 'true') {
+      res.set('Retry-After', '60');
+      return res.status(503).json({ error: 'Módulo desativado' });
+    }
+    next();
+  } catch (e) {
+    next(e);
+  }
 }
 
 // ========== ADMIN: USUÁRIOS ==========
@@ -1456,6 +1513,8 @@ app.post('/api/crc/sync-abc-completo', async (req, res) => {
 // ========== CLINICORP SYNC DIÁRIO ==========
 // Roda às 2h todo dia. Se atingir 24 req/hora, aguarda 1h10m automaticamente e continua.
 const { runSync: runClinicorpSync } = require('./sync/clinicorp-sync');
+const { AnalysisV1 } = require('./lib/schemas/analysis.v1');
+const { FeedbackV1 } = require('./lib/schemas/feedback.v1');
 (function agendarSyncDiario() {
   let lastSyncDay = '';
 
@@ -1490,6 +1549,662 @@ const { runSync: runClinicorpSync } = require('./sync/clinicorp-sync');
 app.post('/api/admin/sync-clinicorp', requireAuth, async (req, res) => {
   res.json({ ok: true, msg: 'Sync iniciado em background — acompanhe os logs do servidor' });
   runClinicorpSync().catch(e => console.error('[sync-manual] erro:', e.message));
+});
+
+// ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========
+// Lazy requires — lib/ criada no PR 3 (pode não existir no startup se PR 3 não deployado ainda)
+function geminiLib()   { return require('./lib/gemini'); }
+function deepgramLib() { return require('./lib/deepgram'); }
+
+function requireCronSecret(req, res, next) {
+  const secret = process.env.EASYPANEL_CRON_SECRET;
+  if (!secret || req.headers['x-cron-secret'] !== secret)
+    return res.status(403).json({ error: 'Forbidden' });
+  next();
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => Array.from({ length: n + 1 }, (_, j) => i || j));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+async function dbRateLimit(chave, max, expiresInMs) {
+  const expira = new Date(Date.now() + expiresInMs).toISOString();
+  const { data, error } = await supabase.rpc('check_and_increment_rate_limit', { p_chave: chave, p_max: max, p_expira: expira });
+  if (error) throw error;
+  return typeof data === 'number';
+}
+
+const _configCache = new Map(); // chave -> { val, expiresAt }
+const CONFIG_TTL_MS = 60_000;
+async function getConfigVal(chave) {
+  const cached = _configCache.get(chave);
+  if (cached && Date.now() < cached.expiresAt) return cached.val;
+  const { data } = await supabase.from('avaliacao_dentista_config').select('valor').eq('chave', chave).maybeSingle();
+  const val = data?.valor ?? null;
+  _configCache.set(chave, { val, expiresAt: Date.now() + CONFIG_TTL_MS });
+  return val;
+}
+
+let _dashCache = { data: null, ts: 0 };
+
+// ── Bootstrap / config ─────────────────────────────────────────────────────
+
+app.get('/api/avaliacoes/config', requireAuth, async (req, res) => {
+  try {
+    const { data: configs } = await supabase.from('avaliacao_dentista_config').select('chave, valor');
+    const cfg = Object.fromEntries((configs || []).map(r => [r.chave, r.valor]));
+    const p = await loadProfile(req);
+    let extras = {};
+    if ((p.roles || []).some(r => ['dentista', 'admin'].includes(r))) {
+      const { data: toks } = await supabase.rpc('tokens_efetivos_mes', { p_dentista: req.user.id });
+      extras.tokens_mes_atual = toks ?? 0;
+    }
+    res.json({ ...cfg, ...extras });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/avaliacoes/tipos-tratamento', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('tipos_tratamento').select('*').eq('ativo', true).order('id');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Deepgram token efêmero ─────────────────────────────────────────────────
+
+app.post('/api/avaliacoes/deepgram-token', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
+  try {
+    const limitPorHora = parseInt(await getConfigVal('rate_limit_deepgram_token_por_hora') || '120', 10);
+    const hora = new Date().toISOString().slice(0, 13);
+    const allowed = await dbRateLimit(`deepgram:token:${req.user.id}:${hora}`, limitPorHora, 3600 * 1000);
+    if (!allowed) return res.status(429).json({ error: 'Limite de tokens Deepgram atingido. Aguarde.' });
+    const { token, expiresAt } = await deepgramLib().createEphemeralToken();
+    res.json({ token, expires_at: expiresAt });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Análise Gemini ─────────────────────────────────────────────────────────
+
+app.post('/api/avaliacoes/analisar', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
+  try {
+    const { consulta_id, transcript, contexto_prompt } = req.body;
+    if (!consulta_id || !transcript) return res.status(400).json({ error: 'consulta_id e transcript obrigatórios' });
+
+    // Idempotência: análise já salva para este consulta_id não chama Gemini de novo
+    const { data: existing } = await supabase.from('consultas_spin')
+      .select('analysis').eq('id', consulta_id).eq('dentista_id', req.user.id).maybeSingle();
+    if (existing?.analysis) return res.json({ analysis: existing.analysis, cached: true });
+
+    // Rate limit: 30/hora/dentista
+    const hora = new Date().toISOString().slice(0, 13);
+    const allowed = await dbRateLimit(`gemini:analisar:${req.user.id}:${hora}`, 30, 3600 * 1000);
+    if (!allowed) return res.status(429).json({ error: 'Limite de análises por hora atingido.' });
+
+    // Token budget mensal
+    const maxTokens = parseInt(await getConfigVal('tokens_max_dentista_mes') || '5000000', 10);
+    const { data: usados } = await supabase.rpc('tokens_efetivos_mes', { p_dentista: req.user.id });
+    if ((usados || 0) >= maxTokens)
+      return res.status(429).json({ error: 'Limite mensal de tokens atingido. Fale com o gestor.' });
+
+    const result = await geminiLib().analyzeTranscript({ dentistId: req.user.id, transcript, contextoPrompt: contexto_prompt, consultaId: consulta_id, supabase });
+    const totalToks = (result.tokensIn || 0) + (result.tokensOut || 0);
+    if (totalToks > 0) await supabase.rpc('increment_token_counter', { p_dentista: req.user.id, p_tokens: totalToks }).catch(() => {});
+    res.json({ analysis: result.analysis, uso: { gemini_tokens_in: result.tokensIn, gemini_tokens_out: result.tokensOut, custo_usd: result.custoUsd } });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── Dashboard KPIs ─────────────────────────────────────────────────────────
+
+app.get('/api/avaliacoes/dashboard', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const now = Date.now();
+    const { desde, ate } = req.query;
+    // Cache de 60s só quando sem filtros customizados
+    if (!desde && !ate && now - _dashCache.ts < 60000 && _dashCache.data)
+      return res.json(_dashCache.data);
+    const params = {};
+    if (desde) params.p_desde = desde;
+    if (ate)   params.p_ate   = ate;
+    const { data, error } = await supabase.rpc('dashboard_avaliacao_dentista', params);
+    if (error) throw error;
+    if (!desde && !ate) _dashCache = { data, ts: now };
+    const regenerando = false; // lazy insights: implementado no cron
+    res.json({ data: data || [], regenerando });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/avaliacoes/dentistas', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('profiles')
+      .select('id, nome').filter('roles', 'cs', '{dentista}').order('nome');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Benchmark ─────────────────────────────────────────────────────────────
+
+app.post('/api/avaliacoes/benchmark', requireAuth, requireGestor, requireModuloAtivo, async (req, res) => {
+  try {
+    const { desde, ate } = req.body;
+    if (!desde || !ate) return res.status(400).json({ error: 'desde e ate obrigatórios (YYYY-MM-DD)' });
+    const maxBench = parseInt(await getConfigVal('benchmark_max_por_dia') || '3', 10);
+    const dia = new Date().toISOString().slice(0, 10);
+    const allowed = await dbRateLimit(`gemini:benchmark:${req.user.id}:${dia}`, maxBench, 86400 * 1000);
+    if (!allowed) return res.status(429).json({ error: 'Limite de benchmarks por dia atingido.' });
+
+    const desdeISO = new Date(desde + 'T00:00:00-03:00').toISOString();
+    const ateISO   = new Date(ate   + 'T23:59:59-03:00').toISOString();
+    const { data: consultas } = await supabase.from('consultas_spin')
+      .select('dentista_id, nota_final, feedback_ia')
+      .gte('created_at', desdeISO).lte('created_at', ateISO)
+      .not('nota_final', 'is', null);
+
+    const byD = {};
+    (consultas || []).forEach(c => {
+      if (!byD[c.dentista_id]) byD[c.dentista_id] = { dentista_id: c.dentista_id, notas: [] };
+      byD[c.dentista_id].notas.push(Number(c.nota_final));
+    });
+    const agregados = Object.values(byD).map(d => ({
+      dentista_id: d.dentista_id,
+      nota_media: d.notas.length ? +(d.notas.reduce((s, n) => s + n, 0) / d.notas.length).toFixed(2) : null,
+      total_consultas: d.notas.length,
+    }));
+
+    const result = await geminiLib().gerarBenchmark({ agregados, periodo: { desde, ate } });
+    const totalToks = (result.tokensIn || 0) + (result.tokensOut || 0);
+    if (totalToks > 0) await supabase.rpc('increment_token_counter', { p_dentista: req.user.id, p_tokens: totalToks }).catch(() => {});
+
+    const { data: bench, error: bErr } = await supabase.from('benchmark_spin').insert({
+      gerado_por: req.user.id, periodo_inicio: desde, periodo_fim: ate,
+      resultado: result.resultado, custo_usd: result.custoUsd || null,
+    }).select().single();
+    if (bErr) throw bErr;
+
+    const planos = result.planos || [];
+    if (planos.length) {
+      const { error: planosErr } = await supabase.from('benchmark_spin_planos')
+        .insert(planos.map(p => ({ benchmark_id: bench.id, dentista_id: p.dentista_id, plano: p.plano })));
+      if (planosErr) throw planosErr;
+    }
+
+    res.json({ ok: true, benchmark: bench });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/avaliacoes/benchmark/ultimo', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const { data: bench } = await supabase.from('benchmark_spin')
+      .select('*, benchmark_spin_planos(*)').order('gerado_em', { ascending: false }).limit(1).maybeSingle();
+    res.json(bench || null);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/avaliacoes/benchmark/meu-plano', requireAuth, requireDentista, async (req, res) => {
+  try {
+    const { data: bench } = await supabase.from('benchmark_spin')
+      .select('id, gerado_em, periodo_inicio, periodo_fim').order('gerado_em', { ascending: false }).limit(1).maybeSingle();
+    if (!bench) return res.json(null);
+    const { data: plano } = await supabase.from('benchmark_spin_planos')
+      .select('plano').eq('benchmark_id', bench.id).eq('dentista_id', req.user.id).maybeSingle();
+    res.json({ ...bench, plano: plano?.plano || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Config admin ───────────────────────────────────────────────────────────
+
+app.get('/api/avaliacoes/config/admin', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const [{ data: configs }, { data: perfis }] = await Promise.all([
+      supabase.from('avaliacao_dentista_config').select('*').order('chave'),
+      supabase.from('dentista_perfil_spin').select('dentista_id, tokens_mes_ref, tokens_mes_atual, updated_at'),
+    ]);
+    res.json({ configs: configs || [], perfis: perfis || [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/avaliacoes/config/admin', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const ALLOWED = ['modulo_ativo','retencao_audio_dias','tokens_max_dentista_mes',
+      'detalhar_max_por_dia','benchmark_max_por_dia','termo_lgpd_versao_atual',
+      'rate_limit_deepgram_token_por_hora'];
+    const updates = [];
+    for (const [k, v] of Object.entries(req.body)) {
+      if (!ALLOWED.includes(k)) continue;
+      updates.push(supabase.from('avaliacao_dentista_config')
+        .update({ valor: String(v), updated_by: req.user.id, updated_at: new Date().toISOString() })
+        .eq('chave', k));
+    }
+    await Promise.all(updates);
+    _moduloAtivoCache = { value: null, ts: 0 }; // invalida cache
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Admin: reaceite de consentimento LGPD ──────────────────────────────────
+
+app.post('/api/avaliacoes/admin/reaceite/:paciente_id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const versao = await getConfigVal('termo_lgpd_versao_atual') || 'v1-admin-manual';
+    const { error } = await supabase.from('pacientes')
+      .update({ consentimento_gravacao: true, consentimento_gravacao_em: new Date().toISOString(), consentimento_gravacao_versao: versao })
+      .eq('id', req.params.paciente_id)
+      .or('consentimento_gravacao.is.null,consentimento_gravacao.eq.false');
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── LGPD: purge em lote por paciente ──────────────────────────────────────
+
+app.delete('/api/avaliacoes/lgpd/paciente/:paciente_id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data: consultas } = await supabase.from('consultas_spin')
+      .select('id').eq('paciente_id', req.params.paciente_id);
+    const ids = (consultas || []).map(c => c.id);
+    if (ids.length)
+      await supabase.from('consultas_spin').delete().eq('paciente_id', req.params.paciente_id);
+    await supabase.from('audit_log').insert({
+      tabela: 'consultas_spin', acao: 'DELETE', actor_id: req.user.id, source: 'frontend',
+      dados_antes: { paciente_id: req.params.paciente_id, qtd_consultas: ids.length, ids },
+    });
+    res.json({ ok: true, deletadas: ids.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── CRUD consultas ─────────────────────────────────────────────────────────
+
+app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
+  try {
+    const { id, paciente_id, paciente_nome, paciente_vinculado = true, lead_id,
+      modo, started_at, ended_at, transcript, analysis, analysis_schema_version = 1,
+      feedback_ia, uso, transcript_stats, tipo_tratamento_id, tipo_tratamento_outro,
+      tratamento_valor_cents, tratamento_valor_label, planejamento_em,
+      consentimento_manual_versao, consentimento_manual_em } = req.body;
+
+    if (!id || !paciente_nome || !modo || !started_at || !analysis)
+      return res.status(400).json({ error: 'Campos obrigatórios: id, paciente_nome, modo, started_at, analysis' });
+    const analysisCheck = AnalysisV1.safeParse(analysis);
+    if (!analysisCheck.success)
+      return res.status(400).json({ error: 'analysis inválido', issues: analysisCheck.error.issues.slice(0, 3) });
+    let validatedFeedback = null;
+    if (feedback_ia != null) {
+      const fbCheck = FeedbackV1.safeParse(feedback_ia);
+      if (!fbCheck.success) return res.status(400).json({ error: 'feedback_ia inválido', issues: fbCheck.error.issues.slice(0, 3) });
+      validatedFeedback = fbCheck.data;
+    }
+    if (!['deepgram','audio','texto'].includes(modo))
+      return res.status(400).json({ error: 'modo inválido. Use: deepgram, audio, texto' });
+    if (paciente_vinculado && !paciente_id)
+      return res.status(400).json({ error: 'paciente_id obrigatório quando paciente_vinculado=true' });
+
+    // LGPD: paciente vinculado em modo gravado exige consentimento
+    if (['deepgram','audio'].includes(modo) && paciente_vinculado && paciente_id) {
+      const { data: pac } = await supabase.from('pacientes')
+        .select('consentimento_gravacao').eq('id', paciente_id).maybeSingle();
+      if (pac?.consentimento_gravacao !== true)
+        return res.status(403).json({ error: 'Paciente não autorizou gravação. Obtenha o consentimento antes de salvar.' });
+    }
+
+    const row = {
+      id, dentista_id: req.user.id,
+      paciente_id: paciente_id || null,
+      paciente_nome: String(paciente_nome).slice(0, 200),
+      paciente_vinculado: !!paciente_vinculado,
+      lead_id: lead_id ? parseInt(lead_id, 10) : null,
+      modo, started_at, ended_at: ended_at || null,
+      transcript: transcript || null, analysis, analysis_schema_version,
+      feedback_ia: validatedFeedback,
+      uso: uso || null, transcript_stats: transcript_stats || null,
+      tipo_tratamento_id: tipo_tratamento_id || null,
+      tipo_tratamento_outro: tipo_tratamento_outro ? String(tipo_tratamento_outro).slice(0, 100) : null,
+      tratamento_valor_cents: tratamento_valor_cents != null ? parseInt(tratamento_valor_cents, 10) : null,
+      tratamento_valor_label: tratamento_valor_label ? String(tratamento_valor_label).slice(0, 80) : null,
+      planejamento_em: planejamento_em || null,
+      consentimento_manual_versao: consentimento_manual_versao || null,
+      consentimento_manual_em: consentimento_manual_em || null,
+    };
+
+    const { data: consulta, error } = await supabase.from('consultas_spin')
+      .upsert(row, { onConflict: 'id', ignoreDuplicates: true })
+      .select().maybeSingle();
+    if (error) throw error;
+
+    if (!consulta) {
+      const { data: existente } = await supabase.from('consultas_spin').select('*').eq('id', id).maybeSingle();
+      return res.json({ ok: true, consulta: existente, duplicate: true });
+    }
+    res.json({ ok: true, consulta });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/avaliacoes', requireAuth, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const isGestor  = roles.some(r => ['gestor','admin'].includes(r));
+    const isDentista = roles.some(r => ['dentista','admin'].includes(r));
+    if (!isGestor && !isDentista) return res.status(403).json({ error: 'Acesso negado' });
+
+    const limit  = Math.min(parseInt(req.query.limit  || '50',  10), 200);
+    const offset = parseInt(req.query.offset || '0', 10);
+    const { desde, ate, dentista_id, tipo } = req.query;
+
+    let query = supabase.from('consultas_spin')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (isGestor) {
+      if (dentista_id) query = query.eq('dentista_id', dentista_id);
+    } else {
+      query = query.eq('dentista_id', req.user.id);
+    }
+    if (desde) query = query.gte('created_at', new Date(desde + 'T00:00:00-03:00').toISOString());
+    if (ate)   query = query.lte('created_at', new Date(ate   + 'T23:59:59-03:00').toISOString());
+    if (tipo)  query = query.eq('tipo_tratamento_id', parseInt(tipo, 10));
+
+    const { data, count, error } = await query;
+    if (error) throw error;
+    res.json({ data: data || [], total: count || 0, limit, offset });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Consentimento LGPD por dentista ───────────────────────────────────────
+
+app.post('/api/avaliacoes/aceitar-consentimento', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
+  try {
+    const { paciente_id, versao } = req.body;
+    if (!paciente_id) return res.status(400).json({ error: 'paciente_id obrigatório' });
+    // Only allow consent for patients this dentist has actually consulted
+    const p = await loadProfile(req);
+    const isGestor = (p.roles || []).some(r => ['gestor','admin'].includes(r));
+    if (!isGestor) {
+      const { data: check } = await supabase.from('consultas_spin')
+        .select('id').eq('dentista_id', req.user.id).eq('paciente_id', paciente_id).limit(1).maybeSingle();
+      if (!check) return res.status(403).json({ error: 'Paciente não vinculado a este dentista' });
+    }
+    const v = versao ? String(versao).slice(0, 50) : ((await getConfigVal('termo_lgpd_versao_atual')) || 'v1-2026-05-24');
+    const { error } = await supabase.from('pacientes')
+      .update({ consentimento_gravacao: true, consentimento_gravacao_em: new Date().toISOString(), consentimento_gravacao_versao: v })
+      .eq('id', paciente_id)
+      .or('consentimento_gravacao.is.null,consentimento_gravacao.eq.false');
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Detalhe e patches (rotas paramétricas após as estáticas) ───────────────
+
+app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const { data: consulta, error } = await supabase.from('consultas_spin').select('*').eq('id', req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    const isGestor = roles.some(r => ['gestor','admin'].includes(r));
+    if (!isGestor && consulta.dentista_id !== req.user.id) return res.status(403).json({ error: 'Acesso negado' });
+    res.json(consulta);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/avaliacoes/:id/feedback', requireAuth, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    const isDono = consulta.dentista_id === req.user.id;
+    const isAdmin = roles.includes('admin');
+    if (!isDono && !isAdmin) return res.status(403).json({ error: 'Apenas o dentista dono pode dar feedback' });
+    const { feedback_ia } = req.body;
+    if (!feedback_ia) return res.status(400).json({ error: 'feedback_ia obrigatório' });
+    const fbCheck = FeedbackV1.safeParse(feedback_ia);
+    if (!fbCheck.success) return res.status(400).json({ error: 'feedback_ia inválido', issues: fbCheck.error.issues.slice(0, 3) });
+    const { data, error } = await supabase.from('consultas_spin')
+      .update({ feedback_ia: fbCheck.data, feedback_ia_em: new Date().toISOString() })
+      .eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ ok: true, consulta: data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/avaliacoes/:id/tratamento', requireAuth, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    const isAdmin = roles.includes('admin');
+    if (consulta.dentista_id !== req.user.id && !isAdmin) return res.status(403).json({ error: 'Acesso negado' });
+    const { tipo_tratamento_id, tipo_tratamento_outro, tratamento_valor_cents, tratamento_valor_label, planejamento_em } = req.body;
+    const patch = {};
+    if (tipo_tratamento_id  !== undefined) patch.tipo_tratamento_id  = tipo_tratamento_id || null;
+    if (tipo_tratamento_outro !== undefined) patch.tipo_tratamento_outro = tipo_tratamento_outro ? String(tipo_tratamento_outro).slice(0, 100) : null;
+    if (tratamento_valor_cents !== undefined) patch.tratamento_valor_cents = tratamento_valor_cents != null ? parseInt(tratamento_valor_cents, 10) : null;
+    if (tratamento_valor_label !== undefined) patch.tratamento_valor_label = tratamento_valor_label ? String(tratamento_valor_label).slice(0, 80) : null;
+    if (planejamento_em !== undefined) patch.planejamento_em = planejamento_em || null;
+    const { data, error } = await supabase.from('consultas_spin').update(patch).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ ok: true, consulta: data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/avaliacoes/:id/paciente', requireAuth, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id, paciente_nome, modo').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    const isGestor = roles.some(r => ['gestor','admin'].includes(r));
+    if (consulta.dentista_id !== req.user.id && !isGestor) return res.status(403).json({ error: 'Acesso negado' });
+    const { paciente_id } = req.body;
+    if (!paciente_id) return res.status(400).json({ error: 'paciente_id obrigatório' });
+    const { data: pac } = await supabase.from('pacientes').select('id, nome, consentimento_gravacao').eq('id', paciente_id).maybeSingle();
+    if (!pac) return res.status(404).json({ error: 'Paciente não encontrado' });
+    if (consulta.modo !== 'texto' && pac.consentimento_gravacao !== true) return res.status(403).json({ error: 'Paciente não autorizou gravação' });
+    const a = consulta.paciente_nome.toLowerCase().trim();
+    const b = pac.nome.toLowerCase().trim();
+    const maxLen = Math.max(a.length, b.length);
+    if (maxLen > 0 && levenshtein(a, b) / maxLen > 0.3)
+      return res.status(409).json({ error: 'nome diverge', nome_consulta: consulta.paciente_nome, nome_paciente: pac.nome, mensagem: 'Nome diverge em mais de 30%. Confirme o vínculo.' });
+    const { data, error } = await supabase.from('consultas_spin')
+      .update({ paciente_id, paciente_vinculado: true }).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ ok: true, consulta: data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireModuloAtivo, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const etapaIdx = parseInt(req.params.etapa_idx, 10);
+    if (isNaN(etapaIdx) || etapaIdx < 0 || etapaIdx > 7) return res.status(400).json({ error: 'etapa_idx deve ser 0–7' });
+    const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id, analysis').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    const isGestor = roles.some(r => ['gestor','admin'].includes(r));
+    const isDono = consulta.dentista_id === req.user.id;
+    if (!isDono && !isGestor) return res.status(403).json({ error: 'Acesso negado' });
+    const etapa = consulta.analysis?.etapas?.[etapaIdx];
+    if (!etapa) return res.status(404).json({ error: 'Etapa não encontrada na análise' });
+    if (etapa.detalhe) return res.json({ detalhe: etapa.detalhe, cached: true });
+
+    const dentistaId = isDono ? req.user.id : consulta.dentista_id;
+    const maxDetalhar = parseInt(await getConfigVal('detalhar_max_por_dia') || '20', 10);
+    const dia = new Date().toISOString().slice(0, 10);
+    const allowed = await dbRateLimit(`gemini:detalhar:${dentistaId}:${dia}`, maxDetalhar, 86400 * 1000);
+    if (!allowed) return res.status(429).json({ error: 'Limite de detalhamentos por dia atingido.' });
+
+    const result = await geminiLib().detalharEtapa({ etapaIdx, etapaNome: etapa.nome, trechos: etapa.trechos || [], nota: etapa.nota, dentistId: dentistaId, supabase });
+    const totalToks = (result.tokensIn || 0) + (result.tokensOut || 0);
+    if (totalToks > 0) await supabase.rpc('increment_token_counter', { p_dentista: dentistaId, p_tokens: totalToks }).catch(() => {});
+
+    const analysis = consulta.analysis;
+    analysis.etapas[etapaIdx].detalhe = result.detalhe;
+    const { error: updateErr } = await supabase.from('consultas_spin').update({ analysis }).eq('id', req.params.id);
+    if (updateErr) throw updateErr;
+    res.json({ detalhe: result.detalhe });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/avaliacoes/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data: consulta } = await supabase.from('consultas_spin')
+      .select('id, dentista_id, paciente_id, created_at').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    await supabase.from('consultas_spin').delete().eq('id', req.params.id);
+    await supabase.from('audit_log').insert({
+      tabela: 'consultas_spin', registro_id: consulta.id, acao: 'DELETE',
+      actor_id: req.user.id, source: 'frontend',
+      dados_antes: { id: consulta.id, dentista_id: consulta.dentista_id, paciente_id: consulta.paciente_id, created_at: consulta.created_at },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Perfil SPIN do dentista ────────────────────────────────────────────────
+
+app.get('/api/dentista/perfil', requireAuth, requireDentista, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const isGestor = (p.roles || []).some(r => ['gestor','admin'].includes(r));
+    const targetId = (isGestor && req.query.dentista_id) ? req.query.dentista_id : req.user.id;
+    const { data, error } = await supabase.from('dentista_perfil_spin').select('*').eq('dentista_id', targetId).maybeSingle();
+    if (error) throw error;
+    res.json(data || { dentista_id: targetId, tokens_mes_atual: 0, areas_fracas: [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/dentista/perfil', requireAuth, requireDentista, async (req, res) => {
+  try {
+    const { contexto_prompt } = req.body;
+    const patch = { updated_at: new Date().toISOString() };
+    if (contexto_prompt !== undefined)
+      patch.contexto_prompt = contexto_prompt ? String(contexto_prompt).slice(0, 2000) : null;
+    const { data, error } = await supabase.from('dentista_perfil_spin')
+      .upsert({ dentista_id: req.user.id, ...patch }, { onConflict: 'dentista_id' })
+      .select().maybeSingle();
+    if (error) throw error;
+    res.json({ ok: true, perfil: data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Cron interno ───────────────────────────────────────────────────────────
+
+app.post('/api/internal/cron/purga-lgpd', requireCronSecret, async (req, res) => {
+  try {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { data: logHoje } = await supabase.from('audit_log')
+      .select('id').eq('tabela', 'cron:purga-lgpd').gte('criado_em', hoje + 'T00:00:00Z').limit(1).maybeSingle();
+    if (logHoje) return res.json({ ok: true, msg: 'Já executado hoje', skipped: true });
+    const retencaoDias = parseInt(await getConfigVal('retencao_audio_dias') || '365', 10);
+    const cutoff = new Date(Date.now() - retencaoDias * 86400 * 1000).toISOString();
+    const { data: purged, error } = await supabase.from('consultas_spin')
+      .update({ transcript: null, transcript_purgado_em: new Date().toISOString() })
+      .lt('created_at', cutoff)
+      .not('transcript', 'is', null)
+      .is('transcript_purgado_em', null)
+      .select('id');
+    if (error) throw error;
+    await supabase.from('audit_log').insert({
+      tabela: 'cron:purga-lgpd', acao: 'UPDATE', source: 'cron',
+      dados_depois: { purged_count: (purged || []).length, cutoff },
+    });
+    res.json({ ok: true, purged: (purged || []).length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/internal/cron/insights-semanal', requireCronSecret, async (req, res) => {
+  try {
+    const seisAtras = new Date(Date.now() - 6 * 86400 * 1000).toISOString();
+    const { data: logRecente } = await supabase.from('audit_log')
+      .select('id').eq('tabela', 'cron:insights-semanal').gte('criado_em', seisAtras).limit(1).maybeSingle();
+    if (logRecente) return res.json({ ok: true, msg: 'Já executado recentemente', skipped: true });
+    const trintaAtras = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
+    const { data: consultas } = await supabase.from('consultas_spin')
+      .select('dentista_id, feedback_ia').gte('created_at', trintaAtras).not('feedback_ia', 'is', null);
+    const byDentista = {};
+    (consultas || []).forEach(c => {
+      if (!byDentista[c.dentista_id]) byDentista[c.dentista_id] = [];
+      byDentista[c.dentista_id].push(c.feedback_ia);
+    });
+    let atualizados = 0;
+    for (const [dentistaId, feedbacks] of Object.entries(byDentista)) {
+      try {
+        const result = await geminiLib().gerarInsights({ feedbacks });
+        await supabase.from('dentista_perfil_spin').upsert({
+          dentista_id: dentistaId, insights_gestor: result.slice(0, 10000),
+          insights_updated_at: new Date().toISOString(),
+        }, { onConflict: 'dentista_id' });
+        atualizados++;
+      } catch { /* continua para próximo dentista se falhar */ }
+    }
+    await supabase.from('audit_log').insert({
+      tabela: 'cron:insights-semanal', acao: 'UPDATE', source: 'cron',
+      dados_depois: { dentistas_atualizados: atualizados },
+    });
+    res.json({ ok: true, atualizados });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ========== HEALTH CHECK ==========

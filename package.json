@@ -9,7 +9,8 @@
   "dependencies": {
     "express": "^4.21.2",
     "@supabase/supabase-js": "^2",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "zod": "^3"
   },
   "engines": {
     "node": ">=18.0.0"
