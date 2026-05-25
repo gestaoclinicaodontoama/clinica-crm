@@ -1670,6 +1670,7 @@ app.post('/api/avaliacoes/transcrever', requireAuth, requireDentista, requireMod
 // ── Análise Gemini ─────────────────────────────────────────────────────────
 
 app.post('/api/avaliacoes/analisar', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
+  req.socket.setTimeout(180000); // 3 min — Gemini can be slow on large transcripts
   try {
     const { consulta_id, transcript, contexto_prompt } = req.body;
     if (!consulta_id || !transcript) return res.status(400).json({ error: 'consulta_id e transcript obrigatórios' });

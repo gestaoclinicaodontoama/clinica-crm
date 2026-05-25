@@ -469,15 +469,12 @@ async function analisarConsulta(transcript) {
   } catch (e) {
     hideSpinner();
     const isRateLimit = e.status === 429;
-    const msg = isRateLimit
-      ? 'Limite mensal de análises atingido. Fale com o gestor.'
-      : `Falha na análise. ${e.message}`;
-    showToast(msg, 'error');
-    renderAnalysisError(isRateLimit);
+    showToast(isRateLimit ? 'Limite mensal de análises atingido.' : 'Falha na análise.', 'error');
+    renderAnalysisError(isRateLimit, e.message);
   }
 }
 
-function renderAnalysisError(isRateLimit) {
+function renderAnalysisError(isRateLimit, detail) {
   const zona = document.getElementById('avd-zona3');
   if (!zona) return;
   zona.style.display = 'block';
@@ -485,8 +482,9 @@ function renderAnalysisError(isRateLimit) {
     zona.innerHTML = `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:16px;font-size:13px;color:var(--red)">Limite mensal atingido. Fale com o gestor.</div>`;
   } else {
     zona.innerHTML = `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:16px;font-size:13px">
-      Falha na análise.
-      <button onclick="window._avdRetryAnalysis()" style="margin-left:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);cursor:pointer;font-family:inherit;font-size:12px">Tentar de novo</button>
+      <div style="font-weight:600;margin-bottom:6px">Falha na análise</div>
+      ${detail ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-family:'DM Mono',monospace;word-break:break-all">${escHtml(detail)}</div>` : ''}
+      <button onclick="window._avdRetryAnalysis()" style="padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);cursor:pointer;font-family:inherit;font-size:12px">Tentar de novo</button>
     </div>`;
     window._avdRetryAnalysis = () => analisarConsulta(_transcript);
   }
