@@ -911,6 +911,42 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 </div>
 
 <!-- MODAL -->
+<!-- MODAL EDIÇÃO DE USUÁRIO -->
+<div class="modal-bg" id="eu-modal-bg" onclick="if(event.target===this)fecharEdicaoUsuario()">
+  <div class="modal" style="width:420px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <h2 style="margin:0">Editar Usuário</h2>
+      <button class="btn btn-ghost" style="font-size:18px;padding:2px 8px" onclick="fecharEdicaoUsuario()">×</button>
+    </div>
+    <input type="hidden" id="eu-id">
+    <div class="form-group"><label>Nome</label><input id="eu-nome" placeholder="Nome completo"></div>
+    <div class="form-group"><label>Perfil Base</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-admin"> Admin</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-gestor"> Gestor</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-auxiliar_adm"> Auxiliar Adm</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_leads"> CRC Leads</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_comercial"> CRC Comercial</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_sucesso"> CRC Sucesso</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_pos_tratamento"> CRC Pós Tratamento</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-dentista"> Dentista</label>
+      </div>
+    </div>
+    <div class="form-group"><label>Módulos Extras</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-notas_fiscais"> Notas Fiscais</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-inadimplentes"> Inadimplentes</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-avaliacao_dentista"> Avaliação Dentista</label>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-primary" id="eu-btn" onclick="salvarEdicaoUsuario()" style="flex:1">Salvar</button>
+      <button class="btn btn-ghost" onclick="fecharEdicaoUsuario()">Cancelar</button>
+    </div>
+    <div id="eu-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-bg" onclick="if(event.target===this)fecharModal()">
 <div class="modal">
   <div class="modal-header">
@@ -3303,7 +3339,10 @@ async function loadUsuarios() {
           <div style="font-size:12px;color:var(--muted)">${u.email}</div>
           <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${_renderRoles(u.roles)}</div>
         </div>
-        <button class="btn btn-ghost" style="font-size:11px;color:var(--red);white-space:nowrap" onclick="excluirUsuario('${u.id}','${u.email}')">Excluir</button>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-ghost" style="font-size:11px;white-space:nowrap" onclick="abrirEdicaoUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}',${JSON.stringify(u.roles||[])})">Editar</button>
+          <button class="btn btn-ghost" style="font-size:11px;color:var(--red);white-space:nowrap" onclick="excluirUsuario('${u.id}','${u.email}')">Excluir</button>
+        </div>
       </div>
     `).join('');
   } catch(e) { el.innerHTML = `<p style="color:var(--red)">${e.message}</p>`; }
@@ -3349,6 +3388,44 @@ async function excluirUsuario(id, email) {
     toast('Usuario ' + email + ' excluido');
     loadUsuarios();
   } catch(e) { toast('Erro: ' + e.message); }
+}
+
+const _EU_ROLES = ['admin','gestor','auxiliar_adm','crc_leads','crc_comercial','crc_sucesso','crc_pos_tratamento','dentista'];
+const _EU_MODS  = ['notas_fiscais','inadimplentes','avaliacao_dentista'];
+
+function abrirEdicaoUsuario(id, nome, roles) {
+  document.getElementById('eu-id').value = id;
+  document.getElementById('eu-nome').value = nome;
+  document.getElementById('eu-msg').textContent = '';
+  _EU_ROLES.forEach(r => { const el = document.getElementById('eu-role-' + r); if (el) el.checked = roles.includes(r); });
+  _EU_MODS.forEach(m  => { const el = document.getElementById('eu-mod-' + m);  if (el) el.checked = roles.includes('mod_' + m); });
+  document.getElementById('eu-modal-bg').classList.add('open');
+}
+
+function fecharEdicaoUsuario() {
+  document.getElementById('eu-modal-bg').classList.remove('open');
+}
+
+async function salvarEdicaoUsuario() {
+  const id   = document.getElementById('eu-id').value;
+  const nome = document.getElementById('eu-nome').value.trim();
+  const msg  = document.getElementById('eu-msg');
+  const btn  = document.getElementById('eu-btn');
+  const roles = [];
+  _EU_ROLES.forEach(r => { if (document.getElementById('eu-role-' + r)?.checked) roles.push(r); });
+  _EU_MODS.forEach(m  => { if (document.getElementById('eu-mod-'  + m)?.checked) roles.push('mod_' + m); });
+  if (!roles.length) roles.push('crc_leads');
+  btn.disabled = true; btn.textContent = 'Salvando...'; msg.textContent = '';
+  try {
+    await api('/api/admin/users/' + id, { method:'PATCH', body: JSON.stringify({ nome, roles }) });
+    msg.style.color = 'var(--green)'; msg.textContent = 'Salvo!';
+    loadUsuarios();
+    setTimeout(fecharEdicaoUsuario, 800);
+  } catch(e) {
+    msg.style.color = 'var(--red)'; msg.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
 }
 
 // ========== RECUPERAR SENHA ==========

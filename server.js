@@ -205,6 +205,24 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+app.patch('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { roles, nome } = req.body;
+    if (!Array.isArray(roles)) return res.status(400).json({ error: 'roles deve ser array' });
+    const { data, error } = await supabase.rpc('admin_update_user_roles', {
+      p_admin_id: req.user.id,
+      p_user_id:  req.params.id,
+      p_roles:    roles,
+      p_nome:     nome || null,
+    });
+    if (error) throw error;
+    if (data?.error) return res.status(400).json({ error: data.error });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase.rpc('admin_delete_user', {
