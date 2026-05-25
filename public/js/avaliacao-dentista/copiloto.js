@@ -22,7 +22,9 @@ let _analysis = null;
 let _uso = null;
 let _sessionActive = false;
 let _saving = false;
-let _feedbackState = {}; // etapa index -> 'sim' | 'parcial' | 'nao'
+let _feedbackState = {};
+let _steps = [];
+let _stepsTimer = null;
 
 function uuidv4() {
   return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
@@ -96,6 +98,76 @@ function setMicStatus(text) {
 function setAudioStatus(active) {
   const el = document.getElementById('avd-audio-status');
   if (el) el.style.display = active ? 'flex' : 'none';
+}
+
+// ── Progress steps ───────────────────────────────────────────────────────────
+
+function fmtDur(ms) {
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+function renderSteps() {
+  const el = document.getElementById('avd-progress');
+  if (!el) return;
+  if (!_steps.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  const now = Date.now();
+  el.innerHTML = _steps.map((s, i) => {
+    const dur = fmtDur((s.endedAt || now) - s.startedAt);
+    const isActive = s.status === 'active';
+    const isDone = s.status === 'done';
+    const isError = s.status === 'error';
+    const dotColor = isDone ? 'var(--green)' : isError ? 'var(--red)' : isActive ? 'var(--accent)' : 'var(--border)';
+    const textColor = isActive ? 'var(--text)' : isDone || isError ? 'var(--muted)' : 'var(--muted)';
+    const durColor = isDone ? 'var(--green)' : isError ? 'var(--red)' : 'var(--accent)';
+    const dot = isDone
+      ? `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="${dotColor}"/><path d="M5 8l2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+      : isError
+      ? `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="${dotColor}"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>`
+      : isActive
+      ? `<div style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:avd-spin .8s linear infinite;flex-shrink:0"></div>`
+      : `<div style="width:16px;height:16px;border:2px solid var(--border);border-radius:50%;flex-shrink:0"></div>`;
+    const connector = i < _steps.length - 1
+      ? `<div style="width:2px;height:10px;background:${isDone ? 'var(--green)' : 'var(--border)'};margin:2px 0 2px 7px"></div>`
+      : '';
+    return `<div>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${dot}
+        <span style="font-size:13px;font-weight:${isActive ? '600' : '400'};color:${textColor};flex:1">${s.label}</span>
+        ${isActive || isDone || isError ? `<span style="font-size:12px;font-family:'DM Mono',monospace;color:${durColor}">${dur}</span>` : ''}
+      </div>
+      ${connector}
+    </div>`;
+  }).join('');
+}
+
+function startStep(label) {
+  if (_steps.length > 0) {
+    const prev = _steps[_steps.length - 1];
+    if (prev.status === 'active') { prev.status = 'done'; prev.endedAt = Date.now(); }
+  }
+  _steps.push({ label, startedAt: Date.now(), endedAt: null, status: 'active' });
+  if (!_stepsTimer) _stepsTimer = setInterval(renderSteps, 500);
+  renderSteps();
+}
+
+function completeLastStep(error = false) {
+  if (_steps.length > 0) {
+    const s = _steps[_steps.length - 1];
+    s.status = error ? 'error' : 'done';
+    s.endedAt = Date.now();
+  }
+  if (error || _steps.every(s => s.status !== 'active')) {
+    clearInterval(_stepsTimer); _stepsTimer = null;
+  }
+  renderSteps();
+}
+
+function clearSteps() {
+  clearInterval(_stepsTimer); _stepsTimer = null;
+  _steps = [];
+  renderSteps();
 }
 
 function appendTurnToUI(turn) {
@@ -378,9 +450,14 @@ async function handleFinalizar() {
       updateBtn('avd-btn-finalizar', false);
       return;
     }
+    startStep('Submetendo áudio');
     transcriptFinal = await transcribeAudio(fileInput.files[0]);
-    if (!transcriptFinal) { updateBtn('avd-btn-finalizar', false); setAudioStatus(true); return; }
-    if (_sessionId !== mySessionId) return; // new session started during upload — discard
+    if (!transcriptFinal) {
+      completeLastStep(true);
+      updateBtn('avd-btn-finalizar', false); setAudioStatus(true); return;
+    }
+    if (_sessionId !== mySessionId) return;
+    completeLastStep();
     _transcript = transcriptFinal;
   } else if (_mode === 'texto') {
     const ta = document.getElementById('avd-texto-input');
@@ -415,18 +492,19 @@ function parseTextTranscript(raw) {
 }
 
 async function transcribeAudio(file) {
-  showSpinner('Transcrevendo áudio...');
+  startStep('Transcrevendo áudio');
   try {
     const data = await postFile('/avaliacoes/transcrever', file);
-    hideSpinner();
     const words = data.words ?? [];
     if (!words.length) {
+      completeLastStep(true);
       showToast('Nenhuma fala detectada no áudio.', 'warning');
       return null;
     }
+    completeLastStep();
     return buildTurnsFromWords(words);
   } catch (e) {
-    hideSpinner();
+    completeLastStep(true);
     const msg = e.status === 429
       ? 'Limite de transcrições atingido. Tente novamente em alguns minutos.'
       : 'Erro na transcrição: ' + e.message;
@@ -452,8 +530,8 @@ function buildTurnsFromWords(words) {
 }
 
 async function analisarConsulta(transcript) {
-  showSpinner('Analisando consulta com IA...');
-  const mySessionId = _sessionId; // capture before async — Limpar may reset _sessionId mid-flight
+  startStep('Analisando com IA');
+  const mySessionId = _sessionId;
 
   try {
     const result = await post('/avaliacoes/analisar', {
@@ -461,16 +539,17 @@ async function analisarConsulta(transcript) {
       transcript,
       contexto_prompt: AvaliacaoApp.config?.contexto_prompt ?? null,
     });
-    hideSpinner();
-    if (_sessionId !== mySessionId) return; // session was cleared during analysis
+    completeLastStep();
+    if (_sessionId !== mySessionId) return;
     _analysis = result.analysis;
     _uso = result.uso || null;
     if (AvaliacaoApp.currentSession) AvaliacaoApp.currentSession.analysis = _analysis;
     await persistSession();
+    clearSteps();
     renderAnalysis(_analysis);
     AvaliacaoApp.emit('session:save', { consultaId: mySessionId, analysis: _analysis });
   } catch (e) {
-    hideSpinner();
+    completeLastStep(true);
     const isRateLimit = e.status === 429;
     showToast(isRateLimit ? 'Limite mensal de análises atingido.' : 'Falha na análise.', 'error');
     renderAnalysisError(isRateLimit, e.message);
@@ -757,11 +836,8 @@ function renderRoot() {
   <button onclick="window._avdLimpar()" style="padding:9px 16px;border-radius:8px;background:var(--bg3);color:var(--muted);border:1px solid var(--border);font-size:13px;cursor:pointer;font-family:inherit" aria-label="Limpar sessão atual">Limpar</button>
 </div>
 
-<div id="avd-spinner" style="display:none;align-items:center;gap:10px;padding:14px 0;font-size:13px;color:var(--muted)">
-  <div style="width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:avd-spin .8s linear infinite;flex-shrink:0"></div>
-  <span class="avd-spin-msg">Processando...</span>
-</div>
 <style>@keyframes avd-spin{to{transform:rotate(360deg)}}</style>
+<div id="avd-progress" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:14px"></div>
 
 <div id="avd-zona3" style="display:none"></div>
 <div id="avd-offline-offer" style="display:none"></div>
@@ -789,6 +865,7 @@ function renderRoot() {
     if (z3) { z3.style.display = 'none'; z3.innerHTML = ''; }
     setMicStatus('Aguardando');
     setAudioStatus(false);
+    clearSteps();
     updateBtn('avd-btn-iniciar', false);
     updateBtn('avd-btn-finalizar', true);
   };
