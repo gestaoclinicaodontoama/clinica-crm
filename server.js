@@ -130,7 +130,7 @@ function requireRole(...allowed) {
     next();
   };
 }
-const requireDentista = requireRole('dentista', 'admin');
+const requireDentista = requireRole('dentista', 'admin', 'mod_avaliacao_dentista');
 const requireGestor   = requireRole('gestor', 'admin');
 
 // ========== ADMIN MIDDLEWARE ==========

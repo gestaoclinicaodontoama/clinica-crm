@@ -524,7 +524,7 @@ textarea { resize: vertical; min-height: 80px; }
       <a href="/pos-tratamento/vips.html" class="nav-subitem">VIPs</a>
     </div>
   </div>
-  <a class="nav-btn" href="/avaliacao-dentista/" data-roles="gestor,dentista,admin">
+  <a class="nav-btn" href="/avaliacao-dentista/" data-roles="gestor,dentista,admin,mod_avaliacao_dentista">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     Avaliação Dentista
   </a>
@@ -765,10 +765,12 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_comercial"> CRC Comercial</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_sucesso"> CRC Sucesso</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_pos_tratamento"> CRC P&#243;s Tratamento</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-dentista"> Dentista</label>
       </div></div>
       <div class="form-group"><label>M&#243;dulos Extras</label><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-notas_fiscais"> Notas Fiscais</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-inadimplentes"> Inadimplentes</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-avaliacao_dentista"> Avalia&#231;&#227;o Dentista</label>
       </div></div>
       <button class="btn btn-primary" onclick="criarUsuario()" id="nu-btn" style="width:100%">Criar Usu&#225;rio</button>
       <div id="nu-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
@@ -3273,7 +3275,9 @@ const _ROLE_LABELS = {
   admin:'Admin', gestor:'Gestor', auxiliar_adm:'Auxiliar Adm',
   crc_leads:'CRC Leads', crc_comercial:'CRC Comercial',
   crc_sucesso:'CRC Sucesso', crc_pos_tratamento:'CRC Pós Tratamento',
-  mod_notas_fiscais:'Notas Fiscais', mod_inadimplentes:'Inadimplentes'
+  dentista:'Dentista',
+  mod_notas_fiscais:'Notas Fiscais', mod_inadimplentes:'Inadimplentes',
+  mod_avaliacao_dentista:'Avaliação Dentista'
 };
 function _renderRoles(roles) {
   const base = [], mods = [];
@@ -3321,8 +3325,10 @@ async function criarUsuario() {
   if (document.getElementById('nu-role-crc_comercial').checked) roles.push('crc_comercial');
   if (document.getElementById('nu-role-crc_sucesso').checked) roles.push('crc_sucesso');
   if (document.getElementById('nu-role-crc_pos_tratamento').checked) roles.push('crc_pos_tratamento');
+  if (document.getElementById('nu-role-dentista').checked) roles.push('dentista');
   if (document.getElementById('nu-mod-notas_fiscais').checked) roles.push('mod_notas_fiscais');
   if (document.getElementById('nu-mod-inadimplentes').checked) roles.push('mod_inadimplentes');
+  if (document.getElementById('nu-mod-avaliacao_dentista').checked) roles.push('mod_avaliacao_dentista');
   if (!roles.length) roles.push('crc_leads');
   btn.disabled = true; btn.textContent = 'Criando...'; msg.textContent = '';
   try {

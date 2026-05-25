@@ -55,6 +55,40 @@ O token Supabase no localStorage usa o formato: `sb-{project-ref}-auth-token`.
 Buscar com: `k.startsWith('sb-') && k.endsWith('-auth-token')`.
 **Não usar** `k.includes('supabase')` — não encontra a chave correta.
 
+## Módulo de Usuários — padrão obrigatório ao criar novo módulo
+
+Todo módulo novo deve ser registrado no módulo de Usuários (`public/index.html`) em **3 lugares**:
+
+### 1. Perfil Base (se o módulo cria um novo tipo de usuário)
+Adicionar checkbox em `#nu-role-{role}` na seção "Perfil Base":
+```html
+<label ...><input type="checkbox" id="nu-role-novorole"> Novo Role</label>
+```
+
+### 2. Módulos Extras (acesso granular ao módulo sem perfil base)
+Adicionar checkbox em `#nu-mod-{modulo}` na seção "Módulos Extras":
+```html
+<label ...><input type="checkbox" id="nu-mod-novo_modulo"> Nome do Módulo</label>
+```
+
+### 3. `_ROLE_LABELS` + `criarUsuario()`
+- Adicionar ao `_ROLE_LABELS`: `mod_novo_modulo: 'Nome do Módulo'`
+- Adicionar ao `criarUsuario()`: `if (document.getElementById('nu-mod-novo_modulo').checked) roles.push('mod_novo_modulo');`
+
+### 4. Servidor (`server.js`)
+Atualizar o middleware de acesso para aceitar o role mod_:
+```js
+const requireAlgoDoModulo = requireRole('role_base', 'admin', 'mod_novo_modulo');
+```
+
+### 5. Nav (`data-roles`)
+Incluir o novo role no `data-roles` do link do módulo em `index.html` e `shared-nav.js`.
+
+**Resumo por módulo existente:**
+- Avaliação Dentista → Perfil Base: `dentista` | Módulos Extras: `mod_avaliacao_dentista`
+- Notas Fiscais → Módulos Extras: `mod_notas_fiscais`
+- Inadimplentes → Módulos Extras: `mod_inadimplentes`
+
 ## Migrações Supabase
 Project ID: `mtqdpjhhqzvuklnlfpvi`
 Aplicar via MCP Supabase em ordem crescente de timestamp.
