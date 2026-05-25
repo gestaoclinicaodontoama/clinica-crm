@@ -142,6 +142,8 @@ function renderDetalhe(c) {
 function renderFeedbackForm(c) {
   const analysis = c.analysis ?? {};
   const etapas = analysis.etapas ?? [];
+  const consultaId = c.id; // captured in closure — never injected into HTML
+  let _histFbState = {}; // idx -> 'sim'|'parcial'|'nao'
 
   const etapasInputs = etapas.map((e, i) => `
     <div style="margin-bottom:12px">
@@ -167,7 +169,7 @@ function renderFeedbackForm(c) {
         <textarea id="hist-fb-comentario" style="width:100%;min-height:80px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:12.5px;font-family:inherit;resize:vertical" aria-label="Comentário opcional sobre a análise"></textarea>
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="window._histEnviarFeedback('${c.id}')" style="padding:9px 20px;border-radius:8px;background:var(--accent);color:white;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit" aria-label="Enviar feedback">Enviar</button>
+        <button onclick="window._histEnviarFeedback()" style="padding:9px 20px;border-radius:8px;background:var(--accent);color:white;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit" aria-label="Enviar feedback">Enviar</button>
         <button onclick="document.getElementById('avaliacao-modal-bg').classList.remove('open')" style="padding:9px 16px;border-radius:8px;background:var(--bg3);color:var(--text);border:1px solid var(--border);font-size:13px;cursor:pointer;font-family:inherit" aria-label="Cancelar">Cancelar</button>
       </div>
     </div>`;
@@ -175,6 +177,7 @@ function renderFeedbackForm(c) {
   showModal(html);
 
   window._histToggleFb = (idx, val) => {
+    _histFbState[idx] = val;
     document.querySelectorAll(`.hist-fb-btn[data-idx="${idx}"]`).forEach(b => {
       const active = b.dataset.val === val;
       b.style.background = active ? 'var(--accent)' : 'var(--bg3)';
@@ -183,7 +186,7 @@ function renderFeedbackForm(c) {
     });
   };
 
-  window._histEnviarFeedback = async (consultaId) => {
+  window._histEnviarFeedback = async () => {
     const nota = parseInt(document.getElementById('hist-fb-nota')?.value);
     if (!nota || nota < 1 || nota > 5) {
       showToast('Informe uma nota de 1 a 5.', 'warning');
@@ -191,8 +194,8 @@ function renderFeedbackForm(c) {
     }
     const comentario = document.getElementById('hist-fb-comentario')?.value?.trim() || undefined;
     const etapasFb = etapas.map((e, i) => {
-      const active = document.querySelector(`.hist-fb-btn[data-idx="${i}"][style*="var(--accent)"]`);
-      return active ? { nome: e.nome, concordou: active.dataset.val } : null;
+      const val = _histFbState[i];
+      return val ? { nome: e.nome, concordou: val } : null;
     }).filter(Boolean);
 
     try {

@@ -321,6 +321,7 @@ async function handleIniciar() {
         _sessionActive = true;
         connectDeepgram(token);
       } catch (e) {
+        _sessionActive = false;
         setMicStatus('Erro ao obter token');
         showToast('Erro ao conectar Deepgram: ' + e.message, 'error');
         stopAudio();
@@ -426,21 +427,22 @@ function buildTurnsFromWords(words) {
 
 async function analisarConsulta(transcript) {
   showSpinner('Analisando consulta com IA...');
-  const transcriptText = transcript.map(t => `${t.speaker_label}: ${t.text}`).join('\n');
+  const mySessionId = _sessionId; // capture before async — Limpar may reset _sessionId mid-flight
 
   try {
     const result = await post('/avaliacoes/analisar', {
-      consulta_id: _sessionId,
+      consulta_id: mySessionId,
       transcript,
       contexto_prompt: AvaliacaoApp.config?.contexto_prompt ?? null,
     });
     hideSpinner();
+    if (_sessionId !== mySessionId) return; // session was cleared during analysis
     _analysis = result.analysis;
     _uso = result.uso || null;
     if (AvaliacaoApp.currentSession) AvaliacaoApp.currentSession.analysis = _analysis;
     await persistSession();
     renderAnalysis(_analysis);
-    AvaliacaoApp.emit('session:save', { consultaId: _sessionId, analysis: _analysis });
+    AvaliacaoApp.emit('session:save', { consultaId: mySessionId, analysis: _analysis });
   } catch (e) {
     hideSpinner();
     const isRateLimit = e.status === 429;
@@ -616,7 +618,12 @@ function setupOfflineFlush() {
         await idbDel(IDB_BUFFER_STORE, key);
         showToast('Consulta offline enviada.', 'success');
       } catch (e) {
-        showToast('Erro ao enviar consulta offline: ' + e.message, 'error');
+        if (e.status === 409) {
+          await idbDel(IDB_BUFFER_STORE, key); // server already has it — clear
+          showToast('Consulta offline já estava salva.', 'info');
+        } else {
+          showToast('Erro ao enviar consulta offline: ' + e.message, 'error');
+        }
       }
     }
   };

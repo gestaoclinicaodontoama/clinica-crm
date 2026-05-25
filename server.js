@@ -2066,7 +2066,7 @@ app.patch('/api/avaliacoes/:id/paciente', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireModuloAtivo, async (req, res) => {
+app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
   try {
     const p = await loadProfile(req);
     const roles = p.roles || [];

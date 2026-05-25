@@ -90,6 +90,15 @@ async function loadTabModule(tab) {
   }
 }
 
+// Refresh historico list whenever a consulta is saved from the copiloto tab
+AvaliacaoApp.on('consulta:saved', async () => {
+  if (!_loaded.has('historico')) return;
+  try {
+    const { init } = await import('./historico.js');
+    await init();
+  } catch { /* non-critical */ }
+});
+
 function resolveInitialTab(roles) {
   const hash = window.location.hash.replace('#', '');
   const params = new URLSearchParams(hash);
