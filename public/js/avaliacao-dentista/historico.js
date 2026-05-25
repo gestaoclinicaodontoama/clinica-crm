@@ -233,9 +233,15 @@ function renderRoot() {
       </div>
     </div>`;
 
-  window._histDetalhe = (idx) => {
-    const c = _items[idx];
-    if (c) renderDetalhe(c);
+  window._histDetalhe = async (idx) => {
+    const summary = _items[idx];
+    if (!summary) return;
+    try {
+      const c = await get(`/avaliacoes/${summary.id}`);
+      renderDetalhe(c);
+    } catch (e) {
+      showToast('Erro ao carregar detalhe: ' + e.message, 'error');
+    }
   };
   window._histLoadMore = loadMore;
 }

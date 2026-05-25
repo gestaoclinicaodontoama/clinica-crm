@@ -17,7 +17,7 @@ export function showToast(message, type = 'info') {
   }, 4000);
 }
 
-export function showModal(htmlContent) {
+export function showModal(htmlContent, onBackdropDismiss) {
   const bg = document.getElementById('avaliacao-modal-bg');
   const box = document.getElementById('avaliacao-modal');
   if (!bg || !box) return;
@@ -26,7 +26,10 @@ export function showModal(htmlContent) {
   bg.classList.add('open');
 
   bg.addEventListener('click', (e) => {
-    if (e.target === bg) closeModal();
+    if (e.target === bg) {
+      closeModal();
+      if (onBackdropDismiss) onBackdropDismiss();
+    }
   }, { once: true });
 }
 
@@ -48,7 +51,7 @@ export async function showConsentModal(onAccept, onDecline) {
     return;
   }
 
-  showModal(html);
+  showModal(html, onDecline);
 
   _modalAccept = onAccept;
   _modalDecline = onDecline;

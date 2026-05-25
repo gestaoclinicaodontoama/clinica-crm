@@ -1515,6 +1515,7 @@ app.post('/api/crc/sync-abc-completo', async (req, res) => {
 const { runSync: runClinicorpSync } = require('./sync/clinicorp-sync');
 const { AnalysisV1 } = require('./lib/schemas/analysis.v1');
 const { FeedbackV1 } = require('./lib/schemas/feedback.v1');
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 (function agendarSyncDiario() {
   let lastSyncDay = '';
 
@@ -1641,6 +1642,7 @@ app.post('/api/avaliacoes/analisar', requireAuth, requireDentista, requireModulo
   try {
     const { consulta_id, transcript, contexto_prompt } = req.body;
     if (!consulta_id || !transcript) return res.status(400).json({ error: 'consulta_id e transcript obrigatórios' });
+    if (!UUID_V4_RE.test(consulta_id)) return res.status(400).json({ error: 'consulta_id deve ser um UUID v4 válido' });
 
     // Idempotência: análise já salva para este consulta_id não chama Gemini de novo
     const { data: existing } = await supabase.from('consultas_spin')
@@ -1673,6 +1675,8 @@ app.get('/api/avaliacoes/dashboard', requireAuth, requireGestor, async (req, res
   try {
     const now = Date.now();
     const { desde, ate } = req.query;
+    if (desde && !/^\d{4}-\d{2}-\d{2}$/.test(desde)) return res.status(400).json({ error: 'desde deve estar no formato YYYY-MM-DD' });
+    if (ate   && !/^\d{4}-\d{2}-\d{2}$/.test(ate))   return res.status(400).json({ error: 'ate deve estar no formato YYYY-MM-DD' });
     // Cache de 60s só quando sem filtros customizados
     if (!desde && !ate && now - _dashCache.ts < 60000 && _dashCache.data)
       return res.json(_dashCache.data);
@@ -1681,9 +1685,9 @@ app.get('/api/avaliacoes/dashboard', requireAuth, requireGestor, async (req, res
     if (ate)   params.p_ate   = ate;
     const { data, error } = await supabase.rpc('dashboard_avaliacao_dentista', params);
     if (error) throw error;
-    if (!desde && !ate) _dashCache = { data, ts: now };
-    const regenerando = false; // lazy insights: implementado no cron
-    res.json({ data: data || [], regenerando });
+    const responsePayload = { data: data || [], regenerando: false };
+    if (!desde && !ate) _dashCache = { data: responsePayload, ts: now };
+    res.json(responsePayload);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1706,6 +1710,8 @@ app.post('/api/avaliacoes/benchmark', requireAuth, requireGestor, requireModuloA
   try {
     const { desde, ate } = req.body;
     if (!desde || !ate) return res.status(400).json({ error: 'desde e ate obrigatórios (YYYY-MM-DD)' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(ate))
+      return res.status(400).json({ error: 'desde e ate devem estar no formato YYYY-MM-DD' });
     const maxBench = parseInt(await getConfigVal('benchmark_max_por_dia') || '3', 10);
     const dia = new Date().toISOString().slice(0, 10);
     const allowed = await dbRateLimit(`gemini:benchmark:${req.user.id}:${dia}`, maxBench, 86400 * 1000);
@@ -1730,8 +1736,6 @@ app.post('/api/avaliacoes/benchmark', requireAuth, requireGestor, requireModuloA
     }));
 
     const result = await geminiLib().gerarBenchmark({ agregados, periodo: { desde, ate } });
-    const totalToks = (result.tokensIn || 0) + (result.tokensOut || 0);
-    if (totalToks > 0) await supabase.rpc('increment_token_counter', { p_dentista: req.user.id, p_tokens: totalToks }).catch(() => {});
 
     const { data: bench, error: bErr } = await supabase.from('benchmark_spin').insert({
       gerado_por: req.user.id, periodo_inicio: desde, periodo_fim: ate,
@@ -1739,7 +1743,8 @@ app.post('/api/avaliacoes/benchmark', requireAuth, requireGestor, requireModuloA
     }).select().single();
     if (bErr) throw bErr;
 
-    const planos = result.planos || [];
+    const knownIds = new Set(Object.keys(byD));
+    const planos = (result.planos || []).filter(p => knownIds.has(p.dentista_id));
     if (planos.length) {
       const { error: planosErr } = await supabase.from('benchmark_spin_planos')
         .insert(planos.map(p => ({ benchmark_id: bench.id, dentista_id: p.dentista_id, plano: p.plano })));
@@ -1814,6 +1819,8 @@ app.patch('/api/avaliacoes/config/admin', requireAuth, requireGestor, async (req
 
 app.post('/api/avaliacoes/admin/reaceite/:paciente_id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    if (!UUID_V4_RE.test(req.params.paciente_id))
+      return res.status(400).json({ error: 'paciente_id deve ser um UUID v4 válido' });
     const versao = await getConfigVal('termo_lgpd_versao_atual') || 'v1-admin-manual';
     const { error } = await supabase.from('pacientes')
       .update({ consentimento_gravacao: true, consentimento_gravacao_em: new Date().toISOString(), consentimento_gravacao_versao: versao })
@@ -1830,15 +1837,20 @@ app.post('/api/avaliacoes/admin/reaceite/:paciente_id', requireAuth, requireAdmi
 
 app.delete('/api/avaliacoes/lgpd/paciente/:paciente_id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const { paciente_id } = req.params;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(paciente_id))
+      return res.status(400).json({ error: 'paciente_id deve ser um UUID v4 válido' });
     const { data: consultas } = await supabase.from('consultas_spin')
-      .select('id').eq('paciente_id', req.params.paciente_id);
+      .select('id').eq('paciente_id', paciente_id);
     const ids = (consultas || []).map(c => c.id);
-    if (ids.length)
-      await supabase.from('consultas_spin').delete().eq('paciente_id', req.params.paciente_id);
-    await supabase.from('audit_log').insert({
+    // Log first to guarantee audit trail even if delete subsequently fails
+    const { error: logErr } = await supabase.from('audit_log').insert({
       tabela: 'consultas_spin', acao: 'DELETE', actor_id: req.user.id, source: 'frontend',
-      dados_antes: { paciente_id: req.params.paciente_id, qtd_consultas: ids.length, ids },
+      dados_antes: { paciente_id, qtd_consultas: ids.length, ids },
     });
+    if (logErr) throw logErr;
+    if (ids.length)
+      await supabase.from('consultas_spin').delete().eq('paciente_id', paciente_id);
     res.json({ ok: true, deletadas: ids.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1872,6 +1884,8 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
       return res.status(400).json({ error: 'modo inválido. Use: deepgram, audio, texto' });
     if (paciente_vinculado && !paciente_id)
       return res.status(400).json({ error: 'paciente_id obrigatório quando paciente_vinculado=true' });
+    if (paciente_id && !UUID_V4_RE.test(paciente_id))
+      return res.status(400).json({ error: 'paciente_id deve ser um UUID v4 válido' });
 
     // LGPD: paciente vinculado em modo gravado exige consentimento
     if (['deepgram','audio'].includes(modo) && paciente_vinculado && paciente_id) {
@@ -1886,14 +1900,14 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
       paciente_id: paciente_id || null,
       paciente_nome: String(paciente_nome).slice(0, 200),
       paciente_vinculado: !!paciente_vinculado,
-      lead_id: lead_id ? parseInt(lead_id, 10) : null,
+      lead_id: lead_id != null ? (() => { const n = parseInt(lead_id, 10); if (isNaN(n)) throw Object.assign(new Error('lead_id deve ser um inteiro'), { status: 400 }); return n; })() : null,
       modo, started_at, ended_at: ended_at || null,
       transcript: transcript || null, analysis, analysis_schema_version,
       feedback_ia: validatedFeedback,
       uso: uso || null, transcript_stats: transcript_stats || null,
       tipo_tratamento_id: tipo_tratamento_id || null,
       tipo_tratamento_outro: tipo_tratamento_outro ? String(tipo_tratamento_outro).slice(0, 100) : null,
-      tratamento_valor_cents: tratamento_valor_cents != null ? parseInt(tratamento_valor_cents, 10) : null,
+      tratamento_valor_cents: (() => { const tvc = tratamento_valor_cents != null ? parseInt(tratamento_valor_cents, 10) : null; if (tvc !== null && (isNaN(tvc) || tvc < 0)) throw Object.assign(new Error('tratamento_valor_cents deve ser um inteiro não-negativo'), { status: 400 }); return tvc; })(),
       tratamento_valor_label: tratamento_valor_label ? String(tratamento_valor_label).slice(0, 80) : null,
       planejamento_em: planejamento_em || null,
       consentimento_manual_versao: consentimento_manual_versao || null,
@@ -1913,7 +1927,7 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
     }
     res.json({ ok: true, consulta });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 
@@ -1925,9 +1939,16 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
     const isDentista = roles.some(r => ['dentista','admin'].includes(r));
     if (!isGestor && !isDentista) return res.status(403).json({ error: 'Acesso negado' });
 
-    const limit  = Math.min(parseInt(req.query.limit  || '50',  10), 200);
-    const offset = parseInt(req.query.offset || '0', 10);
+    const limitRaw  = parseInt(req.query.limit  || '50',  10);
+    const offsetRaw = parseInt(req.query.offset || '0',   10);
+    if (isNaN(limitRaw)  || limitRaw  < 0) return res.status(400).json({ error: 'limit deve ser um inteiro não-negativo' });
+    if (isNaN(offsetRaw) || offsetRaw < 0) return res.status(400).json({ error: 'offset deve ser um inteiro não-negativo' });
+    const limit  = Math.min(limitRaw, 200);
+    const offset = offsetRaw;
     const { desde, ate, dentista_id, tipo } = req.query;
+    if (desde && !/^\d{4}-\d{2}-\d{2}$/.test(desde)) return res.status(400).json({ error: 'desde deve estar no formato YYYY-MM-DD' });
+    if (ate   && !/^\d{4}-\d{2}-\d{2}$/.test(ate))   return res.status(400).json({ error: 'ate deve estar no formato YYYY-MM-DD' });
+    if (dentista_id && !UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
 
     let query = supabase.from('consultas_spin')
       .select('id, dentista_id, paciente_id, paciente_nome, nota_final, modo, created_at, feedback_ia', { count: 'exact' })
@@ -1941,7 +1962,11 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
     }
     if (desde) query = query.gte('created_at', new Date(desde + 'T00:00:00-03:00').toISOString());
     if (ate)   query = query.lte('created_at', new Date(ate   + 'T23:59:59-03:00').toISOString());
-    if (tipo)  query = query.eq('tipo_tratamento_id', parseInt(tipo, 10));
+    if (tipo) {
+      const tipoInt = parseInt(tipo, 10);
+      if (isNaN(tipoInt) || tipoInt < 1) return res.status(400).json({ error: 'tipo deve ser um inteiro positivo' });
+      query = query.eq('tipo_tratamento_id', tipoInt);
+    }
 
     const { data, count, error } = await query;
     if (error) throw error;
@@ -1957,6 +1982,8 @@ app.post('/api/avaliacoes/aceitar-consentimento', requireAuth, requireDentista, 
   try {
     const { paciente_id, versao } = req.body;
     if (!paciente_id) return res.status(400).json({ error: 'paciente_id obrigatório' });
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(paciente_id))
+      return res.status(400).json({ error: 'paciente_id deve ser um UUID v4 válido' });
     // Only allow consent for patients this dentist has actually consulted
     const p = await loadProfile(req);
     const isGestor = (p.roles || []).some(r => ['gestor','admin'].includes(r));
@@ -1969,7 +1996,7 @@ app.post('/api/avaliacoes/aceitar-consentimento', requireAuth, requireDentista, 
     const { error } = await supabase.from('pacientes')
       .update({ consentimento_gravacao: true, consentimento_gravacao_em: new Date().toISOString(), consentimento_gravacao_versao: v })
       .eq('id', paciente_id)
-      .or('consentimento_gravacao.is.null,consentimento_gravacao.eq.false');
+      .is('consentimento_gravacao', null);
     if (error) throw error;
     res.json({ ok: true });
   } catch (e) {
@@ -1981,6 +2008,7 @@ app.post('/api/avaliacoes/aceitar-consentimento', requireAuth, requireDentista, 
 
 app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
   try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const p = await loadProfile(req);
     const roles = p.roles || [];
     const { data: consulta, error } = await supabase.from('consultas_spin').select('*').eq('id', req.params.id).maybeSingle();
@@ -1990,7 +2018,7 @@ app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
     const isOwner = consulta.dentista_id === req.user.id;
     if (!isGestor && !isOwner) return res.status(403).json({ error: 'Acesso negado' });
     // Gestor access: strip patient transcript (LGPD — only the treating dentist reads raw speech)
-    const payload = isOwner ? consulta : { ...consulta, transcript: undefined };
+    const payload = isOwner ? consulta : { ...consulta, transcript: null };
     res.json(payload);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1999,6 +2027,7 @@ app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
 
 app.patch('/api/avaliacoes/:id/feedback', requireAuth, async (req, res) => {
   try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const p = await loadProfile(req);
     const roles = p.roles || [];
     const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id').eq('id', req.params.id).maybeSingle();
@@ -2022,6 +2051,7 @@ app.patch('/api/avaliacoes/:id/feedback', requireAuth, async (req, res) => {
 
 app.patch('/api/avaliacoes/:id/tratamento', requireAuth, async (req, res) => {
   try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const p = await loadProfile(req);
     const roles = p.roles || [];
     const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id').eq('id', req.params.id).maybeSingle();
@@ -2032,9 +2062,15 @@ app.patch('/api/avaliacoes/:id/tratamento', requireAuth, async (req, res) => {
     const patch = {};
     if (tipo_tratamento_id  !== undefined) patch.tipo_tratamento_id  = tipo_tratamento_id || null;
     if (tipo_tratamento_outro !== undefined) patch.tipo_tratamento_outro = tipo_tratamento_outro ? String(tipo_tratamento_outro).slice(0, 100) : null;
-    if (tratamento_valor_cents !== undefined) patch.tratamento_valor_cents = tratamento_valor_cents != null ? parseInt(tratamento_valor_cents, 10) : null;
+    if (tratamento_valor_cents !== undefined) {
+      const tvc = tratamento_valor_cents != null ? parseInt(tratamento_valor_cents, 10) : null;
+      if (tvc !== null && (isNaN(tvc) || tvc < 0))
+        return res.status(400).json({ error: 'tratamento_valor_cents deve ser um inteiro não-negativo' });
+      patch.tratamento_valor_cents = tvc;
+    }
     if (tratamento_valor_label !== undefined) patch.tratamento_valor_label = tratamento_valor_label ? String(tratamento_valor_label).slice(0, 80) : null;
     if (planejamento_em !== undefined) patch.planejamento_em = planejamento_em || null;
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
     const { data, error } = await supabase.from('consultas_spin').update(patch).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ ok: true, consulta: data });
@@ -2045,6 +2081,7 @@ app.patch('/api/avaliacoes/:id/tratamento', requireAuth, async (req, res) => {
 
 app.patch('/api/avaliacoes/:id/paciente', requireAuth, async (req, res) => {
   try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const p = await loadProfile(req);
     const roles = p.roles || [];
     const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id, paciente_nome, modo').eq('id', req.params.id).maybeSingle();
@@ -2053,6 +2090,7 @@ app.patch('/api/avaliacoes/:id/paciente', requireAuth, async (req, res) => {
     if (consulta.dentista_id !== req.user.id && !isGestor) return res.status(403).json({ error: 'Acesso negado' });
     const { paciente_id } = req.body;
     if (!paciente_id) return res.status(400).json({ error: 'paciente_id obrigatório' });
+    if (!UUID_V4_RE.test(paciente_id)) return res.status(400).json({ error: 'paciente_id deve ser um UUID v4 válido' });
     const { data: pac } = await supabase.from('pacientes').select('id, nome, consentimento_gravacao').eq('id', paciente_id).maybeSingle();
     if (!pac) return res.status(404).json({ error: 'Paciente não encontrado' });
     if (consulta.modo !== 'texto' && pac.consentimento_gravacao !== true) return res.status(403).json({ error: 'Paciente não autorizou gravação' });
@@ -2072,6 +2110,7 @@ app.patch('/api/avaliacoes/:id/paciente', requireAuth, async (req, res) => {
 
 app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
   try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const p = await loadProfile(req);
     const roles = p.roles || [];
     const etapaIdx = parseInt(req.params.etapa_idx, 10);
@@ -2107,15 +2146,17 @@ app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireDentista
 
 app.delete('/api/avaliacoes/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const { data: consulta } = await supabase.from('consultas_spin')
       .select('id, dentista_id, paciente_id, created_at').eq('id', req.params.id).maybeSingle();
     if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
-    await supabase.from('consultas_spin').delete().eq('id', req.params.id);
-    await supabase.from('audit_log').insert({
+    const { error: logErr } = await supabase.from('audit_log').insert({
       tabela: 'consultas_spin', registro_id: consulta.id, acao: 'DELETE',
       actor_id: req.user.id, source: 'frontend',
       dados_antes: { id: consulta.id, dentista_id: consulta.dentista_id, paciente_id: consulta.paciente_id, created_at: consulta.created_at },
     });
+    if (logErr) throw logErr;
+    await supabase.from('consultas_spin').delete().eq('id', req.params.id);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2128,7 +2169,10 @@ app.get('/api/dentista/perfil', requireAuth, requireDentista, async (req, res) =
   try {
     const p = await loadProfile(req);
     const isGestor = (p.roles || []).some(r => ['gestor','admin'].includes(r));
-    const targetId = (isGestor && req.query.dentista_id) ? req.query.dentista_id : req.user.id;
+    const rawTarget = isGestor && req.query.dentista_id ? req.query.dentista_id : null;
+    if (rawTarget && !UUID_V4_RE.test(rawTarget))
+      return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
+    const targetId = rawTarget || req.user.id;
     const { data, error } = await supabase.from('dentista_perfil_spin').select('*').eq('dentista_id', targetId).maybeSingle();
     if (error) throw error;
     res.json(data || { dentista_id: targetId, tokens_mes_atual: 0, areas_fracas: [] });

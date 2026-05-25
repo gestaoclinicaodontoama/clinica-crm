@@ -8,6 +8,7 @@ const IDB_BUFFER_STORE = 'avaliacao_offline_buffer';
 
 let _mode = 'deepgram';
 let _ws = null;
+let _offlineFlushRegistered = false;
 let _stream = null;
 let _audioCtx = null;
 let _processor = null;
@@ -267,6 +268,9 @@ function stopAudio() {
 }
 
 async function checkConsentAndStart(startFn) {
+  // NOTE: consent shown here is session-only (not persisted to DB).
+  // The copilot operates in unlinked-patient mode (paciente_vinculado=false),
+  // so aceitar-consentimento is never called. This is intentional by design.
   const config = AvaliacaoApp.config ?? {};
   const user = AvaliacaoApp.user;
 
@@ -290,6 +294,7 @@ async function checkConsentAndStart(startFn) {
       _analysis = null;
       _feedbackState = {};
       AvaliacaoApp.currentSession = null;
+      idbDel(IDB_STORE, 'current').catch(() => {});
       showToast('Gravação não autorizada. Você pode usar o modo texto.', 'info');
     }
   );
@@ -318,13 +323,16 @@ async function handleIniciar() {
     await checkConsentAndStart(async () => {
       setMicStatus('Iniciando microfone...');
       const ok = await startAudio();
-      if (!ok) { _sessionActive = false; return; }
+      if (!ok) { _sessionActive = false; _sessionId = null; AvaliacaoApp.currentSession = null; idbDel(IDB_STORE, 'current').catch(() => {}); return; }
       try {
         const token = await requestDeepgramToken();
         _sessionActive = true;
         connectDeepgram(token);
       } catch (e) {
         _sessionActive = false;
+        _sessionId = null;
+        AvaliacaoApp.currentSession = null;
+        idbDel(IDB_STORE, 'current').catch(() => {});
         setMicStatus('Erro ao obter token');
         showToast('Erro ao conectar Deepgram: ' + e.message, 'error');
         stopAudio();
@@ -357,10 +365,11 @@ async function handleFinalizar() {
     const fileInput = document.getElementById('avd-audio-file');
     if (!fileInput?.files?.[0]) {
       showToast('Selecione um arquivo de áudio.', 'warning');
+      updateBtn('avd-btn-finalizar', false);
       return;
     }
     transcriptFinal = await transcribeAudio(fileInput.files[0]);
-    if (!transcriptFinal) return;
+    if (!transcriptFinal) { updateBtn('avd-btn-finalizar', false); return; }
     if (_sessionId !== mySessionId) return; // new session started during upload — discard
     _transcript = transcriptFinal;
   } else if (_mode === 'texto') {
@@ -368,6 +377,7 @@ async function handleFinalizar() {
     const raw = ta?.value?.trim();
     if (!raw) {
       showToast('Cole a transcrição antes de finalizar.', 'warning');
+      updateBtn('avd-btn-finalizar', false);
       return;
     }
     transcriptFinal = parseTextTranscript(raw);
@@ -376,6 +386,7 @@ async function handleFinalizar() {
 
   if (!transcriptFinal || transcriptFinal.length === 0) {
     showToast('Nenhuma transcrição disponível.', 'warning');
+    updateBtn('avd-btn-finalizar', false);
     return;
   }
 
@@ -577,10 +588,10 @@ async function handleSalvar() {
     AvaliacaoApp.emit('consulta:saved', { consultaId: _sessionId });
   } catch (e) {
     if (!navigator.onLine) {
-      await idbSet(IDB_BUFFER_STORE, _sessionId, { payload, savedAt: Date.now() });
+      await idbSet(IDB_BUFFER_STORE, payload.id, { payload, savedAt: Date.now() });
       if (statusEl) statusEl.textContent = 'Salvo localmente (offline). Será enviado ao reconectar.';
       showToast('Sem conexão. Consulta salva localmente.', 'warning');
-      setupOfflineFlush();
+      if (!_offlineFlushRegistered) { _offlineFlushRegistered = true; setupOfflineFlush(); }
     } else {
       if (statusEl) statusEl.textContent = '';
       showToast('Erro ao salvar: ' + e.message, 'error');
@@ -603,6 +614,7 @@ function collectFeedbacks() {
 
 function setupOfflineFlush() {
   const handler = async () => {
+    _offlineFlushRegistered = false;
     if (!navigator.onLine) return;
     const db = await openIDB();
     const keys = await new Promise((resolve, reject) => {
@@ -787,7 +799,10 @@ export async function init() {
         analysis: _analysis,
       };
       switchMode(_mode);
-      if (!_analysis) _sessionActive = true;
+      if (!_analysis) {
+        _sessionActive = true;
+        if (saved.transcript?.length) updateBtn('avd-btn-finalizar', false);
+      }
       if (saved.transcript?.length) {
         saved.transcript.forEach(t => appendTurnToUI(t));
       }
@@ -797,5 +812,8 @@ export async function init() {
     }
   }
 
-  setupOfflineFlush();
+  if (!_offlineFlushRegistered) {
+    _offlineFlushRegistered = true;
+    setupOfflineFlush();
+  }
 }
