@@ -1,5 +1,5 @@
 import { AvaliacaoApp } from './state.js';
-import { get, post, patch } from './api.js';
+import { get, post, patch, postFile } from './api.js';
 import { showToast, showConsentModal, showModal, closeModal, formatDate } from './ui.js';
 
 const ETAPAS = ['Situação', 'Problema', 'Implicação', 'Necessidade', 'Objeções', 'Compromisso', 'Fechamento', 'Pós-venda'];
@@ -414,24 +414,20 @@ function parseTextTranscript(raw) {
 async function transcribeAudio(file) {
   showSpinner('Transcrevendo áudio...');
   try {
-    const token = await requestDeepgramToken();
-    const res = await fetch(
-      `https://api.deepgram.com/v1/listen?model=nova-2&language=pt-BR&diarize=true&punctuate=true&smart_format=true`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Token ${token}`, 'Content-Type': file.type || 'audio/*' },
-        body: file,
-      }
-    );
-    if (res.status === 429) throw new Error('Limite de transcrições atingido. Tente novamente em alguns minutos.');
-    if (!res.ok) throw new Error(`Deepgram HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await postFile('/avaliacoes/transcrever', file);
     hideSpinner();
-    const words = data.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
+    const words = data.words ?? [];
+    if (!words.length) {
+      showToast('Nenhuma fala detectada no áudio.', 'warning');
+      return null;
+    }
     return buildTurnsFromWords(words);
   } catch (e) {
     hideSpinner();
-    showToast('Erro na transcrição: ' + e.message, 'error');
+    const msg = e.status === 429
+      ? 'Limite de transcrições atingido. Tente novamente em alguns minutos.'
+      : 'Erro na transcrição: ' + e.message;
+    showToast(msg, 'error');
     return null;
   }
 }

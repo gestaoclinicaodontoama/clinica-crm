@@ -1654,6 +1654,19 @@ app.post('/api/avaliacoes/deepgram-token', requireAuth, requireDentista, require
   }
 });
 
+// ── Transcrição server-side (upload de áudio) ──────────────────────────────
+
+app.post('/api/avaliacoes/transcrever', requireAuth, requireDentista, requireModuloAtivo, (req, res) => {
+  const contentType = req.headers['content-type'] || 'audio/mpeg';
+  const contentLength = req.headers['content-length'];
+  deepgramLib().transcribeStream(req, contentType, contentLength)
+    .then(data => {
+      const words = data.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
+      res.json({ words });
+    })
+    .catch(e => res.status(e.status || 502).json({ error: e.message }));
+});
+
 // ── Análise Gemini ─────────────────────────────────────────────────────────
 
 app.post('/api/avaliacoes/analisar', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
