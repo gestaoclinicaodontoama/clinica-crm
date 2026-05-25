@@ -400,6 +400,9 @@ async function handleFinalizar() {
     return;
   }
 
+  // Persist transcript BEFORE calling Gemini — if analysis fails, user can retry without re-transcribing
+  await persistSession();
+
   await analisarConsulta(transcriptFinal);
 }
 
@@ -484,7 +487,8 @@ function renderAnalysisError(isRateLimit, detail) {
     zona.innerHTML = `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:16px;font-size:13px">
       <div style="font-weight:600;margin-bottom:6px">Falha na análise</div>
       ${detail ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-family:'DM Mono',monospace;word-break:break-all">${escHtml(detail)}</div>` : ''}
-      <button onclick="window._avdRetryAnalysis()" style="padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);cursor:pointer;font-family:inherit;font-size:12px">Tentar de novo</button>
+      <button onclick="window._avdRetryAnalysis()" style="padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);cursor:pointer;font-family:inherit;font-size:12px">Tentar análise de novo</button>
+      <span style="font-size:11px;color:var(--muted);margin-left:10px">A transcrição foi salva — não precisa re-enviar o áudio.</span>
     </div>`;
     window._avdRetryAnalysis = () => analisarConsulta(_transcript);
   }
@@ -812,7 +816,21 @@ export async function init() {
       switchMode(_mode);
       if (!_analysis) {
         _sessionActive = true;
-        if (saved.transcript?.length) updateBtn('avd-btn-finalizar', false);
+        if (saved.transcript?.length) {
+          updateBtn('avd-btn-finalizar', false);
+          // Transcript recovered from IDB — offer retry without re-transcribing
+          if (_mode === 'audio' || _mode === 'texto') {
+            const zona = document.getElementById('avd-zona3');
+            if (zona) {
+              zona.style.display = 'block';
+              zona.innerHTML = `<div style="background:rgba(79,142,247,.08);border:1px solid rgba(79,142,247,.25);border-radius:10px;padding:14px 16px;font-size:13px">
+                Sessão recuperada com transcrição salva.
+                <button onclick="window._avdRetryAnalysis()" style="margin-left:10px;padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);cursor:pointer;font-family:inherit;font-size:12px">Analisar agora</button>
+              </div>`;
+              window._avdRetryAnalysis = () => analisarConsulta(_transcript);
+            }
+          }
+        }
       }
       if (saved.transcript?.length) {
         saved.transcript.forEach(t => appendTurnToUI(t));
