@@ -350,6 +350,7 @@ async function handleFinalizar() {
   setMicStatus('Finalizando...');
   updateBtn('avd-btn-finalizar', true);
 
+  const mySessionId = _sessionId; // guard: Iniciar can restart session during long upload
   let transcriptFinal = _transcript;
 
   if (_mode === 'audio') {
@@ -360,6 +361,7 @@ async function handleFinalizar() {
     }
     transcriptFinal = await transcribeAudio(fileInput.files[0]);
     if (!transcriptFinal) return;
+    if (_sessionId !== mySessionId) return; // new session started during upload — discard
     _transcript = transcriptFinal;
   } else if (_mode === 'texto') {
     const ta = document.getElementById('avd-texto-input');

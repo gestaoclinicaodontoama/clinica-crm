@@ -1803,6 +1803,7 @@ app.patch('/api/avaliacoes/config/admin', requireAuth, requireGestor, async (req
     }
     await Promise.all(updates);
     _moduloAtivoCache = { value: null, ts: 0 }; // invalida cache
+    _configCache.clear(); // invalida cache de configs (rate limits, tokens, etc.)
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
