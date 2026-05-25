@@ -173,7 +173,10 @@ function flashCopyBtn(id) {
   const orig = btn.innerHTML;
   btn.innerHTML = btn.innerHTML.replace(/Copiar/, '✓ Copiado');
   btn.style.color = 'var(--green)';
-  setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 2000);
+  setTimeout(() => {
+    const current = document.getElementById(id);
+    if (current) { current.innerHTML = orig; current.style.color = ''; }
+  }, 2000);
 }
 
 function imprimirRelatorio(c) {
@@ -244,7 +247,7 @@ function imprimirRelatorio(c) {
       ].join('')
   ) : '';
 
-  const notaCor2 = c.nota_final >= 7 ? '#22c55e' : c.nota_final >= 5 ? '#eab308' : '#ef4444';
+  const notaCor2 = c.nota_final == null ? '#9ca3af' : c.nota_final >= 7 ? '#22c55e' : c.nota_final >= 5 ? '#eab308' : '#ef4444';
 
   const win = window.open('', '_blank');
   if (!win) {
@@ -480,14 +483,27 @@ function renderDetalhe(c) {
 
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px';
-    wrapper.innerHTML = `
-      <input id="hist-nome-input" value="${escHtml(nomeAtual)}" maxlength="120"
-        style="font-size:15px;font-weight:700;background:var(--bg3);border:1px solid var(--accent);border-radius:6px;padding:4px 8px;color:var(--text);font-family:inherit;width:220px" />
-      <button id="hist-nome-salvar" style="padding:4px 12px;border-radius:6px;background:var(--accent);color:white;border:none;cursor:pointer;font-size:12.5px;font-weight:600;font-family:inherit">Salvar</button>
-      <button id="hist-nome-cancelar" style="padding:4px 10px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:12.5px;font-family:inherit">Cancelar</button>`;
-    titleEl.parentNode.insertBefore(wrapper, titleEl);
 
-    const input = wrapper.querySelector('#hist-nome-input');
+    const input = document.createElement('input');
+    input.id = 'hist-nome-input';
+    input.value = nomeAtual; // set via property — no HTML injection risk
+    input.maxLength = 120;
+    input.style.cssText = 'font-size:15px;font-weight:700;background:var(--bg3);border:1px solid var(--accent);border-radius:6px;padding:4px 8px;color:var(--text);font-family:inherit;width:220px';
+
+    const btnSalvar = document.createElement('button');
+    btnSalvar.id = 'hist-nome-salvar';
+    btnSalvar.textContent = 'Salvar';
+    btnSalvar.style.cssText = 'padding:4px 12px;border-radius:6px;background:var(--accent);color:white;border:none;cursor:pointer;font-size:12.5px;font-weight:600;font-family:inherit';
+
+    const btnCancelar = document.createElement('button');
+    btnCancelar.id = 'hist-nome-cancelar';
+    btnCancelar.textContent = 'Cancelar';
+    btnCancelar.style.cssText = 'padding:4px 10px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:12.5px;font-family:inherit';
+
+    wrapper.appendChild(input);
+    wrapper.appendChild(btnSalvar);
+    wrapper.appendChild(btnCancelar);
+    titleEl.parentNode.insertBefore(wrapper, titleEl);
     input.focus();
     input.select();
 
@@ -497,14 +513,13 @@ function renderDetalhe(c) {
       if (editBtn) editBtn.style.display = '';
     };
 
-    wrapper.querySelector('#hist-nome-cancelar').addEventListener('click', cancelar);
-    wrapper.querySelector('#hist-nome-salvar').addEventListener('click', async () => {
+    btnCancelar.addEventListener('click', cancelar);
+    btnSalvar.addEventListener('click', async () => {
       const novoNome = input.value.trim();
       if (!novoNome) { showToast('Nome não pode ser vazio.', 'warning'); return; }
       try {
-        const btn = wrapper.querySelector('#hist-nome-salvar');
-        btn.disabled = true;
-        btn.textContent = '...';
+        btnSalvar.disabled = true;
+        btnSalvar.textContent = '...';
         await patch(`/avaliacoes/${c.id}/nome`, { nome: novoNome });
         c.paciente_nome = novoNome;
         titleEl.textContent = novoNome;
@@ -515,13 +530,13 @@ function renderDetalhe(c) {
         showToast('Nome atualizado.', 'success');
       } catch (e) {
         showToast('Erro ao salvar: ' + e.message, 'error');
-        const btn = wrapper.querySelector('#hist-nome-salvar');
-        if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
+        btnSalvar.disabled = false;
+        btnSalvar.textContent = 'Salvar';
       }
     });
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') wrapper.querySelector('#hist-nome-salvar').click();
+      if (e.key === 'Enter') btnSalvar.click();
       if (e.key === 'Escape') cancelar();
     });
   };
