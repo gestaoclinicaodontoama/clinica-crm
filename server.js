@@ -2165,6 +2165,26 @@ app.patch('/api/avaliacoes/:id/paciente', requireAuth, async (req, res) => {
   }
 });
 
+app.patch('/api/avaliacoes/:id/nome', requireAuth, async (req, res) => {
+  try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const { data: consulta } = await supabase.from('consultas_spin').select('dentista_id').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    const isGestor = roles.some(r => ['gestor','admin'].includes(r));
+    if (consulta.dentista_id !== req.user.id && !isGestor) return res.status(403).json({ error: 'Acesso negado' });
+    const nome = (req.body?.nome ?? '').toString().trim().slice(0, 120);
+    if (!nome) return res.status(400).json({ error: 'nome não pode ser vazio' });
+    const { data, error } = await supabase.from('consultas_spin')
+      .update({ paciente_nome: nome }).eq('id', req.params.id).select('id, paciente_nome').single();
+    if (error) throw error;
+    res.json({ ok: true, paciente_nome: data.paciente_nome });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
   try {
     if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });

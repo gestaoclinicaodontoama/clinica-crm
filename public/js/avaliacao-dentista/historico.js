@@ -118,8 +118,13 @@ function renderDetalhe(c) {
   const html = `
     <div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px">
-        <div>
-          <h2 id="avaliacao-modal-title" style="font-size:16px;font-weight:700;margin-bottom:4px">${escHtml(c.paciente_nome ?? '—')}</h2>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <h2 id="avaliacao-modal-title" style="font-size:16px;font-weight:700;margin:0">${escHtml(c.paciente_nome ?? '—')}</h2>
+            ${podeEditar ? `<button id="hist-edit-nome-btn" onclick="window._histEditarNome()" title="Editar nome da paciente" aria-label="Editar nome da paciente" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);line-height:1;flex-shrink:0">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>` : ''}
+          </div>
           <div style="font-size:12px;color:var(--muted)">${formatDate(c.created_at)} · ${modoBadge(c.modo)}</div>
         </div>
         <div style="font-family:'DM Mono',monospace;font-size:36px;font-weight:700;color:${notaCor(c.nota_final)};flex-shrink:0">
@@ -135,6 +140,64 @@ function renderDetalhe(c) {
     </div>`;
 
   showModal(html);
+
+  window._histEditarNome = () => {
+    const titleEl = document.getElementById('avaliacao-modal-title');
+    const editBtn = document.getElementById('hist-edit-nome-btn');
+    if (!titleEl) return;
+
+    const nomeAtual = c.paciente_nome ?? '';
+    titleEl.style.display = 'none';
+    if (editBtn) editBtn.style.display = 'none';
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px';
+    wrapper.innerHTML = `
+      <input id="hist-nome-input" value="${escHtml(nomeAtual)}" maxlength="120"
+        style="font-size:15px;font-weight:700;background:var(--bg3);border:1px solid var(--accent);border-radius:6px;padding:4px 8px;color:var(--text);font-family:inherit;width:220px" />
+      <button id="hist-nome-salvar" style="padding:4px 12px;border-radius:6px;background:var(--accent);color:white;border:none;cursor:pointer;font-size:12.5px;font-weight:600;font-family:inherit">Salvar</button>
+      <button id="hist-nome-cancelar" style="padding:4px 10px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:12.5px;font-family:inherit">Cancelar</button>`;
+    titleEl.parentNode.insertBefore(wrapper, titleEl);
+
+    const input = wrapper.querySelector('#hist-nome-input');
+    input.focus();
+    input.select();
+
+    const cancelar = () => {
+      wrapper.remove();
+      titleEl.style.display = '';
+      if (editBtn) editBtn.style.display = '';
+    };
+
+    wrapper.querySelector('#hist-nome-cancelar').addEventListener('click', cancelar);
+    wrapper.querySelector('#hist-nome-salvar').addEventListener('click', async () => {
+      const novoNome = input.value.trim();
+      if (!novoNome) { showToast('Nome não pode ser vazio.', 'warning'); return; }
+      try {
+        const btn = wrapper.querySelector('#hist-nome-salvar');
+        btn.disabled = true;
+        btn.textContent = '...';
+        await patch(`/avaliacoes/${c.id}/nome`, { nome: novoNome });
+        c.paciente_nome = novoNome;
+        titleEl.textContent = novoNome;
+        // Update summary in list
+        const summary = _items.find(i => i.id === c.id);
+        if (summary) summary.paciente_nome = novoNome;
+        renderList();
+        cancelar();
+        showToast('Nome atualizado.', 'success');
+      } catch (e) {
+        showToast('Erro ao salvar: ' + e.message, 'error');
+        const btn = wrapper.querySelector('#hist-nome-salvar');
+        if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
+      }
+    });
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') wrapper.querySelector('#hist-nome-salvar').click();
+      if (e.key === 'Escape') cancelar();
+    });
+  };
 
   window._histAbrirFeedback = () => renderFeedbackForm(c);
 }
