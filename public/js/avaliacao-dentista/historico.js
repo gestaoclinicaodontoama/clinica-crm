@@ -473,6 +473,7 @@ function renderDetalhe(c) {
   window._imprimirRelatorio = () => imprimirRelatorio(c);
   window._histAbrirFeedback = () => renderFeedbackForm(c);
   window._histEditarNome = () => {
+    if (document.getElementById('hist-nome-input')) return; // edit already active
     const titleEl = document.getElementById('avaliacao-modal-title');
     const editBtn = document.getElementById('hist-edit-nome-btn');
     if (!titleEl) return;
@@ -529,7 +530,7 @@ function renderDetalhe(c) {
         cancelar();
         showToast('Nome atualizado.', 'success');
       } catch (e) {
-        showToast('Erro ao salvar: ' + e.message, 'error');
+        showToast('Erro ao salvar nome. Tente novamente.', 'error');
         btnSalvar.disabled = false;
         btnSalvar.textContent = 'Salvar';
       }
