@@ -73,15 +73,18 @@ async function idbDel(store, key) {
 }
 
 async function persistSession() {
-  if (!_sessionId) return;
-  await idbSet(IDB_STORE, 'current', {
-    consultaId: _sessionId,
+  const sid = _sessionId;
+  if (!sid) return;
+  const snapshot = {
+    consultaId: sid,
     startedAt: AvaliacaoApp.currentSession?.startedAt,
     mode: _mode,
     transcript: _transcript,
     analysis: _analysis,
     uso: _uso,
-  });
+  };
+  if (_sessionId !== sid) return; // Limpar fired between start and here
+  await idbSet(IDB_STORE, 'current', snapshot);
 }
 
 function setMicStatus(text) {
@@ -751,6 +754,7 @@ function renderRoot() {
     AvaliacaoApp.currentSession = null;
     AvaliacaoApp._consentimentoGravacaoAceito = false;
     _feedbackState = {};
+    idbDel(IDB_STORE, 'current').catch(() => {});
     const tc = document.getElementById('avd-transcript');
     if (tc) tc.innerHTML = '';
     const z3 = document.getElementById('avd-zona3');

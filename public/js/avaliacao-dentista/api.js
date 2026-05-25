@@ -40,7 +40,13 @@ async function request(method, path, body, attempt = 0) {
   }
 
   if (res.status === 204) return null;
-  return res.json();
+  try {
+    return await res.json();
+  } catch (e) {
+    const parseErr = new Error(`Resposta inválida do servidor (status ${res.status})`);
+    parseErr.status = res.status;
+    throw parseErr;
+  }
 }
 
 export const get  = (path)        => request('GET',    path);

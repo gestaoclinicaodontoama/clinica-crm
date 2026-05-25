@@ -1986,8 +1986,11 @@ app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
     if (error) throw error;
     if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
     const isGestor = roles.some(r => ['gestor','admin'].includes(r));
-    if (!isGestor && consulta.dentista_id !== req.user.id) return res.status(403).json({ error: 'Acesso negado' });
-    res.json(consulta);
+    const isOwner = consulta.dentista_id === req.user.id;
+    if (!isGestor && !isOwner) return res.status(403).json({ error: 'Acesso negado' });
+    // Gestor access: strip patient transcript (LGPD — only the treating dentist reads raw speech)
+    const payload = isOwner ? consulta : { ...consulta, transcript: undefined };
+    res.json(payload);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

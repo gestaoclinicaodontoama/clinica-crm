@@ -207,6 +207,8 @@ function renderFeedbackForm(c) {
           etapas: etapasFb,
         },
       });
+      c.feedback_ia = { schema_version: 1, nota_geral: nota, comentario, etapas: etapasFb };
+      renderList();
       showToast('Feedback enviado.', 'success');
       document.getElementById('avaliacao-modal-bg')?.classList.remove('open');
     } catch (e) {
