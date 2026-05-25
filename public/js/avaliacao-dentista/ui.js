@@ -44,6 +44,7 @@ export async function showConsentModal(onAccept, onDecline) {
     html = await res.text();
   } catch (_) {
     showToast('Erro ao carregar termo de consentimento.', 'error');
+    if (onDecline) onDecline();
     return;
   }
 

@@ -1714,7 +1714,7 @@ app.post('/api/avaliacoes/benchmark', requireAuth, requireGestor, requireModuloA
     const desdeISO = new Date(desde + 'T00:00:00-03:00').toISOString();
     const ateISO   = new Date(ate   + 'T23:59:59-03:00').toISOString();
     const { data: consultas } = await supabase.from('consultas_spin')
-      .select('dentista_id, nota_final, feedback_ia')
+      .select('dentista_id, nota_final')
       .gte('created_at', desdeISO).lte('created_at', ateISO)
       .not('nota_final', 'is', null);
 
@@ -1856,6 +1856,8 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
 
     if (!id || !paciente_nome || !modo || !started_at || !analysis)
       return res.status(400).json({ error: 'Campos obrigatórios: id, paciente_nome, modo, started_at, analysis' });
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+      return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const analysisCheck = AnalysisV1.safeParse(analysis);
     if (!analysisCheck.success)
       return res.status(400).json({ error: 'analysis inválido', issues: analysisCheck.error.issues.slice(0, 3) });
@@ -1903,7 +1905,9 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
     if (error) throw error;
 
     if (!consulta) {
-      const { data: existente } = await supabase.from('consultas_spin').select('*').eq('id', id).maybeSingle();
+      const { data: existente } = await supabase.from('consultas_spin')
+        .select('*').eq('id', id).eq('dentista_id', req.user.id).maybeSingle();
+      if (!existente) return res.status(409).json({ error: 'Conflito de ID: consulta pertence a outro dentista' });
       return res.json({ ok: true, consulta: existente, duplicate: true });
     }
     res.json({ ok: true, consulta });
@@ -1925,7 +1929,7 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
     const { desde, ate, dentista_id, tipo } = req.query;
 
     let query = supabase.from('consultas_spin')
-      .select('*', { count: 'exact' })
+      .select('id, dentista_id, paciente_id, paciente_nome, nota_final, modo, created_at, feedback_ia', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -2087,7 +2091,7 @@ app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireModuloAt
     const totalToks = (result.tokensIn || 0) + (result.tokensOut || 0);
     if (totalToks > 0) await supabase.rpc('increment_token_counter', { p_dentista: dentistaId, p_tokens: totalToks }).catch(() => {});
 
-    const analysis = consulta.analysis;
+    const analysis = JSON.parse(JSON.stringify(consulta.analysis));
     analysis.etapas[etapaIdx].detalhe = result.detalhe;
     const { error: updateErr } = await supabase.from('consultas_spin').update({ analysis }).eq('id', req.params.id);
     if (updateErr) throw updateErr;

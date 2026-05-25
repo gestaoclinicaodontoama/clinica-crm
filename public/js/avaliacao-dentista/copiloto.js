@@ -21,6 +21,7 @@ let _analysis = null;
 let _uso = null;
 let _sessionActive = false;
 let _saving = false;
+let _feedbackState = {}; // etapa index -> 'sim' | 'parcial' | 'nao'
 
 function uuidv4() {
   return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
@@ -284,6 +285,7 @@ async function checkConsentAndStart(startFn) {
       _sessionId = null;
       _transcript = [];
       _analysis = null;
+      _feedbackState = {};
       AvaliacaoApp.currentSession = null;
       showToast('Gravação não autorizada. Você pode usar o modo texto.', 'info');
     }
@@ -430,7 +432,6 @@ async function analisarConsulta(transcript) {
     const result = await post('/avaliacoes/analisar', {
       consulta_id: _sessionId,
       transcript,
-      transcript_text: transcriptText,
       contexto_prompt: AvaliacaoApp.config?.contexto_prompt ?? null,
     });
     hideSpinner();
@@ -526,6 +527,7 @@ function renderEtapa(etapa, i) {
 }
 
 function handleFeedbackEtapa(idx, concordou) {
+  _feedbackState[idx] = concordou;
   const btns = document.querySelectorAll(`.avd-fb-btn[data-etapa="${idx}"]`);
   btns.forEach(b => {
     const isActive = b.dataset.val === concordou;
@@ -584,8 +586,8 @@ async function handleSalvar() {
 function collectFeedbacks() {
   if (!_analysis?.etapas) return null;
   const etapas = _analysis.etapas.map((e, i) => {
-    const active = document.querySelector(`.avd-fb-btn[data-etapa="${i}"][style*="var(--accent)"]`);
-    return active ? { nome: e.nome, concordou: active.dataset.val } : null;
+    const val = _feedbackState[i];
+    return val ? { nome: e.nome, concordou: val } : null;
   }).filter(Boolean);
   if (!etapas.length) return null;
   const nota_geral = Math.max(1, Math.min(5, Math.round((_analysis.nota_final ?? 5) / 2)));
@@ -617,7 +619,6 @@ function setupOfflineFlush() {
         showToast('Erro ao enviar consulta offline: ' + e.message, 'error');
       }
     }
-    window.removeEventListener('online', handler);
   };
   window.addEventListener('online', handler, { once: true });
 }
@@ -742,6 +743,7 @@ function renderRoot() {
     _reconnectCount = 0;
     AvaliacaoApp.currentSession = null;
     AvaliacaoApp._consentimentoGravacaoAceito = false;
+    _feedbackState = {};
     const tc = document.getElementById('avd-transcript');
     if (tc) tc.innerHTML = '';
     const z3 = document.getElementById('avd-zona3');
