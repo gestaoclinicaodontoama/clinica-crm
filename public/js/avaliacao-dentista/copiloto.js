@@ -343,6 +343,7 @@ async function handleIniciar() {
       _sessionActive = true;
       setMicStatus('Pronto para upload');
       updateBtn('avd-btn-iniciar', true);
+      updateBtn('avd-btn-finalizar', false);
     });
   } else {
     _sessionActive = true;
@@ -354,7 +355,7 @@ async function handleIniciar() {
 
 async function handleFinalizar() {
   _sessionActive = false;
-  stopAudio();
+  if (_mode === 'deepgram') stopAudio();
   setMicStatus('Finalizando...');
   updateBtn('avd-btn-finalizar', true);
 
@@ -365,7 +366,12 @@ async function handleFinalizar() {
     const fileInput = document.getElementById('avd-audio-file');
     if (!fileInput?.files?.[0]) {
       showToast('Selecione um arquivo de áudio.', 'warning');
-      updateBtn('avd-btn-finalizar', false);
+      _sessionActive = false;
+      _sessionId = null;
+      AvaliacaoApp.currentSession = null;
+      setMicStatus('Aguardando');
+      updateBtn('avd-btn-iniciar', false);
+      updateBtn('avd-btn-finalizar', true);
       return;
     }
     transcriptFinal = await transcribeAudio(fileInput.files[0]);
@@ -413,6 +419,7 @@ async function transcribeAudio(file) {
         body: file,
       }
     );
+    if (res.status === 429) throw new Error('Limite de transcrições atingido. Tente novamente em alguns minutos.');
     if (!res.ok) throw new Error(`Deepgram HTTP ${res.status}`);
     const data = await res.json();
     hideSpinner();
