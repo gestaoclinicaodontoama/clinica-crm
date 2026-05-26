@@ -22,7 +22,16 @@ export function showModal(htmlContent, onBackdropDismiss) {
   const box = document.getElementById('avaliacao-modal');
   if (!bg || !box) return;
 
-  box.innerHTML = htmlContent;
+  box.style.position = 'relative';
+  box.innerHTML = `
+    <button onclick="document.getElementById('avaliacao-modal-bg').classList.remove('open')"
+      aria-label="Fechar" title="Fechar"
+      style="position:absolute;top:10px;right:12px;background:none;border:none;cursor:pointer;
+             color:var(--muted);font-size:22px;line-height:1;padding:4px 8px;border-radius:6px;
+             transition:background .12s;z-index:2"
+      onmouseenter="this.style.background='var(--bg3)'"
+      onmouseleave="this.style.background='none'">×</button>
+    ${htmlContent}`;
   bg.classList.add('open');
 
   bg.addEventListener('click', (e) => {

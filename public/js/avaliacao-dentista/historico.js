@@ -602,9 +602,9 @@ function renderDetalhe(c) {
       renderList();
       renderDetalhe(updated);
     } catch (e) {
-      showToast('Erro ao reanalisar. Tente novamente.', 'error');
+      showToast('Erro: ' + (e.message || 'tente novamente.'), 'error');
       btn.disabled = false;
-      btn.textContent = 'Reanalisar';
+      btn.textContent = 'Reanalisar agora';
     }
   };
   window._histEditarNome = () => {
