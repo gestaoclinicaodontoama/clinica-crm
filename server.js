@@ -2207,14 +2207,16 @@ app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireDentista, require
       .maybeSingle();
 
     if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
-    if (consulta.dentista_id !== req.user.id) return res.status(403).json({ error: 'Acesso negado' });
+    const userRoles = req.user.roles || [];
+    const isAdminOrGestor = userRoles.includes('admin') || userRoles.includes('gestor');
+    if (consulta.dentista_id !== req.user.id && !isAdminOrGestor) return res.status(403).json({ error: 'Acesso negado' });
     if (!consulta.transcript || (Array.isArray(consulta.transcript) && consulta.transcript.length === 0)) {
       return res.status(400).json({ error: 'Consulta sem transcrição para reanalisar' });
     }
 
     // Pass consultaId: null to bypass idempotency — forces a fresh Gemini call
     const { analysis, tokensIn, tokensOut, custoUsd } = await geminiLib().analyzeTranscript({
-      dentistId: req.user.id,
+      dentistId: consulta.dentista_id,
       transcript: consulta.transcript,
       contextoPrompt: consulta.contexto_prompt || '',
       consultaId: null,
@@ -2231,7 +2233,7 @@ app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireDentista, require
 
     const totalToks = tokensIn + tokensOut;
     if (totalToks > 0) {
-      try { await supabase.rpc('increment_token_counter', { p_dentista: req.user.id, p_tokens: totalToks }); } catch (_) {}
+      try { await supabase.rpc('increment_token_counter', { p_dentista: consulta.dentista_id, p_tokens: totalToks }); } catch (_) {}
     }
 
     res.json({ ok: true, nota_final: updated.nota_final, custoUsd });

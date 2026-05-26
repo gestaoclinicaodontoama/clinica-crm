@@ -441,12 +441,17 @@ function renderDetalhe(c) {
          </div>`
       : '';
 
-  const reAnalisarEl = isDono(c) ? `
+  const crcEhFormatoAntigo = (hasCRCContent(crcCom) && typeof crcCom === 'string') ||
+                              (hasCRCContent(crcSuc) && typeof crcSuc === 'string');
+
+  const reAnalisarEl = podeEditar ? `
     <div style="margin-top:10px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div style="font-size:12px;color:var(--muted);line-height:1.4">Quer usar o novo formato de análise (Acolhimento, Anamnese…) nesta consulta?</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.4">${crcEhFormatoAntigo
+        ? '⚠ Relatório CRC no formato antigo (texto corrido). Reanalisando, aparecerá em tópicos.'
+        : 'Quer usar o novo formato de análise (Acolhimento, Anamnese…) nesta consulta?'}</div>
       <button id="hist-reanalisar-btn" onclick="window._histReanalisar()" aria-label="Reanalisar esta consulta com o formato atual"
-        style="padding:6px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0">
-        Reanalisar
+        style="padding:6px 14px;border-radius:8px;${crcEhFormatoAntigo ? 'background:var(--accent);color:white' : 'background:var(--bg3);color:var(--text)'};border:1px solid var(--border);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0">
+        Reanalisar agora
       </button>
     </div>` : '';
 
