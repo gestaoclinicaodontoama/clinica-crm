@@ -142,6 +142,7 @@ function requireRole(...allowed) {
 }
 const requireDentista = requireRole('dentista', 'admin', 'mod_avaliacao_dentista');
 const requireGestor   = requireRole('gestor', 'admin');
+const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial');
 
 // ========== ADMIN MIDDLEWARE ==========
 // TODO(remover-em-2026-06-23): fallback de role em user_metadata
@@ -1786,7 +1787,7 @@ app.post('/api/avaliacoes/analisar', requireAuth, requireDentista, requireModulo
 
 // ── Dashboard KPIs ─────────────────────────────────────────────────────────
 
-app.get('/api/avaliacoes/dashboard', requireAuth, requireGestor, async (req, res) => {
+app.get('/api/avaliacoes/dashboard', requireAuth, requireDashboardAvaliacao, async (req, res) => {
   try {
     const now = Date.now();
     const { desde, ate } = req.query;
