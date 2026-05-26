@@ -1126,7 +1126,26 @@ app.get('/api/notas-fiscais/stats', async (req, res) => {
 });
 
 // ========== CLINICORP / INADIMPLENTES ==========
+const _clinicorpReqs = []; // timestamps das req na janela de 1h (para rate limit display)
+
+function _trackClinicorpReq() {
+  const now = Date.now();
+  _clinicorpReqs.push(now);
+  const cutoff = now - 60 * 60 * 1000;
+  while (_clinicorpReqs.length && _clinicorpReqs[0] < cutoff) _clinicorpReqs.shift();
+}
+
+app.get('/api/clinicorp-status', requireAuth, (req, res) => {
+  const now = Date.now();
+  const cutoff = now - 60 * 60 * 1000;
+  const recent = _clinicorpReqs.filter(t => t > cutoff);
+  const oldest = recent[0] || now;
+  const resetInMs = Math.max(0, (oldest + 60 * 60 * 1000) - now);
+  res.json({ used: recent.length, limit: 25, resetIn: Math.ceil(resetInMs / 60000) });
+});
+
 function clinicorpGet(apiPath, params = {}) {
+  _trackClinicorpReq();
   return new Promise((resolve, reject) => {
     const user  = process.env.CLINICORP_USER  || 'clinicaama';
     const token = process.env.CLINICORP_TOKEN || '';
