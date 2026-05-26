@@ -2243,7 +2243,7 @@ app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireRole('dentista', 
   }
 });
 
-app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
+app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireRole('dentista', 'admin', 'gestor', 'mod_avaliacao_dentista'), requireModuloAtivo, async (req, res) => {
   try {
     if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     const p = await loadProfile(req);
