@@ -2084,9 +2084,7 @@ app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
     const isGestor = roles.some(r => ['gestor','admin'].includes(r));
     const isOwner = consulta.dentista_id === req.user.id;
     if (!isGestor && !isOwner) return res.status(403).json({ error: 'Acesso negado' });
-    // Gestor access: strip patient transcript (LGPD — only the treating dentist reads raw speech)
-    const payload = isOwner ? consulta : { ...consulta, transcript: null };
-    res.json(payload);
+    res.json(consulta);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
