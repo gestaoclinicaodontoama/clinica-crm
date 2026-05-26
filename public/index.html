@@ -3015,7 +3015,7 @@ function _renderInadData(data) {
   if (data.from_cache && data.cache_min > 0) {
     const h = Math.floor(data.cache_min / 60);
     const m = data.cache_min % 60;
-    upd.textContent = h > 0 ? `Atualizado ${h}h${m}min atras` : `Atualizado ${m} min atras`;
+    upd.textContent = h > 0 ? 'Atualizado ' + h + 'h' + m + 'min atras' : 'Atualizado ' + m + ' min atras';
   } else {
     upd.textContent = 'Atualizado agora';
   }
@@ -3074,3 +3074,531 @@ async function loadInadimplentes(forceRefresh = false) {
 }
 
 async function saveNotaInad(patientId, field, value) {
+  try {
+    await api(`/api/inadimplentes/nota/${patientId}`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ [field]: value }),
+    });
+  } catch(e) { console.warn('[inad] saveNota erro:', e.message); }
+}
+
+function openWhatsAppInadEl(el) {
+  openWhatsAppInad(el.dataset.pid, el.dataset.phone, el.dataset.name);
+}
+
+function openWhatsAppInad(patientId, phone, name) {
+  if (!phone) { toast('Paciente sem telefone cadastrado', true); return; }
+  const num = phone.startsWith('55') ? phone : '55' + phone;
+  const firstName = (name || '').split(' ')[0];
+  const msg = encodeURIComponent(`Olá ${firstName}! Tudo bem? Aqui é da Clínica AMA, entramos em contato sobre seu tratamento.`);
+  window.open(`https://wa.me/${num}?text=${msg}`, '_blank');
+}
+
+function toggleInadSection(bodyId, togId) {
+  const body = document.getElementById(bodyId);
+  const tog  = document.getElementById(togId);
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  tog.classList.toggle('open', !isOpen);
+}
+
+// ===== CAPTCHA MANUAL =====
+let _captchaToken = null;        // token atualmente exibido
+const _captchasHandled = new Set(); // tokens já respondidos ou cancelados
+
+async function captchaVerificar() {
+  try {
+    const r = await api('/api/nf-captcha');
+    if (r.pendente && !_captchasHandled.has(r.token)) {
+      _captchaToken = r.token;
+      _captchasHandled.add(r.token);
+      document.getElementById('captcha-img').src = 'data:image/png;base64,' + r.img_b64;
+      document.getElementById('captcha-input').value = '';
+      document.getElementById('captcha-overlay').classList.add('ativo');
+      setTimeout(() => document.getElementById('captcha-input').focus(), 100);
+      if ('Notification' in window && Notification.permission === 'granted')
+        new Notification('Clínica CRM — Captcha', { body: 'Digite o código para continuar a emissão de notas.', icon: '/favicon.ico' });
+    }
+  } catch (_) {}
+}
+
+async function enviarCaptcha() {
+  const digitos = document.getElementById('captcha-input').value.replace(/\D/g,'');
+  if (digitos.length !== 4) { toast('Digite exatamente 4 dígitos', true); return; }
+  if (!_captchaToken) return;
+  try {
+    await api(`/api/nf-captcha/${_captchaToken}/resposta`, {
+      method: 'POST', body: JSON.stringify({ digitos })
+    });
+    fecharCaptchaModal();
+    toast('Captcha enviado — automação continuando...');
+  } catch(e) { toast('❌ Erro ao enviar captcha: ' + e.message, true); }
+}
+
+function fecharCaptchaModal() {
+  document.getElementById('captcha-overlay').classList.remove('ativo');
+  // Não reseta _captchaToken para não reabrir o mesmo modal
+}
+
+
+
+
+// ===== DRAWER DETALHE NOTA FISCAL =====
+function abrirDetalheNota(id) {
+  const n = _nfData[id];
+  if (!n) return;
+  document.getElementById('nf-drawer-overlay').style.display = 'block';
+  const drawer = document.getElementById('nf-drawer');
+  drawer.style.display = 'block';
+  _renderDetalheNota(n);
+}
+
+function fecharDetalheNota() {
+  document.getElementById('nf-drawer-overlay').style.display = 'none';
+  document.getElementById('nf-drawer').style.display = 'none';
+}
+
+function _renderDetalheNota(n) {
+  const pac = n.nome_paciente
+    ? `<div class="nfd-grid" style="margin-top:8px">
+        <div><div class="nfd-label">CPF Paciente</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfMask(n.cpf_paciente)||'—'}</div></div>
+        <div><div class="nfd-label">Nome Paciente</div><div class="nfd-val">${escHtml(n.nome_paciente)}</div></div>
+        ${n.parentesco?`<div><div class="nfd-label">Parentesco</div><div class="nfd-val">${escHtml(n.parentesco)}</div></div>`:''}
+      </div>` : '';
+
+  const erroHtml = n.erro_msg
+    ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:7px;font-size:12px;color:var(--red)">
+        <strong>Erro:</strong> ${escHtml(n.erro_msg)}
+       </div>` : '';
+
+  const podeReset = ['Processando','Erro'].includes(n.status);
+  const podeEditar = ['Pendente','Erro'].includes(n.status);
+
+  const histHtml = (n.historico && n.historico.length)
+    ? n.historico.slice().reverse().map(h => `
+        <div class="nfd-hist-item">
+          <div class="nfd-hist-dot nfd-hist-dot-${h.para}"></div>
+          <div>
+            <span style="font-weight:600">${escHtml(h.de)} → ${escHtml(h.para)}</span>
+            <span style="color:var(--muted);margin-left:8px">${escHtml(h.quando)}</span>
+            <span style="color:var(--muted);margin-left:6px;font-size:11px">${h.quem === 'sistema' ? '⚙ sistema' : '👤 manual'}</span>
+          </div>
+        </div>`).join('')
+    : `<div style="color:var(--muted);font-size:12px">Nenhuma alteração registrada ainda.</div>`;
+
+  document.getElementById('nf-drawer').innerHTML = `
+    <div class="nfd-section" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${nfSistemaBadge(n.sistema)}
+        ${nfStatusBadge(n.status)}
+        ${n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)">NF# ${escHtml(n.num_nota)}</span>` : ''}
+        ${n.num_nota ? `<a href="/api/notas-fiscais/${n.id}/pdf" target="_blank" title="Abrir Nota Fiscal" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500">⬇ PDF</a>` : ''}
+      </div>
+      <button onclick="fecharDetalheNota()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:2px 8px;line-height:1">✕</button>
+    </div>
+
+    <div class="nfd-section">
+      <div class="nfd-grid">
+        <div><div class="nfd-label">Competência</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${escHtml(n.competencia||'—')}</div></div>
+        <div><div class="nfd-label">Tipo Tomador</div><div class="nfd-val">${escHtml(n.tipo_tomador||'CPF')}</div></div>
+        <div><div class="nfd-label">CPF / CNPJ</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfMask(n.cpf_tomador)||'—'}</div></div>
+        <div><div class="nfd-label">Nome Tomador</div><div class="nfd-val">${escHtml(n.nome_tomador||'—')}</div></div>
+        <div><div class="nfd-label">Valor</div><div class="nfd-val" style="font-family:'DM Mono',monospace">${nfFmt(n.valor)}</div></div>
+        <div><div class="nfd-label">Data Pagamento</div><div class="nfd-val">${escHtml(n.data_pagamento||'—')}</div></div>
+      </div>
+      <div style="margin-top:10px"><div class="nfd-label">Descrição</div><div class="nfd-val">${escHtml(n.descricao||'—')}</div></div>
+      ${pac}
+      ${erroHtml}
+      ${n.data_emissao ? `<div style="margin-top:8px"><div class="nfd-label">Emitida em</div><div class="nfd-val">${escHtml(n.data_emissao)}</div></div>` : ''}
+    </div>
+
+    <div class="nfd-section">
+      <div class="nfd-label" style="margin-bottom:10px">Alterar status</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="nfd-status-sel" class="filter-select" style="flex:1;min-width:140px">
+          ${['Pendente','Processando','Emitida','Erro'].map(s => `<option${s===n.status?' selected':''}>${s}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="nfdSalvarStatus(${n.id})">Salvar</button>
+        ${podeReset ? `<button class="btn btn-ghost" style="font-size:12px;padding:6px 14px;color:var(--yellow)" onclick="nfdResetar(${n.id})">↺ Resetar para Pendente</button>` : ''}
+      </div>
+      ${podeEditar ? `<div style="margin-top:10px"><button class="btn btn-ghost" style="font-size:12px" onclick="fecharDetalheNota();nfEditRow(${n.id})">✎ Editar campos</button></div>` : ''}
+    </div>
+
+    <div class="nfd-section">
+      <div class="nfd-label" style="margin-bottom:8px">Histórico de status</div>
+      ${histHtml}
+    </div>
+
+    <div class="nfd-section" style="border:none">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${['Pendente','Erro'].includes(n.status) ? `<button class="btn btn-ghost" style="font-size:12px;color:var(--red)" onclick="fecharDetalheNota();deletarNota(${n.id})">🗑 Excluir nota</button>` : ''}
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+        Criada em ${n.criado_em||'—'} · Atualizada em ${n.atualizado_em||'—'}
+      </div>
+    </div>`;
+}
+
+async function nfdSalvarStatus(id) {
+  const sel = document.getElementById('nfd-status-sel');
+  if (!sel) return;
+  const novoStatus = sel.value;
+  try {
+    const r = await api(`/api/notas-fiscais/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: novoStatus, quem: 'manual' })
+    });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('✅ Status atualizado');
+    await loadNotasFiscais();
+    _nfData[id] = r.nota;
+    _renderDetalheNota(r.nota);
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
+}
+
+async function nfdResetar(id) {
+  try {
+    const r = await api(`/api/notas-fiscais/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Pendente', quem: 'manual', erro_msg: '' })
+    });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('↺ Resetada para Pendente');
+    await loadNotasFiscais();
+    _nfData[id] = r.nota;
+    _renderDetalheNota(r.nota);
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
+}
+</script>
+
+<!-- Drawer Detalhe NF -->
+<div class="nf-drawer-overlay" id="nf-drawer-overlay" onclick="fecharDetalheNota()"></div>
+<div class="nf-drawer" id="nf-drawer"></div>
+
+<!-- Modal Captcha Manual -->
+<div class="captcha-modal-overlay" id="captcha-overlay">
+  <div class="captcha-modal">
+    <div style="font-size:15px;font-weight:700;margin-bottom:4px">Captcha necessário</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">A IA não conseguiu ler o captcha. Digite os 4 dígitos:</div>
+    <img id="captcha-img" src="" alt="captcha">
+    <input id="captcha-input" type="text" inputmode="numeric" maxlength="4" placeholder="0000"
+           onkeydown="if(event.key==='Enter')enviarCaptcha()">
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:16px">
+      <button class="btn btn-ghost" style="font-size:13px" onclick="fecharCaptchaModal()">Cancelar</button>
+      <button class="btn btn-primary" style="font-size:13px" onclick="enviarCaptcha()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ========== SUPABASE AUTH ==========
+const _SUPABASE_URL = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
+const _SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
+const _sb = window.supabase ? window.supabase.createClient(_SUPABASE_URL, _SUPABASE_ANON_KEY) : null;
+
+function _showLogin() {
+  document.getElementById('login-screen').classList.add('active');
+  document.getElementById('app-shell').style.display = 'none';
+}
+function _showApp() {
+  document.getElementById('login-screen').classList.remove('active');
+  document.getElementById('app-shell').style.display = '';
+}
+
+async function handleLogin() {
+  if (!_sb) { alert('Supabase não configurado. Adicione SUPABASE_ANON_KEY.'); return; }
+  const email = document.getElementById('login-email').value.trim();
+  const senha = document.getElementById('login-senha').value;
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-error');
+  btn.disabled = true; btn.textContent = 'Entrando...'; err.style.display = 'none';
+  const { data, error } = await _sb.auth.signInWithPassword({ email, password: senha });
+  if (error) {
+    err.textContent = error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos' : error.message;
+    err.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Entrar';
+    return;
+  }
+  _sbSession = data.session;
+  _showApp();
+  iniciarApp();
+}
+
+async function handleLogout() {
+  if (_sb) await _sb.auth.signOut();
+  _sbSession = null;
+  _showLogin();
+}
+
+document.getElementById('login-senha').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+
+function iniciarApp() {
+  loadCurrentUser();
+  setInterval(captchaVerificar, 3000);
+  const btn = document.querySelector('.nav-btn[onclick*="dashboard"]');
+  if (btn) setPage('dashboard', btn);
+  else loadDash();
+}
+
+// Check existing session on load
+(async () => {
+  if (!_sb) {
+    // No Supabase config — show app in degraded mode (dev only)
+    _showApp();
+    iniciarApp();
+    return;
+  }
+  const { data: { session } } = await _sb.auth.getSession();
+  if (session) {
+    _sbSession = session;
+    _showApp();
+    iniciarApp();
+  } else {
+    _showLogin();
+  }
+  _sb.auth.onAuthStateChange((event, session) => {
+    _sbSession = session;
+    if (!session) _showLogin();
+  });
+})();
+
+// ========== GESTAO DE USUARIOS (ADMIN) ==========
+let _currentUser = null;
+
+async function loadCurrentUser() {
+  try {
+    const d = await api('/api/me');
+    _currentUser = d;
+    const roles = Array.isArray(d.roles) ? d.roles : [];
+    // Apply role-based nav visibility
+    const _canSee = (rolesAttr) => roles.includes('admin') || rolesAttr.split(',').some(r => roles.includes(r));
+    document.querySelectorAll('.nav-btn[data-roles]').forEach(btn => {
+      btn.style.display = _canSee(btn.dataset.roles) ? '' : 'none';
+    });
+    document.querySelectorAll('.nav-section[data-roles]').forEach(sec => {
+      sec.style.display = _canSee(sec.dataset.roles) ? '' : 'none';
+    });
+    // Se o dashboard estiver oculto, redireciona para o primeiro módulo visível
+    const dashBtn = document.querySelector('.nav-btn[data-page="dashboard"]');
+    if (dashBtn && dashBtn.style.display === 'none') {
+      const first = document.querySelector('.nav-btn[data-page]:not([style*="none"])');
+      if (first) setPage(first.dataset.page, first);
+    }
+    // Update nav label with user name
+    const logo = document.querySelector('nav .logo');
+    if (logo && d.nome) logo.title = d.nome + ' (' + roles.join(', ') + ')';
+  } catch(e) {}
+}
+
+const _ROLE_LABELS = {
+  admin:'Admin', gestor:'Gestor', auxiliar_adm:'Auxiliar Adm',
+  crc_leads:'CRC Leads', crc_comercial:'CRC Comercial',
+  crc_sucesso:'CRC Sucesso', crc_pos_tratamento:'CRC Pós Tratamento',
+  dentista:'Dentista',
+  mod_notas_fiscais:'Notas Fiscais', mod_inadimplentes:'Inadimplentes',
+  mod_avaliacao_dentista:'Avaliação Dentista'
+};
+function _renderRoles(roles) {
+  const base = [], mods = [];
+  (roles||[]).forEach(r => r.startsWith('mod_') ? mods.push(r) : base.push(r));
+  const fmt = (r, color) => `<span style="background:${color};color:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">${_ROLE_LABELS[r]||r}</span>`;
+  return [
+    ...base.map(r => fmt(r, r==='admin'?'#6366f1':r==='gestor'?'#0ea5e9':'#64748b')),
+    ...mods.map(r => fmt(r, '#059669'))
+  ].join(' ');
+}
+
+async function loadUsuarios() {
+  const el = document.getElementById('usuarios-lista');
+  if (!el) return;
+  el.innerHTML = '<p style="color:var(--muted)">Carregando...</p>';
+  try {
+    const users = await api('/api/admin/users');
+    if (!users.length) { el.innerHTML = '<p style="color:var(--muted)">Nenhum usuario cadastrado.</p>'; return; }
+    _usuariosCache = users;
+    const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    el.innerHTML = users.map(u => `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div style="min-width:0">
+          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.nome) || '—'}</div>
+          <div style="font-size:12px;color:var(--muted)">${esc(u.email)}</div>
+          <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${_renderRoles(u.roles)}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-ghost" style="font-size:11px;white-space:nowrap" onclick="abrirEdicaoUsuario('${u.id}')">Editar</button>
+          <button class="btn btn-ghost" style="font-size:11px;color:var(--red);white-space:nowrap" onclick="excluirUsuario('${u.id}')">Excluir</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { el.innerHTML = `<p style="color:var(--red)">${e.message}</p>`; }
+}
+
+async function criarUsuario() {
+  const nome = document.getElementById('nu-nome').value.trim();
+  const email = document.getElementById('nu-email').value.trim();
+  const senha = document.getElementById('nu-senha').value;
+  const msg = document.getElementById('nu-msg');
+  const btn = document.getElementById('nu-btn');
+  if (!nome || !email || !senha) { msg.style.color='var(--red)'; msg.textContent='Preencha todos os campos'; return; }
+  if (senha.length < 6) { msg.style.color='var(--red)'; msg.textContent='Senha minima: 6 caracteres'; return; }
+  const roles = [];
+  if (document.getElementById('nu-role-admin').checked) roles.push('admin');
+  if (document.getElementById('nu-role-gestor').checked) roles.push('gestor');
+  if (document.getElementById('nu-role-auxiliar_adm').checked) roles.push('auxiliar_adm');
+  if (document.getElementById('nu-role-crc_leads').checked) roles.push('crc_leads');
+  if (document.getElementById('nu-role-crc_comercial').checked) roles.push('crc_comercial');
+  if (document.getElementById('nu-role-crc_sucesso').checked) roles.push('crc_sucesso');
+  if (document.getElementById('nu-role-crc_pos_tratamento').checked) roles.push('crc_pos_tratamento');
+  if (document.getElementById('nu-role-dentista').checked) roles.push('dentista');
+  if (document.getElementById('nu-mod-notas_fiscais').checked) roles.push('mod_notas_fiscais');
+  if (document.getElementById('nu-mod-inadimplentes').checked) roles.push('mod_inadimplentes');
+  if (document.getElementById('nu-mod-avaliacao_dentista').checked) roles.push('mod_avaliacao_dentista');
+  if (!roles.length) roles.push('crc_leads');
+  btn.disabled = true; btn.textContent = 'Criando...'; msg.textContent = '';
+  try {
+    await api('/api/admin/users', { method:'POST', body: JSON.stringify({nome, email, senha, roles}) });
+    msg.style.color='var(--green)'; msg.textContent='Usuário criado com sucesso!';
+    document.getElementById('nu-nome').value='';
+    document.getElementById('nu-email').value='';
+    document.getElementById('nu-senha').value='';
+    ['admin','gestor','auxiliar_adm','crc_leads','crc_comercial','crc_sucesso','crc_pos_tratamento','dentista'].forEach(r => {
+      const el = document.getElementById('nu-role-' + r); if (el) el.checked = false;
+    });
+    ['notas_fiscais','inadimplentes','avaliacao_dentista'].forEach(m => {
+      const el = document.getElementById('nu-mod-' + m); if (el) el.checked = false;
+    });
+    loadUsuarios();
+  } catch(e) { msg.style.color='var(--red)'; msg.textContent=e.message; }
+  finally { btn.disabled=false; btn.textContent='Criar Usuario'; }
+}
+
+async function excluirUsuario(id) {
+  const u = _usuariosCache.find(u => u.id === id);
+  const label = u ? (u.nome || u.email) : id;
+  if (!confirm('Excluir usuário ' + label + '?')) return;
+  try {
+    await api('/api/admin/users/' + id, {method:'DELETE'});
+    toast('Usuário ' + label + ' excluído');
+    loadUsuarios();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+const _EU_ROLES = ['admin','gestor','auxiliar_adm','crc_leads','crc_comercial','crc_sucesso','crc_pos_tratamento','dentista'];
+const _EU_MODS  = ['notas_fiscais','inadimplentes','avaliacao_dentista'];
+let _usuariosCache = [];
+
+function abrirEdicaoUsuario(id) {
+  const u = _usuariosCache.find(u => u.id === id);
+  if (!u) return;
+  const roles = u.roles || [];
+  document.getElementById('eu-id').value = id;
+  document.getElementById('eu-nome').value = u.nome || '';
+  document.getElementById('eu-msg').textContent = '';
+  _EU_ROLES.forEach(r => { const el = document.getElementById('eu-role-' + r); if (el) el.checked = roles.includes(r); });
+  _EU_MODS.forEach(m  => { const el = document.getElementById('eu-mod-' + m);  if (el) el.checked = roles.includes('mod_' + m); });
+  document.getElementById('eu-modal-bg').classList.add('open');
+}
+
+function fecharEdicaoUsuario() {
+  document.getElementById('eu-modal-bg').classList.remove('open');
+}
+
+async function salvarEdicaoUsuario() {
+  const id   = document.getElementById('eu-id').value;
+  const nome = document.getElementById('eu-nome').value.trim();
+  const msg  = document.getElementById('eu-msg');
+  const btn  = document.getElementById('eu-btn');
+  const roles = [];
+  _EU_ROLES.forEach(r => { if (document.getElementById('eu-role-' + r)?.checked) roles.push(r); });
+  _EU_MODS.forEach(m  => { if (document.getElementById('eu-mod-'  + m)?.checked) roles.push('mod_' + m); });
+  if (!roles.length) roles.push('crc_leads');
+  btn.disabled = true; btn.textContent = 'Salvando...'; msg.textContent = '';
+  try {
+    await api('/api/admin/users/' + id, { method:'PATCH', body: JSON.stringify({ nome, roles }) });
+    msg.style.color = 'var(--green)'; msg.textContent = 'Salvo!';
+    loadUsuarios();
+    setTimeout(fecharEdicaoUsuario, 800);
+  } catch(e) {
+    msg.style.color = 'var(--red)'; msg.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+// ========== RECUPERAR SENHA ==========
+async function handleForgotPassword() {
+  const emailEl = document.getElementById('login-email');
+  const email = emailEl ? emailEl.value.trim() : '';
+  const msg = document.getElementById('reset-msg');
+  const link = document.getElementById('forgot-link');
+  if (!email) {
+    msg.className='reset-msg error'; msg.style.display='block';
+    msg.textContent='Digite seu e-mail antes de clicar em "Esqueceu a senha?"';
+    return;
+  }
+  if (link) link.textContent='Enviando...';
+  try {
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await _sb.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+    msg.className='reset-msg ok'; msg.style.display='block';
+    msg.textContent='Link de recuperacao enviado! Verifique seu e-mail.';
+  } catch(e) {
+    msg.className='reset-msg error'; msg.style.display='block';
+    msg.textContent='Erro: ' + e.message;
+  } finally { if (link) link.textContent='Esqueceu sua senha?'; }
+}
+
+// Handle password reset link (user clicked email link)
+(function checkPasswordReset() {
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  const combined = hash + '&' + search;
+  const isRecovery = combined.includes('type=recovery');
+  const tokenMatch = combined.match(/access_token=([^&#]+)/);
+  if (!isRecovery || !tokenMatch) return;
+  const token = tokenMatch[1];
+  if (document.readyState !== 'loading') { showResetPasswordForm(token); }
+  else { document.addEventListener('DOMContentLoaded', function() { showResetPasswordForm(token); }); }
+})();
+
+function showResetPasswordForm(token) {
+  const screen = document.getElementById('login-screen');
+  if (!screen) return;
+  const box = screen.querySelector('.login-box');
+  if (!box) return;
+  box.innerHTML =
+    '<div class="login-logo">CRM <span>Clinica</span></div>' +
+    '<div class="login-sub">Defina sua nova senha</div>' +
+    '<div class="login-field"><label>Nova senha</label><input type="password" id="reset-nova" placeholder="Minimo 6 caracteres" autocomplete="new-password"></div>' +
+    '<div class="login-field"><label>Confirmar senha</label><input type="password" id="reset-conf" placeholder="Repita a senha" autocomplete="new-password"></div>' +
+    '<button class="login-btn" id="reset-btn" onclick="submitNewPassword()">Salvar nova senha</button>' +
+    '<div class="login-error" id="reset-error"></div>';
+  screen.classList.add('active');
+  // Set session from token so updateUser works
+  if (_sb) _sb.auth.setSession({ access_token: token, refresh_token: '' }).catch(function(){});
+}
+
+async function submitNewPassword() {
+  const nova = document.getElementById('reset-nova').value;
+  const conf = document.getElementById('reset-conf').value;
+  const err = document.getElementById('reset-error');
+  const btn = document.getElementById('reset-btn');
+  if (nova.length < 6) { err.textContent='Minimo 6 caracteres'; err.style.display='block'; return; }
+  if (nova !== conf) { err.textContent='Senhas nao coincidem'; err.style.display='block'; return; }
+  btn.disabled=true; btn.textContent='Salvando...';
+  try {
+    const { error } = await _sb.auth.updateUser({ password: nova });
+    if (error) throw error;
+    err.style.display='none';
+    btn.textContent='Senha salva! Redirecionando...';
+    setTimeout(function() { window.location.href = window.location.pathname; }, 1500);
+  } catch(e) {
+    err.textContent=e.message; err.style.display='block';
+    btn.disabled=false; btn.textContent='Salvar nova senha';
+  }
+}
+</script></body>
+</html>
