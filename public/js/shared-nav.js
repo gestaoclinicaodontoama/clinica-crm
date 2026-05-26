@@ -57,7 +57,7 @@
   const nav = document.createElement('nav');
   nav.className = 'crm-nav';
   nav.innerHTML = `
-    <div class="logo">Clínica <span>CRM</span></div>
+    <div class="logo">CRM <span>AMA</span></div>
 
     ${navLink('/', 'admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento', 'dashboard',
       `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,

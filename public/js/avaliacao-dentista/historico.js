@@ -97,32 +97,40 @@ function renderCRCComercialHtml(c) {
   if (typeof c === 'string') {
     return `<p style="font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap">${escHtml(c)}</p>`;
   }
-  const field = (label, val) => {
+  const topic = (label, val) => {
     if (!val && val !== 0) return '';
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">${label}</div>
-      <div style="font-size:13px;color:var(--text);line-height:1.5">${escHtml(String(val))}</div>
+    return `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
+      <span style="color:var(--accent);flex-shrink:0;font-size:16px;line-height:1.15;margin-top:-1px">•</span>
+      <div>
+        <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">${label}</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.5">${escHtml(String(val))}</div>
+      </div>
     </div>`;
   };
-  const list = (label, arr) => {
+  const topicList = (label, arr) => {
     if (!arr?.length) return '';
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">${label}</div>
-      <ul style="margin:0;padding-left:16px;font-size:13px;color:var(--text);line-height:1.6">
-        ${arr.map(i => `<li>${escHtml(String(i))}</li>`).join('')}
-      </ul>
+    const items = arr.map(i => `<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:3px">
+        <span style="color:var(--muted);flex-shrink:0;font-size:13px;line-height:1.4">›</span>
+        <div style="font-size:13px;color:var(--text);line-height:1.5">${escHtml(String(i))}</div>
+      </div>`).join('');
+    return `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
+      <span style="color:var(--accent);flex-shrink:0;font-size:16px;line-height:1.15;margin-top:-1px">•</span>
+      <div>
+        <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">${label}</div>
+        ${items}
+      </div>
     </div>`;
   };
   return [
-    field('Paciente', c.paciente),
-    field('Contato', c.contato),
-    field('Queixa principal', c.queixa_principal),
-    field('Tratamento proposto', c.tratamento_proposto),
-    field('Valor', c.valor),
-    field('Poder de compra', c.poder_de_compra),
-    field('Abordagem follow-up', c.abordagem_followup),
-    list('Objeções levantadas', c.objecoes),
-    list('Gatilhos emocionais', c.gatilhos_emocionais),
+    topic('Paciente', c.paciente),
+    topic('Contato', c.contato),
+    topic('Queixa principal', c.queixa_principal),
+    topic('Tratamento proposto', c.tratamento_proposto),
+    topic('Valor', c.valor),
+    topic('Poder de compra', c.poder_de_compra),
+    topic('Abordagem follow-up', c.abordagem_followup),
+    topicList('Objeções levantadas', c.objecoes),
+    topicList('Gatilhos emocionais', c.gatilhos_emocionais),
   ].join('');
 }
 
@@ -131,28 +139,36 @@ function renderCRCSucessoHtml(s) {
   if (typeof s === 'string') {
     return `<p style="font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap">${escHtml(s)}</p>`;
   }
-  const field = (label, val) => {
+  const topic = (label, val) => {
     if (!val && val !== 0) return '';
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">${label}</div>
-      <div style="font-size:13px;color:var(--text);line-height:1.5">${escHtml(String(val))}</div>
+    return `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
+      <span style="color:var(--accent);flex-shrink:0;font-size:16px;line-height:1.15;margin-top:-1px">•</span>
+      <div>
+        <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">${label}</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.5">${escHtml(String(val))}</div>
+      </div>
     </div>`;
   };
-  const list = (label, arr) => {
+  const topicList = (label, arr) => {
     if (!arr?.length) return '';
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">${label}</div>
-      <ul style="margin:0;padding-left:16px;font-size:13px;color:var(--text);line-height:1.6">
-        ${arr.map(i => `<li>${escHtml(String(i))}</li>`).join('')}
-      </ul>
+    const items = arr.map(i => `<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:3px">
+        <span style="color:var(--muted);flex-shrink:0;font-size:13px;line-height:1.4">›</span>
+        <div style="font-size:13px;color:var(--text);line-height:1.5">${escHtml(String(i))}</div>
+      </div>`).join('');
+    return `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
+      <span style="color:var(--accent);flex-shrink:0;font-size:16px;line-height:1.15;margin-top:-1px">•</span>
+      <div>
+        <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">${label}</div>
+        ${items}
+      </div>
     </div>`;
   };
   return [
-    field('Resumo clínico', s.resumo_clinico),
-    field('Jornada do paciente', s.jornada_paciente),
-    field('Como garantir boa experiência', s.como_garantir_boa_experiencia),
-    list('Plano de fases', s.plano_de_fases),
-    list('Pontos de atenção emocional', s.pontos_atencao_emocional),
+    topic('Resumo clínico', s.resumo_clinico),
+    topic('Jornada do paciente', s.jornada_paciente),
+    topic('Como garantir boa experiência', s.como_garantir_boa_experiencia),
+    topicList('Plano de fases', s.plano_de_fases),
+    topicList('Pontos de atenção emocional', s.pontos_atencao_emocional),
   ].join('');
 }
 
@@ -205,19 +221,27 @@ function imprimirRelatorio(c) {
 
   const printField = (label, val) => {
     if (!val) return '';
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9ca3af;margin-bottom:2px">${label}</div>
-      <div style="font-size:13px;color:#111827;line-height:1.5">${escHtml(String(val))}</div>
+    return `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
+      <span style="color:#6366f1;flex-shrink:0;font-size:16px;line-height:1.15;margin-top:-1px">•</span>
+      <div>
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9ca3af;margin-bottom:2px">${label}</div>
+        <div style="font-size:13px;color:#111827;line-height:1.5">${escHtml(String(val))}</div>
+      </div>
     </div>`;
   };
 
   const printList = (label, arr) => {
     if (!arr?.length) return '';
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9ca3af;margin-bottom:4px">${label}</div>
-      <ul style="margin:0;padding-left:16px;font-size:13px;color:#111827;line-height:1.6">
-        ${arr.map(i => `<li>${escHtml(String(i))}</li>`).join('')}
-      </ul>
+    const items = arr.map(i => `<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:3px">
+        <span style="color:#9ca3af;flex-shrink:0;font-size:13px;line-height:1.4">›</span>
+        <div style="font-size:13px;color:#111827;line-height:1.5">${escHtml(String(i))}</div>
+      </div>`).join('');
+    return `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
+      <span style="color:#6366f1;flex-shrink:0;font-size:16px;line-height:1.15;margin-top:-1px">•</span>
+      <div>
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9ca3af;margin-bottom:6px">${label}</div>
+        ${items}
+      </div>
     </div>`;
   };
 
@@ -354,9 +378,41 @@ function renderDetalhe(c) {
   const roles = AvaliacaoApp.user?.roles ?? [];
   const podeEditar = isDono(c) || roles.includes('admin') || roles.includes('gestor');
 
+  const _detalheCache = {};
   const etapasHtml = etapas.map((e, i) => {
     const cor = notaCor(e.nota);
     const pct = ((e.nota ?? 0) / 10) * 100;
+    const hasTrechos = e.trechos?.length > 0;
+    const hasDetalhe = e.detalhe?.momentos?.length > 0;
+
+    const trechosSection = hasTrechos ? `
+      <div id="hist-trechos-${i}" style="display:none;margin-top:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+        ${e.trechos.map(t => `<div style="font-size:11.5px;font-style:italic;color:var(--muted);border-left:2px solid var(--accent);padding-left:8px;margin-bottom:6px;line-height:1.5">"${escHtml(t)}"</div>`).join('')}
+      </div>` : '';
+
+    const detalheSection = hasDetalhe ? `
+      <div id="hist-detalhe-${i}" style="margin-top:8px">
+        ${e.detalhe.momentos.map(m => `
+          <div style="margin-bottom:8px;padding:9px 10px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:11.5px;font-style:italic;color:var(--muted);border-left:2px solid var(--accent);padding-left:8px;margin-bottom:6px;line-height:1.5">"${escHtml(m.trecho ?? '')}"</div>
+            <div style="font-size:12px;color:var(--red);margin-bottom:3px;line-height:1.4">⚠ ${escHtml(m.problema ?? '')}</div>
+            <div style="font-size:12px;color:var(--green);line-height:1.4">✓ ${escHtml(m.alternativa ?? '')}</div>
+          </div>`).join('')}
+      </div>` : `<div id="hist-detalhe-${i}" style="display:none;margin-top:8px"></div>`;
+
+    const btnTrechos = hasTrechos
+      ? `<button id="hist-trechos-btn-${i}" onclick="window._histToggleTrechos(${i},${e.trechos.length})"
+          style="background:none;border:none;cursor:pointer;font-size:11.5px;color:var(--muted);font-family:inherit;padding:2px 0;text-decoration:underline;text-underline-offset:2px">
+          Ver trechos (${e.trechos.length})
+        </button>` : '';
+
+    const btnDetalhar = hasDetalhe
+      ? `<button disabled style="padding:3px 10px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-size:11.5px;color:var(--green);font-family:inherit;cursor:default">✓ Detalhado</button>`
+      : `<button id="hist-btn-detalhar-${i}" onclick="window._histDetalharEtapa('${escHtml(c.id)}',${i})"
+          style="padding:3px 10px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-size:11.5px;color:var(--muted);font-family:inherit;cursor:pointer">
+          🔍 Detalhar com IA
+        </button>`;
+
     return `
       <div style="padding:10px 0;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px">
@@ -368,6 +424,12 @@ function renderDetalhe(c) {
         </div>
         <div style="font-size:12px;color:var(--text);line-height:1.5">${escHtml(e.feedback ?? '')}</div>
         ${e.melhoria ? `<div style="font-size:12px;color:var(--accent);line-height:1.5;margin-top:4px">↑ ${escHtml(e.melhoria)}</div>` : ''}
+        <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          ${btnTrechos}
+          ${btnDetalhar}
+        </div>
+        ${trechosSection}
+        ${detalheSection}
       </div>`;
   }).join('');
 
@@ -482,6 +544,44 @@ function renderDetalhe(c) {
 
   window._imprimirRelatorio = () => imprimirRelatorio(c);
   window._histAbrirFeedback = () => renderFeedbackForm(c);
+
+  window._histToggleTrechos = (i, count) => {
+    const el = document.getElementById(`hist-trechos-${i}`);
+    const btn = document.getElementById(`hist-trechos-btn-${i}`);
+    if (!el) return;
+    const open = el.style.display !== 'none';
+    el.style.display = open ? 'none' : '';
+    if (btn) btn.textContent = open ? `Ver trechos (${count})` : `Ocultar trechos`;
+  };
+
+  window._histDetalharEtapa = async (consultaId, i) => {
+    if (_detalheCache[i]) return;
+    const btn = document.getElementById(`hist-btn-detalhar-${i}`);
+    const container = document.getElementById(`hist-detalhe-${i}`);
+    if (!btn || !container || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Analisando…';
+    try {
+      const res = await post(`/avaliacoes/${consultaId}/detalhar/${i}`, {});
+      _detalheCache[i] = res.detalhe;
+      const momentos = res.detalhe?.momentos ?? [];
+      container.style.display = '';
+      container.innerHTML = momentos.length
+        ? momentos.map(m => `
+            <div style="margin-bottom:8px;padding:9px 10px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+              <div style="font-size:11.5px;font-style:italic;color:var(--muted);border-left:2px solid var(--accent);padding-left:8px;margin-bottom:6px;line-height:1.5">"${escHtml(m.trecho ?? '')}"</div>
+              <div style="font-size:12px;color:var(--red);margin-bottom:3px;line-height:1.4">⚠ ${escHtml(m.problema ?? '')}</div>
+              <div style="font-size:12px;color:var(--green);line-height:1.4">✓ ${escHtml(m.alternativa ?? '')}</div>
+            </div>`).join('')
+        : `<div style="font-size:12px;color:var(--muted);font-style:italic">Nenhum momento específico identificado.</div>`;
+      btn.textContent = '✓ Detalhado';
+      btn.style.color = 'var(--green)';
+    } catch (_) {
+      showToast('Erro ao detalhar etapa. Tente novamente.', 'error');
+      btn.disabled = false;
+      btn.textContent = '🔍 Detalhar com IA';
+    }
+  };
   window._histReanalisar = async () => {
     const btn = document.getElementById('hist-reanalisar-btn');
     if (!btn || btn.disabled) return;
