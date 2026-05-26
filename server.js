@@ -1226,8 +1226,8 @@ function processarInadimplentes(items, today) {
     if (!patMap[patId]) {
       patMap[patId] = {
         id: patId,
-        name: i.PatientName || i.patientName || i.Patient_PersonName || 'Paciente ' + patId,
-        phone: i.Phone || i.MobilePhone || i.phone || '',
+        name: (i.PatientName || i.patientName || i.Patient_PersonName || 'Paciente ' + patId).replace(/\s*\(\d+\)\s*$/, ''),
+        phone: i.Phone || i.MobilePhone || i.phone || i.PayerPhone || '',
         overdueAmount: 0, futureAmount: 0, overdueCount: 0,
         oldestDueDate: null, nextDueDate: null, treatmentValue: 0, paidValue: 0,
       };
@@ -1278,45 +1278,74 @@ async function mergeInadimplentesNotas(resultado) {
   return { ...resultado, grupo1: addN(resultado.grupo1), grupo2: addN(resultado.grupo2), grupo3: addN(resultado.grupo3) };
 }
 
+// Coleta inadimplentes em background: consulta últimos 24 meses em chunks de 2 meses.
+// Query única desde 2019 retorna ~20k itens mais antigos (todos pagos) pelo limite da API.
+let _inadimplentesRefreshing = false;
+
+async function fetchInadimplentesBackground() {
+  if (_inadimplentesRefreshing) return;
+  _inadimplentesRefreshing = true;
+  console.log('[Inadimplentes] Background refresh iniciado...');
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    const today = nowLocal().slice(0, 10);
+    const allItems = [];
+    for (let i = 0; i < 12; i++) {
+      const toDate   = new Date(); toDate.setMonth(toDate.getMonth() - i * 2);
+      const fromDate = new Date(); fromDate.setMonth(fromDate.getMonth() - (i + 1) * 2);
+      const from = fromDate.toISOString().split('T')[0];
+      const to   = toDate.toISOString().split('T')[0];
+      try {
+        const r = await clinicorpGet('/payment/list', { from, to, date_type: 'postDate' });
+        if (r.status === 200 && Array.isArray(r.data)) {
+          allItems.push(...r.data);
+          console.log(`[Inadimplentes] chunk ${from}~${to}: ${r.data.length} itens (total ${allItems.length})`);
+        }
+      } catch(e) { console.log(`[Inadimplentes] chunk ${from} erro: ${e.message}`); }
+      await sleep(400);
+    }
+    const processado = processarInadimplentes(allItems, today);
+    await supabase.from('inadimplentes_cache').upsert({
+      id: 1, data: processado, atualizado_em: Date.now(),
+      endpoint: '/payment/list?postDate (24mo chunks)',
+    });
+    console.log(`[Inadimplentes] ✅ Background: ${processado.totais.pacientes} inadimplentes de ${allItems.length} registros`);
+  } catch(e) {
+    console.error('[Inadimplentes] Background refresh erro:', e.message);
+  } finally {
+    _inadimplentesRefreshing = false;
+  }
+}
+
 app.get('/api/inadimplentes', requireAuth, rateLimit, async (req, res) => {
   try {
     if (!process.env.CLINICORP_TOKEN) {
       return res.status(503).json({ error: 'CLINICORP_TOKEN não configurado. Adicione nas variáveis de ambiente.' });
     }
     const forceRefresh = req.query.refresh === '1';
-    if (!forceRefresh) {
-      const { data: cache } = await supabase.from('inadimplentes_cache').select('*').eq('id', 1).maybeSingle();
-      if (cache && cache.data && cache.atualizado_em) {
-        const ageMs = Date.now() - Number(cache.atualizado_em);
-        if (ageMs < 2 * 60 * 60 * 1000) {
-          const result = await mergeInadimplentesNotas(cache.data);
-          return res.json({ ...result, from_cache: true, cache_min: Math.round(ageMs / 60000) });
-        }
-      }
+    const { data: cache } = await supabase.from('inadimplentes_cache').select('*').eq('id', 1).maybeSingle();
+    const cacheAgeMs = cache?.atualizado_em ? Date.now() - Number(cache.atualizado_em) : Infinity;
+    const CACHE_TTL_MS = 23 * 60 * 60 * 1000; // 23 horas
+
+    if (forceRefresh || cacheAgeMs > CACHE_TTL_MS) {
+      fetchInadimplentesBackground(); // dispara sem bloquear
     }
-    const today   = nowLocal().slice(0, 10); // Brazil date, matches Clinicorp timezone
-    const futDate = new Date(); futDate.setFullYear(futDate.getFullYear() + 3);
-    const futStr  = futDate.toISOString().split('T')[0];
-    let items = [], endpointUsado = '';
-    const FROM = '2019-01-01';
-    try {
-      const r = await clinicorpGet('/payment/list', { from: FROM, to: futStr, date_type: 'postDate' });
-      console.log('[Inadimplentes] /payment/list?postDate → HTTP ' + r.status + ', itens: ' + (Array.isArray(r.data) ? r.data.length : JSON.stringify(r.data).slice(0,120)));
-      if (r.status === 200 && Array.isArray(r.data)) { items = r.data; endpointUsado = '/payment/list?postDate'; }
-    } catch(e) { console.log('[Inadimplentes] /payment/list erro:', e.message); }
-    if (!items.length) {
+
+    if (cache?.data) {
+      const result = await mergeInadimplentesNotas(cache.data);
       return res.json({
-        grupo1: [], grupo2: [], grupo3: [],
-        totais: { pacientes: 0, valorTotal: 0, emCobranca: 0, renegociacao: 0, criticos: 0 },
-        from_cache: false, endpoint: endpointUsado || 'nenhum',
-        aviso: 'Nenhum dado retornado pela Clinicorp. Verifique as credenciais e tente novamente.',
+        ...result, from_cache: true,
+        cache_min: Math.round(cacheAgeMs / 60000),
+        refreshing: _inadimplentesRefreshing,
       });
     }
-    const processado = processarInadimplentes(items, today);
-    await supabase.from('inadimplentes_cache').upsert({ id: 1, data: processado, atualizado_em: Date.now(), endpoint: endpointUsado });
-    console.log('[Inadimplentes] ✅ ' + processado.totais.pacientes + ' inadimplentes via ' + endpointUsado);
-    const result = await mergeInadimplentesNotas(processado);
-    res.json({ ...result, from_cache: false, endpoint: endpointUsado });
+
+    return res.json({
+      grupo1: [], grupo2: [], grupo3: [],
+      totais: { pacientes: 0, valorTotal: 0, emCobranca: 0, renegociacao: 0, criticos: 0 },
+      from_cache: false, refreshing: true,
+      aviso: 'Coletando dados pela primeira vez da Clinicorp (24 meses em chunks). Aguarde 2–3 minutos e clique em "Atualizar dados".',
+    });
   } catch(e) {
     console.error('❌ inadimplentes:', e);
     res.status(500).json({ error: e.message });

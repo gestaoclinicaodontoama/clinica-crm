@@ -2961,6 +2961,9 @@ async function loadInadimplentes(forceRefresh = false) {
     if (data.aviso) {
       document.getElementById('inad-aviso-bar').textContent = '⚠️ ' + data.aviso;
       document.getElementById('inad-aviso-bar').style.display = 'block';
+    } else if (data.refreshing) {
+      document.getElementById('inad-aviso-bar').textContent = '🔄 Atualizando dados em background (24 meses)... Clique em "Atualizar dados" em 2–3 min.';
+      document.getElementById('inad-aviso-bar').style.display = 'block';
     }
 
     const t = data.totais || {};
