@@ -518,7 +518,7 @@ def _buscar_tomador_via_http(page, cpf_limpo: str, form_frame=None, local: str =
                 if '?local=' not in url_s2:
                     sep = '&' if '?' in url_s2 else '?'
                     url_s2 = f'{url_s2}{sep}local={local_val}'
-                print(f"  S2 POST → {url_s2}")
+                print(f"  S2 POST -> {url_s2}")
                 print(f"  S2 cnpjPrest={post_data.get('cnpjPrest','?')!r} ccmPrest={post_data.get('ccmPrest','?')!r}")
                 r = _req.post(url_s2, data=post_data, cookies=cookies,
                               headers=headers_post, timeout=15)
@@ -554,7 +554,7 @@ def _buscar_tomador_via_http(page, cpf_limpo: str, form_frame=None, local: str =
         'cnpjPrest': cnpj_prest, 'ccmPrest': ccm_prest,
         'ccmTom': '', 'cnpjTom': '', 'razaoEle': '', 'cnpjEle': '',
     }
-    print(f"  S3 POST → {url_s3} cnpjPrest={cnpj_prest!r}")
+    print(f"  S3 POST -> {url_s3} cnpjPrest={cnpj_prest!r}")
     try:
         r = _req.post(url_s3, data=post_data_s3, cookies=cookies,
                       headers=headers_post, timeout=15)
@@ -1169,9 +1169,21 @@ def _preencher_form(page, nota: dict):
                     if (el) { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }
                 };
                 s('aliquota', '3.00');
+                s('aliquotaSimples', '4.3547');
             }
         """)
-        print("  Alíquota forçada para 3.00 (callback não disparou)")
+        print("  Alíquota forçada para 3.00, aliquotaSimples=4.3547 (callback não disparou)")
+    else:
+        # Mesmo com aliquota OK, garante aliquotaSimples preenchida
+        aliq_simples = form.evaluate(
+            "() => document.querySelector('input[name=\"aliquotaSimples\"]')?.value || ''"
+        )
+        if not aliq_simples or aliq_simples in ("0", "0.00", "0,00"):
+            form.evaluate(
+                "() => { const el=document.querySelector('input[name=\"aliquotaSimples\"]'); "
+                "if(el){ el.value='4.3547'; el.dispatchEvent(new Event('change',{bubbles:true})); } }"
+            )
+            print("  aliquotaSimples forçada para 4.3547")
 
     form = _frame_formulario(page)
 
@@ -1185,6 +1197,14 @@ def _preencher_form(page, nota: dict):
     form = _frame_formulario(page)
     if not _preencher_valor(form, nota):
         raise RuntimeError("Campo 'Valor Total da Nota' não encontrado.")
+
+    # Re-injeta codigo=412 após modal IBS (o modal pode resetar o campo)
+    try:
+        form.evaluate(
+            "const el=document.querySelector('input[name=\"codigo\"]'); if(el && !el.value){ el.value='412'; }"
+        )
+    except Exception:
+        pass
 
     # Situação de Tributação — força via JS (select_option falha quando options não carregam)
     try:
@@ -1203,10 +1223,17 @@ def _preencher_form(page, nota: dict):
                     sel.dispatchEvent(new Event('change', {bubbles: true}));
                     return 'OK:' + opt.value;
                 }
-                return 'NO_VALID_OPTION';
+                // Nenhuma opção carregada: injeta 'tp' diretamente no select
+                const tpOpt = document.createElement('option');
+                tpOpt.value = 'tp';
+                tpOpt.text  = 'Tributacao no Municipio do Prestador';
+                sel.appendChild(tpOpt);
+                sel.value = 'tp';
+                sel.dispatchEvent(new Event('change', {bubbles: true}));
+                return 'FORCED:tp';
             }
         """)
-        print(f"  Situação tributação: {sit_val}")
+        print(f"  Situacao tributacao: {sit_val}")
     except Exception as e:
         print(f"  Aviso situacao: {e}")
 
@@ -1271,13 +1298,16 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     # O código já repreenche valor, mas esses campos ficam errados. Corrige aqui.
     if not form_data.get('aliquota') or form_data.get('aliquota') in ('0', '0.00', '0,00'):
         form_data['aliquota'] = '3.00'
-        print("  [FIX] aliquota → 3.00")
+        print("  [FIX] aliquota -> 3.00")
     if not form_data.get('aliquotaSimples'):
         form_data['aliquotaSimples'] = nota.get('aliquota_simples', '4,3547')
-        print(f"  [FIX] aliquotaSimples → {form_data['aliquotaSimples']}")
+        print(f"  [FIX] aliquotaSimples -> {form_data['aliquotaSimples']}")
     if not form_data.get('situacao'):
         form_data['situacao'] = 'tp'
-        print("  [FIX] situacao → tp")
+        print("  [FIX] situacao -> tp")
+    if not form_data.get('codigo'):
+        form_data['codigo'] = '412'
+        print("  [FIX] codigo -> 412")
 
     # Segunda barreira anti-PFNI: não envia POST se id_tomador ausente.
     if not form_data.get('id_tomador'):
@@ -1293,14 +1323,19 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
                        'codigo', 'aliquota', 'aliquotaSimples',
                        'valor', 'base', 'situacao', 'dtEmissao', 'dtEmissaoPrest',
                        'descricaoNF', 'localServico', 'exterior']
-    print("  [DIAG] Campos críticos no POST:")
+    def _safe_print(s):
+        try:
+            print(s)
+        except UnicodeEncodeError:
+            print(s.encode('ascii', errors='replace').decode('ascii'))
+
+    _safe_print("  [DIAG] Campos criticos no POST:")
     for k in campos_criticos:
-        print(f"    {k}={form_data.get(k, '(ausente)')!r}")
-    # Campos com valor preenchido (exclui vazios e ocultos sem interesse)
-    print("  [DIAG] Todos com valor:")
+        _safe_print(f"    {k}={form_data.get(k, '(ausente)')!r}")
+    _safe_print("  [DIAG] Todos com valor:")
     for k, v in sorted(form_data.items()):
         if v:
-            print(f"    {k}={v!r}")
+            _safe_print(f"    {k}={v!r}")
 
     # Monta URL de POST: tenta usar action do form; fallback para path fixo
     if form_action and form_action.startswith('http'):
@@ -1309,7 +1344,7 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         post_url = base_url + '/' + form_action.lstrip('/')
     else:
         post_url = f'{base_url}/ISS/contribuinte/nfe/nfe_exec.php'
-    print(f"  POST → {post_url}")
+    print(f"  POST -> {post_url}")
 
     # Log campos de valor antes do POST para diagnóstico
     valor_campos = {k: v for k, v in form_data.items()
@@ -1364,7 +1399,7 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
             if nm:
                 redirect_data[nm.group(1)] = vl.group(1) if vl else ""
         redirect_url = f'{base_url}/ISS/contribuinte/nfe/nfe.php'
-        print(f"  Seguindo redirect → {redirect_url}  msg1={msg1_val!r}")
+        print(f"  Seguindo redirect -> {redirect_url}  msg1={msg1_val!r}")
         try:
             r2 = session.post(
                 redirect_url, data=redirect_data,
@@ -1377,6 +1412,19 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
             # Loga todos os hrefs para encontrar URL de impressão/PDF
             hrefs2 = re.findall(r'href=["\']([^"\']+)["\']', html_pagina2, re.IGNORECASE)
             print(f"  Hrefs Trecho2: {hrefs2[:20]}")
+            # Diagnóstico: busca padrões de número de nota
+            for _pat, _nome in [
+                (r'imprimir\((\d+)', 'imprimir('),
+                (r'cancelar\((\d+)', 'cancelar('),
+                (r'nota=(\d+)', 'nota='),
+                (r'num_nfse[^\d]*(\d+)', 'num_nfse'),
+                (r'<td[^>]*>(\d{4,})<', 'td-4dig'),
+                (r'NFS[- ]?e[^\d]*(\d+)', 'NFS-e-num'),
+                (r'onclick[^>]*?(\d{5,})', 'onclick-5dig'),
+            ]:
+                _matches = re.findall(_pat, html_pagina2, re.IGNORECASE)
+                if _matches:
+                    print(f"  [DIAG-NUM] {_nome}: {_matches[:5]}")
         except Exception as e:
             print(f"  Aviso redirect: {e}")
 
@@ -1424,8 +1472,42 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
             if num_nota:
                 break
 
-    if num_nota:
+    # Prioridade 4: GET fresco para nfe.php sem redirect data (pode mostrar lista)
+    if not num_nota and msg1_val:
+        try:
+            r_get = session.get(
+                f'{base_url}/ISS/contribuinte/nfe/nfe.php',
+                headers={'Referer': f'{base_url}/ISS/contribuinte/nfe/nfe_exec.php'},
+                timeout=15, allow_redirects=True,
+            )
+            html_get = r_get.text
+            print(f"  GET nfe.php: {len(html_get)} chars")
+            for pat in [
+                r'onclick="[^"]*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)"',
+                r"onclick='[^']*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)'",
+                r'(?:nfe_print|nfse_print|nfe_imprime)[^"\'<>]*(?:nota|num_nfse|num)=(\d{3,})',
+                r'[?&](?:nota|num_nfse)=(\d{3,})',
+                r'<td[^>]*>\s*(\d{3,})\s*</td>',
+                r'<td[^>]*>\s*(\d{3,})\s*<',
+            ]:
+                todos = re.findall(pat, html_get, re.IGNORECASE)
+                grandes = [x for x in todos if int(x) >= 100]
+                if grandes:
+                    num_nota = str(max(int(x) for x in grandes))
+                    print(f"  Número da nota (GET nfe.php): {num_nota}")
+                    break
+        except Exception as e:
+            print(f"  Aviso GET nfe.php: {e}")
+
+    # Prioridade 5: se emissão foi confirmada mas número não encontrado, emitiu ok mas número desconhecido
+    if not num_nota and msg1_val and 'sucesso' in msg1_val.lower():
+        num_nota = "?"
+        print("  Nota emitida (confirmado), número desconhecido — verifique no SIGISS")
+
+    if num_nota and num_nota != "?":
         print(f"  Número final da nota: {num_nota}")
+    elif num_nota == "?":
+        pass  # already printed
     else:
         raise RuntimeError(
             "Número da NFS-e não encontrado na resposta do SIGISS. "
@@ -1575,11 +1657,26 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
 
     # Lê HTML do frame nfe.php após redirect (contém número da nota + link PDF)
     html_nfe = ""
+    dom_nums = []
     for f in page.frames:
         if f.url and 'nfe.php' in f.url and 'Componentes' not in f.url:
             try:
                 html_nfe = f.content()
                 print(f"  nfe.php pós-emissão ({len(html_nfe)} chars)")
+                # Busca DOM renderizado por números em tabela e onclick
+                try:
+                    dom_result = f.evaluate("""
+                        () => {
+                            const tds = [...document.querySelectorAll('td')].map(t => t.textContent.trim()).filter(t => /^[0-9]{3,6}$/.test(t));
+                            const ocs = [...document.querySelectorAll('[onclick]')].map(el => el.getAttribute('onclick')).filter(oc => /[0-9]{3,}/.test(oc));
+                            return {tds: tds.slice(-20), ocs: ocs.slice(0, 10)};
+                        }
+                    """)
+                    print(f"  DOM td-nums: {dom_result.get('tds', [])}")
+                    print(f"  DOM onclicks: {dom_result.get('ocs', [])}")
+                    dom_nums = dom_result.get('tds', []) + [n for oc in dom_result.get('ocs', []) for n in re.findall(r'\d{3,}', oc)]
+                except Exception as dom_e:
+                    print(f"  Aviso DOM search: {dom_e}")
                 print(f"  Trecho nfe.php: {html_nfe[:2000]}")
                 hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_nfe)
                 print(f"  Hrefs nfe.php: {hrefs[:20]}")
@@ -1600,6 +1697,13 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
     # Extrai número da nota — tabela nfe.php lista TODAS as notas crescente,
     # nova nota tem o MAIOR número. Usar MAX, não primeira ocorrência.
     num_nota = ""
+
+    # Prioridade 0: DOM renderizado pelo Playwright (mais confiável)
+    if dom_nums:
+        grandes = [x for x in dom_nums if int(x) >= 100]
+        if grandes:
+            num_nota = str(max(int(x) for x in grandes))
+            print(f"  Número da nota (DOM max): {num_nota}")
 
     # Prioridade 1: print URL patterns — pega TODOS e usa MAX
     for html_src in [html_nfe, html_exec]:
