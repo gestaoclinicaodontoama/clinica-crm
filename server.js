@@ -2200,12 +2200,13 @@ app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireRole('dentista', 
     if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
     req.socket.setTimeout(180000);
 
-    const { data: consulta } = await supabase
+    const { data: consulta, error: consultaErr } = await supabase
       .from('consultas_spin')
-      .select('id, dentista_id, transcript, contexto_prompt, modo')
+      .select('id, dentista_id, transcript, modo')
       .eq('id', req.params.id)
       .maybeSingle();
 
+    if (consultaErr) throw consultaErr;
     if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
     const userRoles = req.user.roles || [];
     const isAdminOrGestor = userRoles.includes('admin') || userRoles.includes('gestor');
@@ -2218,7 +2219,7 @@ app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireRole('dentista', 
     const { analysis, tokensIn, tokensOut, custoUsd } = await geminiLib().analyzeTranscript({
       dentistId: consulta.dentista_id,
       transcript: consulta.transcript,
-      contextoPrompt: consulta.contexto_prompt || '',
+      contextoPrompt: '',
       consultaId: null,
       supabase,
     });
