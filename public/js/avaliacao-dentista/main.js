@@ -4,7 +4,7 @@ import { showToast } from './ui.js';
 
 const TAB_ROLES = {
   copiloto:  ['dentista', 'admin'],
-  historico: ['dentista', 'admin'],
+  historico: ['dentista', 'admin', 'gestor', 'crc_comercial'],
   dashboard: ['gestor',   'admin', 'crc_comercial'],
 };
 
@@ -109,7 +109,8 @@ function resolveInitialTab(roles) {
   }
 
   if (hasRole(roles, ['dentista', 'admin'])) return 'copiloto';
-  if (hasRole(roles, ['gestor', 'crc_comercial'])) return 'dashboard';
+  if (hasRole(roles, ['gestor'])) return 'dashboard';
+  if (hasRole(roles, ['crc_comercial'])) return 'historico';
   return null;
 }
 
