@@ -1,5 +1,5 @@
 import { AvaliacaoApp } from './state.js';
-import { get, patch } from './api.js';
+import { get, patch, post } from './api.js';
 import { showToast, showModal, formatDate } from './ui.js';
 
 const PAGE_SIZE = 50;
@@ -379,6 +379,15 @@ function renderDetalhe(c) {
          </div>`
       : '';
 
+  const reAnalisarEl = isDono(c) ? `
+    <div style="margin-top:10px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="font-size:12px;color:var(--muted);line-height:1.4">Quer usar o novo formato de análise (Acolhimento, Anamnese…) nesta consulta?</div>
+      <button id="hist-reanalisar-btn" onclick="window._histReanalisar()" aria-label="Reanalisar esta consulta com o formato atual"
+        style="padding:6px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0">
+        Reanalisar
+      </button>
+    </div>` : '';
+
   const html = `
     <div>
       <!-- Cabeçalho -->
@@ -443,6 +452,7 @@ function renderDetalhe(c) {
       </div>` : ''}
 
       ${feedbackEl}
+      ${reAnalisarEl}
 
       <div style="margin-top:18px">
         <button onclick="document.getElementById('avaliacao-modal-bg').classList.remove('open')"
@@ -472,6 +482,26 @@ function renderDetalhe(c) {
 
   window._imprimirRelatorio = () => imprimirRelatorio(c);
   window._histAbrirFeedback = () => renderFeedbackForm(c);
+  window._histReanalisar = async () => {
+    const btn = document.getElementById('hist-reanalisar-btn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Analisando…';
+    try {
+      await post(`/avaliacoes/${c.id}/reanalisar`, {});
+      showToast('Análise atualizada! Recarregando…', 'success');
+      // Re-fetch and re-render the detail with the new analysis
+      const updated = await get(`/avaliacoes/${c.id}`);
+      const summary = _items.find(i => i.id === c.id);
+      if (summary) summary.nota_final = updated.nota_final;
+      renderList();
+      renderDetalhe(updated);
+    } catch (e) {
+      showToast('Erro ao reanalisar. Tente novamente.', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Reanalisar';
+    }
+  };
   window._histEditarNome = () => {
     if (document.getElementById('hist-nome-input')) return; // edit already active
     const titleEl = document.getElementById('avaliacao-modal-title');

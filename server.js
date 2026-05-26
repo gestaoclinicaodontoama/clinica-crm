@@ -2185,6 +2185,51 @@ app.patch('/api/avaliacoes/:id/nome', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
+  try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
+    req.socket.setTimeout(180000);
+
+    const { data: consulta } = await supabase
+      .from('consultas_spin')
+      .select('id, dentista_id, transcript, contexto_prompt, modo')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+    if (consulta.dentista_id !== req.user.id) return res.status(403).json({ error: 'Acesso negado' });
+    if (!consulta.transcript || (Array.isArray(consulta.transcript) && consulta.transcript.length === 0)) {
+      return res.status(400).json({ error: 'Consulta sem transcrição para reanalisar' });
+    }
+
+    // Pass consultaId: null to bypass idempotency — forces a fresh Gemini call
+    const { analysis, tokensIn, tokensOut, custoUsd } = await geminiLib().analyzeTranscript({
+      dentistId: req.user.id,
+      transcript: consulta.transcript,
+      contextoPrompt: consulta.contexto_prompt || '',
+      consultaId: null,
+      supabase,
+    });
+
+    const { data: updated, error } = await supabase
+      .from('consultas_spin')
+      .update({ analysis, nota_final: analysis.nota_final })
+      .eq('id', req.params.id)
+      .select('id, nota_final')
+      .single();
+    if (error) throw error;
+
+    const totalToks = tokensIn + tokensOut;
+    if (totalToks > 0) {
+      try { await supabase.rpc('increment_token_counter', { p_dentista: req.user.id, p_tokens: totalToks }); } catch (_) {}
+    }
+
+    res.json({ ok: true, nota_final: updated.nota_final, custoUsd });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 app.post('/api/avaliacoes/:id/detalhar/:etapa_idx', requireAuth, requireDentista, requireModuloAtivo, async (req, res) => {
   try {
     if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
