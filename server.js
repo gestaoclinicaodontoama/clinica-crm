@@ -8,9 +8,14 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
+const { execSync } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const totalvoice = require('./totalvoice');
 const whatsapp = require('./whatsapp');
+
+let _buildCommit = 'unknown';
+try { _buildCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe','pipe','ignore'] }).trim(); } catch (_) {}
+const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
@@ -95,6 +100,11 @@ setInterval(() => {
     if (now - entry.start > 300000) _rlMap.delete(ip);
   }
 }, 600000);
+
+// ========== VERSION ==========
+app.get('/api/version', (req, res) => {
+  res.json({ commit: _buildCommit, deployedAt: _buildDeployedAt });
+});
 
 // ========== AUTH ==========
 app.get('/api/me', requireAuth, async (req, res) => {
