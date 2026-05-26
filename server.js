@@ -2208,7 +2208,7 @@ app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireRole('dentista', 
 
     if (consultaErr) throw consultaErr;
     if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
-    const userRoles = req.user.roles || [];
+    const userRoles = (req.user.profile?.roles) || [];
     const isAdminOrGestor = userRoles.includes('admin') || userRoles.includes('gestor');
     if (consulta.dentista_id !== req.user.id && !isAdminOrGestor) return res.status(403).json({ error: 'Acesso negado' });
     if (!consulta.transcript || (Array.isArray(consulta.transcript) && consulta.transcript.length === 0)) {
