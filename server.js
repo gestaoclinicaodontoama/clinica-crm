@@ -1227,7 +1227,7 @@ function processarInadimplentes(items, today) {
       patMap[patId] = {
         id: patId,
         name: (i.PatientName || i.patientName || i.Patient_PersonName || 'Paciente ' + patId).replace(/\s*\(\d+\)\s*$/, ''),
-        phone: i.Phone || i.MobilePhone || i.phone || i.PayerPhone || '',
+        phone: String(i.Phone || i.MobilePhone || i.phone || i.PayerPhone || ''),
         overdueAmount: 0, futureAmount: 0, overdueCount: 0,
         oldestDueDate: null, nextDueDate: null, treatmentValue: 0, paidValue: 0,
       };

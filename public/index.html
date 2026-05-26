@@ -1205,6 +1205,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <th class="inad-th" style="text-align:center">WA</th>
         </tr></thead>
         <tbody id="inad-tbody1"><tr><td colspan="9" class="empty-small">Clique em "Atualizar dados" para carregar</td></tr></tbody>
+        <tfoot><tr><td colspan="9" style="padding:0"><div id="inad-pagin1"></div></td></tr></tfoot>
       </table>
     </div>
   </div>
@@ -1232,6 +1233,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <th class="inad-th" style="text-align:center">WA</th>
         </tr></thead>
         <tbody id="inad-tbody2"><tr><td colspan="10" class="empty-small">Clique em "Atualizar dados" para carregar</td></tr></tbody>
+        <tfoot><tr><td colspan="10" style="padding:0"><div id="inad-pagin2"></div></td></tr></tfoot>
       </table>
     </div>
   </div>
@@ -1260,6 +1262,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <th class="inad-th" style="text-align:center">WA</th>
         </tr></thead>
         <tbody id="inad-tbody3"><tr><td colspan="11" class="empty-small">Clique em "Atualizar dados" para carregar</td></tr></tbody>
+        <tfoot><tr><td colspan="11" style="padding:0"><div id="inad-pagin3"></div></td></tr></tfoot>
       </table>
     </div>
   </div>
@@ -2869,6 +2872,15 @@ async function agenteEmitir() {
 // ===== INADIMPLENTES =====
 const _inadFmt = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
 
+const _INAD_PAGE_SIZE = 25;
+let _inadData  = { grupo1: [], grupo2: [], grupo3: [] };
+let _inadPages = { 1: 1, 2: 1, 3: 1 };
+
+function inadSetPage(num, page) {
+  _inadPages[num] = page;
+  renderInadSection(num, _inadData['grupo' + num], num === 3);
+}
+
 function inadDiasBadge(d) {
   if (d === null || d === undefined) return '–';
   const cls = d > 60 ? 'inad-dias-crit' : d > 30 ? 'inad-dias-med' : 'inad-dias-ok';
@@ -2895,16 +2907,23 @@ function inadEditInput(patientId, field, value, placeholder) {
 function renderInadSection(num, patients, isCritico) {
   const meta = document.getElementById(`inad-meta${num}`);
   const tbody = document.getElementById(`inad-tbody${num}`);
+  const paginEl = document.getElementById(`inad-pagin${num}`);
   const totalVenc = patients.reduce((s,p) => s + p.overdueAmount, 0);
   meta.textContent = `${patients.length} paciente${patients.length !== 1 ? 's' : ''} · ${_inadFmt(totalVenc)}`;
 
   if (!patients.length) {
     const cols = isCritico ? 11 : (num === 1 ? 9 : 10);
     tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-small">Nenhum paciente neste grupo</td></tr>`;
+    if (paginEl) paginEl.innerHTML = '';
     return;
   }
 
-  tbody.innerHTML = patients.map(p => {
+  const page      = _inadPages[num] || 1;
+  const totalPags = Math.ceil(patients.length / _INAD_PAGE_SIZE);
+  const start     = (page - 1) * _INAD_PAGE_SIZE;
+  const visible   = patients.slice(start, start + _INAD_PAGE_SIZE);
+
+  tbody.innerHTML = visible.map(p => {
     const pid = p.id;
     const name = p.name || `Paciente ${pid}`;
     const safeN = escHtml(name);
@@ -2942,6 +2961,18 @@ function renderInadSection(num, patients, isCritico) {
       <td class="inad-td-c">${wa}</td>
     </tr>`;
   }).join('');
+
+  if (paginEl) {
+    if (totalPags <= 1) { paginEl.innerHTML = ''; return; }
+    const prevDisabled = page === 1 ? 'disabled' : '';
+    const nextDisabled = page === totalPags ? 'disabled' : '';
+    const showing = `${start + 1}–${Math.min(start + _INAD_PAGE_SIZE, patients.length)} de ${patients.length}`;
+    paginEl.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:12px;color:var(--muted)">
+      <button class="btn btn-sm" ${prevDisabled} onclick="inadSetPage(${num},${page-1})">← Anterior</button>
+      <span>Mostrando ${showing}</span>
+      <button class="btn btn-sm" ${nextDisabled} onclick="inadSetPage(${num},${page+1})">Próxima →</button>
+    </div>`;
+  }
 }
 
 async function loadInadimplentes(forceRefresh = false) {
@@ -2980,9 +3011,11 @@ async function loadInadimplentes(forceRefresh = false) {
     const hasData = (data.grupo1||[]).length + (data.grupo2||[]).length + (data.grupo3||[]).length > 0;
     document.getElementById('inad-empty').style.display = hasData ? 'none' : 'block';
 
-    renderInadSection(1, data.grupo1 || [], false);
-    renderInadSection(2, data.grupo2 || [], false);
-    renderInadSection(3, data.grupo3 || [], true);
+    _inadData = { grupo1: data.grupo1 || [], grupo2: data.grupo2 || [], grupo3: data.grupo3 || [] };
+    _inadPages = { 1: 1, 2: 1, 3: 1 };
+    renderInadSection(1, _inadData.grupo1, false);
+    renderInadSection(2, _inadData.grupo2, false);
+    renderInadSection(3, _inadData.grupo3, true);
 
     const cacheBar = document.getElementById('inad-cache-bar');
     const upd      = document.getElementById('inad-ultima-atualizacao');
