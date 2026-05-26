@@ -172,6 +172,44 @@ function renderCRCSucessoHtml(s) {
   ].join('');
 }
 
+function transcriptParaTexto(transcript) {
+  if (!Array.isArray(transcript) || transcript.length === 0) return '';
+  return transcript.map(t => `${t.speaker_label}: ${t.text}`).join('\n\n');
+}
+
+function baixarTranscriptPDF(c, transcript) {
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Popup bloqueado. Permita popups neste site para baixar.', 'warning'); return; }
+  const turnsHtml = transcript.map(t => `
+    <div style="margin-bottom:14px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+                  color:${t.speaker_label === 'DENTISTA' ? '#6366f1' : '#9ca3af'};margin-bottom:3px">
+        ${escHtml(t.speaker_label)}
+      </div>
+      <div style="font-size:13px;color:#111827;line-height:1.6">${escHtml(t.text)}</div>
+    </div>`).join('');
+  win.document.open('text/html', 'replace');
+  win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head>
+    <meta charset="utf-8">
+    <title>Transcrição — ${escHtml(c.paciente_nome ?? '—')}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; background: #fff; color: #111827; }
+      .page { max-width: 780px; margin: 0 auto; padding: 40px 32px; }
+      h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+      .sub { font-size: 13px; color: #6b7280; margin-bottom: 28px; border-bottom: 1px solid #e5e7eb; padding-bottom: 16px; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style>
+  </head><body><div class="page">
+    <h1>Transcrição da Consulta</h1>
+    <div class="sub">${escHtml(c.paciente_nome ?? '—')} · ${formatDate(c.created_at)} · ${modoBadge(c.modo)}</div>
+    ${turnsHtml}
+  </div></body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 400);
+}
+
 function copyBtnHtml(id, label = 'Copiar') {
   return `<button id="${id}" title="${label}" aria-label="${label}"
     style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;
@@ -375,6 +413,7 @@ function renderDetalhe(c) {
   const relatorios = analysis.relatorios ?? {};
   const crcCom = relatorios.comercial;
   const crcSuc = relatorios.sucesso;
+  const transcript = Array.isArray(c.transcript) && c.transcript.length > 0 ? c.transcript : null;
   const roles = AvaliacaoApp.user?.roles ?? [];
   const podeEditar = isDono(c) || roles.includes('admin') || roles.includes('gestor');
 
@@ -518,6 +557,47 @@ function renderDetalhe(c) {
         ${renderCRCSucessoHtml(crcSuc)}
       </div>` : ''}
 
+      <!-- Transcrição -->
+      ${transcript ? `
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;overflow:hidden">
+        <button id="hist-transcript-toggle" onclick="window._histToggleTranscript()"
+          style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:none;border:none;cursor:pointer;font-family:inherit;text-align:left">
+          <div style="display:flex;align-items:center;gap:8px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);flex-shrink:0">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            <span style="font-size:13px;font-weight:600;color:var(--text)">Transcrição completa</span>
+            <span style="font-size:11px;color:var(--muted)">(${transcript.length} falas)</span>
+          </div>
+          <svg id="hist-transcript-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="color:var(--muted);transition:transform .2s;flex-shrink:0">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div id="hist-transcript-body" style="display:none;padding:0 14px 14px">
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            ${copyBtnHtml('hist-copy-transcript')}
+            <button id="hist-pdf-transcript"
+              style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;
+                     background:var(--bg3);border:1px solid var(--border);color:var(--muted);
+                     font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;flex-shrink:0">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                <rect x="6" y="14" width="12" height="8"/>
+              </svg>Baixar PDF
+            </button>
+          </div>
+          <div style="max-height:320px;overflow-y:auto;padding-right:4px">
+            ${transcript.map(t => `
+              <div style="margin-bottom:10px;padding:8px 10px;background:var(--bg2);border-radius:8px;border-left:2px solid ${t.speaker_label === 'DENTISTA' ? 'var(--accent)' : 'var(--border)'}">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${t.speaker_label === 'DENTISTA' ? 'var(--accent)' : 'var(--muted)'};margin-bottom:3px">
+                  ${escHtml(t.speaker_label)}
+                </div>
+                <div style="font-size:12.5px;color:var(--text);line-height:1.55">${escHtml(t.text)}</div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>` : ''}
+
       ${feedbackEl}
       ${reAnalisarEl}
 
@@ -529,6 +609,24 @@ function renderDetalhe(c) {
     </div>`;
 
   showModal(html);
+
+  // Wire transcript
+  window._histToggleTranscript = () => {
+    const body = document.getElementById('hist-transcript-body');
+    const arrow = document.getElementById('hist-transcript-arrow');
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+  };
+  document.getElementById('hist-copy-transcript')?.addEventListener('click', () => {
+    copyToClipboard(transcriptParaTexto(transcript));
+    flashCopyBtn('hist-copy-transcript');
+    showToast('Transcrição copiada.', 'success');
+  });
+  document.getElementById('hist-pdf-transcript')?.addEventListener('click', () => {
+    baixarTranscriptPDF(c, transcript);
+  });
 
   // Wire copy buttons
   document.getElementById('hist-copy-etapas')?.addEventListener('click', () => {
