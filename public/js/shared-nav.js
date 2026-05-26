@@ -114,6 +114,7 @@
       <span id="shared-theme-icon">🌙</span>
       <span id="shared-theme-label">Modo escuro</span>
     </button>
+    <div id="shared-nav-version" style="font-size:10.5px;color:var(--muted);text-align:center;padding:6px 4px 2px;opacity:.6;letter-spacing:.02em">—</div>
   `;
 
   // ── MONTAR LAYOUT ────────────────────────────────────────────────────────────
@@ -166,4 +167,16 @@
   }
 
   applyRoles();
+
+  // ── VERSÃO ──────────────────────────────────────────────────────────────────
+  fetch('/api/version').then(r => r.json()).then(v => {
+    const el = document.getElementById('shared-nav-version');
+    if (!el) return;
+    const d = new Date(v.deployedAt);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    el.textContent = `${v.commit} · ${dd}/${mm} ${hh}:${mi}`;
+  }).catch(() => {});
 })();
