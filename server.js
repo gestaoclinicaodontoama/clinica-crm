@@ -2051,7 +2051,7 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
   try {
     const p = await loadProfile(req);
     const roles = p.roles || [];
-    const isGestor  = roles.some(r => ['gestor','admin'].includes(r));
+    const isGestor  = roles.some(r => ['gestor','admin','crc_comercial'].includes(r));
     const isDentista = roles.some(r => ['dentista','admin'].includes(r));
     if (!isGestor && !isDentista) return res.status(403).json({ error: 'Acesso negado' });
 
@@ -2130,7 +2130,7 @@ app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
     const { data: consulta, error } = await supabase.from('consultas_spin').select('*').eq('id', req.params.id).maybeSingle();
     if (error) throw error;
     if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
-    const isGestor = roles.some(r => ['gestor','admin'].includes(r));
+    const isGestor = roles.some(r => ['gestor','admin','crc_comercial'].includes(r));
     const isOwner = consulta.dentista_id === req.user.id;
     if (!isGestor && !isOwner) return res.status(403).json({ error: 'Acesso negado' });
     res.json(consulta);
