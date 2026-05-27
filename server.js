@@ -8,13 +8,22 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 const totalvoice = require('./totalvoice');
 const whatsapp = require('./whatsapp');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+
+function _webmToOgg(buffer) {
+  const r = spawnSync('ffmpeg', ['-i','pipe:0','-c:a','libopus','-f','ogg','pipe:1'], {
+    input: buffer, maxBuffer: 20 * 1024 * 1024,
+  });
+  if (r.error) throw r.error;
+  if (r.status !== 0) throw new Error('Conversão de áudio falhou');
+  return r.stdout;
+}
 
 let _buildCommit = 'unknown';
 try { _buildCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe','pipe','ignore'] }).trim(); } catch (_) {}
@@ -558,7 +567,13 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
     if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
     if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
-    const { buffer, mimetype, originalname } = req.file;
+    let { buffer, mimetype, originalname } = req.file;
+    // Chrome grava como audio/webm — converter para audio/ogg (opus) que o WhatsApp aceita
+    if (mimetype.startsWith('audio/webm')) {
+      buffer = _webmToOgg(buffer);
+      mimetype = 'audio/ogg';
+      originalname = originalname.replace(/\.webm$/, '.ogg');
+    }
     const mediaId = await whatsapp.uploadMidia({ buffer, mimetype, filename: originalname });
     let tipo = 'document';
     if (mimetype.startsWith('image/')) tipo = 'image';
