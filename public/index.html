@@ -682,6 +682,12 @@ textarea { resize: vertical; min-height: 80px; }
                 <button class="btn btn-primary" onclick="enviarMensagemChat()" style="height:34px;font-size:13px">Enviar</button>
                 <button class="btn btn-ghost" onclick="toggleAgendarMsg()" style="height:34px;font-size:12px" title="Agendar envio">📅 Agendar</button>
                 <button class="btn btn-ghost" onclick="abrirModalTemplate()" style="height:34px;font-size:12px">📢 Template</button>
+                <button class="btn btn-ghost" onclick="document.getElementById('midia-img').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar imagem">🖼️</button>
+                <button class="btn btn-ghost" onclick="document.getElementById('midia-audio').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar áudio">🎵</button>
+                <button class="btn btn-ghost" onclick="document.getElementById('midia-doc').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo">📎</button>
+                <input type="file" id="midia-img" accept="image/*" style="display:none" onchange="enviarMidiaChat(this,'image')">
+                <input type="file" id="midia-audio" accept="audio/*" style="display:none" onchange="enviarMidiaChat(this,'audio')">
+                <input type="file" id="midia-doc" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" style="display:none" onchange="enviarMidiaChat(this,'document')">
               </div>
               <div id="agendar-msg-area" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;display:none;flex-direction:column;gap:8px">
                 <div style="font-size:12px;font-weight:600;color:var(--muted)">Agendar mensagem</div>
@@ -703,6 +709,10 @@ textarea { resize: vertical; min-height: 80px; }
             <div>
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Origem</div>
               <select id="painel-origem" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvar('origem',this.value)"></select>
+            </div>
+            <div id="painel-anuncio-wrap" style="display:none">
+              <div style="font-weight:700;margin-bottom:4px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Anúncio / Campanha</div>
+              <div id="painel-anuncio" style="font-size:11.5px;background:var(--bg3);border-radius:6px;padding:6px 8px;word-break:break-all;color:var(--text)"></div>
             </div>
             <div>
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Perfil DISC</div>
@@ -2074,6 +2084,12 @@ function _initPainel(lead) {
   document.getElementById('painel-agendamento').value = ag
     ? new Date(ag).toISOString().slice(0,16) : '';
 
+  const wrap = document.getElementById('painel-anuncio-wrap');
+  const el = document.getElementById('painel-anuncio');
+  const anuncio = lead.campanha || lead.ctwa_clid || '';
+  wrap.style.display = anuncio ? '' : 'none';
+  if (el) el.textContent = anuncio;
+
   carregarAgendamentos(lead.id);
 }
 
@@ -2240,6 +2256,33 @@ async function enviarMensagemChat() {
   } finally {
     input.disabled = false;
     input.focus();
+  }
+}
+
+async function enviarMidiaChat(input, _tipo) {
+  if (!chatLeadAtual || !input.files?.length) return;
+  const file = input.files[0];
+  input.value = '';
+  const form = new FormData();
+  form.append('arquivo', file);
+  const btn = [...document.querySelectorAll('.btn-ghost')].find(b => b.onclick?.toString().includes(input.id));
+  try {
+    toast('⏳ Enviando ' + file.name + '...');
+    const token = (() => {
+      const k = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      return k ? JSON.parse(localStorage.getItem(k))?.access_token : null;
+    })();
+    const r = await fetch(`/api/leads/${chatLeadAtual.id}/whatsapp/midia`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const data = await r.json();
+    if (!r.ok || data.error) { toast('❌ ' + (data.error || 'Erro ao enviar mídia'), true); return; }
+    toast('✅ ' + file.name + ' enviado');
+    await carregarMensagensChat(chatLeadAtual.id);
+  } catch(e) {
+    toast('❌ Erro ao enviar mídia', true);
   }
 }
 

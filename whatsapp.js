@@ -62,6 +62,32 @@ async function enviarBroadcast({ para, templateName, lang = 'pt_BR', variaveis =
 // Mantém compatibilidade — enviarTemplate usa o número 2 (broadcast)
 async function enviarTemplate(opts) { return enviarBroadcast(opts); }
 
+// Upload de mídia → retorna media_id
+async function uploadMidia({ buffer, mimetype, filename }) {
+  if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('file', new Blob([buffer], { type: mimetype }), filename);
+  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${WA_PHONE_ID}/media`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${WA_TOKEN}` },
+    body: form,
+  });
+  const data = await r.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.id;
+}
+
+// Envio de mensagem com mídia já carregada (media_id)
+async function enviarMidia({ para, mediaId, tipo, caption }) {
+  const payload = {
+    messaging_product: 'whatsapp', to: limparNumero(para),
+    type: tipo,
+    [tipo]: { id: mediaId, ...(caption ? { caption } : {}) },
+  };
+  return _post(WA_PHONE_ID, WA_TOKEN, payload);
+}
+
 // --------- VERIFY TOKEN para webhook ----------
 function verifyToken() {
   if (!WA_VERIFY_TOKEN) console.warn('⚠️  WHATSAPP_VERIFY_TOKEN não configurado — configure esta variável de ambiente');
@@ -99,6 +125,8 @@ module.exports = {
   enviarTexto,
   enviarTemplate,
   enviarBroadcast,
+  uploadMidia,
+  enviarMidia,
   temToken,
   temBroadcast,
   verifyToken,

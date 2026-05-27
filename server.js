@@ -10,8 +10,11 @@ const https = require('https');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
+const multer = require('multer');
 const totalvoice = require('./totalvoice');
 const whatsapp = require('./whatsapp');
+
+const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
 let _buildCommit = 'unknown';
 try { _buildCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe','pipe','ignore'] }).trim(); } catch (_) {}
@@ -543,6 +546,35 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
     res.json({ ok: true });
   } catch (e) {
     console.error('❌ wa send:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single('arquivo'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { data: lead } = await supabase.from('leads').select('id,telefone').eq('id', id).maybeSingle();
+    if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
+    if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
+    if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
+    if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
+    const { buffer, mimetype, originalname } = req.file;
+    const mediaId = await whatsapp.uploadMidia({ buffer, mimetype, filename: originalname });
+    let tipo = 'document';
+    if (mimetype.startsWith('image/')) tipo = 'image';
+    else if (mimetype.startsWith('audio/')) tipo = 'audio';
+    else if (mimetype.startsWith('video/')) tipo = 'video';
+    const caption = sanitizeStr(req.body.caption || '', 500);
+    const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption });
+    const textoLog = caption || `[${tipo}: ${sanitizeStr(originalname, 100)}]`;
+    await supabase.from('mensagens').insert({
+      lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
+      texto: textoLog, wa_id: resultado.messages?.[0]?.id || '',
+    });
+    await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('❌ wa midia:', e);
     res.status(500).json({ error: e.message });
   }
 });
