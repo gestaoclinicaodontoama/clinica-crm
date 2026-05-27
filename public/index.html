@@ -253,6 +253,20 @@ textarea { resize: vertical; min-height: 80px; }
 .chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 120px; min-height: 40px; line-height: 1.4; }
 .chat-textarea:focus { outline: none; border-color: var(--accent); }
 .ctwa-badge { background: rgba(79,142,247,.15); color: var(--accent); border-radius: 6px; font-size: 10.5px; font-weight: 600; padding: 2px 7px; }
+.chat-view-toggle { display:flex; gap:4px; }
+.chat-view-toggle button { padding:5px 12px; border-radius:7px; border:1px solid var(--border); background:none; color:var(--muted); font-size:12.5px; font-weight:500; cursor:pointer; transition:all .15s; }
+.chat-view-toggle button.ativo { background:var(--accent); color:white; border-color:var(--accent); }
+.unread-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+.kconv-wrap { display:flex; gap:10px; overflow-x:auto; padding:4px 0 12px; height:calc(100vh - 170px); }
+.kconv-col { min-width:210px; max-width:210px; background:var(--bg3); border-radius:10px; display:flex; flex-direction:column; overflow:hidden; }
+.kconv-col-hdr { padding:9px 12px; font-size:12px; font-weight:700; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+.kconv-col-body { overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:5px; flex:1; }
+.kconv-card { background:var(--bg2); border-radius:8px; padding:9px 11px; cursor:pointer; border:1px solid transparent; transition:border-color .12s; }
+.kconv-card:hover { border-color:var(--accent); }
+.kconv-card.ativo { border-color:var(--accent); }
+.kconv-nome { font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kconv-preview { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.kconv-foot { display:flex; align-items:center; justify-content:space-between; margin-top:5px; gap:4px; }
 
 /* ===== DISPAROS ===== */
 .disparos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
@@ -634,12 +648,21 @@ textarea { resize: vertical; min-height: 80px; }
 
 <!-- CONVERSAS -->
 <div id="page-conversas" class="page">
-  <h1>Conversas</h1>
-  <div class="chat-layout">
-    <div class="chat-sidebar">
-      <div class="chat-sidebar-header">
-        <input class="search-input" style="width:100%;margin:0" placeholder="🔍 Buscar lead..." id="chat-search" oninput="filtrarChats()">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+    <h1 style="margin:0">Conversas</h1>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input class="search-input" style="width:180px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
+      <div class="chat-view-toggle">
+        <button class="ativo" id="btn-view-lista" onclick="setChatView('lista')">💬 Lista</button>
+        <button id="btn-view-kanban" onclick="setChatView('kanban')">📋 Kanban</button>
       </div>
+    </div>
+  </div>
+  <!-- KANBAN VIEW -->
+  <div id="chat-kanban-view" style="display:none"></div>
+  <!-- LISTA VIEW -->
+  <div class="chat-layout" id="chat-lista-view">
+    <div class="chat-sidebar">
       <div class="chat-list" id="chat-list"><div class="empty-small">Carregando...</div></div>
     </div>
     <div class="chat-main" id="chat-main">
@@ -1858,12 +1881,52 @@ function toast(msg, erro=false) {
 let chatLeadAtual = null;
 let chatLeads = [];
 let chatPollInterval = null;
+let _chatViewMode = 'lista';
+
+const KANBAN_STATUS = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Enviado','Fechou','Perdido'];
+
+function _brt(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour:'2-digit', minute:'2-digit' });
+}
+
+function _horaOuData(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const tz = 'America/Sao_Paulo';
+  const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: tz });
+  const dDia = d.toLocaleDateString('pt-BR', { timeZone: tz });
+  if (dDia === hoje) return d.toLocaleTimeString('pt-BR', { timeZone: tz, hour:'2-digit', minute:'2-digit' });
+  return d.toLocaleDateString('pt-BR', { timeZone: tz, day:'2-digit', month:'2-digit' });
+}
+
+function _isUnread(l) {
+  if (!l.ultima_mensagem_em || l.ultima_mensagem_direcao !== 'recebida') return false;
+  const lastRead = localStorage.getItem('chat_lr_' + l.id);
+  if (!lastRead) return true;
+  return new Date(l.ultima_mensagem_em) > new Date(lastRead);
+}
+
+function _markRead(leadId) {
+  localStorage.setItem('chat_lr_' + leadId, new Date().toISOString());
+}
+
+function setChatView(mode) {
+  _chatViewMode = mode;
+  document.getElementById('chat-lista-view').style.display = mode === 'lista' ? 'flex' : 'none';
+  document.getElementById('chat-kanban-view').style.display = mode === 'kanban' ? 'block' : 'none';
+  document.getElementById('btn-view-lista').classList.toggle('ativo', mode === 'lista');
+  document.getElementById('btn-view-kanban').classList.toggle('ativo', mode === 'kanban');
+  if (mode === 'kanban') renderKanban(chatLeads);
+  else renderChatList(chatLeads);
+}
 
 async function loadConversas() {
   try {
     const convs = await api('/api/conversas');
     chatLeads = convs;
-    renderChatList(convs);
+    if (_chatViewMode === 'kanban') renderKanban(convs);
+    else renderChatList(convs);
   } catch(e) { console.error('loadConversas:', e); toast('⚠️ Erro ao carregar conversas', true); }
 }
 
@@ -1872,17 +1935,8 @@ function filtrarChats() {
   const r = q ? chatLeads.filter(l =>
     (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q)
   ) : chatLeads;
-  renderChatList(r);
-}
-
-function _horaOuData(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const hoje = new Date();
-  if (d.toDateString() === hoje.toDateString()) {
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  }
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  if (_chatViewMode === 'kanban') renderKanban(r);
+  else renderChatList(r);
 }
 
 function renderChatList(leads) {
@@ -1892,14 +1946,18 @@ function renderChatList(leads) {
     return;
   }
   el.innerHTML = leads.map(l => {
+    const unread = _isUnread(l);
     const preview = l.ultima_mensagem
       ? (l.ultima_mensagem_direcao === 'enviada' ? '» ' : '') + l.ultima_mensagem
       : l.telefone || '';
     return `
     <div class="chat-item ${chatLeadAtual?.id === l.id ? 'ativo' : ''}" onclick="abrirChat(${l.id})">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px">
-        <span class="chat-item-nome" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.nome)}</span>
-        <span style="font-size:10.5px;color:var(--muted);flex-shrink:0">${_horaOuData(l.ultima_mensagem_em)}</span>
+        <span class="chat-item-nome" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${unread?'font-weight:700;color:var(--text)':''}">${escHtml(l.nome)}</span>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+          ${unread ? '<span class="unread-dot"></span>' : ''}
+          <span style="font-size:10.5px;color:var(--muted)">${_horaOuData(l.ultima_mensagem_em)}</span>
+        </div>
       </div>
       <div class="chat-item-preview">${escHtml(preview.slice(0, 60))}</div>
       <div style="display:flex;align-items:center;gap:4px;margin-top:4px">
@@ -1908,6 +1966,42 @@ function renderChatList(leads) {
       </div>
     </div>`;
   }).join('');
+}
+
+function renderKanban(leads) {
+  const el = document.getElementById('chat-kanban-view');
+  const byStatus = {};
+  KANBAN_STATUS.forEach(s => byStatus[s] = []);
+  leads.forEach(l => { if (byStatus[l.status]) byStatus[l.status].push(l); });
+  el.innerHTML = `<div class="kconv-wrap">${KANBAN_STATUS.map(status => {
+    const cols = byStatus[status] || [];
+    const cards = cols.map(l => {
+      const unread = _isUnread(l);
+      const preview = l.ultima_mensagem
+        ? (l.ultima_mensagem_direcao === 'enviada' ? '» ' : '') + l.ultima_mensagem
+        : l.telefone || '';
+      return `<div class="kconv-card ${chatLeadAtual?.id === l.id ? 'ativo' : ''}" onclick="abrirChatKanban(${l.id})">
+        <div class="kconv-nome">${escHtml(l.nome)}</div>
+        <div class="kconv-preview">${escHtml(preview.slice(0,50))}</div>
+        <div class="kconv-foot">
+          <span style="font-size:10px;color:var(--muted)">${_horaOuData(l.ultima_mensagem_em)}</span>
+          ${unread ? '<span class="unread-dot"></span>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+    return `<div class="kconv-col">
+      <div class="kconv-col-hdr">
+        <span>${status}</span>
+        <span style="font-size:11px;font-weight:400;color:var(--muted)">${cols.length}</span>
+      </div>
+      <div class="kconv-col-body">${cards || '<div class="empty-small" style="font-size:11px;padding:8px">—</div>'}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function abrirChatKanban(leadId) {
+  setChatView('lista');
+  abrirChat(leadId);
 }
 
 async function abrirChat(leadId) {
@@ -1931,9 +2025,12 @@ async function abrirChat(leadId) {
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModal(${chatLeadAtual.id})">Ver perfil</button>
   `;
 
+  _markRead(leadId);
   await carregarMensagensChat(leadId);
   if (chatPollInterval) clearInterval(chatPollInterval);
-  chatPollInterval = setInterval(() => { if (chatLeadAtual) carregarMensagensChat(chatLeadAtual.id, true); }, 4000);
+  chatPollInterval = setInterval(() => {
+    if (chatLeadAtual) { _markRead(chatLeadAtual.id); carregarMensagensChat(chatLeadAtual.id, true); }
+  }, 4000);
   document.getElementById('chat-input').focus();
 }
 
@@ -1949,7 +2046,7 @@ async function carregarMensagensChat(leadId, silencioso = false) {
     el.innerHTML = msgs.map(m => `
       <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}">
         <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${escHtml(m.texto).replace(/\n/g,'<br>')}</div>
-        <div class="msg-time">${(m.criada_em||'').slice(11,16)}</div>
+        <div class="msg-time">${_brt(m.criada_em)}</div>
       </div>
     `).join('');
     if (!silencioso || atFundo) el.scrollTop = el.scrollHeight;
