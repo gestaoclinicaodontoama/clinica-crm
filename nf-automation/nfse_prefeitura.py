@@ -254,8 +254,19 @@ def _login(page, cnpj: str, senha: str, max_tentativas: int = 3):
 # ── navegação ──────────────────────────────────────────────────────────────────
 
 def _todos_frames(page):
-    """Retorna page + todos os frames filhos."""
-    return [page] + list(page.frames)
+    """Retorna todas as páginas do contexto (inclui popups window.open) + seus frames."""
+    try:
+        all_pages = list(page.context.pages)
+    except Exception:
+        all_pages = [page]
+    result = []
+    for p in all_pages:
+        result.append(p)
+        try:
+            result.extend(p.frames)
+        except Exception:
+            pass
+    return result
 
 
 def _frame_formulario(page, timeout_s: int = 12):
@@ -723,6 +734,9 @@ def _selecionar_atividade(page, codigo: str = "412"):
     if lupa is None:
         raise RuntimeError("Botão lupa de Atividade não encontrado.")
 
+    # Registra páginas existentes antes do clique para detectar popup novo
+    paginas_antes = set(page.context.pages)
+
     # Tenta clique normal; se sobreposto por overlay usa JS click
     try:
         lupa.click(timeout=6000)
@@ -730,6 +744,18 @@ def _selecionar_atividade(page, codigo: str = "412"):
         print("  Clique normal falhou, usando JS click na lupa de atividade...")
         form.evaluate("document.querySelector('button[onclick*=\"openFiltro\"]').click()")
     time.sleep(1.5)
+
+    # Aguarda popup novo carregar (se abriu via window.open)
+    try:
+        paginas_novas = [p for p in page.context.pages if p not in paginas_antes]
+        if paginas_novas:
+            popup = paginas_novas[0]
+            popup.wait_for_load_state("domcontentloaded", timeout=8000)
+            print(f"  Popup atividade detectado: {popup.url[:80]}")
+        else:
+            print("  Nenhum popup novo — modal inline ou iframe")
+    except Exception as e:
+        print(f"  Aviso popup atividade: {e}")
 
     # Modal/popup de atividades — busca em todos os frames e páginas
     linha_ativ = None
