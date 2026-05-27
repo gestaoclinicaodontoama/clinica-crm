@@ -1255,6 +1255,14 @@ app.get('/api/clinicorp-status', requireAuth, (req, res) => {
   res.json({ used: recent.length, limit: 25, resetIn: Math.ceil(resetInMs / 60000) });
 });
 
+// ===== CLINICORP CONSTANTES =====
+const CLINICORP_CLINIC_ID   = 6182869788131328;
+const CLINICORP_STATUS_ARRIVED = 5140799724060672; // "2-Em espera" (checkin)
+const DENTISTAS_AVALIACAO = [
+  { id: 5757301300985856, nome: 'Marcos - Avaliação' },
+  { id: 6576596377468928, nome: 'Matheus G. - Avaliação' },
+];
+
 function clinicorpGet(apiPath, params = {}) {
   _trackClinicorpReq();
   return new Promise((resolve, reject) => {
@@ -1286,6 +1294,42 @@ function clinicorpGet(apiPath, params = {}) {
   });
 }
 
+
+function clinicorpPost(apiPath, body) {
+  _trackClinicorpReq();
+  return new Promise((resolve, reject) => {
+    const user  = process.env.CLINICORP_USER  || 'clinicaama';
+    const token = process.env.CLINICORP_TOKEN || '';
+    const auth  = Buffer.from(user + ':' + token).toString('base64');
+    const qs = new URLSearchParams({
+      subscriber_id: process.env.CLINICORP_SUBSCRIBER_ID || 'clinicaama',
+      business_id:   process.env.CLINICORP_BUSINESS_ID   || 'clinicaama',
+    }).toString();
+    const bodyStr = JSON.stringify(body);
+    const opts = {
+      hostname: 'api.clinicorp.com',
+      path: '/rest/v1' + apiPath + '?' + qs,
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + auth, 'X-Api-Key': token,
+        'Accept': 'application/json', 'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      },
+    };
+    const req = https.request(opts, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
+        catch(e) { resolve({ status: res.statusCode, data: null }); }
+      });
+    });
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout Clinicorp')); });
+    req.on('error', reject);
+    req.write(bodyStr);
+    req.end();
+  });
+}
 
 // GET /api/pacientes/clinicorp/:termo — lookup por CPF ou nome, usado no formulario NF
 app.get('/api/pacientes/clinicorp/:termo', requireAuth, rateLimit, async (req, res) => {
@@ -1446,6 +1490,148 @@ async function fetchInadimplentesBackground() {
     _inadimplentesRefreshing = false;
   }
 }
+
+// ========== AGENDAMENTO CLINICORP ==========
+
+// Horários disponíveis de um dentista num dia
+app.get('/api/clinicorp/horarios', requireAuth, rateLimit, async (req, res) => {
+  const { data, dentista_id } = req.query;
+  if (!data || !dentista_id) return res.status(400).json({ error: 'data e dentista_id obrigatórios' });
+  const dentistaId = parseInt(dentista_id, 10);
+  const dentista = DENTISTAS_AVALIACAO.find(d => d.id === dentistaId);
+  if (!dentista) return res.status(400).json({ error: 'Dentista não permitido' });
+  try {
+    const dateTo = new Date(data); dateTo.setDate(dateTo.getDate() + 1);
+    const to = dateTo.toISOString().split('T')[0];
+    const r = await clinicorpGet('/appointment/list', { from: data, to });
+    const apts = Array.isArray(r.data) ? r.data : (Array.isArray(r) ? r : []);
+    const ocupados = apts.filter(a =>
+      !a.Deleted &&
+      (String(a.Dentist_PersonId) === String(dentistaId) || String(a.DoctorId) === String(dentistaId))
+    );
+    // Gera slots de 30 min das 08:00 às 17:30
+    const slots = [];
+    for (let h = 8; h < 18; h++) {
+      for (let m = 0; m < 60; m += 30) {
+        const from_t = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+        const toM = m === 30 ? 0 : 30; const toH = m === 30 ? h + 1 : h;
+        const to_t = `${String(toH).padStart(2,'0')}:${String(toM).padStart(2,'0')}`;
+        if (toH >= 18) break;
+        const ocupado = ocupados.some(a => {
+          const af = a.FromTime || a.fromTime || '';
+          const at = a.ToTime   || a.toTime   || '';
+          return af && at && af < to_t && at > from_t;
+        });
+        slots.push({ from: from_t, to: to_t, disponivel: !ocupado });
+      }
+    }
+    res.json({ dentista: dentista.nome, data, slots });
+  } catch(e) { console.error('clinicorp/horarios:', e); res.status(500).json({ error: e.message }); }
+});
+
+// Criar agendamento no Clinicorp a partir de um lead do CRM
+app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req, res) => {
+  const leadId = parseInt(req.params.id, 10);
+  const { data, hora_inicio, dentista_id } = req.body;
+  if (!data || !hora_inicio || !dentista_id) return res.status(400).json({ error: 'data, hora_inicio e dentista_id obrigatórios' });
+  const dentistaId = parseInt(dentista_id, 10);
+  const dentista = DENTISTAS_AVALIACAO.find(d => d.id === dentistaId);
+  if (!dentista) return res.status(400).json({ error: 'Dentista não autorizado' });
+  try {
+    const { data: lead } = await supabase.from('leads').select('*').eq('id', leadId).maybeSingle();
+    if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
+
+    // 1. Buscar/criar paciente no Clinicorp
+    let patient_id = lead.clinicorp_patient_id || null;
+    if (!patient_id && lead.telefone) {
+      const phone = lead.telefone.replace(/\D/g, '');
+      const pr = await clinicorpGet('/patient/get', { Phone: phone });
+      const pd = pr?.data;
+      if (pd?.id || (Array.isArray(pd) && pd[0]?.id)) {
+        patient_id = pd?.id || pd[0]?.id;
+        await supabase.from('leads').update({ clinicorp_patient_id: patient_id }).eq('id', leadId);
+      }
+    }
+    if (!patient_id && lead.nome) {
+      const pr = await clinicorpGet('/patient/get', { Name: lead.nome });
+      const pd = pr?.data;
+      if (pd?.id || (Array.isArray(pd) && pd[0]?.id)) patient_id = pd?.id || pd[0]?.id;
+    }
+    if (!patient_id) {
+      const phone = (lead.telefone || '').replace(/\D/g, '');
+      const cr = await clinicorpPost('/patient/create', {
+        subscriber_id: process.env.CLINICORP_SUBSCRIBER_ID || 'clinicaama',
+        Name: sanitizeStr(lead.nome || 'Paciente', 100),
+        ...(phone ? { MobilePhone: parseInt(phone) } : {}),
+      });
+      patient_id = cr?.data?.id || null;
+      if (patient_id) await supabase.from('leads').update({ clinicorp_patient_id: patient_id }).eq('id', leadId);
+    }
+
+    // 2. Calcular hora_fim (+30 min)
+    const [h, m] = hora_inicio.split(':').map(Number);
+    const hora_fim = `${String(m === 30 ? h + 1 : h).padStart(2,'0')}:${m === 30 ? '00' : '30'}`;
+
+    // 3. Criar agendamento
+    const dateISO = new Date(data + 'T00:00:00-03:00').toISOString();
+    const aptBody = {
+      PatientName: sanitizeStr(lead.nome || 'Paciente', 100),
+      MobilePhone: lead.telefone || '',
+      fromTime: hora_inicio, toTime: hora_fim,
+      date: dateISO,
+      Clinic_BusinessId: CLINICORP_CLINIC_ID,
+      Dentist_PersonId: dentistaId,
+      CategoryDescription: 'Avaliação',
+      ...(patient_id ? { Patient_PersonId: patient_id } : {}),
+    };
+    const result = await clinicorpPost('/appointment/create_appointment_by_api', aptBody);
+    if (result.status !== 200 || !result.data) throw new Error('Clinicorp: ' + JSON.stringify(result.data));
+    const apt = Array.isArray(result.data) ? result.data[0] : result.data;
+    const clinicorp_appointment_id = apt?.id || null;
+
+    // 4. Salvar no lead
+    const dataAgendamento = new Date(data + 'T' + hora_inicio + ':00-03:00').toISOString();
+    await supabase.from('leads').update({
+      status: 'Agendado', data_agendamento: dataAgendamento,
+      clinicorp_appointment_id,
+    }).eq('id', leadId);
+
+    res.json({ ok: true, clinicorp_appointment_id, dentista: dentista.nome, data, hora: hora_inicio + ' - ' + hora_fim });
+  } catch(e) {
+    console.error('agendar-clinicorp:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Sync periódico: detecta comparecimento no Clinicorp e atualiza lead para "Compareceu" ──
+async function syncComparecimentos() {
+  if (!process.env.CLINICORP_TOKEN) return;
+  try {
+    const { data: leads } = await supabase.from('leads')
+      .select('id, clinicorp_appointment_id, status')
+      .not('clinicorp_appointment_id', 'is', null)
+      .neq('status', 'Compareceu')
+      .in('status', ['Agendado']);
+    if (!leads || !leads.length) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const r = await clinicorpGet('/appointment/list', { from: today, to: tomorrow });
+    const apts = r?.data || [];
+
+    for (const lead of leads) {
+      const apt = apts.find(a => String(a.id) === String(lead.clinicorp_appointment_id));
+      if (!apt) continue;
+      const chegou = apt.CheckinTime || apt.Status === 'Arrived' || apt.StatusId === CLINICORP_STATUS_ARRIVED;
+      if (!chegou) continue;
+      await supabase.from('leads').update({ status: 'Compareceu' }).eq('id', lead.id);
+      console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (apt ${lead.clinicorp_appointment_id})`);
+    }
+  } catch(e) {
+    console.error('[sync-compareceu]', e.message);
+  }
+}
+setInterval(syncComparecimentos, 30 * 60 * 1000);
 
 app.get('/api/inadimplentes', requireAuth, rateLimit, async (req, res) => {
   try {

@@ -268,6 +268,10 @@ textarea { resize: vertical; min-height: 80px; }
 .kconv-card[draggable="true"] { cursor:grab; }
 .kconv-card[draggable="true"]:active { cursor:grabbing; }
 .kconv-col-body.drag-over { background:rgba(79,142,247,.12); border-radius:6px; outline:2px dashed var(--accent); }
+.slot-btn { padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg3); color:var(--text); font-size:12px; cursor:pointer; transition:all .15s; }
+.slot-btn:hover:not(:disabled) { background:var(--accent); color:#fff; border-color:var(--accent); }
+.slot-btn.slot-selecionado { background:var(--accent); color:#fff; border-color:var(--accent); }
+.slot-btn.slot-ocupado { opacity:.4; cursor:not-allowed; }
 .kconv-nome { font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .kconv-preview { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
 .kconv-foot { display:flex; align-items:center; justify-content:space-between; margin-top:5px; gap:4px; }
@@ -737,8 +741,16 @@ textarea { resize: vertical; min-height: 80px; }
               </div>
             </div>
             <div>
-              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Agendamento</div>
-              <input type="datetime-local" id="painel-agendamento" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvarAgendamento()">
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Agendamento Clinicorp</div>
+              <div id="painel-ag-info" style="display:none;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;color:var(--text);line-height:1.5"></div>
+              <select id="painel-ag-dentista" class="filter-select" style="width:100%;font-size:12px;margin-bottom:6px">
+                <option value="">— Selecione o dentista —</option>
+                <option value="5757301300985856">Marcos - Avaliação</option>
+                <option value="6576596377468928">Matheus G. - Avaliação</option>
+              </select>
+              <input type="date" id="painel-ag-data" class="filter-select" style="width:100%;font-size:12px;margin-bottom:6px" onchange="carregarHorariosClinicorp()">
+              <div id="painel-ag-slots" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
+              <button class="btn btn-primary" style="width:100%;font-size:12px" onclick="agendarNoClinicorp()" id="painel-ag-btn" disabled>Agendar no Clinicorp</button>
             </div>
             <div style="flex:1;display:flex;flex-direction:column">
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Anotações SDR</div>
@@ -2135,9 +2147,22 @@ function _initPainel(lead) {
     btn.style.fontWeight = disc === d ? '900' : '700';
   });
 
-  const ag = lead.data_agendamento;
-  document.getElementById('painel-agendamento').value = ag
-    ? new Date(ag).toISOString().slice(0,16) : '';
+  // Agendamento Clinicorp
+  const agInfo = document.getElementById('painel-ag-info');
+  if (lead.clinicorp_appointment_id && lead.data_agendamento) {
+    const d = new Date(lead.data_agendamento);
+    agInfo.style.display = '';
+    agInfo.innerHTML = `<b>Agendado</b><br>${d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}`;
+    document.getElementById('painel-ag-btn').textContent = 'Reagendar';
+  } else {
+    agInfo.style.display = 'none';
+    document.getElementById('painel-ag-btn').textContent = 'Agendar no Clinicorp';
+  }
+  document.getElementById('painel-ag-dentista').value = '';
+  document.getElementById('painel-ag-data').value = '';
+  document.getElementById('painel-ag-slots').innerHTML = '';
+  document.getElementById('painel-ag-btn').disabled = true;
+  document.getElementById('painel-ag-dentista').onchange = carregarHorariosClinicorp;
 
   const wrap = document.getElementById('painel-anuncio-wrap');
   const el = document.getElementById('painel-anuncio');
@@ -2178,16 +2203,59 @@ function painelDisc(letra) {
   });
 }
 
-async function painelSalvarAgendamento() {
-  if (!chatLeadAtual) return;
-  const val = document.getElementById('painel-agendamento').value;
-  if (!val) return;
+let _agHoraSelecionada = null;
+
+async function carregarHorariosClinicorp() {
+  const dentistaId = document.getElementById('painel-ag-dentista').value;
+  const data = document.getElementById('painel-ag-data').value;
+  const slotsEl = document.getElementById('painel-ag-slots');
+  document.getElementById('painel-ag-btn').disabled = true;
+  _agHoraSelecionada = null;
+  if (!dentistaId || !data) { slotsEl.innerHTML = ''; return; }
+  slotsEl.innerHTML = '<span style="font-size:11px;color:var(--muted)">Carregando...</span>';
   try {
-    await api('/api/leads/' + chatLeadAtual.id, { method: 'PATCH', body: JSON.stringify({ status: 'Agendado', data_agendamento: new Date(val).toISOString() }) });
-    document.getElementById('painel-status').value = 'Agendado';
+    const slots = await api('/api/clinicorp/horarios?data=' + data + '&dentista_id=' + dentistaId);
+    if (!slots.length) { slotsEl.innerHTML = '<span style="font-size:11px;color:var(--muted)">Sem horários disponíveis</span>'; return; }
+    slotsEl.innerHTML = slots.map(s =>
+      `<button class="slot-btn${s.ocupado ? ' slot-ocupado' : ''}" onclick="selecionarSlot(this,'${s.inicio}')" ${s.ocupado ? 'disabled' : ''}>${s.inicio}</button>`
+    ).join('');
+  } catch(e) { slotsEl.innerHTML = '<span style="font-size:11px;color:var(--red)">' + e.message + '</span>'; }
+}
+
+function selecionarSlot(btn, hora) {
+  document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('slot-selecionado'));
+  btn.classList.add('slot-selecionado');
+  _agHoraSelecionada = hora;
+  document.getElementById('painel-ag-btn').disabled = false;
+}
+
+async function agendarNoClinicorp() {
+  if (!chatLeadAtual || !_agHoraSelecionada) return;
+  const dentistaId = document.getElementById('painel-ag-dentista').value;
+  const data = document.getElementById('painel-ag-data').value;
+  if (!dentistaId || !data) { toast('⚠️ Selecione dentista e data', true); return; }
+  const btn = document.getElementById('painel-ag-btn');
+  btn.disabled = true; btn.textContent = 'Agendando...';
+  try {
+    const r = await api('/api/leads/' + chatLeadAtual.id + '/agendar-clinicorp', {
+      method: 'POST', body: JSON.stringify({ dentista_id: Number(dentistaId), data, hora_inicio: _agHoraSelecionada }),
+    });
+    chatLeadAtual.clinicorp_appointment_id = r.clinicorp_appointment_id;
     chatLeadAtual.status = 'Agendado';
-    toast('✅ Agendamento salvo');
-  } catch(e) { toast('❌ ' + e.message, true); }
+    chatLeadAtual.data_agendamento = new Date(data + 'T' + _agHoraSelecionada + ':00').toISOString();
+    const idx = chatLeads.findIndex(l => l.id === chatLeadAtual.id);
+    if (idx >= 0) { chatLeads[idx].status = 'Agendado'; chatLeads[idx].data_agendamento = chatLeadAtual.data_agendamento; }
+    document.getElementById('painel-status').value = 'Agendado';
+    const agInfo = document.getElementById('painel-ag-info');
+    agInfo.style.display = '';
+    agInfo.innerHTML = `<b>Agendado</b><br>${r.dentista} — ${data.split('-').reverse().join('/')} ${r.hora}`;
+    btn.textContent = 'Reagendar'; btn.disabled = false;
+    renderChatList(chatLeads);
+    toast('✅ Agendado: ' + r.dentista + ' ' + r.hora);
+  } catch(e) {
+    btn.disabled = false; btn.textContent = 'Agendar no Clinicorp';
+    toast('❌ ' + e.message, true);
+  }
 }
 
 // ============ MENSAGENS AGENDADAS ============
