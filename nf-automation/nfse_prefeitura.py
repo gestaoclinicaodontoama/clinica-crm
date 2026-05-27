@@ -1408,10 +1408,21 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
             )
             html_pagina2 = r2.text
             print(f"  Redirect resp: {len(html_pagina2)} chars")
-            print(f"  Trecho2: {html_pagina2[:2000]}")
+            # Busca PHP URLs usadas em JS (endpoint AJAX da lista de notas)
+            php_in_js = re.findall(r'["\']([^"\']*\.php[^"\']*)["\']', html_pagina2)
+            php_uniq = list(dict.fromkeys(u for u in php_in_js if 'nfe' in u.lower() or 'nota' in u.lower() or 'lista' in u.lower() or 'grid' in u.lower()))
+            print(f"  PHP URLs em nfe.php JS: {php_uniq[:20]}")
+            # Busca funções JS com URL que carregam dados
+            load_fns = re.findall(r'(?:url\s*:\s*|src\s*=\s*|\.get\s*\(|\.post\s*\(|\.ajax\s*\(|fetch\s*\()\s*["\']([^"\']+\.php[^"\']*)["\']', html_pagina2, re.IGNORECASE)
+            print(f"  AJAX load URLs: {load_fns[:10]}")
             # Loga todos os hrefs para encontrar URL de impressão/PDF
             hrefs2 = re.findall(r'href=["\']([^"\']+)["\']', html_pagina2, re.IGNORECASE)
             print(f"  Hrefs Trecho2: {hrefs2[:20]}")
+            # Extrai NR_NOTA de linhas com formato <tr id="NR_NOTA<|>CODIGO<|>...">
+            _tr_notas = re.findall(r'<tr[^>]*id="(\d+)<\|>[^"]*"[^>]*class="[^"]*line', html_pagina2)
+            if _tr_notas:
+                _nr = str(max(int(x) for x in _tr_notas))
+                print(f"  [HTTP] NR_NOTA (tr-id[0]): {_nr} de {len(_tr_notas)} linhas")
             # Diagnóstico: busca padrões de número de nota
             for _pat, _nome in [
                 (r'imprimir\((\d+)', 'imprimir('),
@@ -1421,6 +1432,8 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
                 (r'<td[^>]*>(\d{4,})<', 'td-4dig'),
                 (r'NFS[- ]?e[^\d]*(\d+)', 'NFS-e-num'),
                 (r'onclick[^>]*?(\d{5,})', 'onclick-5dig'),
+                (r'nfse?_print\s*\(\s*(\d+)', 'nfse_print('),
+                (r'nfe_imprime\s*\(\s*(\d+)', 'nfe_imprime('),
             ]:
                 _matches = re.findall(_pat, html_pagina2, re.IGNORECASE)
                 if _matches:
@@ -1431,12 +1444,35 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
     # Extrai número da nota — a tabela nfe.php lista TODAS as notas (antigas + nova)
     # ordenadas crescente, então a nova nota tem o MAIOR número. Não usar 1ª ocorrência.
     num_nota = ""
+    pkid_nota = ""  # DB_PKID para nfe_base.php?acao=imprimir&id=PKID
+
+    # Prioridade 0: <tr id> com formato <|> — dois formatos:
+    #   nfe.php lista: NR_NOTA<|>SERV_CODE<|>... → NR_NOTA em [0] (número pequeno)
+    #   nfe_historico.php: DB_PKID<|>CODE<|>NR_NOTA<|>... → NR_NOTA em [2] (DB_PKID > 1M)
+    for src in [html_pagina2, html]:
+        if not src:
+            continue
+        _tr_full = re.findall(r'<tr[^>]*id="(\d+)<\|>[^<|"]*<\|>(\d+)<\|>[^"]*"[^>]*class="[^"]*line', src)
+        if _tr_full:
+            _s0 = int(_tr_full[0][0]) if _tr_full else 0
+            if _s0 > 1_000_000:
+                _cands = [int(x[1]) for x in _tr_full if x[1].isdigit()]
+                _desc = 'tr-id[2]'
+            else:
+                _cands = [int(x[0]) for x in _tr_full if x[0].isdigit()]
+                _desc = 'tr-id[0]'
+            if _cands:
+                num_nota = str(max(_cands))
+                print(f"  Número da nota ({_desc} HTTP): {num_nota} de {len(_tr_full)} linhas")
+                break
 
     # Prioridade 1: print URL patterns — SIGISS insere onclick/href com nota= por nota
     # Pega TODOS os números nesses padrões e usa o MÁXIMO (nova nota = maior número)
     for src in [html_pagina2, html]:
         for pat in [
             r'(?:nfe_print|nfse_print|nfe_imprime|imprimir)[^"\'<>]*(?:nota|num_nfse|num)=(\d{3,})',
+            r'nfse?_print\s*\(\s*(\d{3,})',       # nfse_print(8304) — sem parâmetro nomeado
+            r'nfe_imprime\s*\(\s*(\d{3,})',        # nfe_imprime(8304)
             r'onclick="[^"]*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)"',
             r"onclick='[^']*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)'",
             r'[?&](?:nota|num_nfse)=(\d{3,})',
@@ -1472,6 +1508,38 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
             if num_nota:
                 break
 
+    # Prioridade 3b: GET nfe_filtro.php (lista de notas do dia — iframe da tabela)
+    if not num_nota and msg1_val:
+        from datetime import date as _date
+        _hoje = _date.today()
+        _filtro_url = (
+            f'{base_url}/ISS/contribuinte/nfe/nfe_filtro.php'
+            f'?dia={_hoje.day:02d}&mes={_hoje.month:02d}&ano={_hoje.year}'
+        )
+        try:
+            rf = session.get(_filtro_url, timeout=15,
+                             headers={'Referer': f'{base_url}/ISS/contribuinte/nfe/nfe.php'})
+            html_filtro = rf.text
+            print(f"  GET nfe_filtro.php: {len(html_filtro)} chars (status {rf.status_code})")
+            for pat in [
+                r'nfse?_print\s*\(\s*(\d{3,})',
+                r'nfe_imprime\s*\(\s*(\d{3,})',
+                r'(?:nfe_print|nfse_print)[^"\'<>]*(?:nota|num_nfse|num)=(\d{3,})',
+                r'onclick="[^"]*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)"',
+                r'[?&](?:nota|num_nfse)=(\d{3,})',
+                r'<td[^>]*>\s*(\d{3,})\s*</td>',
+            ]:
+                todos = re.findall(pat, html_filtro, re.IGNORECASE)
+                grandes = [x for x in todos if int(x) >= 100]
+                if grandes:
+                    num_nota = str(max(int(x) for x in grandes))
+                    print(f"  Número da nota (nfe_filtro max): {num_nota}")
+                    break
+            if not num_nota:
+                print(f"  nfe_filtro trecho: {html_filtro[:500]}")
+        except Exception as e:
+            print(f"  Aviso nfe_filtro: {e}")
+
     # Prioridade 4: GET fresco para nfe.php sem redirect data (pode mostrar lista)
     if not num_nota and msg1_val:
         try:
@@ -1498,6 +1566,64 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
                     break
         except Exception as e:
             print(f"  Aviso GET nfe.php: {e}")
+
+    # Prioridade 4b: tenta URLs candidatas da lista de notas
+    # Dois formatos de <tr id> no SIGISS:
+    #   nfe.php lista emissão:  NR_NOTA<|>SERV_CODE<|>...   → índice [0] (NR_NOTA pequeno)
+    #   nfe_historico.php:      DB_PKID<|>CODE<|>NR_NOTA<|>... → índice [2] (DB_PKID > 1M)
+    if not num_nota and msg1_val:
+        from datetime import date as _date
+        _hoje = _date.today()
+        _candidatas = [
+            f'{base_url}/ISS/contribuinte/nfe/nfe.php?acao=lista&dia={_hoje.day:02d}&mes={_hoje.month:02d}&ano={_hoje.year}',
+            f'{base_url}/ISS/contribuinte/nfe/nfe_hist.php?dia={_hoje.day:02d}&mes={_hoje.month:02d}&ano={_hoje.year}',
+            f'{base_url}/ISS/contribuinte/nfe/nfe_lista.php?dia={_hoje.day:02d}&mes={_hoje.month:02d}&ano={_hoje.year}',
+            f'{base_url}/ISS/contribuinte/nfe/nfe_historico.php',
+        ]
+        for _url in _candidatas:
+            try:
+                _r = session.get(_url, timeout=10, headers={'Referer': f'{base_url}/ISS/contribuinte/nfe/nfe.php'})
+                if _r.status_code != 200 or len(_r.text) < 500:
+                    continue
+                # Formato histórico: DB_PKID<|>CODE<|>NR_NOTA<|>...
+                _tr_full = re.findall(r'<tr[^>]*id="(\d+)<\|>[^<|"]*<\|>(\d+)<\|>[^"]*"[^>]*class="[^"]*line', _r.text)
+                # Formato emissão: NR_NOTA<|>SERV_CODE<|>...
+                _tr_simple = re.findall(r'<tr[^>]*id="(\d+)<\|>[^"]*"[^>]*class="[^"]*line', _r.text)
+                print(f"  GET {_url[-55:]}: {len(_r.text)}ch, full={len(_tr_full)} simple={len(_tr_simple)}")
+                if _tr_full:
+                    # Verifica se [0] é DB_PKID (>1M) → usa [2]; senão usa [0]
+                    _sample0 = int(_tr_full[0][0]) if _tr_full else 0
+                    if _sample0 > 1_000_000:
+                        # formato histórico: DB_PKID<|>CODE<|>NR_NOTA<|>...
+                        _candidatos = [int(x[1]) for x in _tr_full if x[1].isdigit()]
+                        _idx_desc = 'tr-id[2]'
+                        if _candidatos:
+                            _max_nr = max(_candidatos)
+                            num_nota = str(_max_nr)
+                            # extrai PKID da linha com esse NR_NOTA
+                            for x in _tr_full:
+                                if x[1].isdigit() and int(x[1]) == _max_nr:
+                                    pkid_nota = x[0]
+                                    break
+                    else:
+                        # formato emissão: NR_NOTA<|>SERV_CODE<|>...
+                        _candidatos = [int(x[0]) for x in _tr_full if x[0].isdigit()]
+                        _idx_desc = 'tr-id[0]'
+                        if _candidatos:
+                            num_nota = str(max(_candidatos))
+                    if num_nota:
+                        print(f"  Número da nota ({_idx_desc} {_url[-30:]}): {num_nota}" +
+                              (f"  PKID={pkid_nota}" if pkid_nota else ""))
+                        break
+            except Exception as e:
+                print(f"  Candidata {_url[-40:]}: {e}")
+
+    # Prioridade 4c: busca endpoint AJAX da lista nos scripts do nfe.php redirect
+    if not num_nota and msg1_val and html_pagina2:
+        _ajax_endpoints = re.findall(r'["\']([^"\']*\.php[^"\']{0,60})["\']', html_pagina2)
+        _interessantes = [u for u in _ajax_endpoints if any(k in u.lower() for k in ['lista', 'hist', 'grid', 'ajax', 'nfe']) and u not in ['/nfe.php', 'nfe_exec.php']]
+        if _interessantes:
+            print(f"  AJAX endpoints em nfe.php: {list(dict.fromkeys(_interessantes))[:10]}")
 
     # Prioridade 5: se emissão foi confirmada mas número não encontrado, emitiu ok mas número desconhecido
     if not num_nota and msg1_val and 'sucesso' in msg1_val.lower():
@@ -1546,22 +1672,35 @@ def _submeter_via_http(page, form_frame, pasta: str, nota: dict) -> dict:
         except Exception as e:
             print(f"  PDF não baixado ({url}): {e}")
 
-    # Se PDF não encontrado via href, tenta URLs padrão do SIGISS Ipatinga com o num_nota
+    # Se PDF não encontrado via href, tenta URLs padrão do SIGISS Ipatinga
     if not caminho and num_nota:
-        for print_pat in [
+        _print_pats = []
+        # nfe_ver.php?id=PKID retorna PDF direto; nfe_base.php?acao=imprimir retorna HTML
+        if pkid_nota:
+            _print_pats.append(f'{base_url}/ISS/contribuinte/nfe/nfe_ver.php?id={pkid_nota}')
+            _print_pats.append(f'{base_url}/ISS/contribuinte/nfe/nfe_base.php?acao=imprimir&id={pkid_nota}')
+        _print_pats += [
             f'{base_url}/ISS/contribuinte/nfe/nfe_print.php?nota={num_nota}',
             f'{base_url}/ISS/contribuinte/nfe/nfse_imprime.php?nota={num_nota}',
             f'{base_url}/ISS/contribuinte/nfe/nfe_print.php?num_nfse={num_nota}',
-        ]:
+        ]
+        for print_pat in _print_pats:
             try:
                 pdf_r = session.get(print_pat, timeout=20)
                 ct = pdf_r.headers.get('content-type', '')
-                if 'pdf' in ct or len(pdf_r.content) > 10000:
-                    from file_manager import salvar_pdf_bytes
-                    caminho = salvar_pdf_bytes(
-                        pdf_r.content, pasta, nota["competencia"], num_nota, nota["nome_tomador"]
-                    )
-                    print(f"  PDF via print padrão: {caminho}")
+                is_pdf = 'pdf' in ct.lower() or pdf_r.content[:4] == b'%PDF' or len(pdf_r.content) > 10000
+                if is_pdf:
+                    if not print_url:
+                        print_url = print_pat  # garante URL PDF mesmo se save falhar
+                    try:
+                        from file_manager import salvar_pdf_bytes
+                        caminho = salvar_pdf_bytes(
+                            pdf_r.content, pasta, nota["competencia"], num_nota, nota["nome_tomador"]
+                        )
+                        print(f"  PDF salvo: {caminho}")
+                    except Exception as save_err:
+                        print(f"  PDF obtido mas save falhou ({save_err}) — URL: {print_pat}")
+                        caminho = print_pat
                     break
                 else:
                     print(f"  Print URL resp: {pdf_r.status_code} {len(pdf_r.content)} chars ct={ct}")
@@ -1609,6 +1748,26 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
         except Exception:
             continue
 
+    # Intercepta respostas AJAX pós-emissão (context = captura todos os frames)
+    # Procura especificamente por respostas com rows <tr id="DB_ID<|>CODE<|>NR_NOTA<|>...">
+    ajax_captured = []
+    def _ajax_handler(resp):
+        try:
+            ct = resp.headers.get('content-type', '')
+            if not any(t in ct for t in ['html', 'json', 'text', 'xml']):
+                return
+            body = resp.text()
+            if len(body) < 50:
+                return
+            # Captura qualquer resposta com o delimitador <|> das linhas da lista
+            if '<|>' in body or '&lt;|&gt;' in body:
+                ajax_captured.append((resp.url, body))
+            elif any(p in resp.url for p in ['nfe', 'nota', 'nfse']) and len(body) > 200:
+                ajax_captured.append((resp.url, body))
+        except Exception:
+            pass
+    page.context.on('response', _ajax_handler)
+
     # Captura resposta do nfe_exec.php via intercept (mesma sessão browser)
     html_exec = ""
     try:
@@ -1655,34 +1814,118 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
     # Aguarda auto-redirect: nfe_exec retorna form que auto-submete para nfe.php
     time.sleep(6.0)
 
-    # Lê HTML do frame nfe.php após redirect (contém número da nota + link PDF)
+    # Aguarda AJAX da lista de notas completar (networkidle = sem requisições por 500ms)
+    try:
+        page.wait_for_load_state('networkidle', timeout=15000)
+        print("  networkidle OK")
+    except PWTimeout:
+        print("  networkidle timeout — continuando")
+    except Exception as e:
+        print(f"  networkidle aviso: {e}")
+
+    # Processa respostas AJAX capturadas — extrai NR_NOTA do formato <tr id="DB<|>CODE<|>NR_NOTA<|>...">
+    num_nota_ajax = ""
+    pkid_nota_ajax = ""
+    print(f"  AJAX capturadas: {len(ajax_captured)} respostas")
+    for url, body in ajax_captured:
+        print(f"  AJAX URL: {url[-80:]}")
+        _tr_full = re.findall(r'<tr[^>]*id="(\d+)<\|>[^<|"]*<\|>(\d+)<\|>[^"]*"[^>]*class="[^"]*line', body)
+        if _tr_full:
+            _s0 = int(_tr_full[0][0]) if _tr_full else 0
+            if _s0 > 1_000_000:
+                _cands = [int(x[1]) for x in _tr_full if x[1].isdigit()]
+                _desc = 'tr-id[2]'
+                if _cands:
+                    _max_nr = max(_cands)
+                    num_nota_ajax = str(_max_nr)
+                    for x in _tr_full:
+                        if x[1].isdigit() and int(x[1]) == _max_nr:
+                            pkid_nota_ajax = x[0]
+                            break
+            else:
+                _cands = [int(x[0]) for x in _tr_full if x[0].isdigit()]
+                _desc = 'tr-id[0]'
+                if _cands:
+                    num_nota_ajax = str(max(_cands))
+            if num_nota_ajax:
+                print(f"  Número da nota (AJAX {_desc}): {num_nota_ajax}" +
+                      (f"  PKID={pkid_nota_ajax}" if pkid_nota_ajax else ""))
+        break
+
+    # Lê frames atuais sem navegar (preserva estado do form para HTTP fallback)
+    # Formato da lista de notas em nfe.php: <tr id="NR_NOTA<|>CODIGO<|>..."> → índice [0]
     html_nfe = ""
     dom_nums = []
+    num_nota_dom = ""
+    pkid_nota_dom = ""
     for f in page.frames:
-        if f.url and 'nfe.php' in f.url and 'Componentes' not in f.url:
+        if f.name == 'main' and f.url and 'nfe' in f.url:
             try:
-                html_nfe = f.content()
-                print(f"  nfe.php pós-emissão ({len(html_nfe)} chars)")
-                # Busca DOM renderizado por números em tabela e onclick
+                # Aguarda linhas da lista renderizarem (AJAX pós-emissão)
                 try:
-                    dom_result = f.evaluate("""
-                        () => {
-                            const tds = [...document.querySelectorAll('td')].map(t => t.textContent.trim()).filter(t => /^[0-9]{3,6}$/.test(t));
-                            const ocs = [...document.querySelectorAll('[onclick]')].map(el => el.getAttribute('onclick')).filter(oc => /[0-9]{3,}/.test(oc));
-                            return {tds: tds.slice(-20), ocs: ocs.slice(0, 10)};
-                        }
-                    """)
-                    print(f"  DOM td-nums: {dom_result.get('tds', [])}")
-                    print(f"  DOM onclicks: {dom_result.get('ocs', [])}")
-                    dom_nums = dom_result.get('tds', []) + [n for oc in dom_result.get('ocs', []) for n in re.findall(r'\d{3,}', oc)]
-                except Exception as dom_e:
-                    print(f"  Aviso DOM search: {dom_e}")
-                print(f"  Trecho nfe.php: {html_nfe[:2000]}")
-                hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_nfe)
-                print(f"  Hrefs nfe.php: {hrefs[:20]}")
+                    f.wait_for_selector('tr.line[id]', timeout=25000)
+                    print("  tr.line[id] encontrado no frame atual")
+                except Exception:
+                    print("  tr.line[id] não apareceu em 25s")
+                rows = f.query_selector_all('tr.line[id]')
+                print(f"  tr.line rows: {len(rows)}")
+                for row in reversed(rows):
+                    tr_id = row.get_attribute('id') or ''
+                    parts = tr_id.split('<|>')
+                    if not parts or not parts[0].strip().isdigit():
+                        continue
+                    # DB_PKID > 1M → formato histórico, NR_NOTA em [2]
+                    if int(parts[0]) > 1_000_000 and len(parts) >= 3 and parts[2].strip().isdigit():
+                        num_nota_dom = parts[2].strip()
+                        pkid_nota_dom = parts[0].strip()
+                        print(f"  Número da nota (tr-id[2] DOM): {num_nota_dom}  PKID={pkid_nota_dom}")
+                    else:
+                        num_nota_dom = parts[0].strip()
+                        pkid_nota_dom = ""
+                        print(f"  Número da nota (tr-id[0] DOM): {num_nota_dom}")
+                    break
+                html_nfe = f.content()
+                print(f"  Main frame HTML: {len(html_nfe)} chars")
+            except Exception as e:
+                print(f"  Aviso main frame: {e}")
+            break
+
+    # Prioridade: nfe_filtro.php — CUIDADO: este frame é o popup de seleção de atividade
+    # (mostra CNAE codes), NÃO uma lista de notas emitidas
+    for f in page.frames:
+        if f.url and 'nfe_filtro.php' in f.url:
+            try:
+                print(f"  Frame lista: {f.url}")
+                html_nfe = f.content()
+                print(f"  nfe_filtro.php ({len(html_nfe)} chars)")
+                dom_result = f.evaluate("""
+                    () => {
+                        const tds = [...document.querySelectorAll('td')].map(t => t.textContent.trim()).filter(t => /^[0-9]{3,}$/.test(t) && parseInt(t) >= 100);
+                        const ocs = [...document.querySelectorAll('[onclick]')].map(el => el.getAttribute('onclick'));
+                        const hrefs = [...document.querySelectorAll('a[href]')].map(el => el.getAttribute('href')).filter(h => /nota|nfse|print|imprimir|pdf/i.test(h));
+                        const trIds = [...document.querySelectorAll('tr[id]')].map(tr => tr.id);
+                        const allTds = [...document.querySelectorAll('td')].map(t => t.textContent.trim()).filter(t => t.length > 0 && t.length < 60);
+                        return {tds: tds.slice(-30), ocs: ocs.slice(0, 20), hrefs: hrefs.slice(0, 10), trIds: trIds.slice(0, 10), allTds: allTds.slice(0, 60)};
+                    }
+                """)
+                # Diagnóstico: nfe_filtro.php é o popup de ATIVIDADE (mostra CNAE), não lista de notas
+                print(f"  [ATIV] filtro trIds: {dom_result.get('trIds', [])[:3]}")
+                print(f"  [ATIV] filtro onclicks: {dom_result.get('ocs', [])[:5]}")
+                # NÃO usa dom_nums daqui — são CNAE codes, não números de notas
                 break
             except Exception as e:
-                print(f"  Aviso lendo nfe.php frame: {e}")
+                print(f"  Aviso nfe_filtro frame: {e}")
+
+    # Fallback: nfe.php frame (se nfe_filtro não encontrado)
+    if not html_nfe:
+        for f in page.frames:
+            if f.url and 'nfe.php' in f.url and 'Componentes' not in f.url and 'nfe_filtro' not in f.url:
+                try:
+                    html_nfe = f.content()
+                    print(f"  nfe.php fallback ({len(html_nfe)} chars)")
+                    break
+                except Exception:
+                    pass
 
     # Verifica mensagem de erro
     for html_src in [html_nfe, html_exec]:
@@ -1697,9 +1940,22 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
     # Extrai número da nota — tabela nfe.php lista TODAS as notas crescente,
     # nova nota tem o MAIOR número. Usar MAX, não primeira ocorrência.
     num_nota = ""
+    pkid_nota = ""  # DB_PKID para nfe_ver.php?id=PKID (retorna PDF direto)
 
-    # Prioridade 0: DOM renderizado pelo Playwright (mais confiável)
-    if dom_nums:
+    # Prioridade 0a: tr id index 2 via DOM Playwright (formato DB_ID<|>CODE<|>NR_NOTA<|>...)
+    if num_nota_dom:
+        num_nota = num_nota_dom
+        if pkid_nota_dom:
+            pkid_nota = pkid_nota_dom
+
+    # Prioridade 0b: tr id index 2 via AJAX capturado
+    if not num_nota and num_nota_ajax:
+        num_nota = num_nota_ajax
+        if pkid_nota_ajax and not pkid_nota:
+            pkid_nota = pkid_nota_ajax
+
+    # Prioridade 0c: DOM renderizado pelo Playwright (lista de números de td)
+    if not num_nota and dom_nums:
         grandes = [x for x in dom_nums if int(x) >= 100]
         if grandes:
             num_nota = str(max(int(x) for x in grandes))
@@ -1711,6 +1967,8 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
             continue
         for pat in [
             r'(?:nfe_print|nfse_print|nfe_imprime|imprimir)[^"\'<>]*(?:nota|num_nfse|num)=(\d{3,})',
+            r'nfse?_print\s*\(\s*(\d{3,})',       # nfse_print(8304) — sem parâmetro nomeado
+            r'nfe_imprime\s*\(\s*(\d{3,})',        # nfe_imprime(8304)
             r'onclick="[^"]*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)"',
             r"onclick='[^']*?(?:imprimir|cancelar|abrir|detalhe)\w*\([^)]*?(\d{3,})[^)]*?\)'",
             r'[?&](?:nota|num_nfse)=(\d{3,})',
@@ -1747,6 +2005,8 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
                     break
             if num_nota:
                 break
+
+    # Nota: não navegar o frame aqui — quebra o estado do form que HTTP fallback precisa
 
     if num_nota:
         print(f"  Número final da nota: {num_nota}")
@@ -1789,6 +2049,42 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
                 break
         except Exception as e:
             print(f"  PDF não baixado ({url}): {e}")
+
+    # Fallback: tenta URLs padrão de impressão do SIGISS Ipatinga
+    if not caminho and num_nota and num_nota != '?':
+        _pats = []
+        if pkid_nota:
+            _pats.append(f'{base_url}/ISS/contribuinte/nfe/nfe_ver.php?id={pkid_nota}')
+            _pats.append(f'{base_url}/ISS/contribuinte/nfe/nfe_base.php?acao=imprimir&id={pkid_nota}')
+        _pats += [
+            f'{base_url}/ISS/contribuinte/nfe/nfe_print.php?nota={num_nota}',
+            f'{base_url}/ISS/contribuinte/nfe/nfse_imprime.php?nota={num_nota}',
+            f'{base_url}/ISS/contribuinte/nfe/nfe_print.php?num_nfse={num_nota}',
+        ]
+        for print_pat in _pats:
+            try:
+                pdf_r = _req.get(print_pat, cookies=cookies, timeout=20)
+                ct = pdf_r.headers.get('content-type', '')
+                is_pdf = 'pdf' in ct.lower() or pdf_r.content[:4] == b'%PDF' or len(pdf_r.content) > 10000
+                if is_pdf:
+                    if not print_url:
+                        print_url = print_pat
+                    try:
+                        from file_manager import salvar_pdf_bytes
+                        caminho = salvar_pdf_bytes(
+                            pdf_r.content, pasta, nota["competencia"], num_nota, nota["nome_tomador"]
+                        )
+                        print(f"  PDF salvo: {caminho}")
+                    except Exception as save_err:
+                        print(f"  PDF obtido mas save falhou ({save_err}) — URL: {print_pat}")
+                        caminho = print_pat
+                    break
+                else:
+                    print(f"  Print URL: {pdf_r.status_code} {len(pdf_r.content)}ch ct={ct} url={print_pat}")
+                    if not print_url:
+                        print_url = print_pat
+            except Exception as e:
+                print(f"  Print URL {print_pat}: {e}")
 
     if not caminho and print_url:
         caminho = print_url
