@@ -660,14 +660,31 @@ textarea { resize: vertical; min-height: 80px; }
 
 <!-- CONVERSAS -->
 <div id="page-conversas" class="page">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
     <h1 style="margin:0" id="conv-titulo">Conversas</h1>
     <div style="display:flex;align-items:center;gap:8px">
-      <input class="search-input" style="width:180px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
+      <input class="search-input" style="width:160px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
+      <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
+        <option value="">Todas as CRCs</option>
+      </select>
       <div class="chat-view-toggle">
         <button class="ativo" id="btn-view-lista" onclick="setChatView('lista')">💬 Lista</button>
         <button id="btn-view-kanban" onclick="setChatView('kanban')">📋 Kanban</button>
       </div>
+    </div>
+  </div>
+  <!-- Barra de meta (só aparece em Agendamentos) -->
+  <div id="meta-agendamentos-bar" style="display:none;margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:600">Meta do dia</span>
+      <div id="meta-por-crc" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)"></div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span id="meta-contador" style="font-size:13px;font-weight:700"></span>
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="abrirEditarMeta()" title="Editar meta" id="btn-editar-meta" style="display:none">✏️</button>
+      </div>
+    </div>
+    <div style="background:var(--bg3);border-radius:6px;height:8px;overflow:hidden">
+      <div id="meta-barra" style="height:100%;background:var(--accent);border-radius:6px;transition:width .4s"></div>
     </div>
   </div>
   <!-- KANBAN VIEW -->
@@ -2023,20 +2040,62 @@ async function loadConversas() {
     chatLeads = convs;
     const titulo = document.getElementById('conv-titulo');
     if (titulo) titulo.textContent = _chatMode === 'avaliacao' ? 'Conversas Avaliação' : 'Conversas Agendamentos';
+
+    const isAg = _chatMode === 'agendamentos';
+    document.getElementById('meta-agendamentos-bar').style.display = isAg ? '' : 'none';
+    document.getElementById('filtro-crc').style.display = isAg ? '' : 'none';
+    if (isAg) { carregarMetaAgendamentos(); carregarFiltrosCrc(); }
+
     const f = _filtrarParaModo(convs);
     if (_chatViewMode === 'kanban') renderKanban(f);
     else renderChatList(f);
   } catch(e) { console.error('loadConversas:', e); toast('⚠️ Erro ao carregar conversas', true); }
 }
 
+async function carregarMetaAgendamentos() {
+  try {
+    const m = await api('/api/meta-agendamentos');
+    const pct = Math.min(100, Math.round((m.total / m.meta) * 100));
+    document.getElementById('meta-contador').textContent = m.total + ' / ' + m.meta + ' agendamentos';
+    document.getElementById('meta-barra').style.width = pct + '%';
+    document.getElementById('meta-barra').style.background = pct >= 100 ? 'var(--green)' : 'var(--accent)';
+    const porCrcEl = document.getElementById('meta-por-crc');
+    porCrcEl.innerHTML = m.por_crc.map(c => `<span><b>${escHtml(c.nome)}</b>: ${c.total}</span>`).join('');
+    const btnMeta = document.getElementById('btn-editar-meta');
+    if (btnMeta) btnMeta.style.display = '';
+    window._metaAtual = m.meta;
+  } catch(_) {}
+}
+
+async function carregarFiltrosCrc() {
+  try {
+    const crcs = await api('/api/crcs-agendamentos');
+    const sel = document.getElementById('filtro-crc');
+    const val = sel.value;
+    sel.innerHTML = '<option value="">Todas as CRCs</option>' +
+      crcs.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.nome)}</option>`).join('');
+    sel.value = val;
+  } catch(_) {}
+}
+
+function abrirEditarMeta() {
+  const atual = window._metaAtual || 10;
+  const nova = prompt('Meta diária de agendamentos:', atual);
+  const val = parseInt(nova, 10);
+  if (!val || val < 1) return;
+  api('/api/meta-agendamentos', { method: 'PATCH', body: JSON.stringify({ meta: val }) })
+    .then(() => carregarMetaAgendamentos())
+    .catch(e => toast('❌ ' + e.message, true));
+}
+
 function filtrarChats() {
-  const q = document.getElementById('chat-search').value.toLowerCase();
-  const base = _filtrarParaModo(chatLeads);
-  const r = q ? base.filter(l =>
-    (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q)
-  ) : base;
-  if (_chatViewMode === 'kanban') renderKanban(r);
-  else renderChatList(r);
+  const q = (document.getElementById('chat-search').value || '').toLowerCase();
+  const crcFiltro = document.getElementById('filtro-crc').value;
+  let base = _filtrarParaModo(chatLeads);
+  if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q));
+  if (crcFiltro) base = base.filter(l => l.crc_agendamento_id === crcFiltro);
+  if (_chatViewMode === 'kanban') renderKanban(base);
+  else renderChatList(base);
 }
 
 function renderChatList(leads) {

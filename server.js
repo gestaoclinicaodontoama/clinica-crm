@@ -1589,14 +1589,17 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
     const apt = Array.isArray(result.data) ? result.data[0] : result.data;
     const clinicorp_appointment_id = apt?.id || null;
 
-    // 4. Salvar no lead
+    // 4. Salvar no lead (incluindo CRC responsável)
     const dataAgendamento = new Date(data + 'T' + hora_inicio + ':00-03:00').toISOString();
+    const crcNome = req.user?.profile?.name || req.user?.email || null;
     await supabase.from('leads').update({
       status: 'Agendado', data_agendamento: dataAgendamento,
       clinicorp_appointment_id,
+      crc_agendamento_id: req.user?.id || null,
+      crc_agendamento_nome: crcNome,
     }).eq('id', leadId);
 
-    res.json({ ok: true, clinicorp_appointment_id, dentista: dentista.nome, data, hora: hora_inicio + ' - ' + hora_fim });
+    res.json({ ok: true, clinicorp_appointment_id, dentista: dentista.nome, data, hora: hora_inicio + ' - ' + hora_fim, crc: crcNome });
   } catch(e) {
     console.error('agendar-clinicorp:', e);
     res.status(500).json({ error: e.message });
@@ -1631,7 +1634,61 @@ async function syncComparecimentos() {
     console.error('[sync-compareceu]', e.message);
   }
 }
-setInterval(syncComparecimentos, 30 * 60 * 1000);
+setInterval(syncComparecimentos, 10 * 60 * 1000);
+
+// ── Meta diária de agendamentos ──────────────────────────────────────────────
+app.get('/api/meta-agendamentos', requireAuth, async (req, res) => {
+  try {
+    const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD
+    const [configRes, leadsRes] = await Promise.all([
+      supabase.from('app_config').select('meta_agendamentos_diarios').eq('id', 1).maybeSingle(),
+      supabase.from('leads')
+        .select('id, crc_agendamento_id, crc_agendamento_nome, data_agendamento')
+        .gte('data_agendamento', hoje + 'T00:00:00-03:00')
+        .lte('data_agendamento', hoje + 'T23:59:59-03:00')
+        .not('crc_agendamento_id', 'is', null),
+    ]);
+    const meta = configRes.data?.meta_agendamentos_diarios || 10;
+    const agendamentos = leadsRes.data || [];
+
+    // Agrupar por CRC
+    const porCrc = {};
+    agendamentos.forEach(l => {
+      const key = l.crc_agendamento_id;
+      if (!porCrc[key]) porCrc[key] = { nome: l.crc_agendamento_nome || 'CRC', total: 0 };
+      porCrc[key].total++;
+    });
+
+    res.json({ meta, total: agendamentos.length, por_crc: Object.values(porCrc) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/meta-agendamentos', requireRole('admin', 'gestor'), async (req, res) => {
+  const { meta } = req.body;
+  const valor = parseInt(meta, 10);
+  if (!valor || valor < 1) return res.status(400).json({ error: 'meta deve ser um número positivo' });
+  try {
+    await supabase.from('app_config').update({ meta_agendamentos_diarios: valor }).eq('id', 1);
+    res.json({ ok: true, meta: valor });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Lista CRCs que já agendaram hoje (para filtro) ───────────────────────────
+app.get('/api/crcs-agendamentos', requireAuth, async (req, res) => {
+  try {
+    const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const { data } = await supabase.from('leads')
+      .select('crc_agendamento_id, crc_agendamento_nome')
+      .gte('data_agendamento', hoje + 'T00:00:00-03:00')
+      .not('crc_agendamento_id', 'is', null);
+    const seen = new Set();
+    const crcs = (data || []).filter(l => {
+      if (seen.has(l.crc_agendamento_id)) return false;
+      seen.add(l.crc_agendamento_id); return true;
+    }).map(l => ({ id: l.crc_agendamento_id, nome: l.crc_agendamento_nome }));
+    res.json(crcs);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('/api/inadimplentes', requireAuth, rateLimit, async (req, res) => {
   try {
