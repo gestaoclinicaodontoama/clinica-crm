@@ -867,7 +867,6 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
   if (lead.nome) user_data.fn = [sha256(lead.nome.split(' ')[0])];
   if (isCTWA) {
     user_data.ctwa_clid = lead.ctwa_clid;
-    user_data.messaging_channel = 'whatsapp';
     if (META_PAGE_ID) user_data.page_id = META_PAGE_ID;
   } else if (lead.fbclid) {
     user_data.fbc = 'fb.1.' + Math.floor(Date.now()/1000) + '.' + lead.fbclid;
@@ -877,6 +876,7 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
       event_name: eventName,
       event_time: Math.floor(Date.now() / 1000),
       action_source,
+      ...(isCTWA && { messaging_channel: 'whatsapp' }),
       event_id: 'lead_' + lead.id + '_' + eventName,
       user_data,
       custom_data: { currency: 'BRL', value: parseFloat(lead.valor) || 0 },
