@@ -19,7 +19,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Agendado', 'Compareceu', 'Em Avaliação', 'Orçamento Enviado', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Agendado', 'Compareceu', 'Em follow-up', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -378,8 +378,8 @@ async function patchLead(req, res) {
         if (!FUNIL.includes(v)) return res.status(400).json({ error: 'Status inválido. Use: ' + FUNIL.join(', ') });
         if (v === 'Agendado' && !lead.data_agendamento) patch.data_agendamento = agora;
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
-        if (v === 'Em Avaliação' && !lead.data_avaliacao) patch.data_avaliacao = agora;
-        if (v === 'Orçamento Enviado' && !lead.data_orcamento) patch.data_orcamento = agora;
+        if (v === 'Em follow-up' && !lead.data_avaliacao) patch.data_avaliacao = agora;
+        if (v === 'Em nutrição' && !lead.data_orcamento) patch.data_orcamento = agora;
         if (v === 'Fechou' && !lead.data_fechamento) patch.data_fechamento = agora;
       }
       if (k === 'valor') {
@@ -451,7 +451,7 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
     const receita = fechados.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
     const ticketMedio = fechados.length ? receita / fechados.length : 0;
     const oportunidade = leads
-      .filter(l => ['Agendado','Compareceu','Em Avaliação','Orçamento Enviado'].includes(l.status))
+      .filter(l => ['Agendado','Compareceu','Em follow-up','Em nutrição'].includes(l.status))
       .reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
     const ultimosLeads = [...leads].sort((a, b) => b.id - a.id).slice(0, 10);
     res.json({ total, porStatus, porOrigem, receita, ticketMedio, oportunidade, ultimosLeads, _v: 4 });
@@ -557,6 +557,59 @@ app.get('/api/leads/:id/mensagens', requireAuth, rateLimit, async (req, res) => 
     res.status(500).json({ error: e.message });
   }
 });
+
+app.post('/api/leads/:id/agendar-mensagem', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { texto, agendado_para } = req.body;
+    if (!texto || !agendado_para) return res.status(400).json({ error: 'texto e agendado_para são obrigatórios' });
+    const { data: lead, error: le } = await supabase.from('leads').select('id,telefone,nome').eq('id', id).maybeSingle();
+    if (le || !lead) return res.status(404).json({ error: 'Lead não encontrado' });
+    const { data, error } = await supabase.from('mensagens_agendadas').insert({
+      lead_id: id, telefone: lead.telefone,
+      texto: sanitizeStr(texto, 4000),
+      agendado_para: new Date(agendado_para).toISOString(),
+    }).select().single();
+    if (error) throw error;
+    res.json({ ok: true, agendamento: data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/leads/:id/agendamentos', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { data, error } = await supabase.from('mensagens_agendadas')
+      .select('*').eq('lead_id', id).order('agendado_para');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/agendamentos/:id', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { error } = await supabase.from('mensagens_agendadas').delete().eq('id', id).is('enviada_em', null);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Cron: dispara mensagens agendadas a cada 30s
+setInterval(async () => {
+  try {
+    const { data } = await supabase.from('mensagens_agendadas')
+      .select('*').is('enviada_em', null).lte('agendado_para', new Date().toISOString()).limit(10);
+    if (!data?.length) return;
+    for (const ag of data) {
+      try {
+        await whatsapp.enviarTexto({ para: ag.telefone, texto: ag.texto });
+        await supabase.from('mensagens_agendadas').update({ enviada_em: new Date().toISOString() }).eq('id', ag.id);
+        await supabase.from('mensagens').insert({ lead_id: ag.lead_id, direcao: 'enviada', canal: 'agendada', texto: ag.texto, wa_id: '' });
+        console.log('📅 Mensagem agendada enviada → lead #' + ag.lead_id);
+      } catch (e) { console.error('❌ Agendamento #' + ag.id + ':', e.message); }
+    }
+  } catch (_) {}
+}, 30000);
 
 app.get('/api/conversas', requireAuth, rateLimit, async (req, res) => {
   try {
@@ -854,13 +907,13 @@ const META_PAGE_ID = process.env.META_PAGE_ID || '';
 const META_API_VERSION = 'v21.0';
 
 const EVENTOS_FUNIL = {
-  'Lead':              'LeadSubmitted',
-  'Agendado':          'Schedule',
-  'Compareceu':        'Contact',
-  'Em Avaliação':      null,
-  'Orçamento Enviado': null,
-  'Fechou':            'Purchase',
-  'Perdido':           null,
+  'Lead':         'LeadSubmitted',
+  'Agendado':     'Schedule',
+  'Compareceu':   'Contact',
+  'Em follow-up': null,
+  'Em nutrição':  null,
+  'Fechou':       'Purchase',
+  'Perdido':      null,
 };
 
 async function dispararConversaoMeta(lead, eventoCustom = null) {

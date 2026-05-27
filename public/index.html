@@ -601,7 +601,7 @@ textarea { resize: vertical; min-height: 80px; }
         <select class="filter-select" id="filter-status" onchange="loadLeads()">
           <option value="">Todos status</option>
           <option>Lead</option><option>Agendado</option><option>Compareceu</option>
-          <option>Em Avaliação</option><option>Orçamento Enviado</option>
+          <option>Em follow-up</option><option>Em nutrição</option>
           <option>Fechou</option><option>Perdido</option>
         </select>
         <select class="filter-select" id="filter-origem" onchange="loadLeads()">
@@ -672,10 +672,56 @@ textarea { resize: vertical; min-height: 80px; }
       </div>
       <div class="chat-window" id="chat-window" style="display:none">
         <div class="chat-header" id="chat-header"></div>
-        <div class="chat-msgs" id="chat-msgs"></div>
-        <div class="chat-input-area">
-          <textarea class="chat-textarea" id="chat-input" placeholder="Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)" rows="1" onkeydown="chatKeyDown(event)" oninput="autoResizeChat(this)"></textarea>
-          <button class="btn btn-primary" onclick="enviarMensagemChat()" style="height:40px">Enviar</button>
+        <div style="display:flex;flex:1;min-height:0">
+          <!-- Mensagens -->
+          <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+            <div class="chat-msgs" id="chat-msgs"></div>
+            <div class="chat-input-area" style="flex-direction:column;gap:6px">
+              <textarea class="chat-textarea" id="chat-input" placeholder="Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)" rows="1" onkeydown="chatKeyDown(event)" oninput="autoResizeChat(this)"></textarea>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="enviarMensagemChat()" style="height:34px;font-size:13px">Enviar</button>
+                <button class="btn btn-ghost" onclick="toggleAgendarMsg()" style="height:34px;font-size:12px" title="Agendar envio">📅 Agendar</button>
+                <button class="btn btn-ghost" onclick="abrirModalTemplate()" style="height:34px;font-size:12px">📢 Template</button>
+              </div>
+              <div id="agendar-msg-area" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;display:none;flex-direction:column;gap:8px">
+                <div style="font-size:12px;font-weight:600;color:var(--muted)">Agendar mensagem</div>
+                <input type="datetime-local" id="agendar-data" class="filter-select" style="font-size:12px">
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-primary" style="font-size:12px;height:30px" onclick="confirmarAgendamento()">Confirmar</button>
+                  <button class="btn btn-ghost" style="font-size:12px;height:30px" onclick="toggleAgendarMsg()">Cancelar</button>
+                </div>
+              </div>
+              <div id="agendamentos-lista" style="font-size:11.5px;color:var(--muted)"></div>
+            </div>
+          </div>
+          <!-- Painel direito -->
+          <div id="chat-painel" style="width:220px;min-width:220px;border-left:1px solid var(--border);overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px;font-size:12.5px">
+            <div>
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Status</div>
+              <select id="painel-status" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvar('status',this.value)"></select>
+            </div>
+            <div>
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Origem</div>
+              <select id="painel-origem" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvar('origem',this.value)"></select>
+            </div>
+            <div>
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Perfil DISC</div>
+              <div style="display:flex;gap:5px">
+                <button class="disc-btn" id="disc-D" onclick="painelDisc('D')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#ef4444">D</button>
+                <button class="disc-btn" id="disc-I" onclick="painelDisc('I')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#f59e0b">I</button>
+                <button class="disc-btn" id="disc-S" onclick="painelDisc('S')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#22c55e">S</button>
+                <button class="disc-btn" id="disc-C" onclick="painelDisc('C')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#3b82f6">C</button>
+              </div>
+            </div>
+            <div>
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Agendamento</div>
+              <input type="datetime-local" id="painel-agendamento" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvarAgendamento()">
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column">
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Anotações SDR</div>
+              <textarea id="painel-notas" style="flex:1;min-height:90px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text);font-size:12px;font-family:inherit;resize:vertical;line-height:1.4" placeholder="Anotações internas..." onblur="painelSalvar('notas_sdr',this.value)"></textarea>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1116,7 +1162,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label>Status</label>
         <select id="m-status">
           <option>Lead</option><option>Agendado</option><option>Compareceu</option>
-          <option>Em Avaliação</option><option>Orçamento Enviado</option>
+          <option>Em follow-up</option><option>Em nutrição</option>
           <option>Fechou</option><option>Perdido</option>
         </select>
       </div>
@@ -1254,7 +1300,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Status inicial</label>
           <select id="nl-status" class="filter-select" style="width:100%">
             <option>Lead</option><option>Agendado</option><option>Compareceu</option>
-            <option>Em Avaliação</option><option>Orçamento Enviado</option><option>Fechou</option>
+            <option>Em follow-up</option><option>Em nutrição</option><option>Fechou</option>
           </select>
         </div>
       </div>
@@ -1336,7 +1382,8 @@ let leadAtual = null;
 let etiquetasAtual = [];
 let discAtual = '';
 let scoreAtual = null;
-const FUNIL = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Enviado','Fechou','Perdido'];
+const FUNIL = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou','Perdido'];
+const ORIGENS = ['Meta Ads','WhatsApp Direto','Indicação','Google','Instagram','TikTok','Evento','Outdoor','Rádio','Outros'];
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
 
@@ -1406,7 +1453,7 @@ async function loadDash() {
   document.getElementById('d-ticket').textContent = 'R$ ' + Math.round(s.ticketMedio || 0).toLocaleString('pt-BR');
 
   const fr = document.getElementById('funil-row');
-  const labels = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Enviado','Fechou'];
+  const labels = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou'];
   fr.innerHTML = labels.map(l => {
     const n = s.porStatus.find(x => x.status === l)?.n || 0;
     const pct = s.total ? Math.round(n / s.total * 100) : 0;
@@ -1484,10 +1531,10 @@ async function loadLeads() {
 let _funilLeads = [];
 let _funilEtapaSelecionada = null;
 
-const FUNIL_ETAPAS = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Enviado','Fechou'];
+const FUNIL_ETAPAS = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou'];
 const FUNIL_CORES  = {
   'Lead':'#4f8ef7','Agendado':'#f59e0b','Compareceu':'#a855f7',
-  'Em Avaliação':'#06b6d4','Orçamento Enviado':'#ec4899','Fechou':'#22c55e',
+  'Em follow-up':'#06b6d4','Em nutrição':'#ec4899','Fechou':'#22c55e',
 };
 
 async function loadKanban() {
@@ -1508,7 +1555,7 @@ function renderFunil() {
   // Summary cards
   const taxaConv = base ? Math.round(counts['Fechou'] / base * 100) : 0;
   const receita = leads.filter(l => l.status === 'Fechou' && l.valor).reduce((s,l) => s + l.valor, 0);
-  const potencial = leads.filter(l => ['Agendado','Compareceu','Em Avaliação','Orçamento Enviado'].includes(l.status) && l.valor).reduce((s,l) => s + l.valor, 0);
+  const potencial = leads.filter(l => ['Agendado','Compareceu','Em follow-up','Em nutrição'].includes(l.status) && l.valor).reduce((s,l) => s + l.valor, 0);
   document.getElementById('funil-summary').innerHTML = [
     { label:'Total no funil', val: total, mono: true },
     { label:'Taxa Lead→Fechou', val: taxaConv+'%', color: taxaConv >= 20 ? 'var(--green)' : taxaConv >= 8 ? 'var(--yellow)' : 'var(--red)' },
@@ -1883,7 +1930,7 @@ let chatLeads = [];
 let chatPollInterval = null;
 let _chatViewMode = 'lista';
 
-const KANBAN_STATUS = ['Lead','Agendado','Compareceu','Em Avaliação','Orçamento Enviado','Fechou','Perdido'];
+const KANBAN_STATUS = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou','Perdido'];
 
 function _brt(iso) {
   if (!iso) return '';
@@ -2004,6 +2051,124 @@ function abrirChatKanban(leadId) {
   abrirChat(leadId);
 }
 
+// ============ PAINEL DIREITO (chat) ============
+function _initPainel(lead) {
+  const ps = document.getElementById('painel-status');
+  if (!ps.options.length) FUNIL.forEach(s => ps.appendChild(Object.assign(document.createElement('option'),{value:s,textContent:s})));
+  ps.value = lead.status || 'Lead';
+
+  const po = document.getElementById('painel-origem');
+  if (!po.options.length) ORIGENS.forEach(o => po.appendChild(Object.assign(document.createElement('option'),{value:o,textContent:o})));
+  po.value = lead.origem || 'WhatsApp Direto';
+
+  document.getElementById('painel-notas').value = lead.notas_sdr || '';
+
+  const disc = lead.perfil_disc || '';
+  ['D','I','S','C'].forEach(d => {
+    const btn = document.getElementById('disc-' + d);
+    btn.style.opacity = (!disc || disc === d) ? '1' : '0.3';
+    btn.style.fontWeight = disc === d ? '900' : '700';
+  });
+
+  const ag = lead.data_agendamento;
+  document.getElementById('painel-agendamento').value = ag
+    ? new Date(ag).toISOString().slice(0,16) : '';
+
+  carregarAgendamentos(lead.id);
+}
+
+async function painelSalvar(campo, valor) {
+  if (!chatLeadAtual) return;
+  const body = {};
+  if (campo === 'notas_sdr') body.notas_sdr = valor;
+  else if (campo === 'status') body.status = valor;
+  else if (campo === 'origem') body.origem = valor;
+  try {
+    await api('/api/leads/' + chatLeadAtual.id, { method: 'PATCH', body: JSON.stringify(body) });
+    chatLeadAtual[campo] = valor;
+    if (campo === 'status') {
+      const idx = chatLeads.findIndex(l => l.id === chatLeadAtual.id);
+      if (idx >= 0) chatLeads[idx].status = valor;
+      renderChatList(chatLeads);
+    }
+  } catch(e) { toast('❌ Erro ao salvar: ' + e.message, true); }
+}
+
+function painelDisc(letra) {
+  if (!chatLeadAtual) return;
+  const atual = chatLeadAtual.perfil_disc;
+  const novo = atual === letra ? '' : letra;
+  chatLeadAtual.perfil_disc = novo;
+  painelSalvar('perfil_disc', novo);
+  ['D','I','S','C'].forEach(d => {
+    const btn = document.getElementById('disc-' + d);
+    btn.style.opacity = (!novo || novo === d) ? '1' : '0.3';
+    btn.style.fontWeight = novo === d ? '900' : '700';
+  });
+}
+
+async function painelSalvarAgendamento() {
+  if (!chatLeadAtual) return;
+  const val = document.getElementById('painel-agendamento').value;
+  if (!val) return;
+  try {
+    await api('/api/leads/' + chatLeadAtual.id, { method: 'PATCH', body: JSON.stringify({ status: 'Agendado', data_agendamento: new Date(val).toISOString() }) });
+    document.getElementById('painel-status').value = 'Agendado';
+    chatLeadAtual.status = 'Agendado';
+    toast('✅ Agendamento salvo');
+  } catch(e) { toast('❌ ' + e.message, true); }
+}
+
+// ============ MENSAGENS AGENDADAS ============
+function toggleAgendarMsg() {
+  const el = document.getElementById('agendar-msg-area');
+  const show = el.style.display === 'none' || el.style.display === '';
+  el.style.display = show ? 'flex' : 'none';
+  if (show) {
+    const now = new Date(); now.setMinutes(now.getMinutes() + 30);
+    document.getElementById('agendar-data').value = now.toISOString().slice(0,16);
+  }
+}
+
+async function confirmarAgendamento() {
+  if (!chatLeadAtual) return;
+  const texto = document.getElementById('chat-input').value.trim();
+  const data = document.getElementById('agendar-data').value;
+  if (!texto) { toast('⚠️ Digite a mensagem primeiro', true); return; }
+  if (!data) { toast('⚠️ Selecione data e hora', true); return; }
+  try {
+    await api('/api/leads/' + chatLeadAtual.id + '/agendar-mensagem', {
+      method: 'POST', body: JSON.stringify({ texto, agendado_para: new Date(data).toISOString() }),
+    });
+    document.getElementById('chat-input').value = '';
+    toggleAgendarMsg();
+    toast('✅ Mensagem agendada para ' + new Date(data).toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo'}));
+    carregarAgendamentos(chatLeadAtual.id);
+  } catch(e) { toast('❌ ' + e.message, true); }
+}
+
+async function carregarAgendamentos(leadId) {
+  try {
+    const lista = await api('/api/leads/' + leadId + '/agendamentos');
+    const pendentes = lista.filter(a => !a.enviada_em);
+    const el = document.getElementById('agendamentos-lista');
+    if (!pendentes.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div style="font-size:11.5px;color:var(--muted);margin-top:4px">' +
+      pendentes.map(a => `<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:3px 0;border-top:1px solid var(--border)">
+        <span>📅 ${new Date(a.agendado_para).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} — ${escHtml(a.texto.slice(0,30))}${a.texto.length>30?'…':''}</span>
+        <button onclick="cancelarAgendamento(${a.id})" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:13px;padding:0">✕</button>
+      </div>`).join('') + '</div>';
+  } catch(_) {}
+}
+
+async function cancelarAgendamento(id) {
+  try {
+    await api('/api/agendamentos/' + id, { method: 'DELETE' });
+    if (chatLeadAtual) carregarAgendamentos(chatLeadAtual.id);
+    toast('🗑 Agendamento cancelado');
+  } catch(e) { toast('❌ ' + e.message, true); }
+}
+
 async function abrirChat(leadId) {
   chatLeadAtual = chatLeads.find(l => l.id === leadId);
   if (!chatLeadAtual) return;
@@ -2026,6 +2191,7 @@ async function abrirChat(leadId) {
   `;
 
   _markRead(leadId);
+  _initPainel(chatLeadAtual);
   await carregarMensagensChat(leadId);
   if (chatPollInterval) clearInterval(chatPollInterval);
   chatPollInterval = setInterval(() => {
