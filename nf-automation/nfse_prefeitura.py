@@ -1770,6 +1770,7 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
 
     # Captura resposta do nfe_exec.php via intercept (mesma sessão browser)
     html_exec = ""
+    _emitiu_clique = False  # rastrea se o clique no botão Emitir foi disparado
     try:
         with page.expect_response(
             lambda r: 'nfe_exec' in r.url,
@@ -1777,6 +1778,7 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
         ) as resp_info:
             if emitir_loc:
                 emitir_loc.click()
+                _emitiu_clique = True
                 print("  Clicou Emitir NFSe via Playwright")
             else:
                 # JS fallback — is_visible() falha em headless para botões em iframe
@@ -1801,6 +1803,7 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
                 print(f"  JS emitir: {js_result}")
                 if 'NOT_FOUND' in js_result:
                     raise RuntimeError("Botão Emitir NFSe não encontrado no form frame")
+                _emitiu_clique = 'OK:' in js_result
 
         resp = resp_info.value
         html_exec = resp.text()
@@ -2006,10 +2009,35 @@ def _emitir_playwright(page, form, nota: dict, pasta: str) -> dict:
             if num_nota:
                 break
 
-    # Nota: não navegar o frame aqui — quebra o estado do form que HTTP fallback precisa
+    # Fallback: navega para nfe_historico.php — confirmação definitiva de sucesso/falha
+    # Se o botão foi clicado, nfe_historico.php é a fonte da verdade:
+    #   • nota nova presente → emissão confirmada (sem HTTP fallback = sem duplicata)
+    #   • nota nova ausente  → SIGISS rejeitou → RuntimeError → HTTP fallback (seguro)
+    _hist_max_nr = 0
+    if not num_nota and _emitiu_clique:
+        try:
+            page.goto(f'{base_url}/ISS/contribuinte/nfe/nfe_historico.php', timeout=15000)
+            page.wait_for_load_state('networkidle', timeout=10000)
+            html_hist = page.content()
+            _tr_full = re.findall(r'<tr[^>]*id="(\d+)<\|>[^<|"]*<\|>(\d+)<\|>[^"]*"[^>]*class="[^"]*line', html_hist)
+            if _tr_full and int(_tr_full[0][0]) > 1_000_000:
+                _hist_max_nr = max(int(x[1]) for x in _tr_full if x[1].isdigit())
+                num_nota = str(_hist_max_nr)
+                for x in _tr_full:
+                    if x[1].isdigit() and int(x[1]) == _hist_max_nr:
+                        pkid_nota = x[0]
+                        break
+                print(f"  Número da nota (nfe_historico nav): {num_nota}  PKID={pkid_nota}")
+        except Exception as e:
+            print(f"  Aviso nfe_historico nav: {e}")
+
+    _exec_ok = bool(html_exec and 'Dados registrados com sucesso' in html_exec)
+    _emitiu_confirmado = _emitiu_clique and (_hist_max_nr > 0 or _exec_ok or len(html_nfe) > 50000)
 
     if num_nota:
         print(f"  Número final da nota: {num_nota}")
+    elif _emitiu_confirmado:
+        print("  AVISO: número da nota não encontrado — nota emitida, verifique NF# no SIGISS")
     else:
         raise RuntimeError(
             "Número da NFS-e não encontrado após emissão Playwright. "

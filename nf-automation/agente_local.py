@@ -35,7 +35,7 @@ def _rodar():
 
     try:
         proc = subprocess.Popen(
-            [sys.executable, str(BASE / "main.py"), "--auto"],
+            [sys.executable, "-u", str(BASE / "main.py"), "--auto"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
