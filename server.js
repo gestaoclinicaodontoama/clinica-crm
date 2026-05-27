@@ -558,6 +558,16 @@ app.get('/api/leads/:id/mensagens', requireAuth, rateLimit, async (req, res) => 
   }
 });
 
+app.get('/api/conversas', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.rpc('conversas_com_preview');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 app.post('/api/leads/:id/broadcast', requireAuth, rateLimit, async (req, res) => {
   try {
