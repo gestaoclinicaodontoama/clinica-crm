@@ -265,6 +265,9 @@ textarea { resize: vertical; min-height: 80px; }
 .kconv-card { background:var(--bg2); border-radius:8px; padding:9px 11px; cursor:pointer; border:1px solid transparent; transition:border-color .12s; }
 .kconv-card:hover { border-color:var(--accent); }
 .kconv-card.ativo { border-color:var(--accent); }
+.kconv-card[draggable="true"] { cursor:grab; }
+.kconv-card[draggable="true"]:active { cursor:grabbing; }
+.kconv-col-body.drag-over { background:rgba(79,142,247,.12); border-radius:6px; outline:2px dashed var(--accent); }
 .kconv-nome { font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .kconv-preview { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
 .kconv-foot { display:flex; align-items:center; justify-content:space-between; margin-top:5px; gap:4px; }
@@ -503,9 +506,13 @@ textarea { resize: vertical; min-height: 80px; }
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
     Funil
   </button>
-  <button class="nav-btn" data-page="conversas" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('conversas',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    Conversas
+  <button class="nav-btn" data-page="conv-agendamentos" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('conv-agendamentos',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Agendamentos
+  </button>
+  <button class="nav-btn" data-page="conv-avaliacao" data-roles="admin,gestor,crc_comercial,crc_sucesso" onclick="setPage('conv-avaliacao',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    Avaliação
   </button>
   <button class="nav-btn" data-page="disparos" data-roles="admin,gestor,crc_comercial" onclick="setPage('disparos',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
@@ -650,7 +657,7 @@ textarea { resize: vertical; min-height: 80px; }
 <!-- CONVERSAS -->
 <div id="page-conversas" class="page">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap">
-    <h1 style="margin:0">Conversas</h1>
+    <h1 style="margin:0" id="conv-titulo">Conversas</h1>
     <div style="display:flex;align-items:center;gap:8px">
       <input class="search-input" style="width:180px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
       <div class="chat-view-toggle">
@@ -1432,7 +1439,8 @@ async function atualizarBadgesPosTratamento(supabaseClient) {
 function setPage(p, btn) {
   document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(x => x.classList.remove('active'));
-  document.getElementById('page-'+p).classList.add('active');
+  const pageId = (p === 'conv-agendamentos' || p === 'conv-avaliacao') ? 'conversas' : p;
+  document.getElementById('page-'+pageId).classList.add('active');
   btn.classList.add('active');
   document.querySelector('main').scrollTop = 0;
   if (p === 'dashboard') loadDash();
@@ -1440,11 +1448,13 @@ function setPage(p, btn) {
   if (p === 'funil') loadKanban();
   if (p === 'config') atualizarLinks();
   if (p === 'usuarios') loadUsuarios();
-  if (p === 'conversas') loadConversas();
+  if (p === 'conv-agendamentos') { _chatMode = 'agendamentos'; loadConversas(); }
+  if (p === 'conv-avaliacao')    { _chatMode = 'avaliacao';    loadConversas(); }
   if (p === 'disparos') loadDisparos();
   if (p === 'notas-fiscais') { loadNotasFiscais(); agenteVerificar(); }
   if (p === 'inadimplentes') loadInadimplentes(false);
-  if (p !== 'conversas' && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
+  const isConv = p === 'conv-agendamentos' || p === 'conv-avaliacao';
+  if (!isConv && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
 }
 
 let _sbSession = null;
@@ -1945,8 +1955,18 @@ let chatLeadAtual = null;
 let chatLeads = [];
 let chatPollInterval = null;
 let _chatViewMode = 'lista';
+let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
+let _kanbanDragging = false;
 
-const KANBAN_STATUS = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou','Perdido'];
+const KANBAN_STATUS        = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou','Perdido'];
+const KANBAN_AGENDAMENTOS  = ['Lead','Agendado','Compareceu'];
+const KANBAN_AVALIACAO     = ['Compareceu','Em follow-up','Em nutrição','Fechou','Perdido'];
+
+function _statusParaModo()  { return _chatMode === 'avaliacao' ? KANBAN_AVALIACAO : KANBAN_AGENDAMENTOS; }
+function _filtrarParaModo(leads) {
+  const s = new Set(_statusParaModo());
+  return leads.filter(l => s.has(l.status));
+}
 
 function _brt(iso) {
   if (!iso) return '';
@@ -1980,24 +2000,29 @@ function setChatView(mode) {
   document.getElementById('chat-kanban-view').style.display = mode === 'kanban' ? 'block' : 'none';
   document.getElementById('btn-view-lista').classList.toggle('ativo', mode === 'lista');
   document.getElementById('btn-view-kanban').classList.toggle('ativo', mode === 'kanban');
-  if (mode === 'kanban') renderKanban(chatLeads);
-  else renderChatList(chatLeads);
+  const f = _filtrarParaModo(chatLeads);
+  if (mode === 'kanban') renderKanban(f);
+  else renderChatList(f);
 }
 
 async function loadConversas() {
   try {
     const convs = await api('/api/conversas');
     chatLeads = convs;
-    if (_chatViewMode === 'kanban') renderKanban(convs);
-    else renderChatList(convs);
+    const titulo = document.getElementById('conv-titulo');
+    if (titulo) titulo.textContent = _chatMode === 'avaliacao' ? 'Conversas Avaliação' : 'Conversas Agendamentos';
+    const f = _filtrarParaModo(convs);
+    if (_chatViewMode === 'kanban') renderKanban(f);
+    else renderChatList(f);
   } catch(e) { console.error('loadConversas:', e); toast('⚠️ Erro ao carregar conversas', true); }
 }
 
 function filtrarChats() {
   const q = document.getElementById('chat-search').value.toLowerCase();
-  const r = q ? chatLeads.filter(l =>
+  const base = _filtrarParaModo(chatLeads);
+  const r = q ? base.filter(l =>
     (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q)
-  ) : chatLeads;
+  ) : base;
   if (_chatViewMode === 'kanban') renderKanban(r);
   else renderChatList(r);
 }
@@ -2033,17 +2058,22 @@ function renderChatList(leads) {
 
 function renderKanban(leads) {
   const el = document.getElementById('chat-kanban-view');
+  const statuses = _statusParaModo();
   const byStatus = {};
-  KANBAN_STATUS.forEach(s => byStatus[s] = []);
+  statuses.forEach(s => byStatus[s] = []);
   leads.forEach(l => { if (byStatus[l.status]) byStatus[l.status].push(l); });
-  el.innerHTML = `<div class="kconv-wrap">${KANBAN_STATUS.map(status => {
+  el.innerHTML = `<div class="kconv-wrap">${statuses.map(status => {
     const cols = byStatus[status] || [];
     const cards = cols.map(l => {
       const unread = _isUnread(l);
       const preview = l.ultima_mensagem
         ? (l.ultima_mensagem_direcao === 'enviada' ? '» ' : '') + l.ultima_mensagem
         : l.telefone || '';
-      return `<div class="kconv-card ${chatLeadAtual?.id === l.id ? 'ativo' : ''}" onclick="abrirChatKanban(${l.id})">
+      return `<div class="kconv-card ${chatLeadAtual?.id === l.id ? 'ativo' : ''}"
+                   draggable="true"
+                   ondragstart="_kanbanDragging=true;event.dataTransfer.setData('leadId','${l.id}');event.currentTarget.style.opacity='.4'"
+                   ondragend="event.currentTarget.style.opacity='';setTimeout(()=>{_kanbanDragging=false},80)"
+                   onclick="if(_kanbanDragging)return;abrirChatKanban(${l.id})">
         <div class="kconv-nome">${escHtml(l.nome)}</div>
         <div class="kconv-preview">${escHtml(preview.slice(0,50))}</div>
         <div class="kconv-foot">
@@ -2057,9 +2087,28 @@ function renderKanban(leads) {
         <span>${status}</span>
         <span style="font-size:11px;font-weight:400;color:var(--muted)">${cols.length}</span>
       </div>
-      <div class="kconv-col-body">${cards || '<div class="empty-small" style="font-size:11px;padding:8px">—</div>'}</div>
+      <div class="kconv-col-body"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="kanbanDrop(event,'${status}');this.classList.remove('drag-over')">
+        ${cards || '<div class="empty-small" style="font-size:11px;padding:8px">—</div>'}
+      </div>
     </div>`;
   }).join('')}</div>`;
+}
+
+async function kanbanDrop(event, novoStatus) {
+  event.preventDefault();
+  const leadId = parseInt(event.dataTransfer.getData('leadId'), 10);
+  if (!leadId) return;
+  const lead = chatLeads.find(l => l.id === leadId);
+  if (!lead || lead.status === novoStatus) return;
+  try {
+    await api(`/api/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ status: novoStatus }) });
+    lead.status = novoStatus;
+    renderKanban(_filtrarParaModo(chatLeads));
+    toast('✅ ' + escHtml(lead.nome || 'Lead') + ' → ' + novoStatus);
+  } catch(e) { toast('❌ Erro ao mover: ' + e.message, true); }
 }
 
 function abrirChatKanban(leadId) {
