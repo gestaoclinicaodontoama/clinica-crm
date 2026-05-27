@@ -87,12 +87,13 @@ class Handler(BaseHTTPRequestHandler):
                 has_v3 = "[reforma v3-ibs]" in src
                 has_ibs = "_aguardar_frame_ibs" in src
                 has_old = "Mouse click em" in src
+                has_popup = "context.pages" in src
                 snippet = ""
                 for line in src.splitlines():
                     if "_reforma_tributaria" in line or "v3-ibs" in line or "aguardar_frame_ibs" in line:
                         snippet = line.strip()[:120]
                         break
-                self._json({"v3": has_v3, "ibs": has_ibs, "old_diag": has_old, "snippet": snippet})
+                self._json({"v3": has_v3, "ibs": has_ibs, "old_diag": has_old, "popup": has_popup, "snippet": snippet})
             except Exception as e:
                 self._json({"error": str(e)})
         else:
