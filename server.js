@@ -3165,6 +3165,9 @@ setInterval(async () => {
 }, 3600000); // 1 hora
 
 // ========== STATIC ==========
+app.get('/ligacoes', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'ligacoes.html'));
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.get(/^\/(?!api\/|lead(\?|$)|webhooks\/).*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

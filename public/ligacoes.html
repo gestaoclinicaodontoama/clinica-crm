@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ligações — CRM AMA</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .page-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:20px; }
+    .page-tab { padding:10px 20px; cursor:pointer; font-size:13px; border-bottom:2px solid transparent; }
+    .page-tab.active { border-bottom-color:var(--primary); font-weight:600; color:var(--primary); }
+    .filter-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+    .filter-bar select, .filter-bar input { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12.5px; background:var(--bg2); color:var(--text); }
+    .cards-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-bottom:20px; }
+    .card { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:14px; text-align:center; }
+    .card-val { font-size:22px; font-weight:700; color:var(--primary); }
+    .card-lbl { font-size:11.5px; color:var(--muted); margin-top:3px; }
+    table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    th { text-align:left; padding:8px 10px; font-weight:600; border-bottom:2px solid var(--border); }
+    td { padding:8px 10px; border-bottom:1px solid var(--border); }
+    tr:hover td { background:var(--bg3); }
+    .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .toggle-row { display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--border); }
+    .toggle { position:relative; display:inline-block; width:40px; height:22px; }
+    .toggle input { opacity:0; width:0; height:0; }
+    .toggle-slider { position:absolute; cursor:pointer; inset:0; background:#ccc; border-radius:22px; transition:.2s; }
+    .toggle input:checked + .toggle-slider { background:var(--primary); }
+    .toggle-slider:before { content:''; position:absolute; width:16px; height:16px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:.2s; }
+    .toggle input:checked + .toggle-slider:before { transform:translateX(18px); }
+    .score-badge { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; color:#fff; }
+  </style>
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+
+  <div class="container" style="max-width:1100px;margin:0 auto;padding:20px">
+    <h1 style="margin-bottom:16px">📞 Ligações</h1>
+
+    <div class="page-tabs">
+      <div class="page-tab active" onclick="setTab('chamadas',this)">Detalhes das Chamadas</div>
+      <div class="page-tab" onclick="setTab('custo',this)">Painel de Custo IA</div>
+    </div>
+
+    <!-- TAB: CHAMADAS -->
+    <div id="tab-chamadas">
+      <div class="cards-row" id="stats-cards">
+        <div class="card"><div class="card-val" id="stat-total">—</div><div class="card-lbl">Total</div></div>
+        <div class="card"><div class="card-val" id="stat-atendidas">—</div><div class="card-lbl">Atendidas</div></div>
+        <div class="card"><div class="card-val" id="stat-taxa">—</div><div class="card-lbl">Taxa atend.</div></div>
+        <div class="card"><div class="card-val" id="stat-duracao">—</div><div class="card-lbl">Dur. média</div></div>
+        <div class="card"><div class="card-val" id="stat-score">—</div><div class="card-lbl">Score médio IA</div></div>
+      </div>
+
+      <div class="filter-bar">
+        <input type="date" id="f-desde" onchange="carregar()">
+        <input type="date" id="f-ate" onchange="carregar()">
+        <select id="f-crc" onchange="carregar()"><option value="">Todas as CRCs</option></select>
+        <select id="f-setor" onchange="carregar()">
+          <option value="">Todos os setores</option>
+          <option value="leads">Leads</option>
+          <option value="agendamentos">Agendamentos</option>
+          <option value="avaliacao_dentista">Avaliação Dentista</option>
+        </select>
+        <select id="f-status" onchange="carregar()">
+          <option value="">Todos os status</option>
+          <option value="atendida">Atendida</option>
+          <option value="nao_atendida">Não atendida</option>
+          <option value="ocupado">Ocupado</option>
+          <option value="falha_gravacao">Falha</option>
+        </select>
+        <select id="f-score" onchange="carregar()">
+          <option value="">Todos os scores</option>
+          <option value="alto">Alto (≥7)</option>
+          <option value="medio">Médio (4-6)</option>
+          <option value="baixo">Baixo (&lt;4)</option>
+        </select>
+      </div>
+
+      <div id="tabela-container">
+        <table>
+          <thead><tr>
+            <th>Data/hora</th><th>CRC</th><th>Lead</th><th>Setor</th>
+            <th>Status</th><th>Duração</th><th>Score IA</th>
+          </tr></thead>
+          <tbody id="tabela-body"><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Carregando...</td></tr></tbody>
+        </table>
+        <div id="paginacao" style="display:flex;gap:8px;justify-content:center;margin-top:14px;font-size:12.5px"></div>
+      </div>
+    </div>
+
+    <!-- TAB: CUSTO -->
+    <div id="tab-custo" style="display:none">
+      <div class="cards-row" style="margin-bottom:20px" id="custo-cards">
+        <div class="card"><div class="card-val" id="c-analises">—</div><div class="card-lbl">Análises/mês</div></div>
+        <div class="card"><div class="card-val" id="c-minutos">—</div><div class="card-lbl">Minutos/mês</div></div>
+        <div class="card"><div class="card-val" id="c-custo">—</div><div class="card-lbl">Custo mês (R$)</div></div>
+        <div class="card"><div class="card-val" id="c-projecao">—</div><div class="card-lbl">Projeção mês (R$)</div></div>
+      </div>
+      <p id="custo-ref" style="font-size:11.5px;color:var(--muted);margin-bottom:20px"></p>
+
+      <h3 style="font-size:14px;margin-bottom:14px">Controles por módulo</h3>
+      <div id="ia-config-lista" style="margin-bottom:24px"></div>
+
+      <h3 style="font-size:14px;margin-bottom:14px">Uso dos últimos 30 dias</h3>
+      <table>
+        <thead><tr><th>Data</th><th>Módulo</th><th>Análises</th><th>Minutos</th><th>Custo (R$)</th></tr></thead>
+        <tbody id="custo-tabela-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MODAL DETALHES LIGAÇÃO -->
+  <div class="modal-bg" id="modal-lig-bg" style="display:none" onclick="if(event.target===this)fecharModal()">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <div class="modal-titulo" id="ml-titulo">Detalhes</div>
+      <button class="modal-close" onclick="fecharModal()">×</button>
+    </div>
+    <div id="ml-body" style="padding:0 4px"></div>
+  </div>
+  </div>
+
+<script src="/js/shared-nav.js" data-active="ligacoes"></script>
+<script>
+const TOKEN = () => localStorage.getItem('authToken') || '';
+const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { Authorization: 'Bearer ' + TOKEN(), 'Content-Type':'application/json', ...(opts.headers||{}) }, ...opts });
+  return r.json();
+}
+
+let paginaAtual = 1;
+
+function setTab(tab, el) {
+  document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-chamadas').style.display = tab === 'chamadas' ? '' : 'none';
+  document.getElementById('tab-custo').style.display = tab === 'custo' ? '' : 'none';
+  if (tab === 'custo') carregarCusto();
+}
+
+async function carregarCrcs() {
+  try {
+    const users = await api('/api/admin/users');
+    const sel = document.getElementById('f-crc');
+    (users || []).forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u.id; opt.textContent = u.nome;
+      sel.appendChild(opt);
+    });
+  } catch (_) {}
+}
+
+function scoreParams() {
+  const v = document.getElementById('f-score').value;
+  if (v === 'alto')  return { score_min: 7 };
+  if (v === 'medio') return { score_min: 4, score_max: 6.99 };
+  if (v === 'baixo') return { score_max: 3.99 };
+  return {};
+}
+
+async function carregar(page = 1) {
+  paginaAtual = page;
+  const params = new URLSearchParams({
+    page,
+    ...(document.getElementById('f-desde').value ? { desde: document.getElementById('f-desde').value } : {}),
+    ...(document.getElementById('f-ate').value ? { ate: document.getElementById('f-ate').value } : {}),
+    ...(document.getElementById('f-crc').value ? { usuario_id: document.getElementById('f-crc').value } : {}),
+    ...(document.getElementById('f-setor').value ? { modulo: document.getElementById('f-setor').value } : {}),
+    ...(document.getElementById('f-status').value ? { status: document.getElementById('f-status').value } : {}),
+    ...scoreParams(),
+  });
+
+  const [dados, stats] = await Promise.all([
+    api('/api/ligacoes?' + params),
+    api('/api/ligacoes/stats?' + params),
+  ]);
+
+  document.getElementById('stat-total').textContent = stats.total ?? '—';
+  document.getElementById('stat-atendidas').textContent = stats.atendidas ?? '—';
+  document.getElementById('stat-taxa').textContent = stats.taxa_atendimento != null ? stats.taxa_atendimento + '%' : '—';
+  const dm = stats.duracao_media_s;
+  document.getElementById('stat-duracao').textContent = dm ? `${Math.floor(dm/60)}m ${dm%60}s` : '—';
+  document.getElementById('stat-score').textContent = stats.score_medio ?? '—';
+
+  const tbody = document.getElementById('tabela-body');
+  const rows = dados.data || [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Nenhuma ligação encontrada</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map(r => {
+      const dt = r.criada_em ? new Date(r.criada_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+      const crc = r.profiles?.nome || '—';
+      const lead = r.leads?.nome || (r.modulo === 'avaliacao_dentista' ? '(avaliação)' : '—');
+      const dur = r.duracao_segundos ? `${Math.floor(r.duracao_segundos/60)}m ${r.duracao_segundos%60}s` : '—';
+      const statusMap = { atendida:'✅ Atendida', nao_atendida:'📵 N/A', ocupado:'📴 Ocup.', falha_gravacao:'⚠️ Falha' };
+      const score = r.analise_ia?.score;
+      const scoreBadge = score != null
+        ? `<span class="score-badge" style="background:${score>=7?'#16a34a':score>=4?'#d97706':'#dc2626'}">${score}</span>`
+        : '—';
+      const setorMap = { leads:'Leads', agendamentos:'Agend.', avaliacao_dentista:'Aval.' };
+      return `<tr style="cursor:pointer" onclick="abrirModal(${escHtml(JSON.stringify(JSON.stringify(r)))})">
+        <td>${dt}</td><td>${escHtml(crc)}</td><td>${escHtml(lead)}</td>
+        <td>${setorMap[r.modulo]||r.modulo}</td>
+        <td>${statusMap[r.status]||r.status}</td><td>${dur}</td><td>${scoreBadge}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  const total = dados.total || 0;
+  const totalPags = Math.ceil(total / (dados.limit || 50));
+  const pg = document.getElementById('paginacao');
+  pg.innerHTML = '';
+  if (totalPags > 1) {
+    if (page > 1) pg.innerHTML += `<button class="btn btn-ghost" onclick="carregar(${page-1})">← Anterior</button>`;
+    pg.innerHTML += `<span style="padding:6px 10px">${page} / ${totalPags}</span>`;
+    if (page < totalPags) pg.innerHTML += `<button class="btn btn-ghost" onclick="carregar(${page+1})">Próxima →</button>`;
+  }
+}
+
+async function carregarCusto() {
+  try {
+    const d = await api('/api/ia-uso-log');
+    document.getElementById('c-analises').textContent = d.cards.analises_mes;
+    document.getElementById('c-minutos').textContent = d.cards.minutos_mes;
+    document.getElementById('c-custo').textContent = 'R$ ' + d.cards.custo_mes.toFixed(2);
+    document.getElementById('c-projecao').textContent = 'R$ ' + d.cards.projecao_mes.toFixed(2);
+    document.getElementById('custo-ref').textContent = `Custo de referência: ~R$ ${d.custo_por_min}/min de áudio (Gemini)`;
+
+    const configs = await api('/api/ia-config');
+    const nomeModulo = { leads:'Leads', agendamentos:'Agendamentos', avaliacao_dentista:'Avaliação Dentista' };
+    document.getElementById('ia-config-lista').innerHTML = configs.map(c => `
+      <div class="toggle-row">
+        <div>
+          <strong style="font-size:13px">${nomeModulo[c.modulo]||c.modulo}</strong>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:2px">
+            Mín. ${c.min_duracao_s}s · Limite diário: ${c.limite_diario} · Semanal: ${c.limite_semanal}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:11.5px;color:var(--muted)">${c.auto_analise_ativo?'Automática ON':'Automática OFF'}</span>
+          <label class="toggle">
+            <input type="checkbox" ${c.auto_analise_ativo?'checked':''} onchange="toggleAnalise('${c.modulo}',this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    `).join('');
+
+    const tbody = document.getElementById('custo-tabela-body');
+    tbody.innerHTML = (d.tabela || []).map(r => `<tr>
+      <td>${r.data}</td>
+      <td>${nomeModulo[r.modulo]||r.modulo}</td>
+      <td>${r.analises}</td>
+      <td>${r.minutos}</td>
+      <td>R$ ${r.custo.toFixed(2)}</td>
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Sem dados</td></tr>';
+  } catch (e) {
+    console.error('carregarCusto:', e);
+  }
+}
+
+async function toggleAnalise(modulo, ativo) {
+  try {
+    await api(`/api/ia-config/${modulo}`, { method:'PUT', body: JSON.stringify({ auto_analise_ativo: ativo }) });
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
+
+function abrirModal(cJson) {
+  const c = JSON.parse(cJson);
+  const dt = c.criada_em ? new Date(c.criada_em).toLocaleString('pt-BR') : '—';
+  const dur = c.duracao_segundos ? `${Math.floor(c.duracao_segundos/60)}m ${c.duracao_segundos%60}s` : '—';
+  const processando = c.gravacao_url && !c.transcricao && c.tentativas_gravacao < 3 && c.status !== 'falha_gravacao';
+  const semGravacao = !c.gravacao_url || c.status === 'falha_gravacao';
+  let audioHtml = semGravacao ? '<p style="color:var(--muted);font-size:12.5px">Gravação não disponível</p>'
+    : processando ? '<p style="color:var(--muted);font-size:12.5px">⏳ Aguardando gravação...</p>'
+    : `<audio controls src="${escHtml(c.gravacao_url)}" style="width:100%"></audio>`;
+  let analiseHtml = '';
+  if (c.analise_ia) {
+    const s = c.analise_ia.score;
+    const cor = s>=7?'#16a34a':s>=4?'#d97706':'#dc2626';
+    analiseHtml = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-size:28px;font-weight:800;color:${cor}">${s}</span><span style="font-size:12.5px;color:var(--muted)">/ 10</span></div>
+      <p style="font-size:13px">${escHtml(c.analise_ia.resumo||'')}</p>
+      ${(c.analise_ia.pontos_fortes||[]).map(p=>`<div style="font-size:12.5px;color:#16a34a;margin-bottom:3px">✓ ${escHtml(p)}</div>`).join('')}
+      ${(c.analise_ia.pontos_melhora||[]).map(p=>`<div style="font-size:12.5px;color:#d97706;margin-bottom:3px">△ ${escHtml(p)}</div>`).join('')}`;
+  } else if (c.status === 'atendida' && !processando) {
+    analiseHtml = `<p style="color:var(--muted);font-size:12.5px">Análise pendente</p>
+      <button class="btn btn-ghost" style="font-size:12px;margin-top:6px" onclick="analisar('${escHtml(c.id)}')">Analisar agora</button>`;
+  }
+  document.getElementById('ml-titulo').textContent = `Chamada — ${dt}`;
+  document.getElementById('ml-body').innerHTML = `
+    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:12.5px"><strong>Status:</strong> ${escHtml(c.status)}</span>
+      <span style="font-size:12.5px"><strong>Duração:</strong> ${dur}</span>
+      ${c.analisada_em?`<span style="font-size:11.5px;color:var(--muted)">Analisado em ${new Date(c.analisada_em).toLocaleString('pt-BR')}</span>`:''}
+    </div>
+    <div style="margin-bottom:16px">${audioHtml}</div>
+    ${c.transcricao?`<details style="margin-bottom:16px"><summary style="cursor:pointer;font-size:12.5px;font-weight:600">Transcrição</summary><pre style="font-size:11px;white-space:pre-wrap;background:var(--bg3);padding:10px;border-radius:6px;margin-top:8px;max-height:200px;overflow-y:auto">${escHtml(c.transcricao)}</pre></details>`:''}
+    ${analiseHtml}`;
+  document.getElementById('modal-lig-bg').style.display = 'flex';
+}
+
+function fecharModal() { document.getElementById('modal-lig-bg').style.display = 'none'; }
+
+async function analisar(id) {
+  try {
+    await api(`/api/ligacoes/${id}/analisar`, { method:'POST' });
+    alert('Análise iniciada. Recarregue em alguns instantes.');
+    fecharModal();
+  } catch (e) { alert('Erro: ' + e.message); }
+}
+
+carregarCrcs();
+carregar();
+</script>
+</body>
+</html>
