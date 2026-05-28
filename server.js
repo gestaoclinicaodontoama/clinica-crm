@@ -13,6 +13,7 @@ const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 const totalvoice = require('./totalvoice');
 const whatsapp = require('./whatsapp');
+const threec = require('./lib/3cplus');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
@@ -134,6 +135,19 @@ app.get('/api/me', requireAuth, async (req, res) => {
   }
 });
 
+app.patch('/api/me/threec-agent-id', requireAuth, async (req, res) => {
+  try {
+    const { threec_agent_id } = req.body;
+    if (typeof threec_agent_id !== 'string') return res.status(400).json({ error: 'threec_agent_id deve ser string' });
+    const val = threec_agent_id.trim().slice(0, 100);
+    const { error } = await supabase.from('profiles').update({ threec_agent_id: val || null }).eq('id', req.user.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ========== ROLE MIDDLEWARES ==========
 async function loadProfile(req) {
   if (req.user.profile) return req.user.profile;
@@ -154,6 +168,7 @@ function requireRole(...allowed) {
 }
 const requireDentista = requireRole('dentista', 'admin', 'mod_avaliacao_dentista');
 const requireGestor   = requireRole('gestor', 'admin');
+const requireCrcLead  = requireRole('crc_leads', 'crc_comercial', 'admin', 'gestor');
 const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial');
 
 // ========== ADMIN MIDDLEWARE ==========
@@ -472,30 +487,37 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
   }
 });
 // ========== TELEFONIA ==========
-app.post('/api/leads/:id/ligar', requireAuth, rateLimit, async (req, res) => {
+app.post('/api/leads/:id/ligar', requireAuth, requireCrcLead, rateLimit, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const { data: lead, error } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
-    if (error) throw error;
+    const leadId = req.params.id;
+    if (!leadId || !/^\d+$/.test(leadId)) return res.status(400).json({ error: 'ID inválido' });
+
+    const p = await loadProfile(req);
+    if (!p.threec_agent_id) {
+      return res.status(400).json({ error: 'Configure seu ID de agente do 3cplus em Configurações → Perfil antes de ligar.' });
+    }
+
+    const { data: lead } = await supabase.from('leads').select('id, nome, telefone').eq('id', leadId).maybeSingle();
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
-    if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
-    const { numeroSdr } = req.body;
-    if (!numeroSdr) return res.status(400).json({ error: 'numeroSdr obrigatório' });
-    if (!totalvoice.temToken()) return res.status(503).json({ error: 'TotalVoice não configurada' });
-    const dados = await totalvoice.ligar({ numeroSdr, numeroLead: lead.telefone, gravar: true, bina: process.env.TOTALVOICE_BINA });
-    const { data: chamada, error: cErr } = await supabase.from('chamadas').insert({
-      lead_id: lead.id, lead_nome: lead.nome,
-      totalvoice_id: dados.id,
-      numero_sdr: numeroSdr, numero_lead: lead.telefone,
-      status: dados.status || 'iniciada',
-      duracao_segundos: 0, url_gravacao: '',
+    if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone cadastrado' });
+
+    if (!threec.temToken()) return res.status(503).json({ error: '3cplus não configurado no servidor' });
+
+    const { callId } = await threec.ligar({ agentId: p.threec_agent_id, numeroDestino: lead.telefone });
+
+    const { data: ligacao, error: lErr } = await supabase.from('ligacoes').insert({
+      lead_id: leadId,
+      usuario_id: req.user.id,
+      threec_call_id: callId,
+      status: 'iniciada',
+      modulo: 'leads',
     }).select().single();
-    if (cErr) throw cErr;
-    await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
-    res.json({ ok: true, chamada });
+    if (lErr) throw lErr;
+
+    res.json({ ok: true, ligacao });
   } catch (e) {
-    console.error('❌ ligar:', e);
-    res.status(500).json({ error: e.message });
+    console.error('❌ 3cplus ligar:', e.message);
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 
@@ -504,6 +526,22 @@ app.get('/api/leads/:id/chamadas', requireAuth, rateLimit, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
     const { data, error } = await supabase.from('chamadas').select('*').eq('lead_id', id).order('id', { ascending: false });
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/leads/:id/ligacoes', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const leadId = req.params.id;
+    if (!leadId || !/^\d+$/.test(leadId)) return res.status(400).json({ error: 'ID inválido' });
+    const { data, error } = await supabase.from('ligacoes')
+      .select('id, threec_call_id, status, duracao_segundos, gravacao_url, transcricao, analise_ia, tentativas_gravacao, criada_em, analisada_em')
+      .eq('lead_id', leadId)
+      .order('criada_em', { ascending: false })
+      .limit(50);
+    if (error) throw error;
     res.json(data || []);
   } catch (e) {
     res.status(500).json({ error: e.message });
