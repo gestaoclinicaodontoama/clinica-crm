@@ -508,35 +508,53 @@ app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
     const p = await loadProfile(req);
     const token = p.threec_agent_token;
     const base = process.env.THREEC_BASE_URL || 'https://clinicaama.3c.plus';
+    const altBase = 'https://app.3c.fluxoti.com.br';
     if (!token) return res.json({ erro: 'sem token no perfil', base });
     const https = require('https'); const http = require('http');
 
-    function probeToken(method, path, body, tok) {
-      const url = new URL(path, base);
-      url.searchParams.set('api_token', tok || token);
-      const mod = url.protocol === 'https:' ? https : http;
-      const data = body ? JSON.stringify(body) : null;
-      return new Promise((resolve) => {
-        const opts = { hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, method, headers: { 'Content-Type': 'application/json', ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}) }, timeout: 8000 };
-        const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b.slice(0, 400) })); });
-        req2.on('timeout', () => { req2.destroy(); resolve({ status: 'timeout' }); });
-        req2.on('error', e => resolve({ status: 'err', body: e.message }));
-        if (data) req2.write(data); req2.end();
-      });
+    function makeProbe(baseUrl) {
+      return function probeToken(method, apiPath, body, tok) {
+        const url = new URL(apiPath, baseUrl);
+        url.searchParams.set('api_token', tok || token);
+        const mod = url.protocol === 'https:' ? https : http;
+        const data = body ? JSON.stringify(body) : null;
+        return new Promise((resolve) => {
+          const opts = { hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, method, headers: { 'Content-Type': 'application/json', ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}) }, timeout: 8000 };
+          const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b.slice(0, 500) })); });
+          req2.on('timeout', () => { req2.destroy(); resolve({ status: 'timeout' }); });
+          req2.on('error', e => resolve({ status: 'err', body: e.message }));
+          if (data) req2.write(data); req2.end();
+        });
+      };
     }
-    const probe = (m, p, b) => probeToken(m, p, b, token);
-
-    // campanha real da Paola: 247859
+    const probe = makeProbe(base);
+    const probeAlt = makeProbe(altBase);
     const gestorToken = process.env.THREEC_TOKEN || '';
-    const results = await Promise.all([
-      probe('POST', '/api/v1/agent/login', { campaign: 247859 }).then(r => ({ path: 'POST /api/v1/agent/login {campaign:247859}', ...r })),
-      probe('POST', '/api/v1/agent/manual_call_enter', { campaign_id: 247859 }).then(r => ({ path: 'POST /api/v1/agent/manual_call_enter {campaign_id}', ...r })),
-      probe('POST', '/api/v1/agent/manual_call_enter', {}).then(r => ({ path: 'POST /api/v1/agent/manual_call_enter {}', ...r })),
-      // testar com token de gestor nos endpoints de agente
-      probeToken('POST', '/api/v1/agent/manual_call_enter', { agent_id: '1002' }, gestorToken).then(r => ({ path: 'POST manual_call_enter GESTOR+agent_id', ...r })),
+
+    // Passo 1: login na campanha (deve vir ANTES do manual_call_enter)
+    const loginRes = await probe('POST', '/api/v1/agent/login', { campaign: 247859 });
+    const loginLabel = { path: 'POST /api/v1/agent/login {campaign:247859}', ...loginRes };
+
+    // Passo 2: após login, tentar várias variações de manual call
+    const afterLogin = await Promise.all([
+      probe('POST', '/api/v1/agent/manual_call_enter', null).then(r => ({ path: 'POST /api/v1/agent/manual_call_enter null', ...r })),
+      probe('POST', '/api/v1/agent/manual_call_dial', { phone: '31999999999' }).then(r => ({ path: 'POST /api/v1/agent/manual_call_dial {phone}', ...r })),
+      probe('GET',  '/api/v1/agent/status', null).then(r => ({ path: 'GET /api/v1/agent/status', ...r })),
+      probe('POST', '/api/v1/agent/call',   { phone: '31999999999', campaign_id: 247859 }).then(r => ({ path: 'POST /api/v1/agent/call {phone,campaign_id}', ...r })),
+      probe('POST', '/api/v1/agent/dial',   { phone: '31999999999' }).then(r => ({ path: 'POST /api/v1/agent/dial {phone}', ...r })),
+      // tentar base alternativa (app.3c.fluxoti.com.br)
+      probeAlt('POST', '/api/v1/agent/manual_call_enter', null).then(r => ({ path: '[altBase] POST /api/v1/agent/manual_call_enter', ...r })),
+      probeAlt('POST', '/api/v1/agent/login', { campaign: 247859 }).then(r => ({ path: '[altBase] POST /api/v1/agent/login', ...r })),
+      // gestor: listar calls
       probe('GET',  '/api/v1/calls', null, gestorToken).then(r => ({ path: 'GET /api/v1/calls GESTOR', ...r })),
+      probe('GET',  '/api/v1/reports/calls', null, gestorToken).then(r => ({ path: 'GET /api/v1/reports/calls GESTOR', ...r })),
     ]);
-    res.json({ base, tokenPreview: token.slice(0,8)+'...', results });
+
+    // Limpar: logout para não deixar Paola travada
+    const logoutRes = await probe('POST', '/api/v1/agent/logout', null);
+    const logoutLabel = { path: 'POST /api/v1/agent/logout (cleanup)', ...logoutRes };
+
+    res.json({ base, altBase, tokenPreview: token.slice(0,8)+'...', gestorTokenPresent: Boolean(gestorToken), steps: [loginLabel, ...afterLogin, logoutLabel] });
   } catch (e) {
     res.json({ erro: e.message });
   }
