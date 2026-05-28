@@ -1525,7 +1525,7 @@ app.get('/api/clinicorp/horarios', requireAuth, rateLimit, async (req, res) => {
         slots.push({ from: from_t, to: to_t, disponivel: !ocupado });
       }
     }
-    res.json({ dentista: dentista.nome, data, slots });
+    res.json(slots.map(s => ({ inicio: s.from, ocupado: !s.disponivel })));
   } catch(e) { console.error('clinicorp/horarios:', e); res.status(500).json({ error: e.message }); }
 });
 
