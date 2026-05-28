@@ -2431,9 +2431,8 @@ app.post('/api/avaliacoes/transcrever',
     _transcribeJobs.set(jobId, { status: 'pending', result: null, error: null, userId: req.user.id });
     res.json({ jobId }); // respond immediately — no proxy timeout
 
-    deepgramLib().transcribeBuffer(buffer, contentType)
-      .then(data => {
-        const words = data.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
+    geminiLib().transcreverAudio({ audioBuffer: buffer, contentType })
+      .then(({ words }) => {
         _transcribeJobs.set(jobId, { status: 'done', result: { words }, error: null, userId: req.user.id });
       })
       .catch(e => {
