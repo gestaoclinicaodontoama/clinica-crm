@@ -1966,7 +1966,7 @@ function abrirModalLigacao(cJson) {
       ${(c.analise_ia.pontos_melhora || []).map(p => `<div style="font-size:12.5px;color:#d97706;margin-bottom:3px">△ ${escHtml(p)}</div>`).join('')}`;
   } else if (c.status === 'atendida' && !processando) {
     analiseHtml = `<p style="color:var(--muted);font-size:12.5px">Análise pendente</p>
-      <button class="btn btn-ghost" style="font-size:12px;margin-top:6px" onclick="analisarLigacao('${c.id}')">Analisar agora</button>`;
+      <button class="btn btn-ghost" style="font-size:12px;margin-top:6px" onclick="analisarLigacao('${escHtml(c.id)}')">Analisar agora</button>`;
   }
 
   document.getElementById('ml-titulo').textContent = `Chamada — ${dt}`;
