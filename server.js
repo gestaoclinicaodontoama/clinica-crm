@@ -511,26 +511,30 @@ app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
     if (!token) return res.json({ erro: 'sem token no perfil', base });
     const https = require('https'); const http = require('http');
 
-    async function probe(method, path, body) {
+    function probeToken(method, path, body, tok) {
       const url = new URL(path, base);
-      url.searchParams.set('api_token', token);
+      url.searchParams.set('api_token', tok || token);
       const mod = url.protocol === 'https:' ? https : http;
       const data = body ? JSON.stringify(body) : null;
       return new Promise((resolve) => {
         const opts = { hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, method, headers: { 'Content-Type': 'application/json', ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}) }, timeout: 8000 };
-        const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b.slice(0, 300) })); });
+        const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b.slice(0, 400) })); });
         req2.on('timeout', () => { req2.destroy(); resolve({ status: 'timeout' }); });
         req2.on('error', e => resolve({ status: 'err', body: e.message }));
         if (data) req2.write(data); req2.end();
       });
     }
+    const probe = (m, p, b) => probeToken(m, p, b, token);
 
+    // campanha real da Paola: 247859
+    const gestorToken = process.env.THREEC_TOKEN || '';
     const results = await Promise.all([
-      probe('GET',  '/api/v1/agent/campaigns', null).then(r => ({ path: 'GET /api/v1/agent/campaigns', ...r })),
-      probe('POST', '/api/v1/agent/login', { campaign_id: 1 }).then(r => ({ path: 'POST /api/v1/agent/login', ...r })),
-      probe('POST', '/api/v1/agent/manual-call-enter', {}).then(r => ({ path: 'POST /api/v1/agent/manual-call-enter (dash)', ...r })),
-      probe('POST', '/api/v1/calls', { phone: '31999999999' }).then(r => ({ path: 'POST /api/v1/calls', ...r })),
-      probe('GET',  '/api/v1/calls', null).then(r => ({ path: 'GET /api/v1/calls', ...r })),
+      probe('POST', '/api/v1/agent/login', { campaign: 247859 }).then(r => ({ path: 'POST /api/v1/agent/login {campaign:247859}', ...r })),
+      probe('POST', '/api/v1/agent/manual_call_enter', { campaign_id: 247859 }).then(r => ({ path: 'POST /api/v1/agent/manual_call_enter {campaign_id}', ...r })),
+      probe('POST', '/api/v1/agent/manual_call_enter', {}).then(r => ({ path: 'POST /api/v1/agent/manual_call_enter {}', ...r })),
+      // testar com token de gestor nos endpoints de agente
+      probeToken('POST', '/api/v1/agent/manual_call_enter', { agent_id: '1002' }, gestorToken).then(r => ({ path: 'POST manual_call_enter GESTOR+agent_id', ...r })),
+      probe('GET',  '/api/v1/calls', null, gestorToken).then(r => ({ path: 'GET /api/v1/calls GESTOR', ...r })),
     ]);
     res.json({ base, tokenPreview: token.slice(0,8)+'...', results });
   } catch (e) {
