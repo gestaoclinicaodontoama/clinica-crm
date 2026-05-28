@@ -68,6 +68,13 @@
           <option value="ocupado">Ocupado</option>
           <option value="falha_gravacao">Falha</option>
         </select>
+        <select id="f-origem" onchange="filtrarOrigem()">
+          <option value="">Todas as origens</option>
+          <option value="Indicação">Indicação</option>
+          <option value="Google">Google</option>
+          <option value="Instagram">Instagram</option>
+          <option value="Facebook">Facebook</option>
+        </select>
         <select id="f-score" onchange="carregar()">
           <option value="">Todos os scores</option>
           <option value="alto">Alto (≥7)</option>
@@ -80,9 +87,9 @@
         <table>
           <thead><tr>
             <th>Data/hora</th><th>CRC</th><th>Lead</th><th>Setor</th>
-            <th>Status</th><th>Duração</th><th>Score IA</th>
+            <th>Origem</th><th>Status</th><th>Duração</th><th>Score IA</th>
           </tr></thead>
-          <tbody id="tabela-body"><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Carregando...</td></tr></tbody>
+          <tbody id="tabela-body"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted)">Carregando...</td></tr></tbody>
         </table>
         <div id="paginacao" style="display:flex;gap:8px;justify-content:center;margin-top:14px;font-size:12.5px"></div>
       </div>
@@ -187,7 +194,7 @@ async function carregar(page = 1) {
   const tbody = document.getElementById('tabela-body');
   const rows = dados.data || [];
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Nenhuma ligação encontrada</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted)">Nenhuma ligação encontrada</td></tr>';
   } else {
     tbody.innerHTML = rows.map(r => {
       const dt = r.criada_em ? new Date(r.criada_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
@@ -200,9 +207,11 @@ async function carregar(page = 1) {
         ? `<span class="score-badge" style="background:${score>=7?'#16a34a':score>=4?'#d97706':'#dc2626'}">${score}</span>`
         : '—';
       const setorMap = { leads:'Leads', agendamentos:'Agend.', avaliacao_dentista:'Aval.' };
+      const origem = escHtml(r.leads?.origem || '—');
       return `<tr style="cursor:pointer" onclick="abrirModal(${escHtml(JSON.stringify(JSON.stringify(r)))})">
         <td>${dt}</td><td>${escHtml(crc)}</td><td>${escHtml(lead)}</td>
         <td>${setorMap[r.modulo]||r.modulo}</td>
+        <td>${origem}</td>
         <td>${statusMap[r.status]||r.status}</td><td>${dur}</td><td>${scoreBadge}</td>
       </tr>`;
     }).join('');
@@ -217,6 +226,7 @@ async function carregar(page = 1) {
     pg.innerHTML += `<span style="padding:6px 10px">${page} / ${totalPags}</span>`;
     if (page < totalPags) pg.innerHTML += `<button class="btn btn-ghost" onclick="carregar(${page+1})">Próxima →</button>`;
   }
+  filtrarOrigem();
 }
 
 async function carregarCusto() {
@@ -234,8 +244,19 @@ async function carregarCusto() {
       <div class="toggle-row">
         <div>
           <strong style="font-size:13px">${nomeModulo[c.modulo]||c.modulo}</strong>
-          <div style="font-size:11.5px;color:var(--muted);margin-top:2px">
-            Mín. ${c.min_duracao_s}s · Limite diário: ${c.limite_diario} · Semanal: ${c.limite_semanal}
+          <div style="display:flex;gap:14px;margin-top:6px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:11.5px;color:var(--muted)">Mín. duração (s)
+              <input type="number" min="0" value="${c.min_duracao_s}" style="width:64px;margin-left:4px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg2);color:var(--text)"
+                onblur="salvarIaConfig('${c.modulo}',{min_duracao_s:+this.value})">
+            </label>
+            <label style="font-size:11.5px;color:var(--muted)">Limite/dia
+              <input type="number" min="1" value="${c.limite_diario}" style="width:64px;margin-left:4px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg2);color:var(--text)"
+                onblur="salvarIaConfig('${c.modulo}',{limite_diario:+this.value})">
+            </label>
+            <label style="font-size:11.5px;color:var(--muted)">Limite/semana
+              <input type="number" min="1" value="${c.limite_semanal}" style="width:64px;margin-left:4px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg2);color:var(--text)"
+                onblur="salvarIaConfig('${c.modulo}',{limite_semanal:+this.value})">
+            </label>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:10px">
@@ -261,11 +282,30 @@ async function carregarCusto() {
   }
 }
 
+function filtrarOrigem() {
+  const v = document.getElementById('f-origem').value.toLowerCase();
+  document.querySelectorAll('#tabela-body tr').forEach(tr => {
+    if (!v) { tr.style.display = ''; return; }
+    // Origem is in the 5th td (index 4, 0-based) — Data, CRC, Lead, Setor, Origem, Status, Duração, Score
+    const origemCell = tr.cells[4];
+    const text = origemCell ? origemCell.textContent.toLowerCase() : '';
+    tr.style.display = (text.includes(v) || text === '—') ? '' : 'none';
+  });
+}
+
 async function toggleAnalise(modulo, ativo) {
   try {
     await api(`/api/ia-config/${modulo}`, { method:'PUT', body: JSON.stringify({ auto_analise_ativo: ativo }) });
   } catch (e) {
     alert('Erro: ' + e.message);
+  }
+}
+
+async function salvarIaConfig(modulo, patch) {
+  try {
+    await api(`/api/ia-config/${modulo}`, { method: 'PUT', body: JSON.stringify(patch) });
+  } catch (e) {
+    alert('Erro ao salvar: ' + e.message);
   }
 }
 
