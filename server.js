@@ -567,6 +567,59 @@ app.post('/webhooks/totalvoice', async (req, res) => {
   }
 });
 
+// ========== 3CPLUS WEBHOOK ==========
+app.post('/api/webhooks/3cplus', async (req, res) => {
+  try {
+    const token = req.headers['x-webhook-token'] || '';
+    const expected = process.env.THREEC_WEBHOOK_TOKEN || '';
+    if (!expected || token !== expected) return res.status(401).send('unauthorized');
+
+    const {
+      threec_call_id,
+      agent_id,
+      status,
+      duracao_segundos,
+      gravacao_url,
+    } = req.body;
+
+    if (!threec_call_id) return res.status(400).send('threec_call_id obrigatório');
+
+    const statusMap = {
+      atendida: 'atendida', answered: 'atendida',
+      nao_atendida: 'nao_atendida', 'no-answer': 'nao_atendida',
+      ocupado: 'ocupado', busy: 'ocupado',
+    };
+    const statusNormalizado = statusMap[status] || 'nao_atendida';
+
+    const { data: ligacao, error } = await supabase.from('ligacoes')
+      .select('*')
+      .eq('threec_call_id', threec_call_id)
+      .maybeSingle();
+
+    if (error || !ligacao) {
+      console.warn('⚠️ webhook 3cplus: ligação não encontrada para call_id', threec_call_id);
+      return res.status(200).send('ok');
+    }
+
+    const patch = {
+      status: statusNormalizado,
+      duracao_segundos: Number.isFinite(parseInt(duracao_segundos, 10)) ? parseInt(duracao_segundos, 10) : null,
+      gravacao_url: gravacao_url || null,
+    };
+
+    await supabase.from('ligacoes').update(patch).eq('id', ligacao.id);
+
+    if (gravacao_url && statusNormalizado === 'atendida') {
+      processarGravacao({ ...ligacao, ...patch }).catch(() => {});
+    }
+
+    res.status(200).send('ok');
+  } catch (e) {
+    console.error('❌ webhook 3cplus:', e.message);
+    res.status(500).send('erro');
+  }
+});
+
 // ========== WHATSAPP ==========
 app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => {
   try {
@@ -2057,6 +2110,85 @@ async function getConfigVal(chave) {
   const val = data?.valor ?? null;
   _configCache.set(chave, { val, expiresAt: Date.now() + CONFIG_TTL_MS });
   return val;
+}
+
+async function getIaConfig(modulo) {
+  const { data } = await supabase.from('ia_config').select('*').eq('modulo', modulo).maybeSingle();
+  return data || { auto_analise_ativo: false, min_duracao_s: 60, limite_diario: 50, limite_semanal: 200 };
+}
+
+async function contarAnalisesHoje(modulo) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const { count } = await supabase.from('ia_uso_log')
+    .select('*', { count: 'exact', head: true })
+    .eq('modulo', modulo)
+    .gte('criado_em', hoje + 'T00:00:00Z');
+  return count || 0;
+}
+
+async function contarAnalisesSemana(modulo) {
+  const seteDias = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
+  const { count } = await supabase.from('ia_uso_log')
+    .select('*', { count: 'exact', head: true })
+    .eq('modulo', modulo)
+    .gte('criado_em', seteDias);
+  return count || 0;
+}
+
+async function processarGravacao(ligacao) {
+  try {
+    const config = await getIaConfig(ligacao.modulo);
+
+    const elegivel = (
+      ligacao.status === 'atendida' &&
+      (ligacao.duracao_segundos || 0) >= config.min_duracao_s &&
+      config.auto_analise_ativo &&
+      (await contarAnalisesHoje(ligacao.modulo)) < config.limite_diario &&
+      (await contarAnalisesSemana(ligacao.modulo)) < config.limite_semanal
+    );
+
+    if (!elegivel) return;
+
+    let audioBuffer, contentType;
+    try {
+      ({ buffer: audioBuffer, contentType } = await threec.downloadGravacao(ligacao.gravacao_url));
+    } catch (downloadErr) {
+      console.warn(`⚠️ Download gravação falhou (tentativa ${ligacao.tentativas_gravacao + 1}):`, downloadErr.message);
+      await supabase.from('ligacoes').update({
+        tentativas_gravacao: (ligacao.tentativas_gravacao || 0) + 1,
+        ...(ligacao.tentativas_gravacao >= 2 ? { status: 'falha_gravacao' } : {}),
+      }).eq('id', ligacao.id);
+      return;
+    }
+
+    const duracao = ligacao.duracao_segundos || 0;
+    const { data: analise, tokensIn, tokensOut } = await geminiLib().analyzeLigacao({
+      audioBuffer, contentType, modulo: ligacao.modulo,
+    });
+
+    const custoMin = parseFloat(process.env.GEMINI_COST_PER_MIN || '0.016');
+    const custoEstimado = parseFloat(((duracao / 60) * custoMin).toFixed(4));
+
+    await Promise.all([
+      supabase.from('ligacoes').update({
+        transcricao: analise.transcricao,
+        analise_ia: { resumo: analise.resumo, pontos_fortes: analise.pontos_fortes, pontos_melhora: analise.pontos_melhora, score: analise.score },
+        analisada_em: new Date().toISOString(),
+        tentativas_gravacao: (ligacao.tentativas_gravacao || 0) + 1,
+      }).eq('id', ligacao.id),
+      supabase.from('ia_uso_log').insert({
+        modulo: ligacao.modulo,
+        duracao_audio_s: duracao,
+        tokens_entrada: tokensIn,
+        tokens_saida: tokensOut,
+        custo_estimado: custoEstimado,
+      }),
+    ]);
+
+    console.log(`✅ Ligação ${ligacao.id} analisada — score ${analise.score}`);
+  } catch (e) {
+    console.error('❌ processarGravacao:', ligacao.id, e.message);
+  }
 }
 
 let _dashCache = { data: null, ts: 0 };
