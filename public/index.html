@@ -1283,7 +1283,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 
   <!-- TAB: CHAMADAS -->
   <div class="tab-content" id="tab-chamadas">
-    <div id="modal-chamadas"><div class="empty-small">Carregando...</div></div>
+    <div id="ligacoes-lista"><div class="empty-small">Carregando...</div></div>
   </div>
 
   <hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
@@ -1295,7 +1295,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
     <button id="btn-salvar-lead" class="btn btn-primary" onclick="salvarLead(this)">Salvar</button>
     <button class="btn btn-success" id="btn-whatsapp" onclick="abrirWhatsApp()" style="display:none">💬 WhatsApp</button>
-    <button class="btn btn-call" id="btn-ligar" onclick="ligarLead()" style="display:none">📞 Ligar</button>
+    <button class="btn btn-call" id="btn-ligar" onclick="ligarLead3c()" style="display:none">📞 Ligar</button>
   </div>
 </div>
 </div>
@@ -1773,7 +1773,7 @@ async function abrirModal(id) {
     document.getElementById('btn-ligar').style.display = l.telefone ? 'inline-block' : 'none';
     document.getElementById('modal-bg').classList.add('open');
     setTab('dados', document.querySelector('.tab[data-tab="dados"]'));
-    carregarChamadas(id);
+    carregarLigacoes(id);
   } catch(e) { toast('❌ Erro ao abrir lead: ' + e.message, true); }
 }
 
@@ -1912,24 +1912,25 @@ function abrirWhatsApp() {
   window.open(`https://web.whatsapp.com/send?phone=${leadAtual.telefone}`, '_blank');
 }
 
-async function carregarChamadas(leadId) {
-  const div = document.getElementById('modal-chamadas');
+async function carregarLigacoes(leadId) {
+  const div = document.getElementById('ligacoes-lista');
   try {
-    const chamadas = await api(`/api/leads/${leadId}/chamadas`);
-    if (!chamadas.length) {
-      div.innerHTML = '<div class="empty-small">Nenhuma chamada ainda. Clique em 📞 Ligar para iniciar.</div>';
+    const lista = await api(`/api/leads/${leadId}/ligacoes`);
+    if (!lista.length) {
+      div.innerHTML = '<div class="empty-small">Nenhuma chamada ainda.</div>';
       return;
     }
-    div.innerHTML = chamadas.map(c => {
+    div.innerHTML = lista.map(c => {
+      const dt = c.criada_em ? new Date(c.criada_em).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
       const dur = c.duracao_segundos ? `${Math.floor(c.duracao_segundos/60)}min ${c.duracao_segundos%60}s` : '—';
-      return `<div class="chamada-item">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span><strong>${c.criada_em || ''}</strong></span>
-          <span style="color:var(--muted);font-size:11.5px">${escHtml(c.status || 'iniciada')} · ${dur}</span>
+      const statusLabel = { atendida:'✅ Atendida', nao_atendida:'📵 Não atendida', ocupado:'📴 Ocupado', iniciada:'⏳ Iniciada', falha_gravacao:'⚠️ Falha gravação' }[c.status] || c.status;
+      const score = c.analise_ia?.score;
+      const scoreBadge = score != null ? `<span style="margin-left:6px;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;background:${score>=7?'#16a34a':score>=4?'#d97706':'#dc2626'};color:#fff">${score}</span>` : '';
+      return `<div class="chamada-item" style="cursor:pointer" onclick="abrirModalLigacao(${JSON.stringify(JSON.stringify(c))})">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12.5px">${statusLabel}${scoreBadge}</span>
+          <span style="color:var(--muted);font-size:11.5px">${dt} · ${dur} →</span>
         </div>
-        ${c.url_gravacao
-          ? `<audio controls src="${escHtml(c.url_gravacao)}"></audio>`
-          : '<span style="color:var(--muted);font-size:11.5px">Gravação não disponível ainda</span>'}
       </div>`;
     }).join('');
   } catch (e) {
@@ -1937,25 +1938,75 @@ async function carregarChamadas(leadId) {
   }
 }
 
-async function ligarLead() {
-  if (!leadAtual) return;
-  let numeroSdr = localStorage.getItem('numeroSdr') || '';
-  if (!numeroSdr) {
-    numeroSdr = prompt('Qual o seu número de telefone? (com DDD, ex: 5531987654321)\n\nA TotalVoice vai ligar primeiro pra você, e quando atender conecta com o lead.');
-    if (!numeroSdr) return;
-    localStorage.setItem('numeroSdr', numeroSdr.replace(/\D/g, ''));
+function abrirModalLigacao(cJson) {
+  const c = JSON.parse(cJson);
+  const bg = document.getElementById('modal-ligacao-bg');
+  const dt = c.criada_em ? new Date(c.criada_em).toLocaleString('pt-BR') : '—';
+  const dur = c.duracao_segundos ? `${Math.floor(c.duracao_segundos/60)}min ${c.duracao_segundos%60}s` : '—';
+
+  const processando = c.gravacao_url && !c.transcricao && c.tentativas_gravacao < 3 && c.status !== 'falha_gravacao';
+  const semGravacao = !c.gravacao_url || c.status === 'falha_gravacao';
+
+  let audioHtml = '';
+  if (semGravacao) audioHtml = '<p style="color:var(--muted);font-size:12.5px">Gravação não disponível</p>';
+  else if (processando) audioHtml = '<p style="color:var(--muted);font-size:12.5px">⏳ Aguardando gravação...</p>';
+  else audioHtml = `<audio controls src="${escHtml(c.gravacao_url)}" style="width:100%"></audio>`;
+
+  let analiseHtml = '';
+  if (c.analise_ia) {
+    const s = c.analise_ia.score;
+    const cor = s >= 7 ? '#16a34a' : s >= 4 ? '#d97706' : '#dc2626';
+    analiseHtml = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:28px;font-weight:800;color:${cor}">${s}</span>
+        <span style="font-size:12.5px;color:var(--muted)">/ 10</span>
+      </div>
+      <p style="font-size:13px;margin-bottom:10px">${escHtml(c.analise_ia.resumo || '')}</p>
+      ${(c.analise_ia.pontos_fortes || []).map(p => `<div style="font-size:12.5px;color:#16a34a;margin-bottom:3px">✓ ${escHtml(p)}</div>`).join('')}
+      ${(c.analise_ia.pontos_melhora || []).map(p => `<div style="font-size:12.5px;color:#d97706;margin-bottom:3px">△ ${escHtml(p)}</div>`).join('')}`;
+  } else if (c.status === 'atendida' && !processando) {
+    analiseHtml = `<p style="color:var(--muted);font-size:12.5px">Análise pendente</p>
+      <button class="btn btn-ghost" style="font-size:12px;margin-top:6px" onclick="analisarLigacao('${c.id}')">Analisar agora</button>`;
   }
+
+  document.getElementById('ml-titulo').textContent = `Chamada — ${dt}`;
+  document.getElementById('ml-body').innerHTML = `
+    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:12.5px"><strong>Status:</strong> ${escHtml(c.status)}</span>
+      <span style="font-size:12.5px"><strong>Duração:</strong> ${dur}</span>
+      ${c.analisada_em ? `<span style="font-size:11.5px;color:var(--muted)">Analisado em ${new Date(c.analisada_em).toLocaleString('pt-BR')}</span>` : ''}
+    </div>
+    <div style="margin-bottom:16px">${audioHtml}</div>
+    ${c.transcricao ? `<details style="margin-bottom:16px"><summary style="cursor:pointer;font-size:12.5px;font-weight:600">Transcrição</summary><pre style="font-size:11.5px;white-space:pre-wrap;background:var(--bg3);padding:10px;border-radius:6px;margin-top:8px;max-height:200px;overflow-y:auto">${escHtml(c.transcricao)}</pre></details>` : ''}
+    ${analiseHtml}
+  `;
+  bg.style.display = 'flex';
+}
+
+function fecharModalLigacao() {
+  document.getElementById('modal-ligacao-bg').style.display = 'none';
+}
+
+async function analisarLigacao(id) {
   try {
-    toast('📞 Ligando...');
-    const r = await api(`/api/leads/${leadAtual.id}/ligar`, {
-      method: 'POST',
-      body: JSON.stringify({ numeroSdr }),
-    });
-    if (r.error) { toast('❌ ' + r.error, true); return; }
-    toast('✅ Ligação iniciada! Atenda seu telefone.');
-    setTimeout(() => carregarChamadas(leadAtual.id), 2000);
+    toast('⏳ Análise iniciada...');
+    await api(`/api/ligacoes/${id}/analisar`, { method: 'POST' });
+    toast('✅ Análise em andamento. Recarregue em alguns instantes.');
   } catch (e) {
-    toast('❌ Erro: ' + e.message, true);
+    toast('❌ ' + e.message, true);
+  }
+}
+
+async function ligarLead3c() {
+  if (!leadAtual) return;
+  try {
+    toast('📞 Iniciando ligação...');
+    const r = await api(`/api/leads/${leadAtual.id}/ligar`, { method: 'POST' });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('✅ Ligação iniciada! Aguarde o seu telefone tocar.');
+    setTimeout(() => carregarLigacoes(leadAtual.id), 3000);
+  } catch (e) {
+    toast('❌ ' + e.message, true);
   }
 }
 
@@ -4233,5 +4284,18 @@ async function submitNewPassword() {
     btn.disabled=false; btn.textContent='Salvar nova senha';
   }
 }
-</script></body>
+</script>
+<!-- MODAL DETALHES LIGAÇÃO -->
+<div class="modal-bg" id="modal-ligacao-bg" style="display:none" onclick="if(event.target===this)fecharModalLigacao()">
+<div class="modal" style="max-width:600px">
+  <div class="modal-header">
+    <div class="modal-titulo" id="ml-titulo">Detalhes da chamada</div>
+    <button class="modal-close" onclick="fecharModalLigacao()">×</button>
+  </div>
+  <div id="ml-body" style="padding:0 4px">
+    <!-- preenchido via JS -->
+  </div>
+</div>
+</div>
+</body>
 </html>
