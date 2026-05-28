@@ -695,7 +695,7 @@ app.get('/api/ligacoes/stats', requireAuth, requireGestor, async (req, res) => {
 
 app.get('/api/ligacoes', requireAuth, requireGestor, rateLimit, async (req, res) => {
   try {
-    const { desde, ate, usuario_id, modulo, status, score_min, score_max, page = '1' } = req.query;
+    const { desde, ate, usuario_id, modulo, status, score_min, score_max, origem, page = '1' } = req.query;
     const limit = 50;
     const offset = (Math.max(1, parseInt(page, 10)) - 1) * limit;
 
@@ -716,6 +716,7 @@ app.get('/api/ligacoes', requireAuth, requireGestor, rateLimit, async (req, res)
     if (status)  q = q.eq('status', status);
     if (score_min) q = q.gte('analise_ia->>score', score_min);
     if (score_max) q = q.lte('analise_ia->>score', score_max);
+    if (origem) q = q.filter('leads.origem', 'eq', origem);
 
     const { data, error, count } = await q;
     if (error) throw error;

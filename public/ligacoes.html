@@ -68,7 +68,7 @@
           <option value="ocupado">Ocupado</option>
           <option value="falha_gravacao">Falha</option>
         </select>
-        <select id="f-origem" onchange="filtrarOrigem()">
+        <select id="f-origem" onchange="carregar()">
           <option value="">Todas as origens</option>
           <option value="Indicação">Indicação</option>
           <option value="Google">Google</option>
@@ -176,6 +176,7 @@ async function carregar(page = 1) {
     ...(document.getElementById('f-crc').value ? { usuario_id: document.getElementById('f-crc').value } : {}),
     ...(document.getElementById('f-setor').value ? { modulo: document.getElementById('f-setor').value } : {}),
     ...(document.getElementById('f-status').value ? { status: document.getElementById('f-status').value } : {}),
+    ...(document.getElementById('f-origem').value ? { origem: document.getElementById('f-origem').value } : {}),
     ...scoreParams(),
   });
 
@@ -210,9 +211,9 @@ async function carregar(page = 1) {
       const origem = escHtml(r.leads?.origem || '—');
       return `<tr style="cursor:pointer" onclick="abrirModal(${escHtml(JSON.stringify(JSON.stringify(r)))})">
         <td>${dt}</td><td>${escHtml(crc)}</td><td>${escHtml(lead)}</td>
-        <td>${setorMap[r.modulo]||r.modulo}</td>
+        <td>${setorMap[r.modulo] || escHtml(r.modulo)}</td>
         <td>${origem}</td>
-        <td>${statusMap[r.status]||r.status}</td><td>${dur}</td><td>${scoreBadge}</td>
+        <td>${statusMap[r.status] || escHtml(r.status)}</td><td>${dur}</td><td>${scoreBadge}</td>
       </tr>`;
     }).join('');
   }
@@ -226,7 +227,6 @@ async function carregar(page = 1) {
     pg.innerHTML += `<span style="padding:6px 10px">${page} / ${totalPags}</span>`;
     if (page < totalPags) pg.innerHTML += `<button class="btn btn-ghost" onclick="carregar(${page+1})">Próxima →</button>`;
   }
-  filtrarOrigem();
 }
 
 async function carregarCusto() {
@@ -271,8 +271,8 @@ async function carregarCusto() {
 
     const tbody = document.getElementById('custo-tabela-body');
     tbody.innerHTML = (d.tabela || []).map(r => `<tr>
-      <td>${r.data}</td>
-      <td>${nomeModulo[r.modulo]||r.modulo}</td>
+      <td>${escHtml(r.data)}</td>
+      <td>${nomeModulo[r.modulo] || escHtml(r.modulo)}</td>
       <td>${r.analises}</td>
       <td>${r.minutos}</td>
       <td>R$ ${r.custo.toFixed(2)}</td>
