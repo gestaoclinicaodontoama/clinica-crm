@@ -1932,7 +1932,7 @@ async function carregarLigacoes(leadId) {
       const statusLabel = { atendida:'✅ Atendida', nao_atendida:'📵 Não atendida', ocupado:'📴 Ocupado', iniciada:'⏳ Iniciada', falha_gravacao:'⚠️ Falha gravação' }[c.status] || c.status;
       const score = c.analise_ia?.score;
       const scoreBadge = score != null ? `<span style="margin-left:6px;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;background:${score>=7?'#16a34a':score>=4?'#d97706':'#dc2626'};color:#fff">${score}</span>` : '';
-      return `<div class="chamada-item" style="cursor:pointer" onclick="abrirModalLigacao(${JSON.stringify(JSON.stringify(c))})">
+      return `<div class="chamada-item" style="cursor:pointer" onclick="abrirModalLigacao(${escHtml(JSON.stringify(JSON.stringify(c)))})">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:12.5px">${statusLabel}${scoreBadge}</span>
           <span style="color:var(--muted);font-size:11.5px">${dt} · ${dur} →</span>

@@ -130,7 +130,7 @@
 <script src="/js/shared-nav.js" data-active="ligacoes"></script>
 <script>
 const TOKEN = () => localStorage.getItem('authToken') || '';
-const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { Authorization: 'Bearer ' + TOKEN(), 'Content-Type':'application/json', ...(opts.headers||{}) }, ...opts });
