@@ -510,17 +510,29 @@ app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
     const base = process.env.THREEC_BASE_URL || 'https://clinicaama.3c.plus';
     if (!token) return res.json({ erro: 'sem token no perfil', base });
     const https = require('https'); const http = require('http');
-    const url = new URL('/agent/manual_call_enter', base);
-    url.searchParams.set('api_token', token);
-    const mod = url.protocol === 'https:' ? https : http;
-    const result = await new Promise((resolve, reject) => {
-      const opts = { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: url.pathname + url.search, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': 0 }, timeout: 10000 };
-      const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b })); });
-      req2.on('timeout', () => { req2.destroy(); reject(new Error('timeout')); });
-      req2.on('error', reject);
-      req2.end();
-    });
-    res.json({ base, url: url.href.replace(token, token.slice(0,6)+'...'), status: result.status, body: result.body.slice(0, 500), tokenPreview: token.slice(0,8)+'...' });
+
+    async function probe(method, path, body) {
+      const url = new URL(path, base);
+      url.searchParams.set('api_token', token);
+      const mod = url.protocol === 'https:' ? https : http;
+      const data = body ? JSON.stringify(body) : null;
+      return new Promise((resolve) => {
+        const opts = { hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, method, headers: { 'Content-Type': 'application/json', ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}) }, timeout: 8000 };
+        const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b.slice(0, 300) })); });
+        req2.on('timeout', () => { req2.destroy(); resolve({ status: 'timeout' }); });
+        req2.on('error', e => resolve({ status: 'err', body: e.message }));
+        if (data) req2.write(data); req2.end();
+      });
+    }
+
+    const results = await Promise.all([
+      probe('POST', '/agent/manual_call_enter', {}).then(r => ({ path: '/agent/manual_call_enter POST {}', ...r })),
+      probe('POST', '/api/v1/agent/manual_call_enter', {}).then(r => ({ path: '/api/v1/agent/manual_call_enter POST {}', ...r })),
+      probe('GET',  '/agent/manual_call_enter', null).then(r => ({ path: '/agent/manual_call_enter GET', ...r })),
+      probe('POST', '/agent/login', { campaign_id: 1 }).then(r => ({ path: '/agent/login POST', ...r })),
+      probe('GET',  '/agent/campaigns', null).then(r => ({ path: '/agent/campaigns GET', ...r })),
+    ]);
+    res.json({ base, tokenPreview: token.slice(0,8)+'...', results });
   } catch (e) {
     res.json({ erro: e.message });
   }
