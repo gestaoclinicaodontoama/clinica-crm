@@ -135,6 +135,21 @@ app.get('/api/me', requireAuth, async (req, res) => {
   }
 });
 
+app.patch('/api/me/threec-agent-token', requireAuth, async (req, res) => {
+  try {
+    const { threec_agent_token, threec_agent_ramal } = req.body;
+    const patch = {};
+    if (typeof threec_agent_token === 'string') patch.threec_agent_token = threec_agent_token.trim().slice(0, 200) || null;
+    if (typeof threec_agent_ramal === 'string') patch.threec_agent_ramal = threec_agent_ramal.trim().slice(0, 20) || null;
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nenhum campo informado' });
+    const { error } = await supabase.from('profiles').update(patch).eq('id', req.user.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+// alias legado
 app.patch('/api/me/threec-agent-id', requireAuth, async (req, res) => {
   try {
     const { threec_agent_id } = req.body;
@@ -152,7 +167,7 @@ app.patch('/api/me/threec-agent-id', requireAuth, async (req, res) => {
 async function loadProfile(req) {
   if (req.user.profile) return req.user.profile;
   const { data } = await supabase.from('profiles')
-    .select('id, nome, roles').eq('id', req.user.id).maybeSingle();
+    .select('id, nome, roles, threec_agent_token, threec_agent_ramal, threec_agent_id').eq('id', req.user.id).maybeSingle();
   req.user.profile = data || { roles: [] };
   return req.user.profile;
 }
@@ -493,17 +508,15 @@ app.post('/api/leads/:id/ligar', requireAuth, requireCrcLead, rateLimit, async (
     if (!leadId || !/^\d+$/.test(leadId)) return res.status(400).json({ error: 'ID inválido' });
 
     const p = await loadProfile(req);
-    if (!p.threec_agent_id) {
-      return res.status(400).json({ error: 'Configure seu ID de agente do 3cplus em Configurações → Perfil antes de ligar.' });
+    if (!p.threec_agent_token) {
+      return res.status(400).json({ error: 'Configure seu Token de Agente 3cplus em Configurações → Perfil antes de ligar.' });
     }
 
     const { data: lead } = await supabase.from('leads').select('id, nome, telefone').eq('id', leadId).maybeSingle();
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone cadastrado' });
 
-    if (!threec.temToken()) return res.status(503).json({ error: '3cplus não configurado no servidor' });
-
-    const { callId } = await threec.ligar({ agentId: p.threec_agent_id, numeroDestino: lead.telefone });
+    const { callId } = await threec.ligar({ agentToken: p.threec_agent_token, numeroDestino: lead.telefone });
 
     const { data: ligacao, error: lErr } = await supabase.from('ligacoes').insert({
       lead_id: leadId,
@@ -3163,6 +3176,76 @@ setInterval(async () => {
     console.error('❌ cron 3cplus retry:', e.message);
   }
 }, 3600000); // 1 hora
+
+// ========== CRON 3cplus: POLLING GET /calls PARA PREENCHER threec_call_id ==========
+// 3cplus não envia webhooks — usa Socket.io. Este cron faz polling como alternativa.
+setInterval(async () => {
+  if (!threec.temToken()) return;
+  try {
+    const duasHoras = new Date(Date.now() - 2 * 3600 * 1000);
+    const { data: pendentes } = await supabase.from('ligacoes')
+      .select('id, lead_id, usuario_id, criada_em, profiles:usuario_id(threec_agent_ramal)')
+      .is('threec_call_id', null)
+      .eq('status', 'iniciada')
+      .gt('criada_em', duasHoras.toISOString())
+      .limit(20);
+
+    if (!pendentes?.length) return;
+
+    const startDate = duasHoras.toISOString().slice(0, 19).replace('T', ' ');
+    const endDate   = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const { status, body } = await threec.getCalls({ startDate, endDate });
+
+    if (status !== 200) {
+      console.warn(`⚠️ cron 3cplus poll: GET /calls retornou ${status}`);
+      return;
+    }
+
+    let chamadas;
+    try { chamadas = JSON.parse(body); } catch { return; }
+    if (!Array.isArray(chamadas)) {
+      // Log uma vez para entender o formato real da resposta
+      console.log('ℹ️ cron 3cplus poll — formato GET /calls:', JSON.stringify(chamadas).slice(0, 300));
+      return;
+    }
+
+    // Para cada ligação pendente, tenta encontrar a chamada correspondente no 3cplus
+    for (const lig of pendentes) {
+      const ramal = lig.profiles?.threec_agent_ramal;
+      const { data: lead } = await supabase.from('leads').select('telefone').eq('id', lig.lead_id).maybeSingle();
+      if (!lead?.telefone) continue;
+      const destNorm = lead.telefone.replace(/\D/g, '');
+      const criada = new Date(lig.criada_em).getTime();
+
+      // Procura chamada com destino correspondente + ramal do agente + janela de ±10min
+      const match = chamadas.find(c => {
+        const dest = (c.destination || c.phone || c.number || '').replace(/\D/g, '');
+        const agentMatch = !ramal || (c.agent?.ramal || c.ramal || c.extension || '') === ramal;
+        const ts = c.start_time || c.created_at || c.started_at;
+        const diff = ts ? Math.abs(new Date(ts).getTime() - criada) : Infinity;
+        return dest.endsWith(destNorm.slice(-8)) && agentMatch && diff < 600000;
+      });
+
+      if (!match) continue;
+
+      const callId = match.id || match.call_id;
+      const statusMap = { answered: 'atendida', no_answer: 'nao_atendida', busy: 'ocupado', failed: 'nao_atendida' };
+      const novoPatch = {
+        threec_call_id: String(callId),
+        status: statusMap[match.status] || (match.duration > 0 ? 'atendida' : 'nao_atendida'),
+        duracao_segundos: match.duration || match.duracao_segundos || null,
+        gravacao_url: match.recording_url || match.gravacao_url || null,
+      };
+      await supabase.from('ligacoes').update(novoPatch).eq('id', lig.id);
+      console.log(`✅ cron 3cplus poll: ligação ${lig.id} atualizada (call_id=${callId})`);
+      if (novoPatch.gravacao_url && novoPatch.status === 'atendida') {
+        processarGravacao({ ...lig, ...novoPatch }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error('❌ cron 3cplus poll:', e.message);
+  }
+}, 1800000); // 30 minutos
 
 // ========== STATIC ==========
 app.get('/ligacoes', (req, res) => {
