@@ -526,11 +526,11 @@ app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
     }
 
     const results = await Promise.all([
-      probe('POST', '/agent/manual_call_enter', {}).then(r => ({ path: '/agent/manual_call_enter POST {}', ...r })),
-      probe('POST', '/api/v1/agent/manual_call_enter', {}).then(r => ({ path: '/api/v1/agent/manual_call_enter POST {}', ...r })),
-      probe('GET',  '/agent/manual_call_enter', null).then(r => ({ path: '/agent/manual_call_enter GET', ...r })),
-      probe('POST', '/agent/login', { campaign_id: 1 }).then(r => ({ path: '/agent/login POST', ...r })),
-      probe('GET',  '/agent/campaigns', null).then(r => ({ path: '/agent/campaigns GET', ...r })),
+      probe('GET',  '/api/v1/agent/campaigns', null).then(r => ({ path: 'GET /api/v1/agent/campaigns', ...r })),
+      probe('POST', '/api/v1/agent/login', { campaign_id: 1 }).then(r => ({ path: 'POST /api/v1/agent/login', ...r })),
+      probe('POST', '/api/v1/agent/manual-call-enter', {}).then(r => ({ path: 'POST /api/v1/agent/manual-call-enter (dash)', ...r })),
+      probe('POST', '/api/v1/calls', { phone: '31999999999' }).then(r => ({ path: 'POST /api/v1/calls', ...r })),
+      probe('GET',  '/api/v1/calls', null).then(r => ({ path: 'GET /api/v1/calls', ...r })),
     ]);
     res.json({ base, tokenPreview: token.slice(0,8)+'...', results });
   } catch (e) {
