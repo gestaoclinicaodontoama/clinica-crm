@@ -620,6 +620,51 @@ app.post('/api/webhooks/3cplus', async (req, res) => {
   }
 });
 
+// ========== ANÁLISE MANUAL DE LIGAÇÕES ==========
+app.post('/api/ligacoes/:id/analisar', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const ligacaoId = req.params.id;
+    if (!UUID_V4_RE.test(ligacaoId)) return res.status(400).json({ error: 'ID inválido' });
+
+    const { data: ligacao } = await supabase.from('ligacoes')
+      .select('*').eq('id', ligacaoId).maybeSingle();
+    if (!ligacao) return res.status(404).json({ error: 'Ligação não encontrada' });
+    if (ligacao.status !== 'atendida') return res.status(400).json({ error: 'Apenas chamadas atendidas podem ser analisadas' });
+    if (!ligacao.gravacao_url) return res.status(400).json({ error: 'Gravação não disponível' });
+
+    res.json({ ok: true, msg: 'Análise iniciada' });
+
+    // Fire-and-forget com override de limites (manual)
+    (async () => {
+      try {
+        const { buffer: audioBuffer, contentType } = await threec.downloadGravacao(ligacao.gravacao_url);
+        const { data: analise, tokensIn, tokensOut } = await geminiLib().analyzeLigacao({
+          audioBuffer, contentType, modulo: ligacao.modulo,
+        });
+        const custoMin = parseFloat(process.env.GEMINI_COST_PER_MIN || '0.016');
+        const duracao = ligacao.duracao_segundos || 0;
+        const custoEstimado = parseFloat(((duracao / 60) * custoMin).toFixed(4));
+        await Promise.all([
+          supabase.from('ligacoes').update({
+            transcricao: analise.transcricao,
+            analise_ia: { resumo: analise.resumo, pontos_fortes: analise.pontos_fortes, pontos_melhora: analise.pontos_melhora, score: analise.score },
+            analisada_em: new Date().toISOString(),
+          }).eq('id', ligacaoId),
+          supabase.from('ia_uso_log').insert({
+            modulo: ligacao.modulo, duracao_audio_s: duracao,
+            tokens_entrada: tokensIn, tokens_saida: tokensOut, custo_estimado: custoEstimado,
+          }),
+        ]);
+        console.log(`✅ Análise manual concluída: ${ligacaoId}`);
+      } catch (e) {
+        console.error('❌ análise manual:', ligacaoId, e.message);
+      }
+    })();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ========== WHATSAPP ==========
 app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => {
   try {
@@ -2966,6 +3011,27 @@ app.post('/api/internal/cron/insights-semanal', requireCronSecret, async (req, r
 
 // ========== HEALTH CHECK ==========
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// ========== CRON 3cplus: RETRY GRAVAÇÕES ==========
+setInterval(async () => {
+  try {
+    const { data: pendentes } = await supabase.from('ligacoes')
+      .select('*')
+      .not('gravacao_url', 'is', null)
+      .is('transcricao', null)
+      .gt('tentativas_gravacao', 0)
+      .lt('tentativas_gravacao', 3)
+      .neq('status', 'falha_gravacao')
+      .limit(10);
+    if (!pendentes?.length) return;
+    console.log(`🔄 Cron 3cplus: reprocessando ${pendentes.length} gravação(ões)`);
+    for (const lig of pendentes) {
+      await processarGravacao(lig).catch(() => {});
+    }
+  } catch (e) {
+    console.error('❌ cron 3cplus retry:', e.message);
+  }
+}, 3600000); // 1 hora
 
 // ========== STATIC ==========
 app.use(express.static(path.join(__dirname, 'public')));
