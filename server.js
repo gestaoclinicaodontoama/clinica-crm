@@ -502,6 +502,30 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
   }
 });
 // ========== TELEFONIA ==========
+// DEBUG TEMPORÁRIO — remover após diagnóstico
+app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const token = p.threec_agent_token;
+    const base = process.env.THREEC_BASE_URL || 'https://clinicaama.3c.plus';
+    if (!token) return res.json({ erro: 'sem token no perfil', base });
+    const https = require('https'); const http = require('http');
+    const url = new URL('/agent/manual_call_enter', base);
+    url.searchParams.set('api_token', token);
+    const mod = url.protocol === 'https:' ? https : http;
+    const result = await new Promise((resolve, reject) => {
+      const opts = { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: url.pathname + url.search, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': 0 }, timeout: 10000 };
+      const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b })); });
+      req2.on('timeout', () => { req2.destroy(); reject(new Error('timeout')); });
+      req2.on('error', reject);
+      req2.end();
+    });
+    res.json({ base, url: url.href.replace(token, token.slice(0,6)+'...'), status: result.status, body: result.body.slice(0, 500), tokenPreview: token.slice(0,8)+'...' });
+  } catch (e) {
+    res.json({ erro: e.message });
+  }
+});
+
 app.post('/api/leads/:id/ligar', requireAuth, requireCrcLead, rateLimit, async (req, res) => {
   try {
     const leadId = req.params.id;
