@@ -665,6 +665,137 @@ app.post('/api/ligacoes/:id/analisar', requireAuth, rateLimit, async (req, res) 
   }
 });
 
+// ========== LIGAÇÕES — ROTAS GERENCIAIS ==========
+app.get('/api/ligacoes/stats', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const { desde, ate, modulo, usuario_id } = req.query;
+    let q = supabase.from('ligacoes').select('status, duracao_segundos, analise_ia');
+    if (desde) q = q.gte('criada_em', desde + 'T00:00:00Z');
+    if (ate)   q = q.lte('criada_em', ate + 'T23:59:59Z');
+    if (modulo && modulo !== 'todos') q = q.eq('modulo', modulo);
+    if (usuario_id && UUID_V4_RE.test(usuario_id)) q = q.eq('usuario_id', usuario_id);
+    const { data } = await q;
+    const rows = data || [];
+    const total = rows.length;
+    const atendidas = rows.filter(r => r.status === 'atendida').length;
+    const taxaAtendimento = total ? Math.round((atendidas / total) * 100) : 0;
+    const comDuracao = rows.filter(r => r.duracao_segundos > 0);
+    const duracaoMedia = comDuracao.length
+      ? Math.round(comDuracao.reduce((s, r) => s + r.duracao_segundos, 0) / comDuracao.length)
+      : 0;
+    const comScore = rows.filter(r => r.analise_ia?.score != null);
+    const scoreMedia = comScore.length
+      ? parseFloat((comScore.reduce((s, r) => s + r.analise_ia.score, 0) / comScore.length).toFixed(1))
+      : null;
+    res.json({ total, atendidas, taxa_atendimento: taxaAtendimento, duracao_media_s: duracaoMedia, score_medio: scoreMedia });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/ligacoes', requireAuth, requireGestor, rateLimit, async (req, res) => {
+  try {
+    const { desde, ate, usuario_id, modulo, status, score_min, score_max, page = '1' } = req.query;
+    const limit = 50;
+    const offset = (Math.max(1, parseInt(page, 10)) - 1) * limit;
+
+    let q = supabase.from('ligacoes')
+      .select(`
+        id, threec_call_id, status, duracao_segundos, modulo,
+        criada_em, analisada_em, analise_ia,
+        usuario_id, profiles!ligacoes_usuario_id_fkey(nome),
+        lead_id, leads!ligacoes_lead_id_fkey(nome, origem)
+      `, { count: 'exact' })
+      .order('criada_em', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (desde) q = q.gte('criada_em', desde + 'T00:00:00Z');
+    if (ate)   q = q.lte('criada_em', ate + 'T23:59:59Z');
+    if (usuario_id && UUID_V4_RE.test(usuario_id)) q = q.eq('usuario_id', usuario_id);
+    if (modulo)  q = q.eq('modulo', modulo);
+    if (status)  q = q.eq('status', status);
+    if (score_min) q = q.gte('analise_ia->>score', score_min);
+    if (score_max) q = q.lte('analise_ia->>score', score_max);
+
+    const { data, error, count } = await q;
+    if (error) throw error;
+    res.json({ data: data || [], total: count || 0, page: parseInt(page, 10), limit });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ========== IA CONFIG ==========
+app.get('/api/ia-config', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('ia_config').select('*').order('modulo');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/ia-config/:modulo', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const { modulo } = req.params;
+    if (!['leads', 'agendamentos', 'avaliacao_dentista'].includes(modulo))
+      return res.status(400).json({ error: 'Módulo inválido' });
+    const { auto_analise_ativo, min_duracao_s, limite_diario, limite_semanal } = req.body;
+    const patch = {};
+    if (typeof auto_analise_ativo === 'boolean') patch.auto_analise_ativo = auto_analise_ativo;
+    if (Number.isFinite(min_duracao_s) && min_duracao_s >= 0) patch.min_duracao_s = min_duracao_s;
+    if (Number.isFinite(limite_diario) && limite_diario > 0) patch.limite_diario = limite_diario;
+    if (Number.isFinite(limite_semanal) && limite_semanal > 0) patch.limite_semanal = limite_semanal;
+    const { error } = await supabase.from('ia_config').update(patch).eq('modulo', modulo);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ========== IA USO LOG ==========
+app.get('/api/ia-uso-log', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const diasAtras = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
+    const { data, error } = await supabase.from('ia_uso_log')
+      .select('*')
+      .gte('criado_em', diasAtras)
+      .order('criado_em', { ascending: false })
+      .limit(500);
+    if (error) throw error;
+
+    const byDia = {};
+    for (const row of (data || [])) {
+      const dia = row.criado_em.slice(0, 10);
+      const k = `${dia}|${row.modulo}`;
+      if (!byDia[k]) byDia[k] = { data: dia, modulo: row.modulo, analises: 0, minutos: 0, custo: 0 };
+      byDia[k].analises++;
+      byDia[k].minutos += Math.ceil((row.duracao_audio_s || 0) / 60);
+      byDia[k].custo += parseFloat(row.custo_estimado || 0);
+    }
+
+    const inicioMes = new Date();
+    inicioMes.setDate(1); inicioMes.setHours(0, 0, 0, 0);
+    const mesRows = (data || []).filter(r => r.criado_em >= inicioMes.toISOString());
+    const analisesMes = mesRows.length;
+    const minutosMes = mesRows.reduce((s, r) => s + Math.ceil((r.duracao_audio_s || 0) / 60), 0);
+    const custoMes = parseFloat(mesRows.reduce((s, r) => s + parseFloat(r.custo_estimado || 0), 0).toFixed(2));
+    const diasDecorridos = new Date().getDate();
+    const diasNoMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const projecao = diasDecorridos > 0 ? parseFloat(((custoMes / diasDecorridos) * diasNoMes).toFixed(2)) : 0;
+
+    res.json({
+      cards: { analises_mes: analisesMes, minutos_mes: minutosMes, custo_mes: custoMes, projecao_mes: projecao },
+      tabela: Object.values(byDia).sort((a, b) => b.data.localeCompare(a.data)),
+      custo_por_min: parseFloat(process.env.GEMINI_COST_PER_MIN || '0.016'),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ========== WHATSAPP ==========
 app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => {
   try {
