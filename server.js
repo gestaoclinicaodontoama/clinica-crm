@@ -528,33 +528,34 @@ app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
       };
     }
     const probe = makeProbe(base);
-    const probeAlt = makeProbe(altBase);
     const gestorToken = process.env.THREEC_TOKEN || '';
 
-    // Passo 1: login na campanha (deve vir ANTES do manual_call_enter)
-    const loginRes = await probe('POST', '/api/v1/agent/login', { campaign: 247859 });
-    const loginLabel = { path: 'POST /api/v1/agent/login {campaign:247859}', ...loginRes };
+    // Datas para sonda do /calls (hoje, últimas 24h)
+    const now = new Date();
+    const ontem = new Date(now - 24 * 3600 * 1000);
+    const fmt = d => d.toISOString().slice(0, 19).replace('T', ' ');
+    const callsUrl = `/api/v1/calls?start_date=${encodeURIComponent(fmt(ontem))}&end_date=${encodeURIComponent(fmt(now))}`;
 
-    // Passo 2: após login, tentar várias variações de manual call
-    const afterLogin = await Promise.all([
-      probe('POST', '/api/v1/agent/manual_call_enter', null).then(r => ({ path: 'POST /api/v1/agent/manual_call_enter null', ...r })),
-      probe('POST', '/api/v1/agent/manual_call_dial', { phone: '31999999999' }).then(r => ({ path: 'POST /api/v1/agent/manual_call_dial {phone}', ...r })),
-      probe('GET',  '/api/v1/agent/status', null).then(r => ({ path: 'GET /api/v1/agent/status', ...r })),
-      probe('POST', '/api/v1/agent/call',   { phone: '31999999999', campaign_id: 247859 }).then(r => ({ path: 'POST /api/v1/agent/call {phone,campaign_id}', ...r })),
-      probe('POST', '/api/v1/agent/dial',   { phone: '31999999999' }).then(r => ({ path: 'POST /api/v1/agent/dial {phone}', ...r })),
-      // tentar base alternativa (app.3c.fluxoti.com.br)
-      probeAlt('POST', '/api/v1/agent/manual_call_enter', null).then(r => ({ path: '[altBase] POST /api/v1/agent/manual_call_enter', ...r })),
-      probeAlt('POST', '/api/v1/agent/login', { campaign: 247859 }).then(r => ({ path: '[altBase] POST /api/v1/agent/login', ...r })),
-      // gestor: listar calls
-      probe('GET',  '/api/v1/calls', null, gestorToken).then(r => ({ path: 'GET /api/v1/calls GESTOR', ...r })),
-      probe('GET',  '/api/v1/reports/calls', null, gestorToken).then(r => ({ path: 'GET /api/v1/reports/calls GESTOR', ...r })),
+    const steps = await Promise.all([
+      // Login sequencial + manual_call_enter (testados em série via then)
+      probe('POST', '/api/v1/agent/login', { campaign: 247859 }).then(async loginRes => {
+        const enterRes = await probe('POST', '/api/v1/agent/manual_call_enter', null);
+        const logoutRes = await probe('POST', '/api/v1/agent/logout', null);
+        return [
+          { path: 'POST /api/v1/agent/login {campaign:247859}', ...loginRes },
+          { path: 'POST /api/v1/agent/manual_call_enter (após login)', ...enterRes },
+          { path: 'POST /api/v1/agent/logout (cleanup)', ...logoutRes },
+        ];
+      }),
+      // Listar chamadas com datas reais (gestor token)
+      probe('GET', callsUrl, null, gestorToken).then(r => [{ path: `GET ${callsUrl} GESTOR`, ...r }]),
+      // Outros endpoints de agente
+      probe('GET',  '/api/v1/agent/me', null).then(r => [{ path: 'GET /api/v1/agent/me', ...r }]),
+      probe('GET',  '/api/v1/me', null).then(r => [{ path: 'GET /api/v1/me AGENT', ...r }]),
+      probe('GET',  '/api/v1/me', null, gestorToken).then(r => [{ path: 'GET /api/v1/me GESTOR', ...r }]),
     ]);
 
-    // Limpar: logout para não deixar Paola travada
-    const logoutRes = await probe('POST', '/api/v1/agent/logout', null);
-    const logoutLabel = { path: 'POST /api/v1/agent/logout (cleanup)', ...logoutRes };
-
-    res.json({ base, altBase, tokenPreview: token.slice(0,8)+'...', gestorTokenPresent: Boolean(gestorToken), steps: [loginLabel, ...afterLogin, logoutLabel] });
+    res.json({ base, tokenPreview: token.slice(0,8)+'...', gestorTokenPresent: Boolean(gestorToken), steps: steps.flat() });
   } catch (e) {
     res.json({ erro: e.message });
   }
