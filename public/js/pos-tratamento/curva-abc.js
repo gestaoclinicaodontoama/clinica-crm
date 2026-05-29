@@ -255,3 +255,91 @@ function renderPaginacao() {
 window._abcPag = n => { paginaAtual = n; carregar(); };
 
 init();
+
+async function backendApi(method, path, body) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch(path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(session?.access_token ? { Authorization: 'Bearer ' + session.access_token } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || 'Erro ' + r.status);
+  return data;
+}
+
+async function lancarCampanhaABC() {
+  try {
+    const preview = await backendApi('GET', '/api/campanhas/preview/abc');
+    if (!preview.total) {
+      toast('Nenhum paciente encontrado com os critérios (Classe A/B, 180+ dias sem retorno, sem agenda).', 'error');
+      return;
+    }
+    _abrirModalCampanha('abc', preview);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function _abrirModalCampanha(tipo, preview) {
+  const LABELS = {
+    abc: { titulo: 'Retorno ABC', sub: 'Classe A/B · Sem consulta há 180+ dias · Sem agenda' },
+    indicacoes: { titulo: 'Leads Indicações', sub: 'Leads com origem = indicação · Status ativo' },
+    recentes: { titulo: 'Leads Recentes', sub: 'Últimos 50 leads (não-indicação)' },
+    frios: { titulo: 'Leads Frios', sub: 'Leads do 51º ao 151º (não-indicação)' },
+  };
+  const { titulo, sub } = LABELS[tipo] || { titulo: tipo, sub: '' };
+
+  const cols = tipo === 'abc'
+    ? ['nome', 'telefone', 'dias_sem_visita']
+    : ['nome', 'telefone'];
+  const colLabels = tipo === 'abc'
+    ? ['Nome', 'Telefone', 'Dias sem retorno']
+    : ['Nome', 'Telefone'];
+
+  const rows = (preview.contatos || []).slice(0, 20).map(c =>
+    '<tr>' + cols.map(k => `<td style="padding:6px 8px;border-bottom:1px solid var(--color-border,#e2e8f0);font-size:13px">${c[k] || '—'}</td>`).join('') + '</tr>'
+  ).join('');
+  const extra = preview.total > 20
+    ? `<tr><td colspan="${cols.length}" style="padding:6px 8px;color:var(--color-text-muted,#718096);font-size:12px">... e mais ${preview.total - 20} contatos</td></tr>`
+    : '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px;max-height:80vh;display:flex;flex-direction:column">
+      <h3 class="modal__title">${titulo} — ${preview.total} contatos</h3>
+      <p style="font-size:13px;color:var(--color-text-muted,#718096);margin:0 0 12px">${sub}</p>
+      <div style="overflow-y:auto;flex:1;border:1px solid var(--color-border,#e2e8f0);border-radius:8px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>${colLabels.map(l => `<th style="padding:8px;text-align:left;font-size:12px;background:var(--color-surface-alt,#f7fafc);border-bottom:2px solid var(--color-border,#e2e8f0)">${l}</th>`).join('')}</tr></thead>
+          <tbody>${rows}${extra}</tbody>
+        </table>
+      </div>
+      <div class="modal__actions" style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+        <button id="cmp-cancelar" class="btn btn--ghost">Cancelar</button>
+        <button id="cmp-confirmar" class="btn btn--success">📞 Enviar para discagem</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('cmp-cancelar').onclick = () => overlay.remove();
+  document.getElementById('cmp-confirmar').onclick = async () => {
+    const btn = document.getElementById('cmp-confirmar');
+    btn.disabled = true; btn.textContent = 'Enviando...';
+    try {
+      await backendApi('POST', '/api/campanhas/lancar', { tipo });
+      overlay.remove();
+      toast(`Campanha iniciada! ${preview.total} contatos na fila de discagem.`);
+      if (window.campanhaWidgetRefresh) window.campanhaWidgetRefresh();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = '📞 Enviar para discagem';
+      toast(e.message, 'error');
+    }
+  };
+}
+
+window.lancarCampanhaABC = lancarCampanhaABC;
