@@ -81,9 +81,9 @@ GET /api/campanhas/preview/:tipo
 ```
 - `tipo`: `abc` | `indicacoes` | `recentes` | `frios`
 - Filtros por tipo:
-  - **abc**: `curva_pacientes` onde `classe IN ('A','B')` AND `dias_sem_visita >= 180` AND `proxima_consulta IS NULL` — retorna `{nome, telefone, clinicorp_id, dias_sem_visita}`
-  - **indicacoes**: `leads` onde `utm_source = 'indicacao'` AND `status != 'arquivado'` — retorna `{nome, telefone, id}`
-  - **recentes**: `leads` onde `utm_source != 'indicacao'` AND `status != 'arquivado'` ORDER BY `criado_em DESC` LIMIT 50
+  - **abc**: tabela `pacientes_abc` onde `classe IN ('A','B')` AND `dias_sem_visita >= 180` AND `proxima_consulta IS NULL` — retorna `{nome, telefone, clinicorp_id, dias_sem_visita}`
+  - **indicacoes**: `leads` onde `origem = 'Indicação'` AND `status NOT IN ('Fechou','Perdido')` — retorna `{nome, telefone, id}`
+  - **recentes**: `leads` onde `origem != 'Indicação'` AND `status NOT IN ('Fechou','Perdido')` ORDER BY `criado_em DESC` LIMIT 50
   - **frios**: mesmo que recentes, OFFSET 50 LIMIT 101 (51º ao 151º)
 - Resposta: `{ total: N, contatos: [...] }`
 - Roles: `crc_leads`, `gestor`, `admin`
