@@ -700,6 +700,61 @@ app.get('/api/campanhas/preview/:tipo', requireAuth, requireCrcLead, async (req,
   }
 });
 
+app.post('/api/campanhas/lancar', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const { tipo } = req.body;
+    if (!TIPOS_VALIDOS.includes(tipo)) return res.status(400).json({ error: 'Tipo inválido' });
+
+    const envVar = CAMP_ENV[tipo];
+    const campaignId = parseInt(process.env[envVar], 10);
+    if (!campaignId) {
+      return res.status(400).json({ error: `Campanha não configurada. Configure ${envVar} no Easypanel.` });
+    }
+
+    const { data: ativas } = await supabase.from('campanhas_discagem')
+      .select('id').in('status', ['ativa', 'pausada']).limit(1);
+    if (ativas?.length) {
+      return res.status(409).json({ error: 'Encerre ou retome e encerre a campanha atual antes de lançar outra.' });
+    }
+
+    const contatos = await buscarContatos(tipo);
+    const comTelefone = contatos.filter(c => c.telefone?.trim());
+    if (!comTelefone.length) {
+      return res.status(400).json({ error: 'Nenhum contato encontrado com telefone cadastrado.' });
+    }
+
+    await threecCamp.uploadMailing(campaignId, comTelefone.map(c => ({ nome: c.nome, telefone: c.telefone })));
+
+    const { data: campanha, error: dbErr } = await supabase.from('campanhas_discagem').insert({
+      tipo,
+      threec_campaign_id: campaignId,
+      contatos_total: comTelefone.length,
+      contatos_json: comTelefone,
+      status: 'ativa',
+      usuario_id: req.user.id,
+    }).select().single();
+
+    if (dbErr) {
+      await threecCamp.encerrarCampanha(campaignId).catch(e => console.error('❌ rollback encerrar:', e.message));
+      throw dbErr;
+    }
+
+    const p = req.user.profile;
+    if (p?.threec_agent_token) {
+      threecCamp.loginCrcNaCampanha(p.threec_agent_token, campaignId).catch(e => {
+        console.warn('⚠️ loginCrcNaCampanha falhou (não-fatal):', e.message);
+      });
+    } else {
+      console.info('ℹ️ CRC sem threec_agent_token — loginCrcNaCampanha ignorado');
+    }
+
+    res.json({ ok: true, campanha: { id: campanha.id, tipo: campanha.tipo, contatos_total: campanha.contatos_total } });
+  } catch (e) {
+    console.error('❌ campanhas/lancar:', e.message);
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 app.post('/webhooks/totalvoice', async (req, res) => {
   try {
     const e = req.body;
