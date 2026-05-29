@@ -51,9 +51,11 @@ Sem tabela de config — IDs de campanha ficam em env vars para simplicidade.
 
 ### Arquivo novo: `lib/3cplus-campanhas.js`
 
-Funções exportadas (todas usam gestor token `THREEC_TOKEN`):
+Duas categorias de token — documentadas explicitamente:
 
 ```js
+// ── Gestor token (THREEC_TOKEN env var) ──────────────────────────────
+
 // Faz upload de mailing para campanha — substitui lista anterior
 // contacts: [{nome, telefone}]
 async function uploadMailing(campaignId, contacts) { ... }
@@ -67,8 +69,15 @@ async function retomarCampanha(campaignId) { ... }
 // Encerra campanha (stop definitivo)
 async function encerrarCampanha(campaignId) { ... }
 
-// Busca resultado de calls de uma campanha nas últimas N horas
-async function getCallsDaCampanha(campaignId, horasAtras) { ... }
+// Busca calls de uma campanha desde iniciada_em até agora (gestor token)
+async function getCallsDaCampanha(campaignId, iniciada_em) { ... }
+
+// ── Token da CRC (agentToken — vem do profile da CRC logada) ─────────
+
+// Loga a CRC na campanha para ela receber as chamadas preditivas
+// agentToken = req.user.profile.threec_agent_token (carregado via loadProfile)
+// Sem este passo, a CRC não recebe chamadas mesmo com o mailing uploaded
+async function loginCrcNaCampanha(agentToken, campaignId) { ... }
 ```
 
 **⚠️ Risco: endpoints de campanha não testados — verificar antes de implementar.**
@@ -95,6 +104,7 @@ GET /api/campanhas/preview/:tipo
   - **recentes**: `leads` onde `origem != 'Indicação'` AND `status NOT IN ('Fechou','Perdido')` ORDER BY `criado_em DESC` LIMIT 50
   - **frios**: mesmo que recentes, OFFSET 50 LIMIT 101 (51º ao 151º)
 - Resposta: `{ total: N, contatos: [...] }`
+- Aceita query param `?count_only=true` → retorna só `{ total: N }` sem lista (usado para os contadores dos botões no módulo de Leads)
 - Roles: `crc_leads`, `gestor`, `admin`
 
 **Lançar campanha:**
@@ -104,17 +114,17 @@ Body: { tipo: 'abc' | 'indicacoes' | 'recentes' | 'frios' }
 ```
 1. Busca env var do campaign_id pelo tipo
 2. Se não configurada → erro 400 "Campanha não configurada"
-3. Checa se há campanha ativa **de qualquer tipo** → erro 409 "Encerre a campanha atual antes de lançar outra" (uma campanha ativa por vez no sistema)
-4. Re-busca contatos com mesma query do preview (snapshot pode diferir ligeiramente do preview — normal)
+3. Checa se há campanha com status `ativa` **ou** `pausada` → erro 409 "Encerre ou retome e encerre a campanha atual antes de lançar outra"
+4. Re-busca contatos com mesma query do preview (snapshot pode diferir ligeiramente — normal)
 5. Filtra contatos sem telefone — silenciosamente removidos
 6. Se 0 contatos com telefone → erro 400 "Nenhum contato encontrado com telefone cadastrado"
-7. Chama `uploadMailing(campaignId, contatos)` na 3cplus
-8. Chama `POST /api/v1/agent/login {campaign: campaignId}` com o **token da CRC que lançou** — necessário para ela receber chamadas da campanha
-9. Insere registro em `campanhas_discagem` com status `ativa`
+7. Chama `uploadMailing(campaignId, contatos)` — se falhar → erro 502, nenhum registro criado no DB
+8. Insere registro em `campanhas_discagem` com status `ativa` — se falhar → chama `encerrarCampanha(campaignId)` como rollback antes de retornar erro 500
+9. Chama `loginCrcNaCampanha(req.user.profile.threec_agent_token, campaignId)` — falha aqui é não-fatal (loga warning, campanha continua ativa, CRC recebe toast de aviso para se logar manualmente)
 10. Resposta: `{ ok: true, campanha: { id, tipo, contatos_total } }`
 - Roles: `crc_leads`, `gestor`, `admin`
 
-> **Nota:** Somente a CRC que lançou é automaticamente logada na campanha. Outras CRCs que queiram receber chamadas precisam se logar manualmente no painel da 3cplus.
+> **Nota:** Somente a CRC que lançou é automaticamente logada na campanha. Outras CRCs que queiram receber chamadas da mesma campanha precisam se logar manualmente no painel da 3cplus.
 
 **Pausar:**
 ```
@@ -226,6 +236,12 @@ Aparece em Curva ABC e em Leads quando `GET /api/campanhas/ativa` retorna campan
 - Encerrar pede confirmação: "Encerrar campanha? Os contatos restantes não serão discados."
 
 O painel é implementado em `public/js/campanha-widget.js` (compartilhado entre módulos via `<script src="/js/campanha-widget.js">`).
+
+**Inicialização e reconciliação de estado:**
+1. Ao carregar a página, chama `GET /api/campanhas/ativa`
+2. Se retorna campanha → mostra painel, inicia polling de resultado a cada 60s
+3. A cada poll de resultado: se `na_fila === 0` e `status === 'ativa'` → chama `POST /api/campanhas/:id/encerrar` automaticamente (campanha terminou naturalmente) e esconde o painel
+4. Se o servidor reiniciar com campanha `ativa` no DB mas a 3cplus já terminou, o passo 3 reconcilia no próximo poll (na_fila será 0)
 
 ---
 
