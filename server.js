@@ -755,6 +755,81 @@ app.post('/api/campanhas/lancar', requireAuth, requireCrcLead, async (req, res) 
   }
 });
 
+app.post('/api/campanhas/:id/pausar', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: campanha } = await supabase.from('campanhas_discagem').select('*').eq('id', id).maybeSingle();
+    if (!campanha) return res.status(404).json({ error: 'Campanha não encontrada' });
+    if (campanha.status !== 'ativa') return res.status(400).json({ error: `Campanha não está ativa (status atual: ${campanha.status})` });
+    await threecCamp.pausarCampanha(campanha.threec_campaign_id);
+    await supabase.from('campanhas_discagem').update({ status: 'pausada', pausada_em: new Date().toISOString() }).eq('id', id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/campanhas/:id/retomar', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: campanha } = await supabase.from('campanhas_discagem').select('*').eq('id', id).maybeSingle();
+    if (!campanha) return res.status(404).json({ error: 'Campanha não encontrada' });
+    if (campanha.status !== 'pausada') return res.status(400).json({ error: `Campanha não está pausada (status atual: ${campanha.status})` });
+    await threecCamp.retomarCampanha(campanha.threec_campaign_id);
+    await supabase.from('campanhas_discagem').update({ status: 'ativa', pausada_em: null }).eq('id', id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/campanhas/:id/encerrar', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: campanha } = await supabase.from('campanhas_discagem').select('threec_campaign_id').eq('id', id).maybeSingle();
+    if (!campanha) return res.status(404).json({ error: 'Campanha não encontrada' });
+    await threecCamp.encerrarCampanha(campanha.threec_campaign_id);
+    await supabase.from('campanhas_discagem').update({ status: 'encerrada', encerrada_em: new Date().toISOString() }).eq('id', id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/campanhas/ativa', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const { data: campanha } = await supabase.from('campanhas_discagem')
+      .select('id, tipo, status, contatos_total, iniciada_em, pausada_em')
+      .in('status', ['ativa', 'pausada'])
+      .order('iniciada_em', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    res.json({ campanha: campanha || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/campanhas/:id/resultado', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: campanha } = await supabase.from('campanhas_discagem')
+      .select('threec_campaign_id, contatos_total, iniciada_em').eq('id', id).maybeSingle();
+    if (!campanha) return res.status(404).json({ error: 'Campanha não encontrada' });
+    const calls = await threecCamp.getCallsDaCampanha(campanha.threec_campaign_id, campanha.iniciada_em);
+    const atendidas = calls.filter(c => c.status_id === 7).length;
+    const nao_atendeu = calls.filter(c => c.status_id !== 7).length;
+    const na_fila = Math.max(0, campanha.contatos_total - atendidas - nao_atendeu);
+    res.json({ atendidas, nao_atendeu, na_fila });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 app.post('/webhooks/totalvoice', async (req, res) => {
   try {
     const e = req.body;
