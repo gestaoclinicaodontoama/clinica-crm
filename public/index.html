@@ -1498,7 +1498,7 @@ function setPage(p, btn) {
     loadLeads();
     api('/api/campanhas/preview/indicacoes?count_only=true').then(d => {
       const span = document.getElementById('cnt-indicacoes');
-      if (span) span.textContent = d.total;
+      if (span) span.textContent = d?.total ?? '?';
     }).catch(() => {});
   }
   if (p === 'funil') loadKanban();
@@ -4372,12 +4372,19 @@ async function lancarCampanha(tipo) {
   }
 }
 
+function _esc(s) {
+  if (!s) return '—';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function _abrirModalCampanhaLeads(tipo, preview) {
   const { titulo, sub } = CAMP_LABELS[tipo] || { titulo: tipo, sub: '' };
+  const safeTitle = _esc(titulo);
+  const safeSub = _esc(sub);
   const rows = (preview.contatos || []).slice(0, 20).map(c =>
     `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${c.nome || '—'}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${c.telefone || '—'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${_esc(c.nome)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${_esc(c.telefone)}</td>
     </tr>`
   ).join('');
   const extra = preview.total > 20
@@ -4389,10 +4396,10 @@ function _abrirModalCampanhaLeads(tipo, preview) {
   bg.innerHTML = `
     <div class="modal" style="max-width:480px;max-height:80vh;display:flex;flex-direction:column">
       <div class="modal-header">
-        <span class="modal-titulo">${titulo} — ${preview.total} leads</span>
+        <span class="modal-titulo">${safeTitle} — ${preview.total} leads</span>
         <button class="modal-close" id="cml-close">×</button>
       </div>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">${sub}</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">${safeSub}</p>
       <div style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:8px">
         <table style="width:100%;border-collapse:collapse">
           <thead><tr>
