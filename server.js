@@ -142,9 +142,22 @@ app.patch('/api/me/threec-agent-token', requireAuth, async (req, res) => {
     if (typeof threec_agent_token === 'string') patch.threec_agent_token = threec_agent_token.trim().slice(0, 200) || null;
     if (typeof threec_agent_ramal === 'string') patch.threec_agent_ramal = threec_agent_ramal.trim().slice(0, 20) || null;
     if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nenhum campo informado' });
+
+    // Auto-busca o ID numérico do agente na 3cplus via GET /api/v1/me
+    if (patch.threec_agent_token) {
+      try {
+        const meRes = await threec.apiRequest('GET', '/api/v1/me', null, patch.threec_agent_token);
+        if (meRes.status === 200) {
+          const meData = JSON.parse(meRes.body);
+          const numId = meData?.data?.id;
+          if (numId) patch.threec_agent_id = numId;
+        }
+      } catch {}
+    }
+
     const { error } = await supabase.from('profiles').update(patch).eq('id', req.user.id);
     if (error) throw error;
-    res.json({ ok: true });
+    res.json({ ok: true, threec_agent_id: patch.threec_agent_id || null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -3237,13 +3250,21 @@ setInterval(async () => {
 }, 3600000); // 1 hora
 
 // ========== CRON 3cplus: POLLING GET /calls PARA PREENCHER threec_call_id ==========
+// Converte "HH:MM:SS" → segundos
+function hmsToSeconds(hms) {
+  if (!hms || hms === '00:00:00') return 0;
+  const [h, m, s] = hms.split(':').map(Number);
+  return h * 3600 + m * 60 + (s || 0);
+}
+
 // 3cplus não envia webhooks — usa Socket.io. Este cron faz polling como alternativa.
+// Resposta de GET /api/v1/calls: {status:200, data:[{id,number,agent_id,call_date,speaking_with_agent_time,recording,status_id,...}]}
 setInterval(async () => {
   if (!threec.temToken()) return;
   try {
     const duasHoras = new Date(Date.now() - 2 * 3600 * 1000);
     const { data: pendentes } = await supabase.from('ligacoes')
-      .select('id, lead_id, usuario_id, criada_em, profiles:usuario_id(threec_agent_ramal)')
+      .select('id, lead_id, usuario_id, criada_em, profiles:usuario_id(threec_agent_id)')
       .is('threec_call_id', null)
       .eq('status', 'iniciada')
       .gt('criada_em', duasHoras.toISOString())
@@ -3251,53 +3272,53 @@ setInterval(async () => {
 
     if (!pendentes?.length) return;
 
-    const startDate = duasHoras.toISOString().slice(0, 19).replace('T', ' ');
-    const endDate   = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    const { status, body } = await threec.getCalls({ startDate, endDate });
+    const fmt = d => d.toISOString().slice(0, 19).replace('T', ' ');
+    const { status, body } = await threec.getCalls({ startDate: fmt(duasHoras), endDate: fmt(new Date()) });
 
     if (status !== 200) {
-      console.warn(`⚠️ cron 3cplus poll: GET /calls retornou ${status}`);
+      console.warn(`⚠️ cron 3cplus poll: GET /calls retornou ${status} — ${body.slice(0, 200)}`);
       return;
     }
 
     let chamadas;
-    try { chamadas = JSON.parse(body); } catch { return; }
+    try {
+      const parsed = JSON.parse(body);
+      chamadas = parsed?.data;
+    } catch { return; }
     if (!Array.isArray(chamadas)) {
-      // Log uma vez para entender o formato real da resposta
-      console.log('ℹ️ cron 3cplus poll — formato GET /calls:', JSON.stringify(chamadas).slice(0, 300));
+      console.warn('⚠️ cron 3cplus poll — data não é array:', JSON.stringify(chamadas).slice(0, 200));
       return;
     }
 
     // Para cada ligação pendente, tenta encontrar a chamada correspondente no 3cplus
     for (const lig of pendentes) {
-      const ramal = lig.profiles?.threec_agent_ramal;
+      const agentId = lig.profiles?.threec_agent_id;
       const { data: lead } = await supabase.from('leads').select('telefone').eq('id', lig.lead_id).maybeSingle();
       if (!lead?.telefone) continue;
       const destNorm = lead.telefone.replace(/\D/g, '');
       const criada = new Date(lig.criada_em).getTime();
 
-      // Procura chamada com destino correspondente + ramal do agente + janela de ±10min
+      // Busca chamada: número bate nos últimos 8 dígitos + agent_id (se disponível) + janela ±15min
       const match = chamadas.find(c => {
-        const dest = (c.destination || c.phone || c.number || '').replace(/\D/g, '');
-        const agentMatch = !ramal || (c.agent?.ramal || c.ramal || c.extension || '') === ramal;
-        const ts = c.start_time || c.created_at || c.started_at;
+        const dest = (c.number || '').replace(/\D/g, '');
+        const agentOk = !agentId || c.agent_id === agentId;
+        const ts = c.call_date_rfc3339 || c.call_date;
         const diff = ts ? Math.abs(new Date(ts).getTime() - criada) : Infinity;
-        return dest.endsWith(destNorm.slice(-8)) && agentMatch && diff < 600000;
+        return dest.endsWith(destNorm.slice(-8)) && agentOk && diff < 900000; // 15min
       });
 
       if (!match) continue;
 
-      const callId = match.id || match.call_id;
-      const statusMap = { answered: 'atendida', no_answer: 'nao_atendida', busy: 'ocupado', failed: 'nao_atendida' };
+      const duracao = hmsToSeconds(match.speaking_with_agent_time);
       const novoPatch = {
-        threec_call_id: String(callId),
-        status: statusMap[match.status] || (match.duration > 0 ? 'atendida' : 'nao_atendida'),
-        duracao_segundos: match.duration || match.duracao_segundos || null,
-        gravacao_url: match.recording_url || match.gravacao_url || null,
+        threec_call_id: String(match.id),
+        status: match.status_id === 7 ? 'atendida' : 'nao_atendida',
+        duracao_segundos: duracao || null,
+        gravacao_url: match.recording || null,
       };
       await supabase.from('ligacoes').update(novoPatch).eq('id', lig.id);
-      console.log(`✅ cron 3cplus poll: ligação ${lig.id} atualizada (call_id=${callId})`);
-      if (novoPatch.gravacao_url && novoPatch.status === 'atendida') {
+      console.log(`✅ cron 3cplus poll: ligação ${lig.id} → call ${match.id} status=${novoPatch.status} dur=${duracao}s`);
+      if (novoPatch.gravacao_url && novoPatch.status === 'atendida' && duracao >= 60) {
         processarGravacao({ ...lig, ...novoPatch }).catch(() => {});
       }
     }
