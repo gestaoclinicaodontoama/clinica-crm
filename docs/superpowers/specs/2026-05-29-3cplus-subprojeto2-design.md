@@ -71,7 +71,16 @@ async function encerrarCampanha(campaignId) { ... }
 async function getCallsDaCampanha(campaignId, horasAtras) { ... }
 ```
 
-API 3cplus esperada para mailing: `POST /api/v1/campaigns/{id}/mailing` com body JSON de contatos. Se a API usar CSV, o módulo converte internamente.
+**⚠️ Risco: endpoints de campanha não testados — verificar antes de implementar.**
+
+Endpoints 3cplus esperados (gestor token):
+- Upload mailing: `POST /api/v1/campaigns/{id}/mailing` — body JSON `[{nome, telefone}]`; se exigir CSV, o módulo converte internamente
+- Pausar: `POST /api/v1/campaigns/{id}/pause` ou `PATCH /api/v1/campaigns/{id}` com `{status:'paused'}`
+- Retomar: `POST /api/v1/campaigns/{id}/resume`
+- Encerrar: `POST /api/v1/campaigns/{id}/stop` ou `DELETE /api/v1/campaigns/{id}/mailing`
+- Resultado: via `GET /api/v1/calls?campaign_id={id}&start_date=...&end_date=...` (já confirmado funcionando)
+
+O primeiro passo da implementação deve ser testar esses endpoints via curl antes de codificar.
 
 ### Novos endpoints em `server.js`
 
@@ -95,13 +104,17 @@ Body: { tipo: 'abc' | 'indicacoes' | 'recentes' | 'frios' }
 ```
 1. Busca env var do campaign_id pelo tipo
 2. Se não configurada → erro 400 "Campanha não configurada"
-3. Checa se há campanha ativa do mesmo tipo → erro 409 "Campanha deste tipo já está ativa"
-4. Busca contatos com mesma query do preview
-5. Se 0 contatos → erro 400 "Nenhum contato encontrado"
-6. Chama `uploadMailing(campaignId, contatos)` na 3cplus
-7. Insere registro em `campanhas_discagem` com status `ativa`
-8. Resposta: `{ ok: true, campanha: { id, tipo, contatos_total } }`
+3. Checa se há campanha ativa **de qualquer tipo** → erro 409 "Encerre a campanha atual antes de lançar outra" (uma campanha ativa por vez no sistema)
+4. Re-busca contatos com mesma query do preview (snapshot pode diferir ligeiramente do preview — normal)
+5. Filtra contatos sem telefone — silenciosamente removidos
+6. Se 0 contatos com telefone → erro 400 "Nenhum contato encontrado com telefone cadastrado"
+7. Chama `uploadMailing(campaignId, contatos)` na 3cplus
+8. Chama `POST /api/v1/agent/login {campaign: campaignId}` com o **token da CRC que lançou** — necessário para ela receber chamadas da campanha
+9. Insere registro em `campanhas_discagem` com status `ativa`
+10. Resposta: `{ ok: true, campanha: { id, tipo, contatos_total } }`
 - Roles: `crc_leads`, `gestor`, `admin`
+
+> **Nota:** Somente a CRC que lançou é automaticamente logada na campanha. Outras CRCs que queiram receber chamadas precisam se logar manualmente no painel da 3cplus.
 
 **Pausar:**
 ```
@@ -131,14 +144,17 @@ POST /api/campanhas/:id/encerrar
 ```
 GET /api/campanhas/ativa
 ```
-- Retorna campanha com status `ativa` ou `pausada` mais recente (pode não haver nenhuma)
+- Retorna a campanha mais recente com status `ativa` ou `pausada` (apenas uma pode existir por vez)
 - Resposta: `{ campanha: { id, tipo, status, contatos_total, iniciada_em, pausada_em } | null }`
+- O widget exibe o nome do tipo independente de qual módulo o usuário está — é a campanha global do sistema
 
 **Resultado da campanha (polling):**
 ```
 GET /api/campanhas/:id/resultado
 ```
-- Chama `getCallsDaCampanha` para obter totais: atendidas, não atendeu, na fila
+- Busca registro da campanha para obter `iniciada_em` e `contatos_total`
+- Chama `getCallsDaCampanha(campaignId, iniciada_em)` — filtra calls desde `iniciada_em` até agora
+- Calcula: `atendidas` (status_id=7), `nao_atendeu` (outros status), `na_fila` = `contatos_total - atendidas - nao_atendeu`
 - Retorna: `{ atendidas: N, nao_atendeu: N, na_fila: N }`
 
 ---
@@ -147,7 +163,7 @@ GET /api/campanhas/:id/resultado
 
 ### Curva ABC (`public/pos-tratamento/curva-abc.html` + `.js`)
 
-Botão **"📞 Enviar para Discagem"** visível quando filtro de classe inclui A ou B:
+Botão **"📞 Enviar para Discagem"** sempre visível na página (o filtro A/B + 180 dias é fixo do backend, não depende do filtro visual da CRC):
 
 ```html
 <button id="btn-campanha-abc" class="btn btn-call" onclick="lancarCampanhaABC()">
