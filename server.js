@@ -129,6 +129,8 @@ app.get('/api/me', requireAuth, async (req, res) => {
       email: req.user.email,
       nome: profile?.nome || req.user.user_metadata?.nome || req.user.email,
       roles: profile?.roles || metaRoles || ['crc_leads'],
+      threec_agent_token: profile?.threec_agent_token || null,
+      threec_agent_ramal: profile?.threec_agent_ramal || null,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });

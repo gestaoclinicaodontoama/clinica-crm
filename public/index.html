@@ -4303,5 +4303,43 @@ async function submitNewPassword() {
   </div>
 </div>
 </div>
+<!-- Softphone 3cplus — widget flutuante, só aparece para CRCs com token cadastrado -->
+<div id="softphone-widget" style="display:none;position:fixed;bottom:16px;right:16px;z-index:9000;flex-direction:column;align-items:flex-end;gap:0">
+  <div id="softphone-bar" style="background:#1a1a2e;color:#fff;padding:6px 12px;border-radius:8px 8px 0 0;display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px;min-width:180px" onclick="toggleSoftphone()">
+    <span style="font-size:16px">📞</span>
+    <span id="softphone-status" style="flex:1">Softphone</span>
+    <span id="softphone-toggle-icon" style="font-size:11px;opacity:.7">▲</span>
+  </div>
+  <div id="softphone-body" style="background:#fff;border:1px solid #1a1a2e;border-top:none;border-radius:0 0 8px 8px;overflow:hidden;width:320px;height:500px">
+    <iframe id="softphone-iframe" src="" allow="microphone; camera" style="width:100%;height:100%;border:none"></iframe>
+  </div>
+</div>
+
+<script>
+(async function initSoftphone() {
+  try {
+    const me = await api('/api/me');
+    if (!me?.threec_agent_token) return;
+    const widget = document.getElementById('softphone-widget');
+    const iframe = document.getElementById('softphone-iframe');
+    iframe.src = 'https://clinicaama.3c.plus/extension?api_token=' + encodeURIComponent(me.threec_agent_token);
+    widget.style.display = 'flex';
+    // Começa colapsado
+    document.getElementById('softphone-body').style.display = 'none';
+    document.getElementById('softphone-toggle-icon').textContent = '▲';
+    iframe.addEventListener('load', () => {
+      document.getElementById('softphone-status').textContent = 'Softphone ativo';
+    });
+  } catch {}
+})();
+
+function toggleSoftphone() {
+  const body = document.getElementById('softphone-body');
+  const icon = document.getElementById('softphone-toggle-icon');
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? 'block' : 'none';
+  icon.textContent = collapsed ? '▼' : '▲';
+}
+</script>
 </body>
 </html>
