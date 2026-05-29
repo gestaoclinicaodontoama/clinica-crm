@@ -1289,7 +1289,17 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       console.log('✅ Novo lead via WA: ' + m.nome + ' (' + m.from + ')' + (m.ctwa_clid ? ' [CTWA]' : ''));
       if (m.ctwa_clid && lead) dispararConversaoMeta(lead).catch(e => console.error('Meta CAPI:', e.message));
     } else {
-      await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
+      const upd = { ultimo_contato: new Date().toISOString() };
+      if (m.ctwa_clid && !lead.ctwa_clid) {
+        upd.ctwa_clid = sanitizeStr(m.ctwa_clid, 500);
+        upd.origem = 'Meta Ads';
+        if (m.ad_id) upd.campanha = sanitizeStr(m.ad_id, 200);
+      }
+      const { data: updatedLead } = await supabase.from('leads').update(upd).eq('id', lead.id).select().single();
+      if (m.ctwa_clid && !lead.ctwa_clid && updatedLead) {
+        console.log('🔗 ctwa_clid atualizado em lead existente #' + lead.id);
+        dispararConversaoMeta({ ...updatedLead, status: lead.status }).catch(e => console.error('Meta CAPI:', e.message));
+      }
     }
     if (lead) {
       await supabase.from('mensagens').insert({
