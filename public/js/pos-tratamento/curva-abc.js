@@ -300,8 +300,9 @@ function _abrirModalCampanha(tipo, preview) {
     ? ['Nome', 'Telefone', 'Dias sem retorno']
     : ['Nome', 'Telefone'];
 
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const rows = (preview.contatos || []).slice(0, 20).map(c =>
-    '<tr>' + cols.map(k => `<td style="padding:6px 8px;border-bottom:1px solid var(--color-border,#e2e8f0);font-size:13px">${c[k] || '—'}</td>`).join('') + '</tr>'
+    '<tr>' + cols.map(k => `<td style="padding:6px 8px;border-bottom:1px solid var(--color-border,#e2e8f0);font-size:13px">${esc(c[k]) || '—'}</td>`).join('') + '</tr>'
   ).join('');
   const extra = preview.total > 20
     ? `<tr><td colspan="${cols.length}" style="padding:6px 8px;color:var(--color-text-muted,#718096);font-size:12px">... e mais ${preview.total - 20} contatos</td></tr>`
