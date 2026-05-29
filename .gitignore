@@ -1,6 +1,9 @@
 # Variáveis de ambiente — nunca subir ao GitHub
 .env
 
+# Scripts de setup com credenciais
+easypanel-setenv.js
+
 # Banco de dados local
 *.json
 !package.json
