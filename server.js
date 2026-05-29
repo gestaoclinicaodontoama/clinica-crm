@@ -14,6 +14,7 @@ const multer = require('multer');
 const totalvoice = require('./totalvoice');
 const whatsapp = require('./whatsapp');
 const threec = require('./lib/3cplus');
+const threecCamp = require('./lib/3cplus-campanhas');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
@@ -632,6 +633,70 @@ app.get('/api/leads/:id/ligacoes', requireAuth, rateLimit, async (req, res) => {
     res.json(data || []);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ========== CAMPANHAS DE DISCAGEM PREDITIVA ==========
+
+const CAMP_ENV = {
+  abc:        'THREEC_CAMPAIGN_ABC',
+  indicacoes: 'THREEC_CAMPAIGN_INDICACOES',
+  recentes:   'THREEC_CAMPAIGN_RECENTES',
+  frios:      'THREEC_CAMPAIGN_FRIOS',
+};
+
+const TIPOS_VALIDOS = Object.keys(CAMP_ENV);
+
+async function buscarContatos(tipo) {
+  if (tipo === 'abc') {
+    const { data, error } = await supabase.from('pacientes_abc')
+      .select('nome, telefone, clinicorp_id, dias_sem_visita')
+      .in('classe', ['A', 'B'])
+      .gte('dias_sem_visita', 180)
+      .is('proxima_consulta', null);
+    if (error) throw error;
+    return (data || []).map(c => ({ ...c, tipo_origem: 'abc' }));
+  }
+  if (tipo === 'indicacoes') {
+    const { data, error } = await supabase.from('leads')
+      .select('id, nome, telefone')
+      .eq('origem', 'Indicação')
+      .not('status', 'in', '("Fechou","Perdido")');
+    if (error) throw error;
+    return (data || []).map(c => ({ ...c, tipo_origem: 'indicacoes' }));
+  }
+  if (tipo === 'recentes') {
+    const { data, error } = await supabase.from('leads')
+      .select('id, nome, telefone')
+      .neq('origem', 'Indicação')
+      .not('status', 'in', '("Fechou","Perdido")')
+      .order('criado_em', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return (data || []).map(c => ({ ...c, tipo_origem: 'recentes' }));
+  }
+  if (tipo === 'frios') {
+    const { data, error } = await supabase.from('leads')
+      .select('id, nome, telefone')
+      .neq('origem', 'Indicação')
+      .not('status', 'in', '("Fechou","Perdido")')
+      .order('criado_em', { ascending: false })
+      .range(50, 150);
+    if (error) throw error;
+    return (data || []).map(c => ({ ...c, tipo_origem: 'frios' }));
+  }
+  const err = new Error('Tipo inválido'); err.status = 400; throw err;
+}
+
+app.get('/api/campanhas/preview/:tipo', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const { tipo } = req.params;
+    if (!TIPOS_VALIDOS.includes(tipo)) return res.status(400).json({ error: 'Tipo inválido' });
+    const contatos = await buscarContatos(tipo);
+    if (req.query.count_only === 'true') return res.json({ total: contatos.length });
+    res.json({ total: contatos.length, contatos });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 
