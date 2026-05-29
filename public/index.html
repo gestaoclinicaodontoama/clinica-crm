@@ -635,6 +635,12 @@ textarea { resize: vertical; min-height: 80px; }
         <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="abrirModalNovoLead()">+ Novo Lead</button>
       </div>
     </div>
+    <div id="campanha-widget-mount" style="margin-bottom:4px"></div>
+    <div id="campanha-leads-btns" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn-secondary" style="font-size:12.5px" onclick="lancarCampanha('indicacoes')">📞 Indicações (<span id="cnt-indicacoes">...</span>)</button>
+      <button class="btn btn-secondary" style="font-size:12.5px" onclick="lancarCampanha('recentes')">📞 Recentes — 50</button>
+      <button class="btn btn-secondary" style="font-size:12.5px" onclick="lancarCampanha('frios')">📞 Frios — 51 a 151</button>
+    </div>
     <table>
       <thead><tr><th>ID</th><th>Nome</th><th>Telefone</th><th>Origem</th><th>Status</th><th>Score</th><th>DISC</th><th>Valor</th><th>Data</th></tr></thead>
       <tbody id="leads-body"></tbody>
@@ -1488,7 +1494,13 @@ function setPage(p, btn) {
   const isConv2 = p === 'conv-agendamentos' || p === 'conv-avaliacao';
   document.querySelector('main').classList.toggle('conv-active', isConv2);
   if (p === 'dashboard') loadDash();
-  if (p === 'leads') loadLeads();
+  if (p === 'leads') {
+    loadLeads();
+    api('/api/campanhas/preview/indicacoes?count_only=true').then(d => {
+      const span = document.getElementById('cnt-indicacoes');
+      if (span) span.textContent = d.total;
+    }).catch(() => {});
+  }
   if (p === 'funil') loadKanban();
   if (p === 'config') atualizarLinks();
   if (p === 'usuarios') loadUsuarios();
@@ -4340,6 +4352,80 @@ function toggleSoftphone() {
   body.style.display = collapsed ? 'block' : 'none';
   icon.textContent = collapsed ? '▼' : '▲';
 }
+
+const CAMP_LABELS = {
+  indicacoes: { titulo: 'Leads Indicações', sub: 'Leads com origem = indicação · Status ativo' },
+  recentes:   { titulo: 'Leads Recentes', sub: 'Últimos 50 leads (não-indicação)' },
+  frios:      { titulo: 'Leads Frios', sub: 'Leads do 51º ao 151º (não-indicação)' },
+};
+
+async function lancarCampanha(tipo) {
+  try {
+    const preview = await api('/api/campanhas/preview/' + tipo);
+    if (!preview.total) {
+      toast('Nenhum lead encontrado para esta campanha.', true);
+      return;
+    }
+    _abrirModalCampanhaLeads(tipo, preview);
+  } catch (e) {
+    toast(e.message || 'Erro ao carregar preview.', true);
+  }
+}
+
+function _abrirModalCampanhaLeads(tipo, preview) {
+  const { titulo, sub } = CAMP_LABELS[tipo] || { titulo: tipo, sub: '' };
+  const rows = (preview.contatos || []).slice(0, 20).map(c =>
+    `<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${c.nome || '—'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${c.telefone || '—'}</td>
+    </tr>`
+  ).join('');
+  const extra = preview.total > 20
+    ? `<tr><td colspan="2" style="padding:6px 10px;color:var(--muted);font-size:12px">... e mais ${preview.total - 20} leads</td></tr>`
+    : '';
+
+  const bg = document.createElement('div');
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:2000';
+  bg.innerHTML = `
+    <div class="modal" style="max-width:480px;max-height:80vh;display:flex;flex-direction:column">
+      <div class="modal-header">
+        <span class="modal-titulo">${titulo} — ${preview.total} leads</span>
+        <button class="modal-close" id="cml-close">×</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">${sub}</p>
+      <div style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:8px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="padding:8px 10px;text-align:left;font-size:12px;background:#f7fafc;border-bottom:2px solid var(--border)">Nome</th>
+            <th style="padding:8px 10px;text-align:left;font-size:12px;background:#f7fafc;border-bottom:2px solid var(--border)">Telefone</th>
+          </tr></thead>
+          <tbody>${rows}${extra}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+        <button id="cml-cancelar" class="btn" style="background:#edf2f7;color:#4a5568">Cancelar</button>
+        <button id="cml-confirmar" class="btn btn-primary">📞 Enviar para discagem</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+
+  bg.querySelector('#cml-close').onclick = () => bg.remove();
+  bg.querySelector('#cml-cancelar').onclick = () => bg.remove();
+  bg.querySelector('#cml-confirmar').onclick = async () => {
+    const btn = bg.querySelector('#cml-confirmar');
+    btn.disabled = true; btn.textContent = 'Enviando...';
+    try {
+      await api('/api/campanhas/lancar', { method: 'POST', body: JSON.stringify({ tipo }) });
+      bg.remove();
+      toast('Campanha iniciada! ' + preview.total + ' leads na fila de discagem.');
+      if (window.campanhaWidgetRefresh) window.campanhaWidgetRefresh();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = '📞 Enviar para discagem';
+      toast(e.message || 'Erro ao lançar campanha.', true);
+    }
+  };
+}
 </script>
+<script src="/js/campanha-widget.js"></script>
 </body>
 </html>
