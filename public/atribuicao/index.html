@@ -103,25 +103,30 @@ function getFiltroParams() {
   return 'periodo=' + p;
 }
 
+let _isAdmin = null;
+async function _checkAdmin() {
+  if (_isAdmin !== null) return _isAdmin;
+  try {
+    const me = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + _tkn }});
+    if (me.ok) { const p = await me.json(); _isAdmin = Array.isArray(p?.roles) && p.roles.includes('admin'); }
+    else _isAdmin = false;
+  } catch(_) { _isAdmin = false; }
+  return _isAdmin;
+}
+
 async function aplicarFiltro() {
   try {
-    const [dados, catalog] = await Promise.all([
+    const [dados, catalog, isAdmin] = await Promise.all([
       _api('/api/atribuicao?' + getFiltroParams()),
-      _api('/api/anuncios')
+      _api('/api/anuncios'),
+      _checkAdmin()
     ]);
     renderCards(dados.totais || {});
-    renderTabela(dados.grupos || []);
-
-    try {
-      const me = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + _tkn }});
-      if (me.ok) {
-        const perf = await me.json();
-        if (Array.isArray(perf?.roles) && perf.roles.includes('admin')) {
-          document.getElementById('catalogo-wrap').style.display = '';
-          renderCatalogo(Array.isArray(catalog) ? catalog : []);
-        }
-      }
-    } catch(_) {}
+    renderTabela(dados.grupos || [], dados.truncado);
+    if (isAdmin) {
+      document.getElementById('catalogo-wrap').style.display = '';
+      renderCatalogo(Array.isArray(catalog) ? catalog : []);
+    }
   } catch(e) { console.error('atribuicao:', e); }
 }
 
@@ -134,8 +139,22 @@ function renderCards(t) {
   ].map(([l,v]) => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">${_esc(l)}</div><div style="font-size:22px;font-weight:700">${_esc(String(v))}</div></div>`).join('');
 }
 
-function renderTabela(grupos) {
+function renderTabela(grupos, truncado) {
   const fl = { meta: '📘 Meta', google: '🔍 Google', '-': '—' };
+  if (truncado) {
+    const aviso = document.getElementById('aviso-truncado') || (() => {
+      const el = document.createElement('div');
+      el.id = 'aviso-truncado';
+      el.style.cssText = 'background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.4);border-radius:8px;padding:10px 14px;font-size:12.5px;color:#92400e;margin-bottom:12px';
+      el.textContent = '⚠️ Mais de 5.000 leads no período — exibindo apenas os primeiros 5.000. Reduza o intervalo de datas para resultados completos.';
+      document.getElementById('tabela-atribuicao').closest('div').before(el);
+      return el;
+    })();
+    aviso.style.display = '';
+  } else {
+    const el = document.getElementById('aviso-truncado');
+    if (el) el.style.display = 'none';
+  }
   document.getElementById('tabela-atribuicao').innerHTML = grupos.map(g => {
     const conv = g.leads ? Math.round(g.fechados / g.leads * 100) : 0;
     const cor = conv >= 30 ? 'var(--green)' : conv >= 15 ? 'var(--text)' : 'var(--red)';

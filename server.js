@@ -2282,8 +2282,8 @@ async function syncComparecimentos() {
       if (!chegou) {
         // Detectar falta: appointment existe mas passou 24h sem checkin
         const aptDateStr = apt.date || apt.Date || apt.AppointmentDate;
-      if (!aptDateStr) continue;
-      const aptTime = new Date(aptDateStr);
+        if (!aptDateStr) continue;
+        const aptTime = new Date(aptDateStr);
         const passou24h = Date.now() - aptTime.getTime() > 24 * 3600 * 1000;
         if (passou24h) {
           const { data: jaFaltou } = await supabase.from('lead_eventos')
@@ -2315,7 +2315,7 @@ async function syncTemplateSemResposta() {
       .eq('tipo', 'template_enviado')
       .lt('criado_em', h48ago)
       .limit(100);
-    for (const te of (expirados || [])) {
+    await Promise.all((expirados || []).map(async te => {
       const { data: resp } = await supabase.from('lead_eventos')
         .select('id').eq('lead_id', te.lead_id)
         .in('tipo', ['template_respondido', 'template_sem_resposta'])
@@ -2326,7 +2326,7 @@ async function syncTemplateSemResposta() {
           { template: te.metadata?.template || '' }
         );
       }
-    }
+    }));
   } catch(e) { console.error('[sync] template_sem_resposta:', e.message); }
 }
 setInterval(syncTemplateSemResposta, 30 * 60 * 1000);
@@ -3744,7 +3744,7 @@ app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req
       return acc;
     }, { leads: 0, agendados: 0, fechados: 0, receita: 0 });
 
-    res.json({ grupos: lista, totais, periodo, desde, ate });
+    res.json({ grupos: lista, totais, periodo, desde, ate, truncado: (leads || []).length >= 5000 });
   } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
