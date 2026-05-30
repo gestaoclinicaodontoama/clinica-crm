@@ -1786,7 +1786,13 @@ async function abrirModal(id) {
   _mOrig.innerHTML = '';
   const _origOpts = (l.origem && !ORIGENS.includes(l.origem)) ? [l.origem, ...ORIGENS] : [...ORIGENS];
   _origOpts.forEach(o => _mOrig.appendChild(Object.assign(document.createElement('option'), {value: o, textContent: o})));
-  _mOrig.value = l.origem || ORIGENS[0];
+  _mOrig.value = l.origem || '';
+  // Se origem for nula/vazia, adiciona opção vazia para evitar pré-seleção silenciosa
+  if (!_mOrig.value) {
+    const _blankOpt = Object.assign(document.createElement('option'), {value: '', textContent: '— sem origem —'});
+    _mOrig.insertBefore(_blankOpt, _mOrig.firstChild);
+    _mOrig.value = '';
+  }
   document.getElementById('m-status').value = l.status;
   document.getElementById('m-valor').value = l.valor || '';
   document.getElementById('m-tipo').value = l.tipo_trat || '';
