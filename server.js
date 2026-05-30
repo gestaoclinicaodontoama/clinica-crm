@@ -357,6 +357,22 @@ app.get('/lead', rateLimit, async (req, res) => {
         { origem, campanha: campanha || '', ctwa_clid: ctwa_clid || '', fbclid: fbclid || '' }
       );
       dispararConversaoMeta(lead).catch(e => console.error('Meta CAPI:', e.message));
+      if (fbclid) {
+        supabase.from('pixel_sessions')
+          .update({ lead_id: lead.id })
+          .eq('fbclid', fbclid).is('lead_id', null)
+          .then(async () => {
+            const { data: sessoes } = await supabase.from('pixel_sessions')
+              .select('pagina, metadata, criado_em').eq('fbclid', fbclid).eq('lead_id', lead.id)
+              .order('criado_em', { ascending: true });
+            for (const s of (sessoes || [])) {
+              logEvento(lead.id, 'pixel_pagina',
+                'Visitou: ' + s.pagina,
+                { pagina: s.pagina, referrer: s.metadata?.referrer || '' }
+              );
+            }
+          }).catch(() => {});
+      }
     }
 
     const msg = encodeURIComponent('Olá! Vim do anúncio e gostaria de mais informações.');
@@ -3659,6 +3675,58 @@ app.get(/^\/(?!api\/|lead(\?|$)|webhooks\/).*/, (req, res) => {
 app.use((err, req, res, next) => {
   console.error('💥', err);
   res.status(500).json({ error: 'Erro interno' });
+});
+
+// ========== PIXEL RASTREIO ==========
+app.get('/track.js', (req, res) => {
+  const token = process.env.PIXEL_TRACK_TOKEN || '';
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.setHeader('Access-Control-Allow-Origin', 'https://clinicaodontoama.com.br');
+  res.send(`(function(){
+  var p=new URLSearchParams(location.search);
+  var f=p.get('fbclid')||localStorage.getItem('_ama_fbclid');
+  if(f)localStorage.setItem('_ama_fbclid',f);
+  if(!f)return;
+  fetch('https://plataformaama-plataforma.uc5as5.easypanel.host/t',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:${JSON.stringify(token)},fbclid:f,evento:'PageView',pagina:location.pathname,referrer:document.referrer})
+  }).catch(function(){});
+})();`);
+});
+
+app.post('/t', rateLimit, async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', 'https://clinicaodontoama.com.br');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  const { token, fbclid, evento = 'PageView', pagina = '/', referrer = '' } = req.body || {};
+  if (!token || token !== process.env.PIXEL_TRACK_TOKEN) return res.status(401).send('');
+  if (!fbclid || typeof fbclid !== 'string' || fbclid.length > 500) return res.status(400).send('');
+  const safeFbclid = fbclid.slice(0, 500);
+  const safePagina = String(pagina).slice(0, 200);
+  res.status(204).send('');
+  try {
+    const { data: sessao } = await supabase.from('pixel_sessions').insert({
+      fbclid: safeFbclid, pagina: safePagina, evento,
+      metadata: { referrer: String(referrer).slice(0, 200) },
+    }).select().single();
+    if (!sessao) return;
+    const { data: lead } = await supabase.from('leads')
+      .select('id').eq('fbclid', safeFbclid).maybeSingle();
+    if (lead) {
+      await supabase.from('pixel_sessions').update({ lead_id: lead.id }).eq('id', sessao.id);
+      logEvento(lead.id, 'pixel_pagina',
+        'Visitou: ' + safePagina + (referrer ? ' (via ' + String(referrer).replace(/^https?:\/\//, '').split('/')[0] + ')' : ''),
+        { pagina: safePagina, referrer: String(referrer).slice(0, 200) }
+      );
+    }
+  } catch(e) { console.error('[/t]', e.message); }
+});
+
+app.options('/t', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', 'https://clinicaodontoama.com.br');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.status(204).send('');
 });
 
 app.listen(PORT, () => {
