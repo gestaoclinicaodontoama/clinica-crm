@@ -33,7 +33,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Agendado', 'Compareceu', 'Em follow-up', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Aguardando', 'Agendado', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -457,7 +457,10 @@ async function patchLead(req, res) {
       'notas_sdr','notas_avaliacao','notas_comercial',
       'score_interesse','perfil_disc','etiquetas',
       'proximo_contato','ultimo_contato',
+      'crc_comercial_id','crc_comercial_nome',
+      'crc_agendamento_id','crc_agendamento_nome',
     ];
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const agora = new Date().toISOString();
     const patch = {};
     for (const k of Object.keys(req.body)) {
@@ -467,7 +470,8 @@ async function patchLead(req, res) {
         if (!FUNIL.includes(v)) return res.status(400).json({ error: 'Status inválido. Use: ' + FUNIL.join(', ') });
         if (v === 'Agendado' && !lead.data_agendamento) patch.data_agendamento = agora;
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
-        if (v === 'Em follow-up' && !lead.data_avaliacao) patch.data_avaliacao = agora;
+        // D0 = entrada na régua comercial (avaliação realizada)
+        if (v === 'D0' && !lead.data_avaliacao) patch.data_avaliacao = agora;
         if (v === 'Em nutrição' && !lead.data_orcamento) patch.data_orcamento = agora;
         if (v === 'Fechou' && !lead.data_fechamento) patch.data_fechamento = agora;
       }
@@ -497,6 +501,12 @@ async function patchLead(req, res) {
       if (k === 'proximo_contato' || k === 'ultimo_contato') {
         if (!v) { patch[k] = null; continue; }
         if (typeof v === 'string' && Number.isNaN(Date.parse(v))) continue;
+      }
+      if (k === 'crc_comercial_id' || k === 'crc_agendamento_id') {
+        if (!v) { patch[k] = null; continue; }
+        if (typeof v !== 'string' || !UUID_RE.test(v)) continue; // ignora UUID inválido
+        patch[k] = v;
+        continue;
       }
       if (typeof v === 'string') v = sanitizeStr(v, 4000);
       patch[k] = v;
@@ -545,7 +555,7 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
     const receita = fechados.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
     const ticketMedio = fechados.length ? receita / fechados.length : 0;
     const oportunidade = leads
-      .filter(l => ['Agendado','Compareceu','Em follow-up','Em nutrição'].includes(l.status))
+      .filter(l => ['Agendado','Compareceu','D0','D1','D2','D3','D4','D5','Em nutrição'].includes(l.status))
       .reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
     const ultimosLeads = [...leads].sort((a, b) => b.id - a.id).slice(0, 10);
     res.json({ total, porStatus, porOrigem, receita, ticketMedio, oportunidade, ultimosLeads, _v: 4 });
@@ -1598,13 +1608,21 @@ const META_PAGE_ID = process.env.META_PAGE_ID || '';
 const META_API_VERSION = 'v21.0';
 
 const EVENTOS_FUNIL = {
-  'Lead':         'LeadSubmitted',
-  'Agendado':     'Schedule',
-  'Compareceu':   'Contact',
-  'Em follow-up': null,
-  'Em nutrição':  null,
-  'Fechou':       'Purchase',
-  'Perdido':      null,
+  'Lead':              'LeadSubmitted',
+  'Aguardando':        null,
+  'Agendado':          'Schedule',
+  'Compareceu':        'Contact',
+  'Nutrir':            null,
+  'Não tem Interesse': null,
+  'D0':                null,
+  'D1':                null,
+  'D2':                null,
+  'D3':                null,
+  'D4':                null,
+  'D5':                null,
+  'Em nutrição':       null,
+  'Fechou':            'Purchase',
+  'Perdido':           null,
 };
 
 async function dispararConversaoMeta(lead, eventoCustom = null) {

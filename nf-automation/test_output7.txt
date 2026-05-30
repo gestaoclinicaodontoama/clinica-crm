@@ -1,0 +1,98 @@
+=== TESTE DE EMISSÃO NF ===
+
+[LOGIN] Vieira
+  Captcha salvo em: C:\Users\Luiz Martins\Desktop\Projeto Claude Code\clinica-crm\nf-automation\captcha_debug.png
+  Aguardando captcha_answer.txt (ate 300s)...
+  Captcha lido do arquivo: '3491'
+  Captcha lido automaticamente: 3491 (tentativa 1)
+  Login OK
+  Login OK
+
+  -> #9999  LUIZ EDUARDO COELHO VIDIGAL MARTINS  R$ 1.00  05-2026
+  abre_arquivo('nfe/nfe.php') chamado via JS
+  Tipo tomador selecionado: Pessoa Física
+  local value: 'F'
+  S0 iframe submit: submitted
+  S0 iframe HTML: 11624 chars
+  Parse OK: id=34797549 ccm=-353334 razao='LUIZ EDUARDO COELHO VIDIGAL MARTINS'
+  Tomador OK: id=34797549 ccm=-353334 nome=LUIZ EDUARDO COELHO VIDIGAL MARTINS
+  contribResult: OK
+  Form após inject: {'id_tomador': '34797549', 'ccm': '-353334', 'cnpj': '06563650643', 'razao': 'LUIZ EDUARDO COELHO VIDIGAL MARTINS'}
+  Fallback cnpj/razao (só se vazio): '06563650643' / 'LUIZ EDUARDO COELHO VIDIGAL MARTINS'
+  Validação tomador OK: id_tomador='34797549'
+  Clique normal falhou, usando JS click na lupa de atividade...
+  Clicou Ok na atividade (frame: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nf)
+  Alíquota forçada para 3.00, aliquotaSimples=4.3547 (callback não disparou)
+  Preenchendo valor: 1,00 (frame: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nf)
+  Valor JS: OK:valor=1,00 base=1,00
+  [reforma v3-ibs]
+  codigo=''
+  Forçou codigo=412
+  codigo final antes do click='412'
+  Botão Reforma Tributária clicado (js_btn)
+  [DIAG] Frame novo detectado: 'https://ipatinga.meumunicipio.online/ISS/Componentes/Componentes.php?/reformaTributaria/emissao/modal.php'
+  Modal IBS: https://ipatinga.meumunicipio.online/ISS/Componentes/Componentes.php?/reformaTributaria/em
+  Digitou 'Ipatinga' no Select2 search
+  Município selecionado: Ipatinga
+  Reforma Tributária salva
+  Modal IBS fechado
+  Preenchendo valor: 1,00 (frame: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nf)
+  Valor JS: OK:valor=1,00 base=1,00
+  Situacao tributacao: FORCED:tp
+  [DIAG] Dialog capturado: 'Selecione o codigo de Serviço.'
+  JS emitir: OK:btnEmitirNF
+  Timeout nfe_exec.php — aguardando redirect direto
+  networkidle OK
+  Frames (13): [('https://ipatinga.meumunicipio.online/ISS/contribuinte/main.php', ''), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/login.php', 'detail'), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/login.php', ''), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe.php#', 'main'), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/login.php', ''), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/login.php', ''), ('about:blank', 'md-chat-iframe'), ('about:blank', 'md-kb-iframe'), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_filtro.php?dia=26&mes=05&ano=2026', 'detail'), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_lookup.php', 'lookup'), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe.php#', ''), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/', 'detail'), ('https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_lookup.php', 'lookup')]
+  Frame lista: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_filtro.php?dia=26&mes=05&ano=2026
+  nfe_filtro.php (7526 chars)
+  Lista td-nums: ['8640205', '401', '8630504', '412', '8630504', '421']
+  Lista onclicks: ['closeWindow();', 'lineSelected(this);', 'lineSelected(this);', 'lineSelected(this);', 'solicitar()', 'confirmSelection();', 'closeWindow()']
+  Lista hrefs: []
+  Filtro snippet: <html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title>Untitled Document</title>
+<style type="text/css">
+/* <!--
+body {
+	margin-left: 0px;
+	margin-top: 0px;
+	margin-right: 0px;
+	margin-bottom: 0px;
+}
+--> */
+</style>
+<script language="javascript" type="text/javascript">
+window.onload = function() {
+	var detail = window.parent.document.getElementById("detail");
+	var frameWin = document.getElementById("frameWin");
+	if(frameWin&&detail&&detail.bg){
+		detail.style.display = "";
+		if(detail.bg){
+			detail.bg.style.top = frameWin.offsetTop + 7;
+			detail.bg.style.left = frameWin.offsetLeft + 7;
+			detail.bg.style.width = frameWin.offsetWidth;
+			detail.bg.style.height = frameWin.offsetHeight;
+			detail.bg.style.display = "";
+		}
+	}
+	//var codigo = document.getElementById("codigo");
+	//codigo.focus();
+}
+
+function closeWindow(){
+	var detail = window.parent.document.getElementById("detail");
+	if(detail){
+		detail.style.display = "none";
+		if(detail.bg) detai
+  Número da nota (DOM max): 8640205
+  Número final da nota: 8640205
+  PDF URLs: []
+  Print URL: 404 237ch ct=text/html; charset=iso-8859-1 url=https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?nota=8640205
+  Print URL: 404 240ch ct=text/html; charset=iso-8859-1 url=https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfse_imprime.php?nota=8640205
+  Print URL: 404 237ch ct=text/html; charset=iso-8859-1 url=https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?num_nfse=8640205
+  URL impressão: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?nota=8640205
+     OK  Nota #8640205  https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?nota=8640205
+
+SUCESSO! Nota #8640205
+   PDF: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?nota=8640205

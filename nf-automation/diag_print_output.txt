@@ -1,0 +1,19 @@
+=== DIAG PRINT TEST ===
+Captcha salvo em: C:\Users\Luiz Martins\Desktop\Projeto Claude Code\clinica-crm\nf-automation\captcha_debug.png
+Aguardando captcha_answer.txt (ate 300s)...
+Captcha: '2052'
+  Captcha lido automaticamente: 2052 (tentativa 1)
+  Login OK
+Login OK — URL: https://ipatinga.meumunicipio.online/ISS/contribuinte/main.php
+
+Testando URLs de impressão para nota 401 (PKID=52816556):
+  [nfe_base PKID] 200 1059ch HTML
+    snippet: <html>  <head> 	<link href="../../css/main.css" rel="stylesheet" type="text/css"> 	<meta http-equiv="Content-Type" c
+  [imprimeDANFSe chave] 200 234542ch PDF!
+  [imprimeDANFSe chave] ERRO: 'charmap' codec can't encode characters in position 23-26: character maps to <undefined>
+  [nfe_print NR_NOTA] 404 237ch HTML
+  [nfe_ver PKID] 200 68402ch PDF!
+    snippet: %PDF-1.3 3 0 obj <</Type /Page /Parent 1 0 R /Resources 2 0 R /Contents 4 0 R>> endobj 4 0 obj <</Filter /FlateDecode /L
+    PDF SALVO: C:\Users\Luiz Martins\Desktop\Projeto Claude Code\clinica-crm\nf-automation\print_test_nota401.pdf
+
+Done.

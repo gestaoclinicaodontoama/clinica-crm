@@ -10,7 +10,11 @@
 ## Fluxo de deploy
 Após `git push`, executar imediatamente (sem perguntar):
 ```
+# CRM (Node.js)
 curl -s -X POST "http://2.24.94.120:3000/api/deploy/64e3f591d5f8f89c7d01ddc665d41609a5259db3bbe968e6"
+
+# nf-agente (Python/Docker) — só quando arquivos em nf-automation/ foram alterados
+curl -s -X POST "http://2.24.94.120:3000/api/deploy/a03d084c1fe9b98fa7aba9c4bfb76a8aaf5ec1ff980e8ca7"
 ```
 
 ## Padrão de novo módulo — sidebar

@@ -1,0 +1,51 @@
+=== DIAG HISTORICO ===
+Captcha salvo em: C:\Users\Luiz Martins\Desktop\Projeto Claude Code\clinica-crm\nf-automation\captcha_debug.png
+Aguardando captcha_answer.txt (ate 300s)...
+Captcha: '5696'
+  Captcha lido automaticamente: 5696 (tentativa 1)
+  Login OK
+Pós-login URL: https://ipatinga.meumunicipio.online/ISS/contribuinte/main.php
+Historico URL: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_historico.php
+HTML: 179550 chars
+HTML salvo em: C:\Users\Luiz Martins\Desktop\Projeto Claude Code\clinica-crm\nf-automation\historico_dump.html
+Total rows com tr-id: 97
+
+Linha nota 401:
+  tr-id: 52816556<|>602FA9BN<|>401<|>tp<|>5<|>2026<|>1<|><|><|>2026-05-26 20:45:18
+  onclicks: []
+  hrefs: []
+  window.open: []
+  TDs: ['401', '26/05/2026', '5/2026', 'Trib. no Prestador', '412', '1,00', '06563650643', 'Válida', '3131307120561737700010800000000004012605']
+  HTML completo da row:
+
+																				<td class="cell center">
+																					401																				</td>
+																				<td class="cell center">
+																					26/05/2026																					<input name="chaveacesso_nn" type="hidden" id="chaveacesso_nn_inp_hidden" value="31313071205617377000108000000000040126052960880956">
+																					<input name="status_envio_adn" type="hidden" value="3">
+																				</td>
+																				<td class="cell center">
+																					5/2026																				</td>
+																				<td class="cell center">
+																					Trib. no Prestador																				</td>
+																				<td class="cell center">
+																					412																				</td>
+																				<td class="cell center">
+																					1
+
+=== JS relevante no historico ===
+Funções JS: ['imprimirNfe', 'imprimirNfe']
+
+Linhas com print/ver/open (11):
+  otaoImprimirDANF = document.querySelector('button#imprimirDANFSe')
+  		// function imprimirNfe() {
+  		// 		window.open('nfe_base.php?acao=imprimir&id=' + idNf.value, 'NFE_VER', 'top=50,left=50,height=600,width=650,location=0,resizable=1,scrollbar
+  		function imprimirNfe() {
+  					window.open('nfe_base.php?acao=imprimir&id=' + idNf.value, 'NFE_VER', 'top=50,left=50,height=600,width=650,location=0,resizable=1,scrollbar
+  		// const imprimirDANFSe = () => {
+  		// 	window.open('../../contribuinte/nfe/imprimeDANFSe.php?c='.concat(chaveAcesso), 'top=50,left=50,height=600,width
+  		const imprimirDANFSe = () => {
+  			window.open('../../contribuinte/nfe/imprimeDANFSe.php?c='.concat(chaveAcesso), 'top=50,left=50,height=600,width
+  mprimir" value="Imprimir" class="button" onclick="imprimirNfe();" title="Imprimir notas fiscais do ano de 2025 pra trás">
+
+Done.

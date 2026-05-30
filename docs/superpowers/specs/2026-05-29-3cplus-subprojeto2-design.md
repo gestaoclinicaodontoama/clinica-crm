@@ -33,7 +33,7 @@ CREATE TABLE campanhas_discagem (
   tipo          TEXT NOT NULL CHECK (tipo IN ('abc','indicacoes','recentes','frios')),
   threec_campaign_id INTEGER NOT NULL,
   contatos_total     INTEGER NOT NULL DEFAULT 0,
-  contatos_json      JSONB,   -- [{id, nome, telefone, tipo_origem}]
+  contatos_json      JSONB,   -- [{id, nome, telefone, tipo_origem}] onde tipo_origem = tipo da campanha ('abc'|'indicacoes'|'recentes'|'frios')
   status             TEXT NOT NULL DEFAULT 'ativa'
                      CHECK (status IN ('ativa','pausada','encerrada')),
   usuario_id         UUID REFERENCES auth.users(id),
@@ -99,13 +99,13 @@ GET /api/campanhas/preview/:tipo
 ```
 - `tipo`: `abc` | `indicacoes` | `recentes` | `frios`
 - Filtros por tipo:
-  - **abc**: tabela `pacientes_abc` onde `classe IN ('A','B')` AND `dias_sem_visita >= 180` AND `proxima_consulta IS NULL` — retorna `{nome, telefone, clinicorp_id, dias_sem_visita}`
+  - **abc**: tabela `pacientes_abc` onde `classe IN ('A','B')` AND `dias_sem_visita >= 180` AND `proxima_consulta IS NULL` — retorna `{nome, telefone, clinicorp_id, dias_sem_visita}` (`telefone` é coluna direta na tabela, sem JOIN)
   - **indicacoes**: `leads` onde `origem = 'Indicação'` AND `status NOT IN ('Fechou','Perdido')` — retorna `{nome, telefone, id}`
   - **recentes**: `leads` onde `origem != 'Indicação'` AND `status NOT IN ('Fechou','Perdido')` ORDER BY `criado_em DESC` LIMIT 50
-  - **frios**: mesmo que recentes, OFFSET 50 LIMIT 101 (51º ao 151º)
+  - **frios**: `leads` onde `origem != 'Indicação'` AND `status NOT IN ('Fechou','Perdido')` ORDER BY `criado_em DESC` OFFSET 50 LIMIT 101 (51º ao 151º)
 - Resposta: `{ total: N, contatos: [...] }`
 - Aceita query param `?count_only=true` → retorna só `{ total: N }` sem lista (usado para os contadores dos botões no módulo de Leads)
-- Roles: `crc_leads`, `gestor`, `admin`
+- Roles: `requireCrcLead` (`crc_leads`, `crc_comercial`, `gestor`, `admin`)
 
 **Lançar campanha:**
 ```
@@ -120,9 +120,9 @@ Body: { tipo: 'abc' | 'indicacoes' | 'recentes' | 'frios' }
 6. Se 0 contatos com telefone → erro 400 "Nenhum contato encontrado com telefone cadastrado"
 7. Chama `uploadMailing(campaignId, contatos)` — se falhar → erro 502, nenhum registro criado no DB
 8. Insere registro em `campanhas_discagem` com status `ativa` — se falhar → chama `encerrarCampanha(campaignId)` como rollback antes de retornar erro 500
-9. Chama `loginCrcNaCampanha(req.user.profile.threec_agent_token, campaignId)` — falha aqui é não-fatal (loga warning, campanha continua ativa, CRC recebe toast de aviso para se logar manualmente)
+9. Se `req.user.profile.threec_agent_token` estiver presente, chama `loginCrcNaCampanha(token, campaignId)` — falha aqui é não-fatal (loga warning, campanha continua ativa, CRC recebe toast de aviso para se logar manualmente); se token ausente, loga info e pula sem erro
 10. Resposta: `{ ok: true, campanha: { id, tipo, contatos_total } }`
-- Roles: `crc_leads`, `gestor`, `admin`
+- Roles: `requireCrcLead` (`crc_leads`, `crc_comercial`, `gestor`, `admin`)
 
 > **Nota:** Somente a CRC que lançou é automaticamente logada na campanha. Outras CRCs que queiram receber chamadas da mesma campanha precisam se logar manualmente no painel da 3cplus.
 
@@ -134,6 +134,7 @@ POST /api/campanhas/:id/pausar
 2. Chama `pausarCampanha(threec_campaign_id)`
 3. Atualiza status → `pausada`, seta `pausada_em = NOW()`
 - Roles: mesmos do lançamento
+- **Ownership:** qualquer usuário com role válido pode pausar/retomar/encerrar — a campanha é global do sistema (não restrita ao usuário que lançou)
 
 **Retomar:**
 ```
@@ -149,6 +150,8 @@ POST /api/campanhas/:id/encerrar
 ```
 1. Chama `encerrarCampanha(threec_campaign_id)`
 2. Atualiza status → `encerrada`, seta `encerrada_em = NOW()`
+
+> **Nota sobre chamadas em andamento:** O 3cplus encerra a fila de discagem (novas ligações param), mas chamadas já em curso continuam até finalizar naturalmente. `na_fila` pode retornar brevemente negativo nesses casos — o widget trata qualquer valor ≤ 0 como fila vazia.
 
 **Campanha ativa:**
 ```
@@ -237,20 +240,27 @@ Aparece em Curva ABC e em Leads quando `GET /api/campanhas/ativa` retorna campan
 
 O painel é implementado em `public/js/campanha-widget.js` (compartilhado entre módulos via `<script src="/js/campanha-widget.js">`).
 
+**Auth no widget:** `curva-abc.html` não possui a função `api()` de `index.html` — o widget define internamente um helper `cw_api(method, path, body)` que busca o JWT do localStorage com o padrão `k.startsWith('sb-') && k.endsWith('-auth-token')` e adiciona o header `Authorization: Bearer <token>`. Assim o widget funciona em qualquer módulo sem depender de funções externas.
+
 **Inicialização e reconciliação de estado:**
 1. Ao carregar a página, chama `GET /api/campanhas/ativa`
 2. Se retorna campanha → mostra painel, inicia polling de resultado a cada 60s
-3. A cada poll de resultado: se `na_fila === 0` e `status === 'ativa'` → chama `POST /api/campanhas/:id/encerrar` automaticamente (campanha terminou naturalmente) e esconde o painel
-4. Se o servidor reiniciar com campanha `ativa` no DB mas a 3cplus já terminou, o passo 3 reconcilia no próximo poll (na_fila será 0)
+3. A cada poll de resultado: se `na_fila <= 0` e `status === 'ativa'` → chama `POST /api/campanhas/:id/encerrar` automaticamente (campanha terminou naturalmente), esconde o painel e exibe toast "Campanha encerrada. X atendidos, Y não atenderam."
+4. Se o servidor reiniciar com campanha `ativa` no DB mas a 3cplus já terminou, o passo 3 reconcilia no próximo poll (na_fila será ≤ 0)
 
 ---
 
 ## 5. Roles e permissões
 
+Todos os endpoints de campanha usam o middleware existente `requireCrcLead`, definido como:
+```js
+const requireCrcLead = requireRole('crc_leads', 'crc_comercial', 'admin', 'gestor');
+```
+
 | Ação | Roles |
 |---|---|
-| Preview, lançar, pausar, retomar, encerrar | `crc_leads`, `gestor`, `admin` |
-| Ver painel de campanha ativa | `crc_leads`, `gestor`, `admin` |
+| Preview, lançar, pausar, retomar, encerrar | `crc_leads`, `crc_comercial`, `gestor`, `admin` |
+| Ver painel de campanha ativa | `crc_leads`, `crc_comercial`, `gestor`, `admin` |
 
 ---
 

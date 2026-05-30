@@ -1267,9 +1267,15 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
       <div class="form-group">
         <label>Status</label>
         <select id="m-status">
-          <option>Lead</option><option>Agendado</option><option>Compareceu</option>
-          <option>Em follow-up</option><option>Em nutrição</option>
-          <option>Fechou</option><option>Perdido</option>
+          <optgroup label="CRC Lead">
+            <option>Lead</option><option>Aguardando</option><option>Agendado</option>
+            <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
+          </optgroup>
+          <optgroup label="CRC Comercial">
+            <option>D0</option><option>D1</option><option>D2</option><option>D3</option>
+            <option>D4</option><option>D5</option><option>Em nutrição</option>
+            <option>Fechou</option><option>Perdido</option>
+          </optgroup>
         </select>
       </div>
       <div class="form-group" id="area-valor" style="display:none">
@@ -1672,7 +1678,7 @@ function renderFunil() {
   // Summary cards
   const taxaConv = base ? Math.round(counts['Fechou'] / base * 100) : 0;
   const receita = leads.filter(l => l.status === 'Fechou' && l.valor).reduce((s,l) => s + l.valor, 0);
-  const potencial = leads.filter(l => ['Agendado','Compareceu','Em follow-up','Em nutrição'].includes(l.status) && l.valor).reduce((s,l) => s + l.valor, 0);
+  const potencial = leads.filter(l => ['Agendado','Compareceu','D0','D1','D2','D3','D4','D5','Em nutrição'].includes(l.status) && l.valor).reduce((s,l) => s + l.valor, 0);
   document.getElementById('funil-summary').innerHTML = [
     { label:'Total no funil', val: total, mono: true },
     { label:'Taxa Lead→Fechou', val: taxaConv+'%', color: taxaConv >= 20 ? 'var(--green)' : taxaConv >= 8 ? 'var(--yellow)' : 'var(--red)' },
@@ -1932,13 +1938,12 @@ async function criarLeadManual(btn) {
 }
 
 function renderStepper(statusAtual) {
-  // Apenas os 7 status aceitos pelo servidor — D0-D5/Nutrir/etc não são persistíveis
-  const FUNIL_MODAL = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou','Perdido'];
-  const idx = FUNIL_MODAL.indexOf(statusAtual);
-  const grupoLead      = ['Lead','Agendado','Compareceu'];
-  const grupoComercial = ['Em follow-up','Em nutrição','Fechou','Perdido'];
+  // Vocabulário rico alinhado com servidor (FUNIL 15) e banco (constraint)
+  const idx = FUNIL.indexOf(statusAtual);
+  const grupoLead      = ['Lead','Aguardando','Agendado','Compareceu','Nutrir','Não tem Interesse'];
+  const grupoComercial = ['D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido'];
   function mkStep(f) {
-    const i = FUNIL_MODAL.indexOf(f);
+    const i = FUNIL.indexOf(f);
     const cls = i < idx && statusAtual !== 'Perdido' ? 'done' : i === idx ? 'current' : '';
     return `<div class="step ${classStatus(f)} ${cls}" onclick="document.getElementById('m-status').value='${f}';renderStepper('${f}');updateValorVisibility()">${f}</div>`;
   }
@@ -1987,6 +1992,17 @@ async function salvarLead(btn) {
     const r = await api(`/api/leads/${leadAtual.id}`, { method: 'PATCH', body: JSON.stringify(body) });
     if (r.error) { toast('❌ ' + r.error, true); return; }
     if (body.nome) document.getElementById('modal-titulo').textContent = `#${leadAtual.id} — ${body.nome}`;
+    // Sincroniza o objeto em memória do chat (evita painel/lista stale ao voltar do modal)
+    if (Array.isArray(chatLeads)) {
+      const _ci = chatLeads.findIndex(l => l.id === leadAtual.id);
+      if (_ci >= 0) {
+        Object.assign(chatLeads[_ci], body);
+        if (chatLeadAtual && chatLeadAtual.id === leadAtual.id) {
+          Object.assign(chatLeadAtual, body);
+          if (typeof renderChatList === 'function') renderChatList(chatLeads);
+        }
+      }
+    }
     toast('✅ Lead salvo!');
     fecharModal();
     loadDash();
@@ -2371,7 +2387,9 @@ function _initPainel(lead) {
   ps.value = lead.status || 'Lead';
 
   const po = document.getElementById('painel-origem');
-  if (!po.options.length) ORIGENS.forEach(o => po.appendChild(Object.assign(document.createElement('option'),{value:o,textContent:o})));
+  const _origLista = (lead.origem && !ORIGENS.includes(lead.origem)) ? [lead.origem, ...ORIGENS] : [...ORIGENS];
+  po.innerHTML = '';
+  _origLista.forEach(o => po.appendChild(Object.assign(document.createElement('option'),{value:o,textContent:o})));
   po.value = lead.origem || 'WhatsApp Direto';
 
   const _isAvaliacao = _chatMode === 'avaliacao';

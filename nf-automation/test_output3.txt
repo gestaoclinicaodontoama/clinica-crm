@@ -1,0 +1,305 @@
+=== TESTE DE EMISSÃO NF ===
+
+[LOGIN] Vieira
+  Captcha salvo em: C:\Users\Luiz Martins\Desktop\Projeto Claude Code\clinica-crm\nf-automation\captcha_debug.png
+  Aguardando captcha_answer.txt (ate 300s)...
+  Captcha lido do arquivo: '1456'
+  Captcha lido automaticamente: 1456 (tentativa 1)
+  Login OK
+  Login OK
+
+  -> #9999  LUIZ EDUARDO COELHO VIDIGAL MARTINS  R$ 1.00  05-2026
+  abre_arquivo('nfe/nfe.php') chamado via JS
+  Tipo tomador selecionado: Pessoa Física
+  local value: 'F'
+  S0 iframe submit: submitted
+  S0 iframe HTML: 11624 chars
+  Parse OK: id=34797549 ccm=-353334 razao='LUIZ EDUARDO COELHO VIDIGAL MARTINS'
+  Tomador OK: id=34797549 ccm=-353334 nome=LUIZ EDUARDO COELHO VIDIGAL MARTINS
+  contribResult: OK
+  Form após inject: {'id_tomador': '34797549', 'ccm': '-353334', 'cnpj': '06563650643', 'razao': 'LUIZ EDUARDO COELHO VIDIGAL MARTINS'}
+  Fallback cnpj/razao (só se vazio): '06563650643' / 'LUIZ EDUARDO COELHO VIDIGAL MARTINS'
+  Validação tomador OK: id_tomador='34797549'
+  Clique normal falhou, usando JS click na lupa de atividade...
+  Clicou Ok na atividade (frame: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nf)
+  Alíquota forçada para 3.00, aliquotaSimples=4.3547 (callback não disparou)
+  Preenchendo valor: 1,00 (frame: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nf)
+  Valor JS: OK:valor=1,00 base=1,00
+  [reforma v3-ibs]
+  codigo=''
+  Forçou codigo=412
+  codigo final antes do click='412'
+  Botão Reforma Tributária clicado (js_btn)
+  [DIAG] Frame novo detectado: 'https://ipatinga.meumunicipio.online/ISS/Componentes/Componentes.php?/reformaTributaria/emissao/modal.php'
+  Modal IBS: https://ipatinga.meumunicipio.online/ISS/Componentes/Componentes.php?/reformaTributaria/em
+  Digitou 'Ipatinga' no Select2 search
+  Município selecionado: Ipatinga
+  Reforma Tributária salva
+  Modal IBS fechado
+  Preenchendo valor: 1,00 (frame: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nf)
+  Valor JS: OK:valor=1,00 base=1,00
+  Situacao tributacao: FORCED:tp
+  [DIAG] Dialog capturado: 'Selecione o codigo de Serviço.'
+  JS emitir: OK:btnEmitirNF
+  Timeout nfe_exec.php — aguardando redirect direto
+  nfe.php pós-emissão (125419 chars)
+  DOM td-nums: []
+  DOM onclicks: []
+  Trecho nfe.php: <html><head><script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js"></script>
+<script>
+    let dataQueMeiNaoPodeMaisEmitirNota = new Date(2023, 8, 1); // M?s come?a em 0 (janeiro) at? 11 (dezembro)
+
+        const ValidarMei = {
+
+        dataQueMeiNaoPodeMaisEmitirNota,
+
+        validacaoCadastroMobiliarioTipoMei: (
+            tipoContribuinte,
+            idInput = "usa_nfe"
+        ) => {
+
+            if (!tipoContribuinte) {
+                tipoContribuinte = $("#tipo").val();
+            }
+
+            let usa_nfe = $("#" + idInput);
+
+            let now = new Date();
+            let targetDate = ValidarMei.dataQueMeiNaoPodeMaisEmitirNota; // M?s come?a em 0 (janeiro) at? 11 (dezembro)
+            // let targetDate = new Date(2023, 7, 25); // Data de teste
+
+            if (now >= targetDate && usa_nfe.is(":checked") && tipoContribuinte == 'MEI') {
+                alert("A partir de 01 de setembro de 2023 os contribuintes MEIs dever\u00e3o emitir Nota Fiscal de Servi\u00e7os no sistema de Nota Nacional.");
+                usa_nfe.prop("checked", false);
+                return;
+            }
+
+            return true
+        },
+
+        validarEmissaoNotaFiscalMei: (
+            tipoContribuinte,
+            elementosParaApagar = [],
+        ) => {
+
+            const defaultElementosParaApagar = [
+                $("#btnEmitirNF"),
+                $("#btnArquivo"),
+                $("#btnRps"),
+                $("#btnSalvar"),
+                $("#tdSubstituirNF"),
+                $("#substituirNFe"),
+                $("#fielSubstituir"),
+                $("#btnEnviaLote"),
+                $("#btnXmlCj"),
+            ]
+
+            elementosParaApagar = [
+                ...defaultElementosParaApagar,
+                ...elementosParaApagar
+            ]
+
+            let now = new Date();
+            let targetDate = ValidarMei.dataQueMeiNaoPodeMaisEmitirNota; // M?s come?a em 0 (janeiro) at? 11 (dezembro)
+
+            if (now >= targetDate && 
+  Hrefs nfe.php: ['../../vendor/bootstrap/css/bootstrap.min.css', '../../css/main-2.0.css', '../../css/grid-2.0.css', '../../css/window-2.0.css', 'https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css', '../dmm/_menu.php', '#', '#', '#', '#', '#', '#', '#']
+  Playwright emissão falhou (Número da NFS-e não encontrado após emissão Playwright. A nota pode não ter sido emitida — verifique manualmente no portal da Prefeitura.), tentando via HTTP...
+  base_url: https://ipatinga.meumunicipio.online
+  Campos extraídos do form: 90
+  [FIX] aliquota -> 3.00
+  [DIAG] Campos criticos no POST:
+    id_tomador='34797549'
+    ccm='-353334'
+    cnpj='06563650643'
+    razao='LUIZ EDUARDO COELHO VIDIGAL MARTINS'
+    codigo='412'
+    aliquota='3.00'
+    aliquotaSimples='4.3547'
+    valor='1,00'
+    base='1,00'
+    situacao='tp'
+    dtEmissao='26/05/2026'
+    dtEmissaoPrest='26/05/2026'
+    descricaoNF='teste'
+    localServico='(ausente)'
+    exterior='(ausente)'
+  [DIAG] Todos com valor:
+    acao='nfe_mov'
+    acnpj_prest='SUPER-SIMPLES'
+    aliquota='3.00'
+    aliquotaIR=' '
+    aliquotaSimples='4.3547'
+    ano='2026'
+    arazao_prest='05617377000108'
+    base='1,00'
+    btnCredito2='Credito'
+    ccm='-353334'
+    cnpj='06563650643'
+    codigo='412'
+    descricaoNF='teste'
+    dia='26'
+    dtEmissao='26/05/2026'
+    dtEmissaoPrest='26/05/2026'
+    email_t='undefined'
+    generateToken='27089176b90d0a3ddfe8dfe9f5d5c7e2c3a612e6'
+    id_prestador='34641446'
+    id_tomador='34797549'
+    isento='0'
+    local='F'
+    mes='05'
+    prest_ccm='8439700'
+    prest_cnpj='05617377000108'
+    razao='LUIZ EDUARDO COELHO VIDIGAL MARTINS'
+    reforma[clocprestacao]='3131307'
+    reforma[cnbs]='123012300'
+    reforma[tpretpiscofins]='0'
+    situacao='tp'
+    statusContrib='a'
+    subempreitada='0'
+    substituto='undefined'
+    tfano_protocolo='ano_protocolo'
+    tfnum_protocolo='num_protocolo>'
+    tipoTomador='undefined'
+    valor='1,00'
+  POST -> https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_exec.php
+  Campos valor no POST: {'valor': '1,00', 'valor_iss_fora': '', 'valor_desconto_incon': '', 'valor_outras_deducoes': '', 'valor_total_tributos': '', 'valor_pis': '', 'valor_cofins': '', 'valor_csll': '', 'valor_ir': '', 'valor_inss': ''}
+  HTTP 200 — resp 411 chars
+  Trecho: <html>
+
+<body>
+	<form name="form1" method="post" action="nfe.php">
+		<input type="hidden" name="msg" value="">
+		<input type="hidden" name="msg1" value="Dados registrados com sucesso.">
+		<input type="hidden" name="msg2" value="">
+		<input type="hidden" name="aliquota_superSimples" value="4.3547">
+
+	</form>
+	<script language="javascript">
+		<!--
+			document.form1.submit();
+		//-->
+	</script>
+</body>
+
+</html>
+  Seguindo redirect -> https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe.php  msg1='Dados registrados com sucesso.'
+  Redirect resp: 124935 chars
+  Trecho2: <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js"></script>
+<script>
+    let dataQueMeiNaoPodeMaisEmitirNota = new Date(2023, 8, 1); // M?s come?a em 0 (janeiro) at? 11 (dezembro)
+
+        const ValidarMei = {
+
+        dataQueMeiNaoPodeMaisEmitirNota,
+
+        validacaoCadastroMobiliarioTipoMei: (
+            tipoContribuinte,
+            idInput = "usa_nfe"
+        ) => {
+
+            if (!tipoContribuinte) {
+                tipoContribuinte = $("#tipo").val();
+            }
+
+            let usa_nfe = $("#" + idInput);
+
+            let now = new Date();
+            let targetDate = ValidarMei.dataQueMeiNaoPodeMaisEmitirNota; // M?s come?a em 0 (janeiro) at? 11 (dezembro)
+            // let targetDate = new Date(2023, 7, 25); // Data de teste
+
+            if (now >= targetDate && usa_nfe.is(":checked") && tipoContribuinte == 'MEI') {
+                alert("A partir de 01 de setembro de 2023 os contribuintes MEIs dever\u00e3o emitir Nota Fiscal de Servi\u00e7os no sistema de Nota Nacional.");
+                usa_nfe.prop("checked", false);
+                return;
+            }
+
+            return true
+        },
+
+        validarEmissaoNotaFiscalMei: (
+            tipoContribuinte,
+            elementosParaApagar = [],
+        ) => {
+
+            const defaultElementosParaApagar = [
+                $("#btnEmitirNF"),
+                $("#btnArquivo"),
+                $("#btnRps"),
+                $("#btnSalvar"),
+                $("#tdSubstituirNF"),
+                $("#substituirNFe"),
+                $("#fielSubstituir"),
+                $("#btnEnviaLote"),
+                $("#btnXmlCj"),
+            ]
+
+            elementosParaApagar = [
+                ...defaultElementosParaApagar,
+                ...elementosParaApagar
+            ]
+
+            let now = new Date();
+            let targetDate = ValidarMei.dataQueMeiNaoPodeMaisEmitirNota; // M?s come?a em 0 (janeiro) at? 11 (dezem
+  Hrefs Trecho2: ['../../vendor/bootstrap/css/bootstrap.min.css', '../../css/main-2.0.css', '../../css/grid-2.0.css', '../../css/window-2.0.css', 'https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css', '../dmm/_menu.php', '#', '#', '#', '#', '#', '#', '#']
+  [DIAG-NUM] NFS-e-num: ['0', '1', '8304', '14']
+  [DIAG-CTX] 2023: ...script>     let dataQueMeiNaoPodeMaisEmitirNota = new Date(2023, 8, 1); // M?s come?a em 0 (janeiro) at? 11 (dezembro)   ...
+  [DIAG-CTX] 8859: ...a http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />   	<!-- Bootstrap core CSS --> 	<link href="../../ven...
+  [DIAG-CTX] 8439700: ...1]; 				descricaoNF.value = list[14]; 				prest_ccm.value = 8439700;    				for (var i = 0; i < local.options.length; i++) { 		...
+  [DIAG-CTX] 11229: ..."none"; 				localServico_obj.checked = false; 			}  			//SG-11229 			if ( 				codigo_obj.value === "701" && 				"056173770001...
+  [DIAG-CTX] 05617377000108: ...		//SG-11229 			if ( 				codigo_obj.value === "701" && 				"05617377000108" === "04933293000110" 			) { 				display = ""; 			}  			lab...
+  [DIAG-CTX] 04933293000110: ...				codigo_obj.value === "701" && 				"05617377000108" === "04933293000110" 			) { 				display = ""; 			}  			labelLocal.style.display...
+  [DIAG-CTX] 13411: ...oIncide); 									break; 								case "nt":  									//SG-13411 (atividade 1705) 									if (data.subtipo === "naoTributad...
+  [DIAG-CTX] 1705: ...		break; 								case "nt":  									//SG-13411 (atividade 1705) 									if (data.subtipo === "naoTributadaRetido") { 				...
+  [DIAG-CTX] 990101: ...tion(situacao, retidofora);  										//Se a atividade for 990101 ou 990401, não mostra 'Não Tributada em Ipatinga - Retido' ...
+  [DIAG-CTX] 990401: ...cao, retidofora);  										//Se a atividade for 990101 ou 990401, não mostra 'Não Tributada em Ipatinga - Retido' - SG-12884...
+  [DIAG-CTX] 12884: ...90401, não mostra 'Não Tributada em Ipatinga - Retido' - SG-12884, SG-13071 									} else if (data.subtipo === "naoTributad...
+  [DIAG-CTX] 13071: ... mostra 'Não Tributada em Ipatinga - Retido' - SG-12884, SG-13071 									} else if (data.subtipo === "naoTributada") { 				...
+  [DIAG-CTX] 2019: ...		// Retirado por solicita??o do Edson via Whatsapp - 02/04/2019 		if (incidencia.value == 1 || incidencia.value == 0) { 			...
+  [DIAG-CTX] 660000: ... tributadaPrestador); 			} else { 				if (ccm_tom.value == -660000) { 					addOption(situacao, tributadaTomador); 				} else {...
+  [DIAG-CTX] 19876424000142: ...tipoTomador.value = tipoTom;  			let prefeitura = (cnpj == '19876424000142'); 			let simplesMei = ($('#acnpj_prest').val() == 'MEI') |...
+  [DIAG-CTX] 29660968000126: ...-SIMPLES'); 			if (exigeIR && ($('#acnpj_prest').val() !== '29660968000126')) { //Excessão adicionada pela solicitação do Jira: SG-132...
+  [DIAG-CTX] 13293: ...126')) { //Excessão adicionada pela solicitação do Jira: SG-13293(Chamado: 17816). 				$('#nfe_ir').trigger('click'); 				$('...
+  [DIAG-CTX] 17816: ...ssão adicionada pela solicitação do Jira: SG-13293(Chamado: 17816). 				$('#nfe_ir').trigger('click'); 				$('#imputAliquotaI...
+  [DIAG-CTX] 1900: ...| 					parseInt(data[2]) > 99) && (parseInt(data[2]) < 					1900 || parseInt(data[2]) > 9999))) return false; 			if (data[2]...
+  [DIAG-CTX] 9999: ...9) && (parseInt(data[2]) < 					1900 || parseInt(data[2]) > 9999))) return false; 			if (data[2] < 50) data[2] = parseInt(da...
+  [DIAG-CTX] 2000: ...n false; 			if (data[2] < 50) data[2] = parseInt(data[2]) + 2000; 			else if (data[2] < 100) data[2] = parseInt(data[2]) + 1...
+  [DIAG-CTX] 11875: ...nde verifica que a aliquota era Maior que 2.00%. JIRA -> SG-11875 			if ("SUPER-SIMPLES" == "SUPER-SIMPLES" && codigo.value !...
+  [DIAG-CTX] 1000: ...alert("O valor precisa ser informado no padrão decimal, ex: 1000,00"); 				valor.focus(); 				return; 			}  			if (cnpj.valu...
+  [DIAG-CTX] 1601: ...dade'+atividade); 			/*	if(transploc == '1' && atividade == 1601) { 					document.getElementById("codigo_cidade").value = to...
+  [DIAG-CTX] 2026: ...atual 			const hoje = new Date();  			// Data limite (01/01/2026) 			const dataLimite = new Date(2026, 0, 1); // mês começa ...
+  [DIAG-CTX] 13578: ...(value) { 			var regex = /^((((0?[1-9]|[12]\d|3[01])[\/](0?[13578]|1[02])[\/]((1[6-9]|[2-9]\d)?\d{2}))|((0?[1-9]|[12]\d|30)[\...
+  [DIAG-CTX] 13456789: ...])[\/]((1[6-9]|[2-9]\d)?\d{2}))|((0?[1-9]|[12]\d|30)[\/](0?[13456789]|1[012])[\/]((1[6-9]|[2-9]\d)?\d{2}))|((0?[1-9]|1\d|2[0-8])...
+  [DIAG-CTX] 2468: ...9]|[2-9]\d)?\d{2}))|(29[\/]0?2[\/]((1[6-9]|[2-9]\d)?(0[48]|[2468][048]|[13579][26])|((16|[2468][048]|[3579][26])00)|00)))|((...
+  [DIAG-CTX] 13579: ...\d{2}))|(29[\/]0?2[\/]((1[6-9]|[2-9]\d)?(0[48]|[2468][048]|[13579][26])|((16|[2468][048]|[3579][26])00)|00)))|(((0[1-9]|[12]\...
+  [DIAG-CTX] 3579: ...|[2-9]\d)?(0[48]|[2468][048]|[13579][26])|((16|[2468][048]|[3579][26])00)|00)))|(((0[1-9]|[12]\d|3[01])(0[13578]|1[02])((1[6...
+  [DIAG-CTX] 2902: ...d)?\d{2}))|((0[1-9]|1\d|2[0-8])02((1[6-9]|[2-9]\d)?\d{2}))|(2902((1[6-9]|[2-9]\d)?(0[48]|[2468][048]|[13579][26])|((16|[2468...
+  [DIAG-CTX] 7137: ..."hidden" id="generateToken" name="generateToken" value="7a8a7137f9823658277a42a73ef2e94d55fb9705"> 					<input type="hidden"...
+  [DIAG-CTX] 9823658277: ...en" id="generateToken" name="generateToken" value="7a8a7137f9823658277a42a73ef2e94d55fb9705"> 					<input type="hidden" id="num_pr...
+  [DIAG-CTX] 9705: ...="generateToken" value="7a8a7137f9823658277a42a73ef2e94d55fb9705"> 					<input type="hidden" id="num_protocolo" name="tfnum_...
+  [DIAG-CTX] 666666: ...width="15%"> 											<font face="Arial" size="2" color="#666666">Regime do Prestador</font> 										</td> 										<td w...
+  [DIAG-CTX] 191970: ...sibleIntermediario();"/><font face="Arial" size="2" color="#191970"> Informar Intermedi?rio</font></div> 								</td>--> 				...
+  [DIAG-CTX] 8304: ...								<font face="Arial" size="2" color="#666666">NFSe N&#8304;: 															</font> 															<input name="nfeSub...
+  [DIAG-CTX] 34641446: ...en" id="id_prestador" name="id_prestador" 											value="34641446"> 										<input type="hidden" id="id_tomador" name="id_t...
+  [DIAG-CTX] 2003: ...i&ccedil;&atilde;o da Atividade 											Prestada (LC 116/2003)</font> 									</td> 								</tr> 								<tr> 									...
+  [DIAG-CTX] 999999: ...26" size="15" readonly 												style="border:1px solid #999999; color:#CC0000; background-color:#DCDCDC; text-align:center...
+  [DIAG-CTX] 808080: ...idth: 1px; border-top-width: 1px; border-bottom: 1px solid #808080"> 										<b> 											<font face="Arial" size="2" colo...
+  [DIAG-CTX] 333333: ...ttom: 1px; font-size: 3pt"> 						<td> 							<font color="#333333">&nbsp;</font> 						</td> 					</tr> 					<tr> 						<td a...
+  [DIAG-CTX] 3711: ...r> 					</table> 				</form> 				<!-- <center>Suporte: (14) 3711-2532 ou 3711-2587 (Prefeitura) | (11) 4153-2945 ou (12) 320...
+  [DIAG-CTX] 2532: ...			</table> 				</form> 				<!-- <center>Suporte: (14) 3711-2532 ou 3711-2587 (Prefeitura) | (11) 4153-2945 ou (12) 3207-431...
+  [DIAG-CTX] 2587: ...			</form> 				<!-- <center>Suporte: (14) 3711-2532 ou 3711-2587 (Prefeitura) | (11) 4153-2945 ou (12) 3207-4313 (Suporte do...
+  [DIAG-CTX] 4153: ...er>Suporte: (14) 3711-2532 ou 3711-2587 (Prefeitura) | (11) 4153-2945 ou (12) 3207-4313 (Suporte do Sistema)</center> --> 		...
+  [DIAG-CTX] 2945: ...porte: (14) 3711-2532 ou 3711-2587 (Prefeitura) | (11) 4153-2945 ou (12) 3207-4313 (Suporte do Sistema)</center> --> 			</di...
+  [DIAG-CTX] 3207: ...711-2532 ou 3711-2587 (Prefeitura) | (11) 4153-2945 ou (12) 3207-4313 (Suporte do Sistema)</center> --> 			</div> 		</div> 	...
+  [DIAG-CTX] 4313: ...532 ou 3711-2587 (Prefeitura) | (11) 4153-2945 ou (12) 3207-4313 (Suporte do Sistema)</center> --> 			</div> 		</div> 		<!--...
+  Número da nota (NFS-e texto): 8304
+  Número final da nota: 8304
+  Print URL resp: 404 237 chars ct=text/html; charset=iso-8859-1
+  Print URL resp: 404 240 chars ct=text/html; charset=iso-8859-1
+  Print URL resp: 404 237 chars ct=text/html; charset=iso-8859-1
+  URL impressão capturada: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?nota=8304
+  PDF URLs encontradas: []
+     OK  Nota #8304  https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?nota=8304
+
+SUCESSO! Nota #8304
+   PDF: https://ipatinga.meumunicipio.online/ISS/contribuinte/nfe/nfe_print.php?nota=8304
