@@ -1788,7 +1788,7 @@ async function abrirModal(id) {
   _origOpts.forEach(o => _mOrig.appendChild(Object.assign(document.createElement('option'), {value: o, textContent: o})));
   _mOrig.value = l.origem || '';
   // Se origem for nula/vazia, adiciona opção vazia para evitar pré-seleção silenciosa
-  if (!_mOrig.value) {
+  if (!l.origem) {
     const _blankOpt = Object.assign(document.createElement('option'), {value: '', textContent: '— sem origem —'});
     _mOrig.insertBefore(_blankOpt, _mOrig.firstChild);
     _mOrig.value = '';
