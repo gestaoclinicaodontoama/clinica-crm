@@ -47,6 +47,15 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
+// --------- logEvento ---------
+function logEvento(leadId, tipo, descricao, metadata = {}, usuarioId = null) {
+  if (!leadId) return;
+  supabase.from('lead_eventos').insert({
+    lead_id: leadId, tipo, descricao, metadata,
+    usuario_id: usuarioId || null,
+  }).then(() => {}).catch(e => console.error('[logEvento]', e.message));
+}
+
 // --------- AUTH MIDDLEWARE ---------
 async function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
@@ -343,6 +352,10 @@ app.get('/lead', rateLimit, async (req, res) => {
       if (error) throw error;
       lead = inserted;
       console.log('✅ Lead #' + lead.id + ' — ' + nome + ' via ' + origem);
+      logEvento(lead.id, 'lead_criado',
+        'Entrou via ' + origem + (ctwa_clid ? ' (CTWA ✓)' : '') + (campanha ? ' — ' + campanha : ''),
+        { origem, campanha: campanha || '', ctwa_clid: ctwa_clid || '', fbclid: fbclid || '' }
+      );
       dispararConversaoMeta(lead).catch(e => console.error('Meta CAPI:', e.message));
     }
 
@@ -395,6 +408,8 @@ app.post('/api/leads', requireAuth, rateLimit, async (req, res) => {
     if (error) throw error;
     dispararConversaoMeta(lead).catch(e => console.error('Meta CAPI:', e.message));
     res.json({ ok: true, lead });
+    logEvento(lead.id, 'lead_criado', 'Lead criado manualmente — ' + lead.origem,
+      { origem: lead.origem }, req.user?.id || null);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1482,6 +1497,10 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       if (insertErr) throw insertErr;
       lead = inserted;
       console.log('✅ Novo lead via WA: ' + m.nome + ' (' + m.from + ')' + (m.ctwa_clid ? ' [CTWA]' : ''));
+      logEvento(lead.id, 'lead_criado',
+        m.ctwa_clid ? 'Entrou via anúncio Meta (CTWA ✓)' : 'Primeira mensagem via WhatsApp',
+        { origem: lead.origem, campanha: lead.campanha || '', ctwa_clid: m.ctwa_clid || '' }
+      );
       if (m.ctwa_clid && lead) dispararConversaoMeta(lead).catch(e => console.error('Meta CAPI:', e.message));
     } else {
       const upd = { ultimo_contato: new Date().toISOString() };
