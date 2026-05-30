@@ -453,7 +453,7 @@ async function patchLead(req, res) {
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     const leadAntes = { status: lead.status };
     const ALLOWED = [
-      'nome','telefone','email','status','valor','tipo_trat',
+      'nome','telefone','email','origem','status','valor','tipo_trat',
       'notas_sdr','notas_avaliacao','notas_comercial',
       'score_interesse','perfil_disc','etiquetas',
       'proximo_contato','ultimo_contato',

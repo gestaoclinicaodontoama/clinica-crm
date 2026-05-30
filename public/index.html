@@ -2448,7 +2448,7 @@ async function painelNotasSalvar(valor, campo) {
 
 async function painelSalvar(campo, valor) {
   if (!chatLeadAtual) return;
-  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','proximo_contato']);
+  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','perfil_disc']);
   if (!CAMPOS_PAINEL.has(campo)) return;
   const body = { [campo]: valor };
   try {
