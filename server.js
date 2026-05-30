@@ -3750,7 +3750,7 @@ app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req
   } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
-app.get('/api/anuncios', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/anuncios', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const { data, error } = await supabase.from('anuncios').select('*').order('criado_em', { ascending: false });
     if (error) throw error;

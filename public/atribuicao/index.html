@@ -116,16 +116,15 @@ async function _checkAdmin() {
 
 async function aplicarFiltro() {
   try {
-    const [dados, catalog, isAdmin] = await Promise.all([
+    const [dados, isAdmin] = await Promise.all([
       _api('/api/atribuicao?' + getFiltroParams()),
-      _api('/api/anuncios'),
       _checkAdmin()
     ]);
     renderCards(dados.totais || {});
     renderTabela(dados.grupos || [], dados.truncado);
     if (isAdmin) {
       document.getElementById('catalogo-wrap').style.display = '';
-      renderCatalogo(Array.isArray(catalog) ? catalog : []);
+      _api('/api/anuncios').then(catalog => renderCatalogo(Array.isArray(catalog) ? catalog : [])).catch(() => {});
     }
   } catch(e) { console.error('atribuicao:', e); }
 }

@@ -4037,7 +4037,9 @@ const _TRAJETO_ICONES = {
 let _trajetoOffset = 0, _trajetoTotal = 0, _trajetoLeadId = null;
 
 function _formatBR(iso) {
+  if (!iso) return '—';
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
   const opts = { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false };
   const parts = new Intl.DateTimeFormat('pt-BR', opts).formatToParts(d);
   const p = {};
@@ -4058,7 +4060,7 @@ async function carregarTrajeto(leadId, offset) {
     if (!r.eventos?.length && offset === 0) { lista.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:12px">Nenhum evento ainda.</div>'; if(btnMais) btnMais.style.display='none'; return; }
     const _escT = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     (r.eventos || []).forEach(ev => {
-      const icone = _TRAJETO_ICONES[ev.tipo] || '•';
+      const icone = Object.prototype.hasOwnProperty.call(_TRAJETO_ICONES, ev.tipo) ? _TRAJETO_ICONES[ev.tipo] : '•';
       const div = document.createElement('div');
       div.style.cssText = 'display:flex;gap:6px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border)';
       div.innerHTML = '<span style="font-size:13px;flex-shrink:0">' + icone + '</span><div><div style="color:var(--muted);font-size:10.5px">' + _formatBR(ev.criado_em) + '</div><div style="line-height:1.4">' + _escT(ev.descricao) + '</div></div>';
