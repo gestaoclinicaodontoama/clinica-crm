@@ -490,6 +490,11 @@ async function patchLead(req, res) {
     const statusMudou = req.body.status && req.body.status !== leadAntes.status;
     if (statusMudou) {
       const evtNome = EVENTOS_FUNIL[updated.status];
+      logEvento(updated.id, 'status_mudou',
+        'Status: ' + leadAntes.status + ' → ' + updated.status,
+        { de: leadAntes.status, para: updated.status },
+        req.user?.id || null
+      );
       const jaEnviou = (updated.eventos_meta_enviados || []).includes(evtNome);
       if (evtNome && !jaEnviou) {
         dispararConversaoMeta(updated).catch(e => console.error('Meta CAPI:', e.message));
@@ -1118,6 +1123,21 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
     });
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
+    if (templateName) {
+      supabase.from('templates').select('categoria').eq('nome', templateName).maybeSingle()
+        .then(({ data: tpl }) => {
+          logEvento(id, 'template_enviado',
+            'Template enviado: ' + templateName,
+            { template: templateName, categoria: tpl?.categoria || 'MARKETING' },
+            req.user?.id || null
+          );
+        }).catch(() => {});
+    } else {
+      logEvento(id, 'mensagem_enviada',
+        'Mensagem enviada: "' + (texto || '').slice(0, 80) + (texto?.length > 80 ? '…' : '') + '"',
+        {}, req.user?.id || null
+      );
+    }
   } catch (e) {
     console.error('❌ wa send:', e);
     res.status(500).json({ error: e.message });
@@ -1153,6 +1173,8 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
     });
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
+    logEvento(id, 'mensagem_enviada', 'Mídia enviada: ' + (req.file?.originalname || 'arquivo'),
+      { tipo: req.file?.mimetype || '' }, req.user?.id || null);
   } catch (e) {
     console.error('❌ wa midia:', e);
     res.status(500).json({ error: e.message });
@@ -1520,6 +1542,31 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         lead_id: lead.id, direcao: 'recebida', canal: 'sdr',
         texto: sanitizeStr(m.texto, 4000), wa_id: m.id || '',
       });
+      logEvento(lead.id, 'mensagem_recebida',
+        'Mensagem recebida: "' + (m.texto || '').slice(0, 80) + (m.texto?.length > 80 ? '…' : '') + '"',
+        { wa_id: m.id || '', tipo: m.tipo }
+      );
+      // Detectar resposta a template (janela 48h)
+      const h48ago = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+      supabase.from('lead_eventos')
+        .select('id, metadata, criado_em')
+        .eq('lead_id', lead.id)
+        .eq('tipo', 'template_enviado')
+        .gte('criado_em', h48ago)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .then(async ({ data: tevts }) => {
+          if (!tevts?.length) return;
+          const { data: tresps } = await supabase.from('lead_eventos')
+            .select('id').eq('lead_id', lead.id).eq('tipo', 'template_respondido')
+            .gte('criado_em', tevts[0].criado_em).limit(1);
+          if (tresps?.length) return;
+          const minutos = Math.round((Date.now() - new Date(tevts[0].criado_em).getTime()) / 60000);
+          logEvento(lead.id, 'template_respondido',
+            'Respondeu ao template "' + (tevts[0].metadata?.template || '') + '" (' + minutos + ' min depois)',
+            { template: tevts[0].metadata?.template || '', tempo_resposta_min: minutos }
+          );
+        }).catch(() => {});
     }
     res.status(200).send('ok');
   } catch (e) {
