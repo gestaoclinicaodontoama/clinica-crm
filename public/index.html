@@ -1362,8 +1362,19 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
   <h2>Histórico</h2>
   <ul class="timeline" id="modal-timeline"></ul>
 
+  <!-- Link de rastreio -->
+  <div id="modal-tracking-wrap" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:14px">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:8px">🔗 Link de rastreio</div>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <input id="tracking-pagina" placeholder="implantes, invisalign, protocolo, clareamento..." style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px" oninput="atualizarLinkRastreio()">
+      <button class="btn btn-ghost" style="font-size:12px;white-space:nowrap" onclick="copiarLinkRastreio()">Copiar link</button>
+    </div>
+    <div id="tracking-url-preview" style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;word-break:break-all"></div>
+  </div>
+
   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;">
     <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+    <button class="btn btn-ghost" id="btn-link-rastreio" onclick="toggleLinkRastreio()" style="display:none">🔗 Link</button>
     <button id="btn-salvar-lead" class="btn btn-primary" onclick="salvarLead(this)">Salvar</button>
     <button class="btn btn-success" id="btn-whatsapp" onclick="abrirWhatsApp()" style="display:none">💬 WhatsApp</button>
     <button class="btn btn-call" id="btn-ligar" onclick="ligarLead3c()" style="display:none">📞 Ligar</button>
@@ -1898,6 +1909,11 @@ async function abrirModal(id) {
 
     document.getElementById('btn-whatsapp').style.display = l.telefone ? 'inline-block' : 'none';
     document.getElementById('btn-ligar').style.display = l.telefone ? 'inline-block' : 'none';
+    document.getElementById('btn-link-rastreio').style.display = l.telefone ? 'inline-block' : 'none';
+    document.getElementById('modal-tracking-wrap').style.display = 'none';
+    document.getElementById('tracking-pagina').value = '';
+    document.getElementById('tracking-url-preview').textContent = '';
+    _trackingUrl = '';
     document.getElementById('modal-bg').classList.add('open');
     setTab('dados', document.querySelector('.tab[data-tab="dados"]'));
     carregarLigacoes(id);
@@ -2064,6 +2080,27 @@ async function salvarLead(btn) {
 function abrirWhatsApp() {
   if (!leadAtual?.telefone) return;
   window.open(`https://web.whatsapp.com/send?phone=${leadAtual.telefone}`, '_blank');
+}
+
+let _trackingUrl = '';
+async function toggleLinkRastreio() {
+  const wrap = document.getElementById('modal-tracking-wrap');
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+  if (!visible) await atualizarLinkRastreio();
+}
+async function atualizarLinkRastreio() {
+  if (!leadAtual) return;
+  const pagina = (document.getElementById('tracking-pagina').value || '').trim();
+  try {
+    const r = await api(`/api/leads/${leadAtual.id}/tracking-link?pagina=${encodeURIComponent(pagina)}`);
+    _trackingUrl = r.url;
+    document.getElementById('tracking-url-preview').textContent = _trackingUrl;
+  } catch(e) { document.getElementById('tracking-url-preview').textContent = 'Erro ao gerar link'; }
+}
+function copiarLinkRastreio() {
+  if (!_trackingUrl) return;
+  navigator.clipboard.writeText(_trackingUrl).then(() => toast('✅ Link copiado!'));
 }
 
 async function carregarLigacoes(leadId) {

@@ -3806,6 +3806,38 @@ app.patch('/api/anuncios/:id', requireRole('admin'), rateLimit, async (req, res)
 });
 
 // ========== PIXEL RASTREIO ==========
+
+// Token por lead: determinístico (sem coluna extra no banco)
+// Formato: base64url(leadId) + '.' + hmac(8 chars)
+function _lidToken(leadId) {
+  const secret = process.env.TRACK_SECRET || process.env.PIXEL_TRACK_TOKEN || 'ama-lid-secret';
+  const mac = crypto.createHmac('sha256', secret).update(String(leadId)).digest('hex').slice(0, 8);
+  const payload = Buffer.from(String(leadId)).toString('base64url');
+  return payload + '.' + mac;
+}
+function _lidResolve(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  let leadId;
+  try { leadId = parseInt(Buffer.from(parts[0], 'base64url').toString(), 10); } catch { return null; }
+  if (!Number.isFinite(leadId) || leadId <= 0) return null;
+  const secret = process.env.TRACK_SECRET || process.env.PIXEL_TRACK_TOKEN || 'ama-lid-secret';
+  const expectedMac = crypto.createHmac('sha256', secret).update(String(leadId)).digest('hex').slice(0, 8);
+  return parts[1] === expectedMac ? leadId : null;
+}
+
+// Retorna o link de rastreio personalizado para um lead
+app.get('/api/leads/:id/tracking-link', requireAuth, rateLimit, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+  const pagina = sanitizeStr(req.query.pagina || '', 100).replace(/[^a-z0-9\-\/]/gi, '').toLowerCase();
+  const base = 'https://clinicaodontoama.com.br';
+  const path = pagina ? '/' + pagina.replace(/^\//, '') : '/';
+  const lid = _lidToken(id);
+  res.json({ url: base + path + '?lid=' + lid, lid });
+});
+
 app.get('/track.js', (req, res) => {
   const token = process.env.PIXEL_TRACK_TOKEN || '';
   res.setHeader('Content-Type', 'application/javascript');
@@ -3813,11 +3845,19 @@ app.get('/track.js', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', 'https://clinicaodontoama.com.br');
   res.send(`(function(){
   var p=new URLSearchParams(location.search);
+  var BASE='https://plataformaama-plataforma.uc5as5.easypanel.host';
+  // Rastreio por lid (link personalizado enviado pelo CRC)
+  var lid=p.get('lid');
+  if(lid){
+    fetch(BASE+'/t',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:${JSON.stringify(token)},lid:lid,evento:'PageView',pagina:location.pathname,referrer:document.referrer})
+    }).catch(function(){});
+  }
+  // Rastreio por fbclid (anúncio Meta)
   var f=p.get('fbclid')||localStorage.getItem('_ama_fbclid');
   if(f)localStorage.setItem('_ama_fbclid',f);
   if(!f)return;
-  fetch('https://plataformaama-plataforma.uc5as5.easypanel.host/t',{
-    method:'POST',headers:{'Content-Type':'application/json'},
+  fetch(BASE+'/t',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({token:${JSON.stringify(token)},fbclid:f,evento:'PageView',pagina:location.pathname,referrer:document.referrer})
   }).catch(function(){});
 })();`);
@@ -3826,17 +3866,35 @@ app.get('/track.js', (req, res) => {
 app.post('/t', rateLimit, async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', 'https://clinicaodontoama.com.br');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  const { token, fbclid, evento = 'PageView', pagina = '/', referrer = '' } = req.body || {};
+  const { token, fbclid, lid, evento = 'PageView', pagina = '/', referrer = '' } = req.body || {};
   if (!process.env.PIXEL_TRACK_TOKEN) return res.status(503).send('');
   if (!token || token !== process.env.PIXEL_TRACK_TOKEN) return res.status(401).send('');
-  if (!fbclid || typeof fbclid !== 'string' || fbclid.length > 500) return res.status(400).send('');
-  const safeFbclid = fbclid.slice(0, 500);
   const safePagina = String(pagina).slice(0, 200);
-  res.status(204).send('');
+  const safeRef   = String(referrer).slice(0, 200);
+  res.status(204).send(''); // responde logo, processa em background
+
   try {
+    // Ramo 1: link personalizado por lead (lid)
+    if (lid) {
+      const leadId = _lidResolve(lid);
+      if (leadId) {
+        await supabase.from('pixel_sessions').insert({
+          lead_id: leadId, fbclid: '', pagina: safePagina, evento: String(evento).slice(0, 50),
+          metadata: { referrer: safeRef, via: 'lid' },
+        });
+        logEvento(leadId, 'pixel_pagina',
+          'Visitou via link: ' + safePagina + (safeRef ? ' (via ' + safeRef.replace(/^https?:\/\//, '').split('/')[0] + ')' : ''),
+          { pagina: safePagina, referrer: safeRef, via: 'lid' }
+        );
+      }
+      return;
+    }
+    // Ramo 2: fbclid (anúncio Meta)
+    if (!fbclid || typeof fbclid !== 'string' || fbclid.length > 500) return;
+    const safeFbclid = fbclid.slice(0, 500);
     const { data: sessao } = await supabase.from('pixel_sessions').insert({
       fbclid: safeFbclid, pagina: safePagina, evento: String(evento).slice(0, 50),
-      metadata: { referrer: String(referrer).slice(0, 200) },
+      metadata: { referrer: safeRef },
     }).select().single();
     if (!sessao) return;
     const { data: lead } = await supabase.from('leads')
@@ -3844,8 +3902,8 @@ app.post('/t', rateLimit, async (req, res) => {
     if (lead) {
       await supabase.from('pixel_sessions').update({ lead_id: lead.id }).eq('id', sessao.id);
       logEvento(lead.id, 'pixel_pagina',
-        'Visitou: ' + safePagina + (referrer ? ' (via ' + String(referrer).replace(/^https?:\/\//, '').split('/')[0] + ')' : ''),
-        { pagina: safePagina, referrer: String(referrer).slice(0, 200) }
+        'Visitou: ' + safePagina + (safeRef ? ' (via ' + safeRef.replace(/^https?:\/\//, '').split('/')[0] + ')' : ''),
+        { pagina: safePagina, referrer: safeRef }
       );
     }
   } catch(e) { console.error('[/t]', e.message); }
