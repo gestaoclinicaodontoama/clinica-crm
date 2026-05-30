@@ -751,6 +751,12 @@ textarea { resize: vertical; min-height: 80px; }
           </div>
           <!-- Painel direito -->
           <div id="chat-painel" style="width:220px;min-width:220px;border-left:1px solid var(--border);overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px;font-size:12.5px">
+            <!-- Tabs Perfil / Trajeto -->
+            <div style="display:flex;border-bottom:1px solid var(--border);margin:-14px -14px 10px;padding:0 4px">
+              <button id="tab-btn-perfil" onclick="switchPainelTab('perfil')" style="flex:1;padding:9px 4px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);color:var(--accent)">Perfil</button>
+              <button id="tab-btn-trajeto" onclick="switchPainelTab('trajeto')" style="flex:1;padding:9px 4px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted)">Trajeto</button>
+            </div>
+            <div id="painel-tab-perfil" style="display:flex;flex-direction:column;gap:14px">
             <div>
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Status</div>
               <select id="painel-status" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvar('status',this.value)"></select>
@@ -791,6 +797,11 @@ textarea { resize: vertical; min-height: 80px; }
             <div style="flex:1;display:flex;flex-direction:column">
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Anotações SDR</div>
               <textarea id="painel-notas" style="flex:1;min-height:90px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text);font-size:12px;font-family:inherit;resize:vertical;line-height:1.4" placeholder="Anotações internas..." onblur="painelSalvar('notas_sdr',this.value)"></textarea>
+            </div>
+            </div><!-- fim painel-tab-perfil -->
+            <div id="painel-tab-trajeto" style="display:none;flex-direction:column;gap:8px">
+              <div id="trajeto-lista" style="display:flex;flex-direction:column;gap:6px;font-size:12px"></div>
+              <button id="trajeto-mais" onclick="carregarMaisTrajeto()" style="display:none;width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11.5px;color:var(--muted)">Carregar mais</button>
             </div>
           </div>
         </div>
@@ -2518,6 +2529,7 @@ async function cancelarAgendamento(id) {
 async function abrirChat(leadId) {
   chatLeadAtual = chatLeads.find(l => l.id === leadId);
   if (!chatLeadAtual) return;
+  switchPainelTab('perfil');
   renderChatList(chatLeads);
 
   document.getElementById('chat-vazio').style.display = 'none';
@@ -3998,6 +4010,61 @@ async function nfdResetar(id) {
     _renderDetalheNota(r.nota);
   } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
+
+// ── Tabs Perfil / Trajeto no painel do lead ──────────────────────────────────
+function switchPainelTab(tab) {
+  const isPerfil = tab === 'perfil';
+  const tabPerfil = document.getElementById('painel-tab-perfil');
+  const tabTrajeto = document.getElementById('painel-tab-trajeto');
+  if (tabPerfil) { tabPerfil.style.display = isPerfil ? 'flex' : 'none'; tabPerfil.style.flexDirection = 'column'; }
+  if (tabTrajeto) tabTrajeto.style.display = isPerfil ? 'none' : 'flex';
+  const btnP = document.getElementById('tab-btn-perfil');
+  const btnT = document.getElementById('tab-btn-trajeto');
+  if (btnP) { btnP.style.borderBottomColor = isPerfil ? 'var(--accent)' : 'transparent'; btnP.style.color = isPerfil ? 'var(--accent)' : 'var(--muted)'; }
+  if (btnT) { btnT.style.borderBottomColor = !isPerfil ? 'var(--accent)' : 'transparent'; btnT.style.color = !isPerfil ? 'var(--accent)' : 'var(--muted)'; }
+  if (!isPerfil && chatLeadAtual) carregarTrajeto(chatLeadAtual.id, 0);
+}
+
+const _TRAJETO_ICONES = {
+  lead_criado:'🟢', status_mudou:'🔄', mensagem_recebida:'💬', mensagem_enviada:'📤',
+  template_enviado:'📋', template_respondido:'↩️', template_sem_resposta:'⏳',
+  ligacao:'📞', capi_disparado:'📡', clinicorp_agendado:'📅', clinicorp_faltou:'❌', pixel_pagina:'🌐'
+};
+let _trajetoOffset = 0, _trajetoTotal = 0, _trajetoLeadId = null;
+
+function _formatBR(iso) {
+  const d = new Date(iso);
+  const opts = { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false };
+  const parts = new Intl.DateTimeFormat('pt-BR', opts).formatToParts(d);
+  const p = {};
+  parts.forEach(x => p[x.type] = x.value);
+  return p.day + '/' + p.month + ' ' + p.hour + ':' + p.minute;
+}
+
+async function carregarTrajeto(leadId, offset) {
+  _trajetoLeadId = leadId;
+  const lista = document.getElementById('trajeto-lista');
+  const btnMais = document.getElementById('trajeto-mais');
+  if (offset === 0) { lista.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:12px">Carregando...</div>'; _trajetoOffset = 0; }
+  try {
+    const r = await api('/api/leads/' + leadId + '/trajeto?offset=' + offset + '&limit=50');
+    _trajetoTotal = r.total;
+    _trajetoOffset = offset + (r.eventos?.length || 0);
+    if (offset === 0) lista.innerHTML = '';
+    if (!r.eventos?.length && offset === 0) { lista.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:12px">Nenhum evento ainda.</div>'; if(btnMais) btnMais.style.display='none'; return; }
+    const _escT = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    (r.eventos || []).forEach(ev => {
+      const icone = _TRAJETO_ICONES[ev.tipo] || '•';
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;gap:6px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border)';
+      div.innerHTML = '<span style="font-size:13px;flex-shrink:0">' + icone + '</span><div><div style="color:var(--muted);font-size:10.5px">' + _formatBR(ev.criado_em) + '</div><div style="line-height:1.4">' + _escT(ev.descricao) + '</div></div>';
+      lista.appendChild(div);
+    });
+    if(btnMais) btnMais.style.display = _trajetoOffset < _trajetoTotal ? '' : 'none';
+  } catch(e) { lista.innerHTML = '<div style="color:var(--red);font-size:11px">Erro ao carregar.</div>'; }
+}
+
+function carregarMaisTrajeto() { if (_trajetoLeadId) carregarTrajeto(_trajetoLeadId, _trajetoOffset); }
 </script>
 
 <!-- Drawer Detalhe NF -->
