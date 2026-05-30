@@ -116,16 +116,28 @@ Catálogo manual de anúncios para exibição de nomes legíveis na UI.
 CREATE TABLE anuncios (
   id         bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
   fonte      text NOT NULL CHECK (fonte IN ('meta', 'google')),
-  chave      text NOT NULL UNIQUE, -- ad_id numérico (Meta) ou utm_campaign string (Google)
+  chave      text NOT NULL UNIQUE, -- ad_id numérico (Meta) ou utm_campaign em lowercase (Google)
   nome       text NOT NULL,        -- obrigatório: nome legível ex: "pqe ipanema protese CTA 3"
   descricao  text DEFAULT '',
   ativo      boolean DEFAULT true,
   criado_em  timestamptz NOT NULL DEFAULT now(),
   atualizado_em timestamptz NOT NULL DEFAULT now()
 );
+
+-- Trigger para manter atualizado_em correto em UPDATEs
+CREATE OR REPLACE FUNCTION update_anuncios_atualizado_em()
+RETURNS TRIGGER AS $$
+BEGIN NEW.atualizado_em = now(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_anuncios_atualizado_em
+BEFORE UPDATE ON anuncios
+FOR EACH ROW EXECUTE FUNCTION update_anuncios_atualizado_em();
 ```
 
-**Resolução de nome:** ao exibir um anúncio, o sistema busca `anuncios.nome` pela chave. Se não cadastrado, exibe a chave (ID/string) com link para o Gerenciador correspondente.
+**Normalização de chave:** sempre armazenada e comparada em **lowercase**. No insert/update do catálogo: `chave = chave.toLowerCase()`. No lookup: `WHERE chave = lower($chave)`. Garante que `"Implante-Ipanema"` e `"implante-ipanema"` resolvem para o mesmo anúncio.
+
+**Resolução de nome:** ao exibir um anúncio, o sistema busca `anuncios.nome` pela chave (lowercase). Se não cadastrado, exibe a chave (ID/string) com link para o Gerenciador correspondente.
 
 ---
 
@@ -216,13 +228,16 @@ Página separada, acessível para roles `admin` e `gestor`.
 Total leads via anúncio | Agendados atribuídos | Fechados atribuídos | Receita atribuída
 ```
 
-**Definições dos cards:**
-- *Total leads via anúncio*: leads com `campanha` não vazio OU `ctwa_clid` OU `gclid` não vazio, no período
-- *Agendados atribuídos*: leads atribuídos com `data_agendamento IS NOT NULL` (proxy correto — `status` atual pode já ter avançado além de "Agendado")
-- *Fechados atribuídos*: leads atribuídos com `status = 'Fechou'`
-- *Receita atribuída*: soma de `valor` WHERE `status = 'Fechou'` AND `valor IS NOT NULL` AND lead atribuível
+**Definições das métricas (cards e colunas da tabela):**
+- *Total leads via anúncio* (card): leads com `campanha` não vazio OU `ctwa_clid` OU `gclid` não vazio, no período
+- *Agendados atribuídos* (card + coluna): leads atribuídos com `data_agendamento IS NOT NULL` (proxy correto — `status` atual pode já ter avançado além de "Agendado")
+- *Compareceu* (coluna da tabela): leads atribuídos com `data_comparecimento IS NOT NULL` — não é card de resumo
+- *Fechados atribuídos* (card + coluna): leads atribuídos com `status = 'Fechou'`
+- *Receita atribuída* (card + coluna): soma de `valor` WHERE `status = 'Fechou'` AND `valor IS NOT NULL` AND lead atribuível
 
 **Filtro de período:** Últimos 7d / 30d / 90d / Período personalizado (padrão: 30d)
+
+**Campo de filtro:** `leads.criado_em` — filtra quando o lead ENTROU no sistema, não quando fechou. Isso responde "qual campanha desse período gerou leads, e quantos deles converteram". Fechamentos e receita são contados independentemente do status atual.
 
 **Tabela por anúncio:**
 
