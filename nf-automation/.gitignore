@@ -1,6 +1,9 @@
-.env
-__pycache__/
-*.pyc
-screenshots/
-*.bat
-.venv/
+# Arquivos de debug e saída temporária
+diag_*.py
+diag_*.txt
+diag_*.html
+test_output*
+captcha_*
+historico_dump.html
+*.pdf
+*.err
