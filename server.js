@@ -623,6 +623,8 @@ app.post('/api/leads/:id/ligar', requireAuth, requireCrcLead, rateLimit, async (
     if (lErr) throw lErr;
 
     res.json({ ok: true, ligacao });
+    logEvento(leadId, 'ligacao', 'Ligação iniciada via 3cplus',
+      { threec_call_id: callId || '' }, req.user?.id || null);
   } catch (e) {
     console.error('❌ 3cplus ligar:', e.message);
     res.status(e.status || 500).json({ error: e.message });
@@ -1628,6 +1630,10 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
     const json = await r.json();
     if (json.events_received) {
       console.log('📤 Meta CAPI ✓ Lead #' + lead.id + ' | evento: ' + eventName);
+      logEvento(lead.id, 'capi_disparado',
+        'CAPI: ' + eventName + ' enviado à Meta' + (parseFloat(lead.valor) > 0 ? ' (R$ ' + parseFloat(lead.valor).toFixed(2) + ')' : ''),
+        { evento: eventName, valor: parseFloat(lead.valor) || 0 }
+      );
       const eventos = [...(lead.eventos_meta_enviados || [])];
       if (!eventos.includes(eventName)) eventos.push(eventName);
       const upd = { eventos_meta_enviados: eventos };
@@ -2226,6 +2232,11 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
     }).eq('id', leadId);
 
     res.json({ ok: true, clinicorp_appointment_id, dentista: dentista.nome, data, hora: hora_inicio + ' - ' + hora_fim, crc: crcNome });
+    logEvento(leadId, 'clinicorp_agendado',
+      'Agendado no Clinicorp: ' + dentista.nome + ' — ' + data,
+      { dentista: dentista.nome, data, hora: hora_inicio, clinicorp_appointment_id },
+      req.user?.id || null
+    );
   } catch(e) {
     console.error('agendar-clinicorp:', e);
     res.status(500).json({ error: e.message });
@@ -2252,10 +2263,47 @@ async function syncComparecimentos() {
       const apt = apts.find(a => String(a.id) === String(lead.clinicorp_appointment_id));
       if (!apt) continue;
       const chegou = apt.CheckinTime || apt.Status === 'Arrived' || apt.StatusId === CLINICORP_STATUS_ARRIVED;
-      if (!chegou) continue;
+      if (!chegou) {
+        // Detectar falta: appointment existe mas passou 24h sem checkin
+        const aptTime = new Date(apt.date || apt.Date || apt.AppointmentDate || 0);
+        const passou24h = Date.now() - aptTime.getTime() > 24 * 3600 * 1000;
+        if (passou24h) {
+          const { data: jaFaltou } = await supabase.from('lead_eventos')
+            .select('id').eq('lead_id', lead.id).eq('tipo', 'clinicorp_faltou').limit(1);
+          if (!jaFaltou?.length) {
+            logEvento(lead.id, 'clinicorp_faltou',
+              'Não compareceu à consulta agendada para ' + (apt.date || apt.Date || '').slice(0, 10),
+              { clinicorp_appointment_id: lead.clinicorp_appointment_id }
+            );
+          }
+        }
+        continue;
+      }
       await supabase.from('leads').update({ status: 'Compareceu' }).eq('id', lead.id);
       console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (apt ${lead.clinicorp_appointment_id})`);
     }
+
+    // Templates sem resposta após 48h
+    try {
+      const h48ago = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+      const { data: templatesExpirados } = await supabase.from('lead_eventos')
+        .select('id, lead_id, metadata, criado_em')
+        .eq('tipo', 'template_enviado')
+        .lt('criado_em', h48ago)
+        .limit(100);
+      for (const te of (templatesExpirados || [])) {
+        const { data: resp } = await supabase.from('lead_eventos')
+          .select('id').eq('lead_id', te.lead_id)
+          .in('tipo', ['template_respondido', 'template_sem_resposta'])
+          .gte('criado_em', te.criado_em).limit(1);
+        if (!resp?.length) {
+          logEvento(te.lead_id, 'template_sem_resposta',
+            'Sem resposta ao template "' + (te.metadata?.template || '') + '" após 48h',
+            { template: te.metadata?.template || '' }
+          );
+        }
+      }
+    } catch(e) { console.error('[sync] template_sem_resposta:', e.message); }
   } catch(e) {
     console.error('[sync-compareceu]', e.message);
   }
