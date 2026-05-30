@@ -2281,7 +2281,9 @@ async function syncComparecimentos() {
       const chegou = apt.CheckinTime || apt.Status === 'Arrived' || apt.StatusId === CLINICORP_STATUS_ARRIVED;
       if (!chegou) {
         // Detectar falta: appointment existe mas passou 24h sem checkin
-        const aptTime = new Date(apt.date || apt.Date || apt.AppointmentDate || 0);
+        const aptDateStr = apt.date || apt.Date || apt.AppointmentDate;
+      if (!aptDateStr) continue;
+      const aptTime = new Date(aptDateStr);
         const passou24h = Date.now() - aptTime.getTime() > 24 * 3600 * 1000;
         if (passou24h) {
           const { data: jaFaltou } = await supabase.from('lead_eventos')
@@ -2312,7 +2314,6 @@ async function syncTemplateSemResposta() {
       .select('id, lead_id, metadata, criado_em')
       .eq('tipo', 'template_enviado')
       .lt('criado_em', h48ago)
-      .not('lead_id', 'in', `(select lead_id from lead_eventos where tipo in ('template_respondido','template_sem_resposta') and criado_em >= lead_eventos.criado_em)`)
       .limit(100);
     for (const te of (expirados || [])) {
       const { data: resp } = await supabase.from('lead_eventos')
@@ -3676,11 +3677,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get(/^\/(?!api\/|lead(\?|$)|webhooks\/).*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-app.use((err, req, res, next) => {
-  console.error('💥', err);
-  res.status(500).json({ error: 'Erro interno' });
-});
-
 // ========== TRAJETO / ATRIBUICAO / ANUNCIOS ==========
 
 app.get('/api/leads/:id/trajeto', requireRole('admin', 'gestor', 'crc_leads', 'crc_comercial', 'crc_sucesso', 'crc_pos_tratamento'), rateLimit, async (req, res) => {
@@ -3839,6 +3835,11 @@ app.options('/t', (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.status(204).send('');
+});
+
+app.use((err, req, res, next) => {
+  console.error('💥', err);
+  res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro interno' });
 });
 
 app.listen(PORT, () => {
