@@ -802,7 +802,7 @@ textarea { resize: vertical; min-height: 80px; }
             </div>
             <div style="flex:1;display:flex;flex-direction:column">
               <div id="painel-notas-label" style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Anotações SDR</div>
-              <textarea id="painel-notas" style="flex:1;min-height:90px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text);font-size:12px;font-family:inherit;resize:vertical;line-height:1.4" placeholder="Anotações internas..." onblur="painelNotasSalvar(this.value)"></textarea>
+              <textarea id="painel-notas" style="flex:1;min-height:90px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text);font-size:12px;font-family:inherit;resize:vertical;line-height:1.4" placeholder="Anotações internas..." onblur="painelNotasSalvar(this.value,this.dataset.campo)"></textarea>
             </div>
             </div><!-- fim painel-tab-perfil -->
             <div id="painel-tab-trajeto" style="display:none;flex-direction:column;gap:8px">
@@ -1261,11 +1261,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     </div>
     <div class="form-group">
       <label>Origem</label>
-      <select id="m-origem">
-        <option>Meta Ads</option><option>WhatsApp Direto</option><option>Indicação</option>
-        <option>Google</option><option>Instagram</option><option>TikTok</option>
-        <option>Evento</option><option>Outdoor</option><option>Rádio</option><option>Outros</option>
-      </select>
+      <select id="m-origem"></select>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1785,7 +1781,12 @@ async function abrirModal(id) {
   document.getElementById('m-nome').value = l.nome || '';
   document.getElementById('m-telefone').value = l.telefone || '';
   document.getElementById('m-email').value = l.email || '';
-  document.getElementById('m-origem').value = l.origem || 'Meta Ads';
+  // Popula m-origem a partir de ORIGENS; se a origem for não-padrão, adiciona como opção
+  const _mOrig = document.getElementById('m-origem');
+  _mOrig.innerHTML = '';
+  const _origOpts = (l.origem && !ORIGENS.includes(l.origem)) ? [l.origem, ...ORIGENS] : [...ORIGENS];
+  _origOpts.forEach(o => _mOrig.appendChild(Object.assign(document.createElement('option'), {value: o, textContent: o})));
+  _mOrig.value = l.origem || ORIGENS[0];
   document.getElementById('m-status').value = l.status;
   document.getElementById('m-valor').value = l.valor || '';
   document.getElementById('m-tipo').value = l.tipo_trat || '';
@@ -1925,11 +1926,13 @@ async function criarLeadManual(btn) {
 }
 
 function renderStepper(statusAtual) {
-  const idx = FUNIL.indexOf(statusAtual);
-  const grupoLead      = ['Lead','Aguardando','Agendado','Compareceu','Nutrir','Não tem Interesse'];
-  const grupoComercial = ['D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido'];
+  // Apenas os 7 status aceitos pelo servidor — D0-D5/Nutrir/etc não são persistíveis
+  const FUNIL_MODAL = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou','Perdido'];
+  const idx = FUNIL_MODAL.indexOf(statusAtual);
+  const grupoLead      = ['Lead','Agendado','Compareceu'];
+  const grupoComercial = ['Em follow-up','Em nutrição','Fechou','Perdido'];
   function mkStep(f) {
-    const i = FUNIL.indexOf(f);
+    const i = FUNIL_MODAL.indexOf(f);
     const cls = i < idx && statusAtual !== 'Perdido' ? 'done' : i === idx ? 'current' : '';
     return `<div class="step ${classStatus(f)} ${cls}" onclick="document.getElementById('m-status').value='${f}';renderStepper('${f}');updateValorVisibility()">${f}</div>`;
   }
@@ -1952,10 +1955,6 @@ document.getElementById('m-status').addEventListener('change', function() {
 async function salvarLead(btn) {
   if (!leadAtual) return;
   const body = {
-    nome: (document.getElementById('m-nome').value || '').trim(),
-    telefone: (document.getElementById('m-telefone').value || '').trim(),
-    email: (document.getElementById('m-email').value || '').trim(),
-    origem: document.getElementById('m-origem').value,
     status: document.getElementById('m-status').value,
     notas_sdr: document.getElementById('m-notas-sdr').value,
     notas_avaliacao: document.getElementById('m-notas-aval').value,
@@ -1964,6 +1963,15 @@ async function salvarLead(btn) {
     perfil_disc: discAtual,
     etiquetas: etiquetasAtual,
   };
+  // Campos de contato: só envia se preenchidos (evita apagar dados existentes)
+  const _nome = (document.getElementById('m-nome').value || '').trim();
+  const _tel  = (document.getElementById('m-telefone').value || '').trim();
+  const _email = (document.getElementById('m-email').value || '').trim();
+  const _orig = document.getElementById('m-origem').value;
+  if (_nome)  body.nome  = _nome;
+  if (_tel)   body.telefone = _tel;
+  if (_email) body.email = _email;
+  if (_orig)  body.origem = _orig;
   const v = document.getElementById('m-valor').value;
   body.valor = v !== '' ? parseFloat(v) : '';
   body.tipo_trat = document.getElementById('m-tipo').value;
@@ -2362,8 +2370,11 @@ function _initPainel(lead) {
 
   const _isAvaliacao = _chatMode === 'avaliacao';
   const _notasLabel = document.getElementById('painel-notas-label');
+  const _notasEl = document.getElementById('painel-notas');
   if (_notasLabel) _notasLabel.textContent = _isAvaliacao ? 'Notas Comercial' : 'Anotações SDR';
-  document.getElementById('painel-notas').value = _isAvaliacao ? (lead.notas_comercial || '') : (lead.notas_sdr || '');
+  // Armazena o campo alvo no elemento para evitar race condition com _chatMode no blur
+  _notasEl.dataset.campo = _isAvaliacao ? 'notas_comercial' : 'notas_sdr';
+  _notasEl.value = _isAvaliacao ? (lead.notas_comercial || '') : (lead.notas_sdr || '');
 
   const pc = lead.proximo_contato;
   document.getElementById('painel-proximo-contato').value = pc
@@ -2430,18 +2441,16 @@ function _initPainel(lead) {
   carregarAgendamentos(lead.id);
 }
 
-async function painelNotasSalvar(valor) {
-  const campo = _chatMode === 'avaliacao' ? 'notas_comercial' : 'notas_sdr';
-  await painelSalvar(campo, valor);
+async function painelNotasSalvar(valor, campo) {
+  // campo é definido no data-attribute ao abrir o painel — evita race condition com _chatMode
+  await painelSalvar(campo || 'notas_sdr', valor);
 }
 
 async function painelSalvar(campo, valor) {
   if (!chatLeadAtual) return;
-  const body = {};
-  if (campo === 'notas_sdr') body.notas_sdr = valor;
-  else if (campo === 'notas_comercial') body.notas_comercial = valor;
-  else if (campo === 'status') body.status = valor;
-  else if (campo === 'origem') body.origem = valor;
+  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','proximo_contato']);
+  if (!CAMPOS_PAINEL.has(campo)) return;
+  const body = { [campo]: valor };
   try {
     await api('/api/leads/' + chatLeadAtual.id, { method: 'PATCH', body: JSON.stringify(body) });
     chatLeadAtual[campo] = valor;
