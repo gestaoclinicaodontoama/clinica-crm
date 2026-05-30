@@ -104,6 +104,18 @@ tr:hover td { background: var(--bg3); cursor: pointer; }
 .badge-OrcamentoEnviado  { background: rgba(236,72,153,.15);  color: var(--b-orcamento); }
 .badge-Fechou            { background: rgba(34,197,94,.15);   color: var(--b-fechou); }
 .badge-Perdido           { background: rgba(107,114,128,.15); color: var(--b-perdido); }
+/* Status do vocabulário rico (CRC Lead + régua comercial D0-D5) */
+.badge-Aguardando        { background: rgba(148,163,184,.15); color: var(--muted); }
+.badge-Nutrir            { background: rgba(168,85,247,.12);  color: var(--b-compareceu); }
+.badge-NaotemInteresse   { background: rgba(107,114,128,.15); color: var(--b-perdido); }
+.badge-D0,.badge-D1,.badge-D2,.badge-D3,.badge-D4,.badge-D5 { background: rgba(6,182,212,.15); color: var(--b-aval); }
+.badge-Emnutricao        { background: rgba(236,72,153,.15);  color: var(--b-orcamento); }
+.s-Aguardando .num,.s-Nutrir .num,.s-NaotemInteresse .num { color: var(--muted); }
+.s-D0 .num,.s-D1 .num,.s-D2 .num,.s-D3 .num,.s-D4 .num,.s-D5 .num { color: var(--b-aval); }
+.s-Emnutricao .num,.s-Emnegociacao .num { color: var(--b-aval); }
+.step.s-Aguardando,.step.s-Nutrir,.step.s-NaotemInteresse { color: var(--muted); }
+.step.s-D0,.step.s-D1,.step.s-D2,.step.s-D3,.step.s-D4,.step.s-D5 { color: var(--b-aval); }
+.step.s-Emnutricao       { color: var(--b-orcamento); }
 
 .orig-meta { color: var(--accent); font-weight: 500; }
 .orig-google { color: var(--orange); font-weight: 500; }
@@ -627,9 +639,15 @@ textarea { resize: vertical; min-height: 80px; }
         <input class="search-input" placeholder="🔍 Buscar..." id="search-q" oninput="clearTimeout(this._t);this._t=setTimeout(loadLeads,350)">
         <select class="filter-select" id="filter-status" onchange="loadLeads()">
           <option value="">Todos status</option>
-          <option>Lead</option><option>Agendado</option><option>Compareceu</option>
-          <option>Em follow-up</option><option>Em nutrição</option>
-          <option>Fechou</option><option>Perdido</option>
+          <optgroup label="CRC Lead">
+            <option>Lead</option><option>Aguardando</option><option>Agendado</option>
+            <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
+          </optgroup>
+          <optgroup label="CRC Comercial">
+            <option>D0</option><option>D1</option><option>D2</option><option>D3</option>
+            <option>D4</option><option>D5</option><option>Em nutrição</option>
+            <option>Fechou</option><option>Perdido</option>
+          </optgroup>
         </select>
         <select class="filter-select" id="filter-origem" onchange="loadLeads()">
           <option value="">Todas origens</option>
@@ -1411,8 +1429,15 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <div>
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Status inicial</label>
           <select id="nl-status" class="filter-select" style="width:100%">
-            <option>Lead</option><option>Agendado</option><option>Compareceu</option>
-            <option>Em follow-up</option><option>Em nutrição</option><option>Fechou</option>
+            <optgroup label="CRC Lead">
+              <option>Lead</option><option>Aguardando</option><option>Agendado</option>
+              <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
+            </optgroup>
+            <optgroup label="CRC Comercial">
+              <option>D0</option><option>D1</option><option>D2</option><option>D3</option>
+              <option>D4</option><option>D5</option><option>Em nutrição</option>
+              <option>Fechou</option><option>Perdido</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -1576,12 +1601,19 @@ async function loadDash() {
   document.getElementById('d-ticket').textContent = 'R$ ' + Math.round(s.ticketMedio || 0).toLocaleString('pt-BR');
 
   const fr = document.getElementById('funil-row');
-  const labels = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou'];
-  fr.innerHTML = labels.map(l => {
-    const n = s.porStatus.find(x => x.status === l)?.n || 0;
+  const etapas = [
+    { label:'Lead',          match:['Lead'],          cls:'s-Lead' },
+    { label:'Agendado',      match:['Agendado'],      cls:'s-Agendado' },
+    { label:'Compareceu',    match:['Compareceu'],    cls:'s-Compareceu' },
+    { label:'Em negociação', match:['D0','D1','D2','D3','D4','D5'], cls:'s-D0' },
+    { label:'Em nutrição',   match:['Em nutrição'],   cls:'s-Emnutricao' },
+    { label:'Fechou',        match:['Fechou'],        cls:'s-Fechou' },
+  ];
+  fr.innerHTML = etapas.map(et => {
+    const n = et.match.reduce((sum, st) => sum + (s.porStatus.find(x => x.status === st)?.n || 0), 0);
     const pct = s.total ? Math.round(n / s.total * 100) : 0;
-    return `<div class="funil-step ${classStatus(l)}">
-      <div class="label">${l}</div>
+    return `<div class="funil-step ${et.cls}">
+      <div class="label">${et.label}</div>
       <div class="num">${n}</div>
       <div class="pct">${pct}% do total</div>
     </div>`;
@@ -1654,11 +1686,23 @@ async function loadLeads() {
 let _funilLeads = [];
 let _funilEtapaSelecionada = null;
 
-const FUNIL_ETAPAS = ['Lead','Agendado','Compareceu','Em follow-up','Em nutrição','Fechou'];
+// Etapas macro do funil. 'Em negociação' agrega a régua comercial D0-D5.
+const FUNIL_ETAPAS = [
+  { label:'Lead',          match:['Lead'] },
+  { label:'Agendado',      match:['Agendado'] },
+  { label:'Compareceu',    match:['Compareceu'] },
+  { label:'Em negociação', match:['D0','D1','D2','D3','D4','D5'] },
+  { label:'Em nutrição',   match:['Em nutrição'] },
+  { label:'Fechou',        match:['Fechou'] },
+];
 const FUNIL_CORES  = {
   'Lead':'#4f8ef7','Agendado':'#f59e0b','Compareceu':'#a855f7',
-  'Em follow-up':'#06b6d4','Em nutrição':'#ec4899','Fechou':'#22c55e',
+  'Em negociação':'#06b6d4','Em nutrição':'#ec4899','Fechou':'#22c55e',
 };
+function _statusesDaEtapa(label) {
+  const e = FUNIL_ETAPAS.find(x => x.label === label);
+  return e ? e.match : [label];
+}
 
 async function loadKanban() {
   try {
@@ -1670,7 +1714,7 @@ async function loadKanban() {
 function renderFunil() {
   const leads = _funilLeads;
   const counts = {};
-  FUNIL_ETAPAS.forEach(e => counts[e] = leads.filter(l => l.status === e).length);
+  FUNIL_ETAPAS.forEach(e => counts[e.label] = leads.filter(l => e.match.includes(l.status)).length);
   const perdidos = leads.filter(l => l.status === 'Perdido').length;
   const total = leads.length;
   const base = Math.max(counts['Lead'], 1);
@@ -1691,9 +1735,10 @@ function renderFunil() {
 
   // Funil visual
   const vis = document.getElementById('funil-visual');
-  vis.innerHTML = FUNIL_ETAPAS.map((etapa, i) => {
+  vis.innerHTML = FUNIL_ETAPAS.map((et, i) => {
+    const etapa = et.label;
     const count = counts[etapa];
-    const prev  = i > 0 ? counts[FUNIL_ETAPAS[i-1]] : count;
+    const prev  = i > 0 ? counts[FUNIL_ETAPAS[i-1].label] : count;
     const pctBase  = base ? Math.round(count / base * 100) : 0;
     const pctConv  = prev ? Math.round(count / prev * 100) : 0;
     // Largura: 100% para Lead, proporcional para os demais, mínimo 22%
@@ -1744,7 +1789,8 @@ function selecionarEtapaFunil(etapa, el) {
 }
 
 function renderDetalheEtapa(etapa) {
-  const leads = _funilLeads.filter(l => l.status === etapa);
+  const alvos = _statusesDaEtapa(etapa);
+  const leads = _funilLeads.filter(l => alvos.includes(l.status));
   const detail = document.getElementById('funil-stage-detail');
   const titulo = document.getElementById('funil-stage-titulo');
   const tbody  = document.getElementById('funil-stage-tbody');
