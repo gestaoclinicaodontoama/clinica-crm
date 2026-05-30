@@ -2299,32 +2299,36 @@ async function syncComparecimentos() {
       console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (apt ${lead.clinicorp_appointment_id})`);
     }
 
-    // Templates sem resposta após 48h
-    try {
-      const h48ago = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-      const { data: templatesExpirados } = await supabase.from('lead_eventos')
-        .select('id, lead_id, metadata, criado_em')
-        .eq('tipo', 'template_enviado')
-        .lt('criado_em', h48ago)
-        .limit(100);
-      for (const te of (templatesExpirados || [])) {
-        const { data: resp } = await supabase.from('lead_eventos')
-          .select('id').eq('lead_id', te.lead_id)
-          .in('tipo', ['template_respondido', 'template_sem_resposta'])
-          .gte('criado_em', te.criado_em).limit(1);
-        if (!resp?.length) {
-          logEvento(te.lead_id, 'template_sem_resposta',
-            'Sem resposta ao template "' + (te.metadata?.template || '') + '" após 48h',
-            { template: te.metadata?.template || '' }
-          );
-        }
-      }
-    } catch(e) { console.error('[sync] template_sem_resposta:', e.message); }
   } catch(e) {
     console.error('[sync-compareceu]', e.message);
   }
 }
 setInterval(syncComparecimentos, 10 * 60 * 1000);
+
+async function syncTemplateSemResposta() {
+  try {
+    const h48ago = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    const { data: expirados } = await supabase.from('lead_eventos')
+      .select('id, lead_id, metadata, criado_em')
+      .eq('tipo', 'template_enviado')
+      .lt('criado_em', h48ago)
+      .not('lead_id', 'in', `(select lead_id from lead_eventos where tipo in ('template_respondido','template_sem_resposta') and criado_em >= lead_eventos.criado_em)`)
+      .limit(100);
+    for (const te of (expirados || [])) {
+      const { data: resp } = await supabase.from('lead_eventos')
+        .select('id').eq('lead_id', te.lead_id)
+        .in('tipo', ['template_respondido', 'template_sem_resposta'])
+        .gte('criado_em', te.criado_em).limit(1);
+      if (!resp?.length) {
+        logEvento(te.lead_id, 'template_sem_resposta',
+          'Sem resposta ao template "' + (te.metadata?.template || '') + '" após 48h',
+          { template: te.metadata?.template || '' }
+        );
+      }
+    }
+  } catch(e) { console.error('[sync] template_sem_resposta:', e.message); }
+}
+setInterval(syncTemplateSemResposta, 30 * 60 * 1000);
 
 // ── Meta diária de agendamentos ──────────────────────────────────────────────
 app.get('/api/meta-agendamentos', requireAuth, async (req, res) => {
@@ -3679,7 +3683,7 @@ app.use((err, req, res, next) => {
 
 // ========== TRAJETO / ATRIBUICAO / ANUNCIOS ==========
 
-app.get('/api/leads/:id/trajeto', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/leads/:id/trajeto', requireRole('admin', 'gestor', 'crc_leads', 'crc_comercial', 'crc_sucesso', 'crc_pos_tratamento'), rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -3698,14 +3702,13 @@ app.get('/api/leads/:id/trajeto', requireAuth, rateLimit, async (req, res) => {
 app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const periodo = parseInt(req.query.periodo, 10) || 30;
-    const desde = req.query.desde
-      ? new Date(req.query.desde).toISOString()
-      : new Date(Date.now() - periodo * 86400000).toISOString();
-    const ate = req.query.ate ? new Date(req.query.ate).toISOString() : new Date().toISOString();
+    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida: ' + s), { status: 400 }); return d.toISOString(); };
+    const desde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000).toISOString();
+    const ate = req.query.ate ? _parseDate(req.query.ate) : new Date().toISOString();
 
     const { data: leads, error } = await supabase.from('leads')
       .select('id,campanha,ctwa_clid,fbclid,gclid,status,valor,data_agendamento,data_comparecimento,criado_em')
-      .gte('criado_em', desde).lte('criado_em', ate);
+      .gte('criado_em', desde).lte('criado_em', ate).limit(5000);
     if (error) throw error;
 
     const { data: catalog } = await supabase.from('anuncios').select('chave,nome,fonte').eq('ativo', true);
@@ -3746,7 +3749,7 @@ app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req
     }, { leads: 0, agendados: 0, fechados: 0, receita: 0 });
 
     res.json({ grupos: lista, totais, periodo, desde, ate });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
 app.get('/api/anuncios', requireAuth, rateLimit, async (req, res) => {
@@ -3815,7 +3818,7 @@ app.post('/t', rateLimit, async (req, res) => {
   res.status(204).send('');
   try {
     const { data: sessao } = await supabase.from('pixel_sessions').insert({
-      fbclid: safeFbclid, pagina: safePagina, evento,
+      fbclid: safeFbclid, pagina: safePagina, evento: String(evento).slice(0, 50),
       metadata: { referrer: String(referrer).slice(0, 200) },
     }).select().single();
     if (!sessao) return;
