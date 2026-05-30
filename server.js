@@ -2270,9 +2270,9 @@ async function syncComparecimentos() {
       .in('status', ['Agendado']);
     if (!leads || !leads.length) return;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const pastWeek = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-    const r = await clinicorpGet('/appointment/list', { from: today, to: tomorrow });
+    const r = await clinicorpGet('/appointment/list', { from: pastWeek, to: tomorrow });
     const apts = r?.data || [];
 
     for (const lead of leads) {
@@ -2298,6 +2298,8 @@ async function syncComparecimentos() {
         continue;
       }
       await supabase.from('leads').update({ status: 'Compareceu' }).eq('id', lead.id);
+      logEvento(lead.id, 'status_mudou', 'Status: Agendado → Compareceu (detectado via Clinicorp)',
+        { de: 'Agendado', para: 'Compareceu' });
       console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (apt ${lead.clinicorp_appointment_id})`);
     }
 
@@ -3718,9 +3720,9 @@ app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req
 
     for (const l of (leads || [])) {
       let chave, fonte;
-      if (l.campanha && (l.ctwa_clid || l.fbclid)) { chave = l.campanha; fonte = 'meta'; }
+      if (l.gclid && !l.ctwa_clid) { chave = l.campanha || '__google__'; fonte = 'google'; }
+      else if (l.campanha && (l.ctwa_clid || l.fbclid)) { chave = l.campanha; fonte = 'meta'; }
       else if (l.ctwa_clid && !l.campanha) { chave = '__meta_sem_campanha__'; fonte = 'meta'; }
-      else if (l.gclid) { chave = l.campanha || '__google__'; fonte = 'google'; }
       else { chave = '__organico__'; fonte = '-'; }
 
       addGrupo(chave, fonte);
@@ -3807,6 +3809,7 @@ app.post('/t', rateLimit, async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', 'https://clinicaodontoama.com.br');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   const { token, fbclid, evento = 'PageView', pagina = '/', referrer = '' } = req.body || {};
+  if (!process.env.PIXEL_TRACK_TOKEN) return res.status(503).send('');
   if (!token || token !== process.env.PIXEL_TRACK_TOKEN) return res.status(401).send('');
   if (!fbclid || typeof fbclid !== 'string' || fbclid.length > 500) return res.status(400).send('');
   const safeFbclid = fbclid.slice(0, 500);
