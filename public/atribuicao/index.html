@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Atribuição — CRM AMA</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/js/shared-nav.js" data-active="atribuicao" defer></script>
+</head>
+<body class="crm-shell">
+<main style="flex:1;padding:28px 32px;overflow-y:auto;max-width:1100px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+    <h1 style="font-size:20px;font-weight:700;margin:0">Atribuição por Anúncio</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <select id="fil-periodo" onchange="onPeriodoChange()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px">
+        <option value="7">Últimos 7 dias</option>
+        <option value="30" selected>Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="0">Período personalizado</option>
+      </select>
+      <input type="date" id="fil-desde" style="display:none;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px" onchange="aplicarFiltro()">
+      <input type="date" id="fil-ate" style="display:none;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px" onchange="aplicarFiltro()">
+    </div>
+  </div>
+
+  <div id="cards-resumo" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:28px"></div>
+
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:28px">
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);background:var(--bg3)">
+            <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted)">Fonte</th>
+            <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted)">Anúncio / Campanha</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Leads</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Agendados</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Compareceu</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Fechados</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Receita</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Conv.</th>
+          </tr>
+        </thead>
+        <tbody id="tabela-atribuicao"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="catalogo-wrap" style="display:none">
+    <details style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <summary style="font-weight:700;font-size:14px;cursor:pointer;user-select:none">Catálogo de Anúncios</summary>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Fonte</label>
+            <select id="cat-fonte" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+              <option value="meta">Meta</option><option value="google">Google</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:140px">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Chave (ad_id ou utm_campaign)</label>
+            <input id="cat-chave" style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+          </div>
+          <div style="flex:1;min-width:140px">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Nome legível</label>
+            <input id="cat-nome" style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+          </div>
+          <div style="flex:1;min-width:120px">
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Descrição (opcional)</label>
+            <input id="cat-desc" style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px">
+          </div>
+          <button onclick="adicionarAnuncio()" style="padding:6px 14px;background:var(--accent);color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap">Adicionar</button>
+        </div>
+        <div id="catalogo-lista" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </details>
+  </div>
+</main>
+
+<script>
+const _tkKey = [...Object.keys(localStorage)].find(k=>k.startsWith('sb-')&&k.endsWith('-auth-token'));
+const _tkn = _tkKey ? (JSON.parse(localStorage.getItem(_tkKey)||'{}')?.access_token || '') : '';
+const _api = (path, opts={}) => fetch(path, {
+  headers: { 'Authorization': 'Bearer ' + _tkn, 'Content-Type': 'application/json', ...(opts.headers||{}) },
+  ...opts
+}).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+const _esc = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _brl = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+
+function onPeriodoChange() {
+  const custom = document.getElementById('fil-periodo').value === '0';
+  document.getElementById('fil-desde').style.display = custom ? '' : 'none';
+  document.getElementById('fil-ate').style.display = custom ? '' : 'none';
+  if (!custom) aplicarFiltro();
+}
+
+function getFiltroParams() {
+  const p = document.getElementById('fil-periodo').value;
+  if (p === '0') {
+    const desde = document.getElementById('fil-desde').value;
+    const ate = document.getElementById('fil-ate').value;
+    return (desde && ate) ? 'desde=' + desde + '&ate=' + ate : 'periodo=30';
+  }
+  return 'periodo=' + p;
+}
+
+async function aplicarFiltro() {
+  try {
+    const [dados, catalog] = await Promise.all([
+      _api('/api/atribuicao?' + getFiltroParams()),
+      _api('/api/anuncios')
+    ]);
+    renderCards(dados.totais || {});
+    renderTabela(dados.grupos || []);
+
+    try {
+      const me = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + _tkn }});
+      if (me.ok) {
+        const perf = await me.json();
+        if (Array.isArray(perf?.roles) && perf.roles.includes('admin')) {
+          document.getElementById('catalogo-wrap').style.display = '';
+          renderCatalogo(Array.isArray(catalog) ? catalog : []);
+        }
+      }
+    } catch(_) {}
+  } catch(e) { console.error('atribuicao:', e); }
+}
+
+function renderCards(t) {
+  document.getElementById('cards-resumo').innerHTML = [
+    ['Leads via anúncio', t.leads || 0, ''],
+    ['Agendados', t.agendados || 0, ''],
+    ['Fechados', t.fechados || 0, ''],
+    ['Receita atribuída', _brl(t.receita), '💰'],
+  ].map(([l,v]) => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">${_esc(l)}</div><div style="font-size:22px;font-weight:700">${_esc(String(v))}</div></div>`).join('');
+}
+
+function renderTabela(grupos) {
+  const fl = { meta: '📘 Meta', google: '🔍 Google', '-': '—' };
+  document.getElementById('tabela-atribuicao').innerHTML = grupos.map(g => {
+    const conv = g.leads ? Math.round(g.fechados / g.leads * 100) : 0;
+    const cor = conv >= 30 ? 'var(--green)' : conv >= 15 ? 'var(--text)' : 'var(--red)';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:10px 14px;color:var(--muted)">${_esc(fl[g.fonte]||g.fonte)}</td>
+      <td style="padding:10px 14px;font-weight:500">${_esc(g.nome)}</td>
+      <td style="padding:10px 14px;text-align:right">${g.leads}</td>
+      <td style="padding:10px 14px;text-align:right">${g.agendados}</td>
+      <td style="padding:10px 14px;text-align:right">${g.compareceu}</td>
+      <td style="padding:10px 14px;text-align:right">${g.fechados}</td>
+      <td style="padding:10px 14px;text-align:right">${_esc(_brl(g.receita))}</td>
+      <td style="padding:10px 14px;text-align:right;color:${cor}">${conv}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">Nenhum dado no período.</td></tr>';
+}
+
+function renderCatalogo(catalog) {
+  document.getElementById('catalogo-lista').innerHTML = catalog.map(a => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:8px;font-size:12.5px;flex-wrap:wrap">
+      <span style="color:var(--muted);min-width:40px">${_esc(a.fonte)}</span>
+      <span style="color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(a.chave)}">${_esc(a.chave)}</span>
+      <span style="font-weight:600;flex:1">${_esc(a.nome)}</span>
+      <span style="color:${a.ativo?'var(--green)':'var(--red)'};font-size:11px">${a.ativo?'ativo':'inativo'}</span>
+      <button onclick="toggleAnuncio(${Number(a.id)},${!a.ativo})" style="padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-size:11px;color:var(--muted)">${a.ativo?'Desativar':'Ativar'}</button>
+    </div>`).join('') || '<div style="color:var(--muted);font-size:12px;padding:8px">Nenhum anúncio catalogado ainda.</div>';
+}
+
+async function adicionarAnuncio() {
+  const fonte = document.getElementById('cat-fonte').value;
+  const chave = document.getElementById('cat-chave').value.trim();
+  const nome = document.getElementById('cat-nome').value.trim();
+  const descricao = document.getElementById('cat-desc').value.trim();
+  if (!chave || !nome) return alert('Chave e nome são obrigatórios.');
+  try {
+    await _api('/api/anuncios', { method: 'POST', body: JSON.stringify({ fonte, chave, nome, descricao }) });
+    document.getElementById('cat-chave').value = '';
+    document.getElementById('cat-nome').value = '';
+    document.getElementById('cat-desc').value = '';
+    aplicarFiltro();
+  } catch(e) { alert('Erro ao adicionar: ' + e.message); }
+}
+
+async function toggleAnuncio(id, ativo) {
+  try {
+    await _api('/api/anuncios/' + id, { method: 'PATCH', body: JSON.stringify({ ativo }) });
+    aplicarFiltro();
+  } catch(e) { alert('Erro: ' + e.message); }
+}
+
+aplicarFiltro();
+</script>
+</body>
+</html>
