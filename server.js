@@ -3677,6 +3677,115 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Erro interno' });
 });
 
+// ========== TRAJETO / ATRIBUICAO / ANUNCIOS ==========
+
+app.get('/api/leads/:id/trajeto', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const { data, error, count } = await supabase.from('lead_eventos')
+      .select('*', { count: 'exact' })
+      .eq('lead_id', id)
+      .order('criado_em', { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+    res.json({ eventos: data || [], total: count || 0, offset, limit });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const periodo = parseInt(req.query.periodo, 10) || 30;
+    const desde = req.query.desde
+      ? new Date(req.query.desde).toISOString()
+      : new Date(Date.now() - periodo * 86400000).toISOString();
+    const ate = req.query.ate ? new Date(req.query.ate).toISOString() : new Date().toISOString();
+
+    const { data: leads, error } = await supabase.from('leads')
+      .select('id,campanha,ctwa_clid,fbclid,gclid,status,valor,data_agendamento,data_comparecimento,criado_em')
+      .gte('criado_em', desde).lte('criado_em', ate);
+    if (error) throw error;
+
+    const { data: catalog } = await supabase.from('anuncios').select('chave,nome,fonte').eq('ativo', true);
+    const catalogMap = {};
+    (catalog || []).forEach(a => { catalogMap[a.chave.toLowerCase()] = { nome: a.nome, fonte: a.fonte }; });
+
+    const grupos = {};
+    const addGrupo = (chave, fonte) => {
+      if (!grupos[chave]) grupos[chave] = { chave, fonte, nome: catalogMap[chave.toLowerCase()]?.nome || chave, leads: 0, agendados: 0, compareceu: 0, fechados: 0, receita: 0 };
+    };
+
+    for (const l of (leads || [])) {
+      let chave, fonte;
+      if (l.campanha && (l.ctwa_clid || l.fbclid)) { chave = l.campanha; fonte = 'meta'; }
+      else if (l.ctwa_clid && !l.campanha) { chave = '__meta_sem_campanha__'; fonte = 'meta'; }
+      else if (l.gclid) { chave = l.campanha || '__google__'; fonte = 'google'; }
+      else { chave = '__organico__'; fonte = '-'; }
+
+      addGrupo(chave, fonte);
+      const g = grupos[chave];
+      g.leads++;
+      if (l.data_agendamento) g.agendados++;
+      if (l.data_comparecimento) g.compareceu++;
+      if (l.status === 'Fechou') { g.fechados++; if (l.valor) g.receita += parseFloat(l.valor); }
+    }
+
+    if (grupos['__meta_sem_campanha__']) grupos['__meta_sem_campanha__'].nome = 'Meta Ads (sem campanha)';
+    if (grupos['__organico__']) grupos['__organico__'].nome = 'Orgânico / Direto';
+    if (grupos['__google__']) grupos['__google__'].nome = 'Google (sem campanha)';
+
+    const lista = Object.values(grupos).sort((a, b) => b.leads - a.leads);
+    const totais = lista.reduce((acc, g) => {
+      if (g.chave !== '__organico__') {
+        acc.leads += g.leads; acc.agendados += g.agendados;
+        acc.fechados += g.fechados; acc.receita += g.receita;
+      }
+      return acc;
+    }, { leads: 0, agendados: 0, fechados: 0, receita: 0 });
+
+    res.json({ grupos: lista, totais, periodo, desde, ate });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/anuncios', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('anuncios').select('*').order('criado_em', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/anuncios', requireRole('admin'), rateLimit, async (req, res) => {
+  try {
+    const { fonte, chave, nome, descricao = '' } = req.body;
+    if (!fonte || !chave || !nome) return res.status(400).json({ error: 'fonte, chave e nome obrigatórios' });
+    if (!['meta', 'google'].includes(fonte)) return res.status(400).json({ error: 'fonte inválida' });
+    const { data, error } = await supabase.from('anuncios')
+      .insert({ fonte, chave: String(chave).toLowerCase().trim(), nome: String(nome).trim(), descricao })
+      .select().single();
+    if (error) throw error;
+    res.json({ ok: true, anuncio: data });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/anuncios/:id', requireRole('admin'), rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { nome, descricao, ativo } = req.body;
+    const patch = {};
+    if (nome !== undefined) patch.nome = String(nome).trim();
+    if (descricao !== undefined) patch.descricao = String(descricao).trim();
+    if (ativo !== undefined) patch.ativo = Boolean(ativo);
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nada para atualizar' });
+    const { data, error } = await supabase.from('anuncios').update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    res.json({ ok: true, anuncio: data });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ========== PIXEL RASTREIO ==========
 app.get('/track.js', (req, res) => {
   const token = process.env.PIXEL_TRACK_TOKEN || '';
