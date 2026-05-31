@@ -509,8 +509,19 @@ textarea { resize: vertical; min-height: 80px; }
   .modal, .modal-card, .modal-content { width: 96vw !important; max-width: 96vw !important; max-height: 88vh !important; }
   .toolbar, .filtros, .filter-row, .table-head { flex-wrap: wrap !important; }
   .mnav-desktop-only { display: none; text-align: center; padding: 48px 20px; color: var(--muted); }
+  /* Conversas (WhatsApp): um painel por vez no celular */
+  #page-conversas.active { height: auto; }
+  #page-conversas .chat-layout { height: calc(100dvh - 200px); min-height: 320px; }
+  #page-conversas .chat-sidebar { width: 100% !important; min-width: 0 !important; border-right: none; }
+  #page-conversas .chat-main { display: none; }
+  #page-conversas .chat-layout.chat-open .chat-sidebar { display: none; }
+  #page-conversas .chat-layout.chat-open .chat-main { display: flex; }
+  #chat-painel { display: none !important; }
+  #chat-kanban-view { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .mnav-chat-back { display: inline-flex !important; align-items: center; justify-content: center; }
 }
 .mnav-desktop-only-card { max-width: 340px; margin: 0 auto; background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 28px 22px; }
+.mnav-chat-back { display: none; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="/js/mobile-nav.js" defer></script>
@@ -2828,6 +2839,11 @@ async function cancelarAgendamento(id) {
   } catch(e) { toast('❌ ' + e.message, true); }
 }
 
+function voltarListaChat() {
+  // Mobile: volta da conversa aberta para a lista de conversas (um painel por vez)
+  document.getElementById('chat-lista-view').classList.remove('chat-open');
+}
+
 async function abrirChat(leadId) {
   chatLeadAtual = chatLeads.find(l => l.id === leadId);
   if (!chatLeadAtual) return;
@@ -2836,8 +2852,10 @@ async function abrirChat(leadId) {
 
   document.getElementById('chat-vazio').style.display = 'none';
   document.getElementById('chat-window').style.display = 'flex';
+  document.getElementById('chat-lista-view').classList.add('chat-open');
 
   document.getElementById('chat-header').innerHTML = `
+    <button class="mnav-chat-back btn btn-ghost" onclick="voltarListaChat()" title="Voltar" style="flex-shrink:0;font-size:18px;padding:0 10px;height:34px">←</button>
     <div style="flex:1;min-width:0">
       <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(chatLeadAtual.nome)}</div>
       <div style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
