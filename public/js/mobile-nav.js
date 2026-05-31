@@ -50,6 +50,17 @@
     .mnav-sheet-item svg { width:20px; height:20px; flex-shrink:0; }
     .mnav-sheet-item.active { color:var(--accent); }
     .mnav-sheet-sep { height:1px; background:var(--border); margin:8px 0; }
+    .mnav-perso-row { display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:1px solid var(--border); }
+    .mnav-perso-row .lbl { flex:1; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mnav-perso-row.off .lbl { color:var(--muted); }
+    .mnav-perso-row button { background:var(--bg3); border:1px solid var(--border); color:var(--text); border-radius:7px;
+      width:32px; height:32px; cursor:pointer; font-size:15px; }
+    .mnav-perso-row button:disabled { opacity:.35; cursor:default; }
+    .mnav-perso-row .tgl { width:auto; padding:0 12px; }
+    .mnav-perso-row .tgl.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .mnav-perso-head { display:flex; align-items:center; gap:10px; padding:6px 16px 12px; }
+    .mnav-perso-head .save { margin-left:auto; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:8px 16px; font-weight:600; cursor:pointer; font-family:inherit; }
+    .mnav-perso-hint { font-size:12px; color:var(--muted); padding:0 16px 10px; }
   }`;
 
   function injectCSS() {
@@ -179,7 +190,56 @@
     setTimeout(() => { if (!bg.classList.contains('open')) bg.remove(); }, 260);
   }
 
-  function openPersonalize() {} // implementado na proxima task
+  function openPersonalize() {
+    const bg = document.querySelector('.mnav-sheet-bg');
+    if (!bg) return;
+    const body = bg.querySelector('.mnav-sheet-body');
+    let draft = _state.items.map(it => ({ slug: it.slug, title: it.title, on: _state.bar.some(b => b.slug === it.slug) }));
+
+    function render() {
+      const onCount = draft.filter(d => d.on).length;
+      body.innerHTML =
+        '<div class="mnav-perso-head"><strong>Personalizar barra</strong>' +
+        '<button class="save">Salvar</button></div>' +
+        '<div class="mnav-perso-hint">Escolha até 4 itens para a barra inferior e ordene com ↑ ↓.</div>' +
+        draft.map((d, i) =>
+          '<div class="mnav-perso-row' + (d.on ? '' : ' off') + '">' +
+          '<button class="up" data-i="' + i + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+          '<button class="down" data-i="' + i + '"' + (i === draft.length - 1 ? ' disabled' : '') + '>↓</button>' +
+          '<span class="lbl">' + d.title + '</span>' +
+          '<button class="tgl' + (d.on ? ' on' : '') + '" data-i="' + i + '">' + (d.on ? 'Na barra' : 'Fora') + '</button>' +
+          '</div>'
+        ).join('');
+      body.querySelector('.save').onclick = save;
+      body.querySelectorAll('.up').forEach(b => b.onclick = () => { const i = +b.dataset.i; [draft[i-1], draft[i]] = [draft[i], draft[i-1]]; render(); });
+      body.querySelectorAll('.down').forEach(b => b.onclick = () => { const i = +b.dataset.i; [draft[i+1], draft[i]] = [draft[i], draft[i+1]]; render(); });
+      body.querySelectorAll('.tgl').forEach(b => b.onclick = () => {
+        const i = +b.dataset.i;
+        if (!draft[i].on && onCount >= 4) { alert('Máximo de 4 itens na barra.'); return; }
+        draft[i].on = !draft[i].on; render();
+      });
+    }
+
+    async function save() {
+      const tabbar = draft.filter(d => d.on).slice(0, 4).map(d => d.slug);
+      if (tabbar.length < 1) { alert('Escolha ao menos 1 item.'); return; }
+      try {
+        const tkn = (typeof window.getToken === 'function') ? window.getToken() : window._tkn;
+        const r = await fetch('/api/me/nav-prefs', {
+          method: 'PATCH',
+          headers: { 'Authorization': 'Bearer ' + tkn, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabbar }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        _state.navPrefs = { tabbar };
+        _state.bar = resolveBar(_state.items, _state.navPrefs);
+        renderBar();
+        closeSheet();
+      } catch (e) { alert('Não foi possível salvar: ' + e.message); }
+    }
+
+    render();
+  }
 
   window.MobileNav = {
     isMobile,
