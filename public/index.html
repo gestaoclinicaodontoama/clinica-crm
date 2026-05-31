@@ -2611,10 +2611,12 @@ function _initPainel(lead) {
         : `<span style="word-break:break-all">${nomeEsc}</span>`;
       // Criativo capturado direto do referral CTWA (mais confiável que a Graph API)
       const rd = lead.referral_data || {};
-      const imgReferral = rd.image_url || rd.thumbnail_url || '';
+      // Só aceita URLs http(s) — bloqueia javascript:/data: em href/src (dado vem de webhook externo)
+      const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
+      const imgReferral = _safeUrl(rd.image_url) || _safeUrl(rd.thumbnail_url) || '';
       let criativoHtml = '';
       if (imgReferral || rd.headline || rd.body) {
-        const linkAnuncio = rd.source_url || (adId ? 'https://www.facebook.com/ads/library/?id=' + adId : '');
+        const linkAnuncio = _safeUrl(rd.source_url) || (adId ? 'https://www.facebook.com/ads/library/?id=' + adId : '');
         criativoHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
           ${imgReferral ? `<img src="${_esc(imgReferral)}" alt="anúncio" style="width:100%;display:block;max-height:160px;object-fit:cover" loading="lazy">` : ''}
           ${(rd.headline || rd.body) ? `<div style="padding:8px">
@@ -2628,11 +2630,12 @@ function _initPainel(lead) {
       // Fallback: se não veio imagem no referral, tenta a Graph API pelo ad_id
       if (!imgReferral && adId) {
         api('/api/anuncio-thumb/' + adId).then(t => {
-          if (t && t.thumbnail_url) {
+          const safeThumb = (t && typeof t.thumbnail_url === 'string' && /^https?:\/\//i.test(t.thumbnail_url)) ? t.thumbnail_url : '';
+          if (safeThumb) {
             const thumbEl = document.getElementById('painel-anuncio-thumb');
             if (thumbEl) thumbEl.innerHTML =
               `<a href="https://www.facebook.com/ads/library/?id=${_esc(adId)}" target="_blank" rel="noopener">` +
-              `<img src="${_esc(t.thumbnail_url)}" alt="anúncio" style="width:100%;border-radius:6px;border:1px solid var(--border);margin-bottom:6px;display:block" loading="lazy"></a>`;
+              `<img src="${_esc(safeThumb)}" alt="anúncio" style="width:100%;border-radius:6px;border:1px solid var(--border);margin-bottom:6px;display:block" loading="lazy"></a>`;
           }
         }).catch(() => {});
       }
