@@ -3810,8 +3810,8 @@ app.get('/api/anuncio-thumb/:adId', requireAuth, rateLimit, async (req, res) => 
 
   try {
     const url = 'https://graph.facebook.com/' + META_API_VERSION + '/' + adId +
-      '?fields=name,creative{thumbnail_url,image_url}&access_token=' + encodeURIComponent(TOKEN);
-    const r = await fetch(url);
+      '?fields=name,creative{thumbnail_url,image_url}';
+    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
     const json = await r.json();
     if (json.error) {
       const data = { thumbnail_url: null, nome: null, indisponivel: true };
