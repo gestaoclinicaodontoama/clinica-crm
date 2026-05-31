@@ -149,6 +149,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
       roles: profile?.roles || metaRoles || ['crc_leads'],
       threec_agent_token: profile?.threec_agent_token || null,
       threec_agent_ramal: profile?.threec_agent_ramal || null,
+      nav_prefs: profile?.nav_prefs || null,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -191,6 +192,32 @@ app.patch('/api/me/threec-agent-id', requireAuth, async (req, res) => {
     const { error } = await supabase.from('profiles').update({ threec_agent_id: val || null }).eq('id', req.user.id);
     if (error) throw error;
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Slugs de navegação válidos para a barra inferior mobile (nav_prefs.tabbar)
+const NAV_SLUGS = new Set([
+  'dashboard','leads','funil','conv-agendamentos','conv-avaliacao','disparos',
+  'notas-fiscais','inadimplentes','usuarios','tarefas-gestor','config',
+  'avaliacao-dentista','atribuicao','ligacoes',
+  'aniversariantes','recall','vips',
+]);
+app.patch('/api/me/nav-prefs', requireAuth, async (req, res) => {
+  try {
+    const tabbar = req.body?.tabbar;
+    if (!Array.isArray(tabbar)) return res.status(400).json({ error: 'tabbar deve ser array' });
+    if (tabbar.length < 1 || tabbar.length > 4) return res.status(400).json({ error: 'tabbar deve ter de 1 a 4 itens' });
+    const seen = new Set();
+    for (const s of tabbar) {
+      if (typeof s !== 'string' || !NAV_SLUGS.has(s)) return res.status(400).json({ error: 'slug inválido: ' + s });
+      if (seen.has(s)) return res.status(400).json({ error: 'slug duplicado: ' + s });
+      seen.add(s);
+    }
+    const { error } = await supabase.from('profiles').update({ nav_prefs: { tabbar } }).eq('id', req.user.id);
+    if (error) throw error;
+    res.json({ ok: true, tabbar });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
