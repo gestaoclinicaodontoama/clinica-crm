@@ -224,7 +224,7 @@
       const tabbar = draft.filter(d => d.on).slice(0, 4).map(d => d.slug);
       if (tabbar.length < 1) { alert('Escolha ao menos 1 item.'); return; }
       try {
-        const tkn = (typeof window.getToken === 'function') ? window.getToken() : window._tkn;
+        const tkn = _state.getToken ? _state.getToken() : null;
         const r = await fetch('/api/me/nav-prefs', {
           method: 'PATCH',
           headers: { 'Authorization': 'Bearer ' + tkn, 'Content-Type': 'application/json' },
@@ -254,6 +254,7 @@
       _state.activeSlug = opts.activeSlug || (_state.items[0] && _state.items[0].slug) || null;
       _state.onAfterNav = opts.onAfterNav || null;
       _state.navPrefs = opts.navPrefs || null;
+      _state.getToken = typeof opts.getToken === 'function' ? opts.getToken : null;
       _state.bar = resolveBar(_state.items, _state.navPrefs);
       renderTopbar();
       renderBar();

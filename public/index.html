@@ -4634,14 +4634,13 @@ async function loadCurrentUser() {
     // Update nav label with user name
     const logo = document.querySelector('nav .logo');
     if (logo && d.nome) logo.title = d.nome + ' (' + roles.join(', ') + ')';
-    // Expose auth token for mobile-nav save()
-    if (_sbSession && _sbSession.access_token) window._tkn = _sbSession.access_token;
     if (window.MobileNav) {
       const activePage = (document.querySelector('.page.active') || {}).id || '';
       window.MobileNav.init({
         navSelector: 'nav',
         activeSlug: activePage.replace(/^page-/, '') || 'dashboard',
         navPrefs: d.nav_prefs || null,
+        getToken: () => (_sbSession && _sbSession.access_token) || null,
       });
     }
   } catch(e) {}

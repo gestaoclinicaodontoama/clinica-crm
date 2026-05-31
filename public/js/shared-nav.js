@@ -169,7 +169,6 @@
       const parsed = JSON.parse(localStorage.getItem(k));
       const token = parsed?.access_token ?? null;
       if (!token) return;
-      window._tkn = token;
 
       const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
@@ -181,15 +180,15 @@
         el.style.display = canSee(el.dataset.roles) ? '' : 'none';
       });
 
-      _initMobileNav(user.nav_prefs ?? null);
+      _initMobileNav(user.nav_prefs ?? null, token);
     } catch (_) {}
   }
 
-  function _initMobileNav(navPrefs) {
+  function _initMobileNav(navPrefs, token) {
     var tries = 0;
     (function go() {
       if (window.MobileNav && document.querySelector('.crm-nav')) {
-        window.MobileNav.init({ navSelector: '.crm-nav', activeSlug: activePage || '', navPrefs: navPrefs || null });
+        window.MobileNav.init({ navSelector: '.crm-nav', activeSlug: activePage || '', navPrefs: navPrefs || null, getToken: function () { return token; } });
       } else if (tries++ < 40) { setTimeout(go, 50); }
     })();
   }
