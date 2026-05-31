@@ -9,6 +9,9 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const { createClient } = require('@supabase/supabase-js');
 const ClinicorpApi     = require('./clinicorp-api');
+const { normalizarTelefone } = require('../lib/funil/telefone');
+
+const FUNIL_DIAS = 180; // janela de coleta do funil comercial
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -276,6 +279,141 @@ async function upsertAbcData(apptMap, payMap) {
   log(`pacientes_abc atualizado: ${total} registros`);
 }
 
+// ─── funil comercial (Dashboard Comercial) ───────────────────────────────────
+
+/**
+ * Busca um endpoint da Clinicorp por janela, em fatias de <=30 dias
+ * (estimates/list rejeita intervalos > 31 dias). Concatena todos os arrays.
+ */
+async function fetchRangeChunked(path, dias, chunkDias = 30) {
+  const today = new Date();
+  const all = [];
+  for (let off = 0; off < dias; off += chunkDias) {
+    const to   = new Date(today); to.setDate(to.getDate()   - off);
+    const from = new Date(today); from.setDate(from.getDate() - Math.min(off + chunkDias, dias));
+    const part = await api.get(path, { from: dateStr(from), to: dateStr(to) });
+    if (Array.isArray(part)) all.push(...part);
+  }
+  return all;
+}
+
+/** Carrega config: avaliadores (id→nome) + StatusId que contam como compareceu. */
+async function loadFunilConfig() {
+  const [{ data: av }, { data: st }] = await Promise.all([
+    supabase.from('config_avaliadores').select('nome, clinicorp_id').eq('ativo', true),
+    supabase.from('config_status_compareceu').select('status_id').eq('compareceu', true),
+  ]);
+  const ids = new Set();
+  const nomeById = new Map();
+  for (const r of (av || [])) {
+    const id = String(r.clinicorp_id || '');
+    if (id) { ids.add(id); nomeById.set(id, r.nome || ''); }
+  }
+  const statusCompareceu = new Set((st || []).map(r => String(r.status_id)));
+  return { ids, nomeById, statusCompareceu };
+}
+
+/**
+ * Persiste avaliações (agendamentos dos dentistas avaliadores).
+ * Filtra por Dentist_PersonId/ScheduleToId (a /appointment/list não traz nome).
+ * compareceu = tem CheckinTime (mesmo sinal do syncComparecimentos) OU StatusId marcado.
+ */
+async function syncAvaliacoes(cfg) {
+  log(`Buscando agendamentos do funil (${FUNIL_DIAS}d, fatias de 30d)...`);
+  const arr = await fetchRangeChunked('/appointment/list', FUNIL_DIAS);
+
+  const rows = [];
+  const seen = new Set();
+  for (const a of arr) {
+    if ((a.Deleted || '') === 'X') continue;
+    const dentId  = String(a.Dentist_PersonId || '');
+    const schedId = String(a.ScheduleToId || '');
+    const matchId = cfg.ids.has(dentId) ? dentId : (cfg.ids.has(schedId) ? schedId : null);
+    if (!matchId) continue;
+
+    const apptId = String(a.id || a.AppointmentId || '');
+    if (!apptId || seen.has(apptId)) continue;
+    seen.add(apptId);
+
+    const statusId = String(a.StatusId || '');
+    rows.push({
+      clinicorp_appointment_id: apptId,
+      paciente_clinicorp_id:    String(a.Patient_PersonId || ''),
+      telefone:                 normalizarTelefone(a.MobilePhone || a.Phone),
+      dentista_nome:            cfg.nomeById.get(matchId) || '',
+      dentista_clinicorp_id:    matchId,
+      data:                     toDate(a.date || a.Date),
+      compareceu:               !!a.CheckinTime || cfg.statusCompareceu.has(statusId),
+      status_raw:               statusId || null,
+      atualizado_em:            new Date().toISOString(),
+    });
+  }
+
+  log(`Avaliações de avaliadores: ${rows.length}`);
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const { error } = await supabase.from('avaliacoes')
+      .upsert(chunk, { onConflict: 'clinicorp_appointment_id' });
+    if (error) log(`ERRO upsert avaliacoes: ${error.message}`);
+  }
+  return rows.length;
+}
+
+/** Persiste orçamentos (estimates) da janela. Dedup por id (fatias podem sobrepor). */
+async function syncOrcamentos() {
+  log(`Buscando orçamentos do funil (${FUNIL_DIAS}d, fatias de 30d)...`);
+  const arr = await fetchRangeChunked('/estimates/list', FUNIL_DIAS);
+
+  const byId = new Map();
+  for (const o of arr) {
+    const id = String(o.id || '');
+    if (!id || id === 'undefined') continue;
+    byId.set(id, {
+      clinicorp_estimate_id: id,
+      treatment_id:          o.TreatmentId != null ? String(o.TreatmentId) : null,
+      paciente_clinicorp_id: String(o.PatientId || ''),
+      telefone:              normalizarTelefone(o.PatientMobilePhone),
+      profissional_nome:     o.ProfessionalName || '',
+      valor:                 Number(o.Amount || 0),
+      status:                o.Status || null,
+      data_criacao:          toDate(o.CreateDate),
+      atualizado_em:         new Date().toISOString(),
+    });
+  }
+  const rows = [...byId.values()];
+
+  log(`Orçamentos: ${rows.length}`);
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const { error } = await supabase.from('orcamentos')
+      .upsert(chunk, { onConflict: 'clinicorp_estimate_id' });
+    if (error) log(`ERRO upsert orcamentos: ${error.message}`);
+  }
+  return rows.length;
+}
+
+/** Liga avaliações/orçamentos a leads por telefone normalizado (1 update por lead/tabela). */
+async function vincularLeads() {
+  const { data: leads } = await supabase.from('leads').select('id, telefone');
+  const mapa = new Map(); // telefone → lead_id
+  for (const l of (leads || [])) {
+    const t = normalizarTelefone(l.telefone);
+    if (t && !mapa.has(t)) mapa.set(t, l.id);
+  }
+  if (!mapa.size) { log('vincularLeads: nenhum lead com telefone'); return 0; }
+
+  let n = 0;
+  for (const [t, lid] of mapa) {
+    for (const tabela of ['avaliacoes', 'orcamentos']) {
+      const { data, error } = await supabase.from(tabela)
+        .update({ lead_id: lid }).eq('telefone', t).is('lead_id', null).select('telefone');
+      if (!error && data) n += data.length;
+    }
+  }
+  log(`vincularLeads: ${n} linhas ligadas a leads`);
+  return n;
+}
+
 // ─── entrada principal ───────────────────────────────────────────────────────
 
 async function runSync() {
@@ -303,6 +441,16 @@ async function runSync() {
     // Fase 5: upsert em pacientes_abc
     await upsertAbcData(apptMap, payMap);
 
+    // Fase 6: funil comercial (avaliações)
+    const funilCfg = await loadFunilConfig();
+    result.steps.avaliacoes_funil = await syncAvaliacoes(funilCfg);
+
+    // Fase 7: funil comercial (orçamentos)
+    result.steps.orcamentos_funil = await syncOrcamentos();
+
+    // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
+    result.steps.leads_vinculados = await vincularLeads();
+
     result.ok        = true;
     result.req_count = api.reqCount; // requisições feitas nesta hora
   } catch (err) {
@@ -320,4 +468,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads };
