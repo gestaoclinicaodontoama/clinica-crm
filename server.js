@@ -15,6 +15,7 @@ const totalvoice = require('./totalvoice');
 const whatsapp = require('./whatsapp');
 const threec = require('./lib/3cplus');
 const threecCamp = require('./lib/3cplus-campanhas');
+const { agregarFunil } = require('./lib/funil/agregar');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -2444,6 +2445,42 @@ app.patch('/api/meta-agendamentos', requireRole('admin', 'gestor'), async (req, 
     await supabase.from('app_config').update({ meta_agendamentos_diarios: valor }).eq('id', 1);
     res.json({ ok: true, meta: valor });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ========== DASHBOARD COMERCIAL — funil de avaliações ==========
+// GET /api/comercial/funil?from=YYYY-MM-DD&to=YYYY-MM-DD&origem=<campanha|all>
+app.get('/api/comercial/funil', requireAuth, requireDashboardAvaliacao, rateLimit, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const origem = (req.query.origem && req.query.origem !== 'all') ? req.query.origem : null;
+    if (!from || !to) return res.status(400).json({ error: 'from e to são obrigatórios (YYYY-MM-DD)' });
+
+    const [{ data: avaliacoes, error: e1 }, { data: orcamentos, error: e2 }, { data: leadsRaw, error: e3 }] =
+      await Promise.all([
+        supabase.from('avaliacoes')
+          .select('paciente_clinicorp_id, telefone, data, compareceu, lead_id')
+          .gte('data', from).lte('data', to),
+        supabase.from('orcamentos')
+          .select('paciente_clinicorp_id, telefone, valor, status, data_criacao, lead_id')
+          .gte('data_criacao', from).lte('data_criacao', to),
+        // leads usam data_lead (data de entrada do lead) como data da coorte
+        supabase.from('leads')
+          .select('id, telefone, origem, data_lead')
+          .gte('data_lead', from).lte('data_lead', to + 'T23:59:59'),
+      ]);
+    if (e1 || e2 || e3) throw new Error((e1 || e2 || e3).message);
+
+    const resultado = agregarFunil({
+      leads: leadsRaw || [], avaliacoes: avaliacoes || [], orcamentos: orcamentos || [], origem,
+    });
+
+    // lista de origens disponíveis para o seletor
+    const origens = [...new Set((leadsRaw || []).map(l => l.origem).filter(Boolean))].sort();
+
+    res.json({ from, to, origem: origem || 'all', origens, ...resultado });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Lista CRCs que já agendaram hoje (para filtro) ───────────────────────────
