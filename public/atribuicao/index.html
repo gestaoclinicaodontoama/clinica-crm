@@ -45,6 +45,34 @@
     </div>
   </div>
 
+  <!-- CPA / ROAS / Discrepância (Meta Ads) -->
+  <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">
+    <h2 style="font-size:16px;font-weight:700;margin:0">💰 Custo, Retorno e Discrepância</h2>
+    <span style="font-size:11.5px;color:var(--muted)">gasto e conversas do Meta cruzados com seus leads reais</span>
+  </div>
+  <div id="insights-aviso" style="display:none;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.4);border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:14px"></div>
+  <div id="insights-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:14px"></div>
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:28px">
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:760px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);background:var(--bg3)">
+            <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted)">Anúncio</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Gasto</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Conversas Meta</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Leads CRM</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)" title="Conversas que o Meta reporta menos os leads que realmente entraram no CRM">Discrep.</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Fechou</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Receita</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)" title="Custo por fechamento">CPA</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)" title="Receita / Gasto">ROAS</th>
+          </tr>
+        </thead>
+        <tbody id="tabela-insights"></tbody>
+      </table>
+    </div>
+  </div>
+
   <div id="catalogo-wrap" style="display:none">
     <details style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px">
       <summary style="font-weight:700;font-size:14px;cursor:pointer;user-select:none">Catálogo de Anúncios</summary>
@@ -127,6 +155,51 @@ async function aplicarFiltro() {
       _api('/api/anuncios').then(catalog => renderCatalogo(Array.isArray(catalog) ? catalog : [])).catch(() => {});
     }
   } catch(e) { console.error('atribuicao:', e); }
+  carregarInsights();
+}
+
+function _brl2(v) { return v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+
+async function carregarInsights() {
+  const aviso = document.getElementById('insights-aviso');
+  const cards = document.getElementById('insights-cards');
+  const tbody = document.getElementById('tabela-insights');
+  aviso.style.display = 'none';
+  try {
+    const d = await _api('/api/meta-insights?' + getFiltroParams());
+    if (d.sem_token) { aviso.style.display=''; aviso.style.color='#92400e'; aviso.textContent='⚠️ META_ACCESS_TOKEN não configurado no servidor.'; cards.innerHTML=''; tbody.innerHTML=''; return; }
+    if (d.erro_meta) { aviso.style.display=''; aviso.style.color='#b91c1c'; aviso.textContent='⚠️ Meta: ' + d.erro_meta + ' (o token do servidor precisa de permissão ads_read nesta conta de anúncios).'; cards.innerHTML=''; tbody.innerHTML=''; return; }
+    const t = d.totais || {};
+    cards.innerHTML = [
+      ['Gasto total', _brl2(t.spend), '💸'],
+      ['Conversas (Meta)', t.meta_conversas||0, '💬'],
+      ['Leads no CRM', t.leads||0, '👤'],
+      ['Receita', _brl2(t.receita), '💰'],
+      ['ROAS geral', t.roas!=null ? t.roas.toFixed(1)+'x' : '—', '📈'],
+    ].map(([l,v]) => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px"><div style="font-size:11.5px;color:var(--muted);margin-bottom:5px">${_esc(l)}</div><div style="font-size:19px;font-weight:700">${_esc(String(v))}</div></div>`).join('');
+    tbody.innerHTML = (d.anuncios||[]).map(a => {
+      const nome = a.ad_name || a.campaign_name || a.ad_id;
+      const disc = a.discrepancia;
+      const discCor = disc > 0 ? 'var(--red)' : disc < 0 ? 'var(--green)' : 'var(--muted)';
+      const discTxt = disc > 0 ? '+' + disc : String(disc);
+      const roasCor = a.roas == null ? 'var(--muted)' : a.roas >= 3 ? 'var(--green)' : a.roas >= 1 ? 'var(--text)' : 'var(--red)';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 14px;font-weight:500;max-width:240px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(nome)}">${_esc(nome)}</div></td>
+        <td style="padding:10px 14px;text-align:right">${_esc(_brl2(a.spend))}</td>
+        <td style="padding:10px 14px;text-align:right">${a.meta_conversas}</td>
+        <td style="padding:10px 14px;text-align:right">${a.leads}</td>
+        <td style="padding:10px 14px;text-align:right;color:${discCor}" title="Meta reporta ${a.meta_conversas}, CRM tem ${a.leads}">${_esc(discTxt)}</td>
+        <td style="padding:10px 14px;text-align:right">${a.fechados}</td>
+        <td style="padding:10px 14px;text-align:right">${_esc(_brl2(a.receita))}</td>
+        <td style="padding:10px 14px;text-align:right">${_esc(a.cpa!=null?_brl2(a.cpa):'—')}</td>
+        <td style="padding:10px 14px;text-align:right;color:${roasCor};font-weight:600">${a.roas!=null?a.roas.toFixed(1)+'x':'—'}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">Nenhum gasto ou lead no período.</td></tr>';
+  } catch(e) {
+    aviso.style.display=''; aviso.style.color='var(--muted)';
+    aviso.textContent = 'Não foi possível carregar os dados do Meta (' + e.message + ').';
+    cards.innerHTML=''; tbody.innerHTML='';
+  }
 }
 
 function renderCards(t) {

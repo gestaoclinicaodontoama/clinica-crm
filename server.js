@@ -3799,6 +3799,80 @@ app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req
   } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
+// CPA / ROAS / Discrepância — cruza gasto+conversas do Meta com leads do CRM
+const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID || '945699087658457';
+app.get('/api/meta-insights', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const TOKEN = process.env.META_ACCESS_TOKEN;
+    if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado', sem_token: true });
+
+    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    const periodo = parseInt(req.query.periodo, 10) || 30;
+    const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
+    const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
+    const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+    // 1) Insights do Meta por anúncio (gasto + conversas iniciadas)
+    const timeRange = JSON.stringify({ since: ymd(dDesde), until: ymd(dAte) });
+    const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
+      '/insights?level=ad&fields=ad_id,ad_name,campaign_name,spend,actions' +
+      '&time_range=' + encodeURIComponent(timeRange) + '&limit=500';
+    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const json = await r.json();
+    if (json.error) {
+      return res.status(200).json({ erro_meta: json.error.message || 'Erro Meta', code: json.error.code, anuncios: [] });
+    }
+    const insights = {};
+    (json.data || []).forEach(row => {
+      const conv = (row.actions || []).find(a => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+      insights[row.ad_id] = {
+        ad_id: row.ad_id, ad_name: row.ad_name, campaign_name: row.campaign_name,
+        spend: parseFloat(row.spend) || 0,
+        meta_conversas: conv ? parseInt(conv.value, 10) : 0,
+      };
+    });
+
+    // 2) Leads do CRM no período, agrupados por ad_id (lead.campanha = source_id)
+    const { data: leads } = await supabase.from('leads')
+      .select('campanha,ctwa_clid,status,valor,data_agendamento,data_comparecimento,criado_em')
+      .gte('criado_em', dDesde.toISOString()).lte('criado_em', dAte.toISOString()).limit(5000);
+    const crm = {};
+    (leads || []).forEach(l => {
+      if (!l.campanha || !/^\d{6,}$/.test(l.campanha)) return; // só leads com ad_id numérico
+      if (!crm[l.campanha]) crm[l.campanha] = { leads: 0, agendados: 0, compareceu: 0, fechados: 0, receita: 0 };
+      const g = crm[l.campanha];
+      g.leads++;
+      if (l.data_agendamento) g.agendados++;
+      if (l.data_comparecimento) g.compareceu++;
+      if (l.status === 'Fechou') { g.fechados++; if (l.valor) g.receita += parseFloat(l.valor); }
+    });
+
+    // 3) Cruza (união das chaves de insights e crm)
+    const chaves = new Set([...Object.keys(insights), ...Object.keys(crm)]);
+    const anuncios = [...chaves].map(adId => {
+      const i = insights[adId] || { ad_id: adId, ad_name: '(anúncio fora do período)', campaign_name: '', spend: 0, meta_conversas: 0 };
+      const c = crm[adId] || { leads: 0, agendados: 0, compareceu: 0, fechados: 0, receita: 0 };
+      const cpa = c.fechados > 0 ? i.spend / c.fechados : null;
+      const cpl = c.leads > 0 ? i.spend / c.leads : null;
+      const roas = i.spend > 0 ? c.receita / i.spend : null;
+      const discrepancia = i.meta_conversas - c.leads; // Meta reporta vs CRM real
+      return { ...i, ...c, cpa, cpl, roas, discrepancia };
+    }).filter(a => a.spend > 0 || a.leads > 0)
+      .sort((a, b) => b.spend - a.spend);
+
+    const totais = anuncios.reduce((t, a) => {
+      t.spend += a.spend; t.meta_conversas += a.meta_conversas;
+      t.leads += a.leads; t.fechados += a.fechados; t.receita += a.receita;
+      return t;
+    }, { spend: 0, meta_conversas: 0, leads: 0, fechados: 0, receita: 0 });
+    totais.cpa = totais.fechados > 0 ? totais.spend / totais.fechados : null;
+    totais.cpl = totais.leads > 0 ? totais.spend / totais.leads : null;
+    totais.roas = totais.spend > 0 ? totais.receita / totais.spend : null;
+
+    res.json({ anuncios, totais, desde: ymd(dDesde), ate: ymd(dAte), conta: META_AD_ACCOUNT_ID });
+  } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
 // Cache de thumbnails de anúncios (em memória, TTL 6h)
 const _thumbCache = new Map();
 app.get('/api/anuncio-thumb/:adId', requireAuth, rateLimit, async (req, res) => {
