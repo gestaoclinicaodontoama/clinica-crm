@@ -4,7 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Atribuição — CRM AMA</title>
-  <link rel="stylesheet" href="/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+  :root[data-theme="dark"] {
+    --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+    --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+    --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --orange: #f97316;
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+    --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+    --green: #16a34a; --yellow: #d97706; --red: #dc2626; --orange: #ea580c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  </style>
   <script src="/js/shared-nav.js" data-active="atribuicao" defer></script>
 </head>
 <body class="crm-shell">

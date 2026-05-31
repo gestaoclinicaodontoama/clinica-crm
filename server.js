@@ -3804,7 +3804,7 @@ const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID || '945699087658457';
 app.get('/api/meta-insights', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const TOKEN = process.env.META_ACCESS_TOKEN;
-    if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado', sem_token: true });
+    if (!TOKEN) return res.status(200).json({ error: 'META_ACCESS_TOKEN não configurado', sem_token: true, anuncios: [] });
 
     const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
     const periodo = parseInt(req.query.periodo, 10) || 30;
