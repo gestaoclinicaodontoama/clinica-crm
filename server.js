@@ -1663,18 +1663,26 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
     }],
     ...(process.env.META_TEST_EVENT_CODE && { test_event_code: process.env.META_TEST_EVENT_CODE }),
   };
+  // Metadata de payload sem dados sensíveis em claro (telefone/email já são hash)
+  const payloadResumo = payload.data[0];
   try {
     const r = await fetch('https://graph.facebook.com/' + META_API_VERSION + '/' + PIXEL + '/events', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
       body: JSON.stringify(payload),
     });
+    const httpStatus = r.status;
     const json = await r.json();
     if (json.events_received) {
       console.log('📤 Meta CAPI ✓ Lead #' + lead.id + ' | evento: ' + eventName);
       logEvento(lead.id, 'capi_disparado',
         'CAPI: ' + eventName + ' enviado à Meta' + (parseFloat(lead.valor) > 0 ? ' (R$ ' + parseFloat(lead.valor).toFixed(2) + ')' : ''),
-        { evento: eventName, valor: parseFloat(lead.valor) || 0 }
+        {
+          evento: eventName, valor: parseFloat(lead.valor) || 0, sucesso: true,
+          http_status: httpStatus, action_source,
+          payload_enviado: payloadResumo,
+          resposta_meta: { events_received: json.events_received, messages: json.messages || [], fbtrace_id: json.fbtrace_id || null },
+        }
       );
       const eventos = [...(lead.eventos_meta_enviados || [])];
       if (!eventos.includes(eventName)) eventos.push(eventName);
@@ -1683,9 +1691,22 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
       await supabase.from('leads').update(upd).eq('id', lead.id);
     } else {
       console.error('📤 Meta CAPI ✗ Lead #' + lead.id + ' | ' + eventName + ':', JSON.stringify(json).slice(0, 300));
+      logEvento(lead.id, 'capi_disparado',
+        'CAPI: ' + eventName + ' FALHOU (' + httpStatus + ')',
+        {
+          evento: eventName, valor: parseFloat(lead.valor) || 0, sucesso: false,
+          http_status: httpStatus, action_source,
+          payload_enviado: payloadResumo,
+          resposta_meta: { error: json.error || json, fbtrace_id: json.fbtrace_id || null },
+        }
+      );
     }
   } catch (e) {
     console.error('📤 Meta CAPI ERRO Lead #' + lead.id + ':', e.message);
+    logEvento(lead.id, 'capi_disparado',
+      'CAPI: ' + eventName + ' ERRO de conexão',
+      { evento: eventName, sucesso: false, erro: String(e.message).slice(0, 300), payload_enviado: payloadResumo }
+    );
   }
 }
 
@@ -3774,6 +3795,34 @@ app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req
 
     res.json({ grupos: lista, totais, periodo, desde, ate, truncado: (leads || []).length >= 5000 });
   } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// Cache de thumbnails de anúncios (em memória, TTL 6h)
+const _thumbCache = new Map();
+app.get('/api/anuncio-thumb/:adId', requireAuth, rateLimit, async (req, res) => {
+  const adId = String(req.params.adId || '').replace(/\D/g, '');
+  if (!adId || adId.length < 6) return res.status(400).json({ error: 'ad_id inválido' });
+  const TOKEN = process.env.META_ACCESS_TOKEN;
+  if (!TOKEN) return res.json({ thumbnail_url: null, nome: null, indisponivel: true });
+
+  const cached = _thumbCache.get(adId);
+  if (cached && cached.exp > Date.now()) return res.json(cached.data);
+
+  try {
+    const url = 'https://graph.facebook.com/' + META_API_VERSION + '/' + adId +
+      '?fields=name,creative{thumbnail_url,image_url}&access_token=' + encodeURIComponent(TOKEN);
+    const r = await fetch(url);
+    const json = await r.json();
+    if (json.error) {
+      const data = { thumbnail_url: null, nome: null, indisponivel: true };
+      _thumbCache.set(adId, { data, exp: Date.now() + 3600000 }); // 1h em erro
+      return res.json(data);
+    }
+    const thumb = json.creative?.image_url || json.creative?.thumbnail_url || null;
+    const data = { thumbnail_url: thumb, nome: json.name || null };
+    _thumbCache.set(adId, { data, exp: Date.now() + 6 * 3600000 }); // 6h em sucesso
+    res.json(data);
+  } catch(e) { res.json({ thumbnail_url: null, nome: null, indisponivel: true }); }
 });
 
 app.get('/api/anuncios', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {

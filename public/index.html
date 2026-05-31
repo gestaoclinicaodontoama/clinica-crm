@@ -2600,6 +2600,7 @@ function _initPainel(lead) {
       link = 'https://adsmanager.facebook.com';
     }
     const chave = (lead.campanha || '').toLowerCase();
+    const adId = /^\d{6,}$/.test(String(lead.campanha || '').trim()) ? String(lead.campanha).trim() : null;
     api('/api/anuncios').then(catalog => {
       const entrada = Array.isArray(catalog) ? catalog.find(a => a.chave === chave && a.ativo) : null;
       const nome = entrada?.nome || lead.campanha || (lead.ctwa_clid ? 'Meta Ads (sem campanha)' : lead.fbclid ? 'Meta Ads' : 'Google Ads');
@@ -2608,7 +2609,18 @@ function _initPainel(lead) {
       const linkHtml = link
         ? `<a href="${linkEsc}" target="_blank" rel="noopener" style="color:${cor};text-decoration:none;word-break:break-all">${nomeEsc} ↗</a>`
         : `<span style="word-break:break-all">${nomeEsc}</span>`;
-      el.innerHTML = linkHtml + badge;
+      el.innerHTML = `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
+      // Busca thumbnail do criativo (Meta) se a campanha for um ad_id numérico
+      if (adId) {
+        api('/api/anuncio-thumb/' + adId).then(t => {
+          if (t && t.thumbnail_url) {
+            const thumbEl = document.getElementById('painel-anuncio-thumb');
+            if (thumbEl) thumbEl.innerHTML =
+              `<a href="https://www.facebook.com/ads/library/?id=${_esc(adId)}" target="_blank" rel="noopener">` +
+              `<img src="${_esc(t.thumbnail_url)}" alt="anúncio" style="width:100%;border-radius:6px;border:1px solid var(--border);margin-bottom:6px;display:block" loading="lazy"></a>`;
+          }
+        }).catch(() => {});
+      }
     }).catch(() => {
       el.innerHTML = `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge;
     });
@@ -4286,6 +4298,52 @@ function _formatBR(iso) {
   return p.day + '/' + p.month + ' ' + p.hour + ':' + p.minute;
 }
 
+const _escT = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let _capiPayloads = {}; // cache de payloads por id de evento, para o botão copiar
+
+function _badgeOrigem(ev) {
+  // usuario_id preenchido = ação manual; null = automático/sistema
+  const manual = !!ev.usuario_id;
+  const cor = manual ? 'var(--b-compareceu)' : 'var(--muted)';
+  const txt = manual ? 'Manual' : 'Automático';
+  return `<span style="font-size:9px;font-weight:600;color:${cor};border:1px solid ${cor};border-radius:4px;padding:0 4px;text-transform:uppercase;letter-spacing:.3px">${txt}</span>`;
+}
+
+function _renderCapiExpansivel(ev) {
+  const m = ev.metadata || {};
+  const ok = m.sucesso !== false;
+  const statusCor = ok ? 'var(--green)' : 'var(--red)';
+  const statusTxt = ok ? ('HTTP ' + (m.http_status || 200)) : ('FALHOU ' + (m.http_status || ''));
+  _capiPayloads[ev.id] = { enviado: m.payload_enviado || {}, resposta: m.resposta_meta || {} };
+  const payloadStr = _escT(JSON.stringify(m.payload_enviado || {}, null, 2));
+  const respStr = _escT(JSON.stringify(m.resposta_meta || {}, null, 2));
+  return `
+    <div style="margin-top:6px">
+      <button onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'"
+        style="background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer;color:var(--muted);display:flex;align-items:center;gap:6px">
+        <span style="color:${statusCor};font-weight:700">●</span> ${statusTxt} · ver detalhes CAPI
+      </button>
+      <div style="display:none;margin-top:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+          <span style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600">Payload enviado</span>
+          <button onclick="_copiarCapi(${ev.id},'enviado')" style="font-size:9.5px;color:var(--accent);background:none;border:none;cursor:pointer">⧉ copiar</button>
+        </div>
+        <pre style="background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:6px;font-size:9.5px;overflow-x:auto;margin:0 0 8px;white-space:pre;color:var(--text);max-height:160px">${payloadStr}</pre>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+          <span style="font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600">Resposta da Meta</span>
+          <button onclick="_copiarCapi(${ev.id},'resposta')" style="font-size:9.5px;color:var(--accent);background:none;border:none;cursor:pointer">⧉ copiar</button>
+        </div>
+        <pre style="background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:6px;font-size:9.5px;overflow-x:auto;margin:0;white-space:pre;color:var(--text);max-height:120px">${respStr}</pre>
+      </div>
+    </div>`;
+}
+
+function _copiarCapi(evId, qual) {
+  const d = _capiPayloads[evId];
+  if (!d) return;
+  navigator.clipboard.writeText(JSON.stringify(d[qual] || {}, null, 2)).then(() => toast('✅ Copiado'));
+}
+
 async function carregarTrajeto(leadId, offset) {
   _trajetoLeadId = leadId;
   const lista = document.getElementById('trajeto-lista');
@@ -4297,14 +4355,30 @@ async function carregarTrajeto(leadId, offset) {
     _trajetoOffset = offset + (r.eventos?.length || 0);
     if (offset === 0) lista.innerHTML = '';
     if (!r.eventos?.length && offset === 0) { lista.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:12px">Nenhum evento ainda.</div>'; if(btnMais) btnMais.style.display='none'; return; }
-    const _escT = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     (r.eventos || []).forEach(ev => {
       const icone = Object.prototype.hasOwnProperty.call(_TRAJETO_ICONES, ev.tipo) ? _TRAJETO_ICONES[ev.tipo] : '•';
+      const isCapi = ev.tipo === 'capi_disparado' && ev.metadata && ev.metadata.payload_enviado;
       const div = document.createElement('div');
-      div.style.cssText = 'display:flex;gap:6px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border)';
-      div.innerHTML = '<span style="font-size:13px;flex-shrink:0">' + icone + '</span><div><div style="color:var(--muted);font-size:10.5px">' + _formatBR(ev.criado_em) + '</div><div style="line-height:1.4">' + _escT(ev.descricao) + '</div></div>';
+      // Timeline: bolinha + linha conectora
+      div.style.cssText = 'display:flex;gap:10px;align-items:flex-start;position:relative';
+      div.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">
+          <div style="width:24px;height:24px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;z-index:1">${icone}</div>
+          <div class="trajeto-conector" style="width:2px;flex:1;background:var(--border);min-height:8px"></div>
+        </div>
+        <div style="flex:1;min-width:0;padding-bottom:12px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:10.5px">${_formatBR(ev.criado_em)}</span>
+            ${_badgeOrigem(ev)}
+          </div>
+          <div style="line-height:1.4;font-size:12px;margin-top:1px">${_escT(ev.descricao)}</div>
+          ${isCapi ? _renderCapiExpansivel(ev) : ''}
+        </div>`;
       lista.appendChild(div);
     });
+    // Remove o conector do último item
+    const conectores = lista.querySelectorAll('.trajeto-conector');
+    if (conectores.length) conectores[conectores.length - 1].style.display = 'none';
     if(btnMais) btnMais.style.display = _trajetoOffset < _trajetoTotal ? '' : 'none';
   } catch(e) { lista.innerHTML = '<div style="color:var(--red);font-size:11px;padding:8px">Erro ao carregar trajeto: ' + String(e.message||'desconhecido').replace(/</g,'&lt;') + '</div>'; }
 }
