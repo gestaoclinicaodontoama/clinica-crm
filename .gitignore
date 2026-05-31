@@ -15,3 +15,15 @@ node_modules/
 # Logs
 *.log
 npm-debug.log*
+
+# Python cache e artefatos de automação NF
+__pycache__/
+*.pyc
+*.pyo
+nf-automation/screenshots/
+nf-automation/*.pdf
+nf-automation/*.html
+nf-automation/*.txt
+nf-automation/*.err
+nf-automation/captcha_*
+nf-automation/diag_*
