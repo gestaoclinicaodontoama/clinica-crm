@@ -2609,9 +2609,24 @@ function _initPainel(lead) {
       const linkHtml = link
         ? `<a href="${linkEsc}" target="_blank" rel="noopener" style="color:${cor};text-decoration:none;word-break:break-all">${nomeEsc} ↗</a>`
         : `<span style="word-break:break-all">${nomeEsc}</span>`;
-      el.innerHTML = `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
-      // Busca thumbnail do criativo (Meta) se a campanha for um ad_id numérico
-      if (adId) {
+      // Criativo capturado direto do referral CTWA (mais confiável que a Graph API)
+      const rd = lead.referral_data || {};
+      const imgReferral = rd.image_url || rd.thumbnail_url || '';
+      let criativoHtml = '';
+      if (imgReferral || rd.headline || rd.body) {
+        const linkAnuncio = rd.source_url || (adId ? 'https://www.facebook.com/ads/library/?id=' + adId : '');
+        criativoHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
+          ${imgReferral ? `<img src="${_esc(imgReferral)}" alt="anúncio" style="width:100%;display:block;max-height:160px;object-fit:cover" loading="lazy">` : ''}
+          ${(rd.headline || rd.body) ? `<div style="padding:8px">
+            ${rd.headline ? `<div style="font-size:11.5px;font-weight:600;line-height:1.3;margin-bottom:2px">${_esc(rd.headline)}</div>` : ''}
+            ${rd.body ? `<div style="font-size:11px;color:var(--muted);line-height:1.35">${_esc(rd.body).slice(0,140)}</div>` : ''}
+          </div>` : ''}
+          ${linkAnuncio ? `<a href="${_esc(linkAnuncio)}" target="_blank" rel="noopener" style="display:block;padding:6px 8px;font-size:10.5px;color:var(--accent);border-top:1px solid var(--border)">🔗 ver anúncio original ↗</a>` : ''}
+        </div>`;
+      }
+      el.innerHTML = criativoHtml + `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
+      // Fallback: se não veio imagem no referral, tenta a Graph API pelo ad_id
+      if (!imgReferral && adId) {
         api('/api/anuncio-thumb/' + adId).then(t => {
           if (t && t.thumbnail_url) {
             const thumbEl = document.getElementById('painel-anuncio-thumb');

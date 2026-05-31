@@ -1546,6 +1546,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         origem: m.ctwa_clid ? 'Meta Ads' : 'WhatsApp Direto',
         campanha: sanitizeStr(m.ad_id || '', 200), conteudo: '', fbclid: '', gclid: '',
         ctwa_clid: sanitizeStr(m.ctwa_clid || '', 500),
+        referral_data: m.referral_data || {},
         status: 'Lead', valor: null, tipo_trat: '',
         notas_sdr: '', notas_avaliacao: '', notas_comercial: '',
         score_interesse: null, perfil_disc: '',
@@ -1566,6 +1567,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         upd.ctwa_clid = sanitizeStr(m.ctwa_clid, 500);
         upd.origem = 'Meta Ads';
         if (m.ad_id) upd.campanha = sanitizeStr(m.ad_id, 200);
+        if (m.referral_data) upd.referral_data = m.referral_data;
       }
       const { data: updatedLead } = await supabase.from('leads').update(upd).eq('id', lead.id).select().single();
       if (m.ctwa_clid && !lead.ctwa_clid && updatedLead) {

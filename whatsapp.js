@@ -115,6 +115,19 @@ function parseMensagemRecebida(body) {
       ctwa_clid:   referral?.ctwa_clid  || '',
       ad_id:       referral?.source_id  || '',   // ID do anúncio no Meta Ads
       source_type: referral?.source_type || '',  // 'ad' | 'post' | etc
+      // Criativo do anúncio que o lead viu antes de clicar (CTWA traz tudo isso)
+      referral_data: referral ? {
+        source_url:    referral.source_url    || '',
+        source_id:     referral.source_id     || '',
+        source_type:   referral.source_type   || '',
+        headline:      referral.headline      || '',
+        body:          referral.body          || '',
+        media_type:    referral.media_type    || '',
+        image_url:     referral.image_url     || '',
+        video_url:     referral.video_url     || '',
+        thumbnail_url: referral.thumbnail_url || '',
+        capturado_em:  new Date().toISOString(),
+      } : null,
     };
   } catch (e) {
     return null;
