@@ -5,6 +5,10 @@
  * data-active: slug da página atual para marcar como ativa no menu.
  */
 (function () {
+  if (!document.querySelector('script[src="/js/mobile-nav.js"]')) {
+    var _mn = document.createElement('script'); _mn.src = '/js/mobile-nav.js'; document.head.appendChild(_mn);
+  }
+
   const scriptTag = document.currentScript;
   const activePage = scriptTag?.dataset?.active || '';
 
@@ -165,6 +169,7 @@
       const parsed = JSON.parse(localStorage.getItem(k));
       const token = parsed?.access_token ?? null;
       if (!token) return;
+      window._tkn = token;
 
       const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
@@ -175,7 +180,18 @@
       nav.querySelectorAll('[data-roles]').forEach(el => {
         el.style.display = canSee(el.dataset.roles) ? '' : 'none';
       });
+
+      _initMobileNav(user.nav_prefs ?? null);
     } catch (_) {}
+  }
+
+  function _initMobileNav(navPrefs) {
+    var tries = 0;
+    (function go() {
+      if (window.MobileNav && document.querySelector('.crm-nav')) {
+        window.MobileNav.init({ navSelector: '.crm-nav', activeSlug: activePage || '', navPrefs: navPrefs || null });
+      } else if (tries++ < 40) { setTimeout(go, 50); }
+    })();
   }
 
   applyRoles();

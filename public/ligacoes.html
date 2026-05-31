@@ -357,5 +357,16 @@ async function analisar(id) {
 carregarCrcs();
 carregar();
 </script>
+<script>
+  function _ligGuard(){
+    if (window.MobileNav && window.MobileNav.isMobile() && window.MobileNav.isDesktopOnly('ligacoes')) {
+      var m = document.querySelector('.container'); if (!m) return;
+      m.innerHTML = '<div style="text-align:center;padding:48px 20px;color:var(--muted)"><div style="font-size:32px">📊</div>' +
+        '<div style="font-weight:600;color:var(--text);margin:8px 0 6px">Melhor no computador</div>' +
+        '<div>Esta tela fica melhor numa tela grande.</div></div>';
+    }
+  }
+  window.addEventListener('load', function(){ setTimeout(_ligGuard, 400); });
+</script>
 </body>
 </html>
