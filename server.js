@@ -4147,7 +4147,9 @@ app.post('/api/tarefas/:id/concluir', requireAuth, rateLimit, async (req, res) =
 // Limpa notificações lidas com mais de 30 dias (roda no startup e a cada 24h)
 async function limparNotificacoesAntigas() {
   const corte = new Date(Date.now() - 30 * 86400000).toISOString();
-  await supabase.from('notificacoes').delete().eq('lida', true).lt('criado_em', corte).catch(() => {});
+  try {
+    await supabase.from('notificacoes').delete().eq('lida', true).lt('criado_em', corte);
+  } catch (e) { console.error('[limparNotificacoesAntigas]', e.message); }
 }
 limparNotificacoesAntigas();
 setInterval(limparNotificacoesAntigas, 24 * 3600000);
