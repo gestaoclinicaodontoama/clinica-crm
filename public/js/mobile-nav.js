@@ -38,6 +38,18 @@
     .shell { display:block !important; height:auto !important; overflow:visible !important; }
     main { height:auto !important; min-height:100vh; padding:64px 14px calc(64px + env(safe-area-inset-bottom,0)) !important;
       overflow-x:hidden !important; }
+    .mnav-sheet-bg { display:block; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:70; opacity:0; transition:opacity .2s; }
+    .mnav-sheet-bg.open { opacity:1; }
+    .mnav-sheet { position:fixed; left:0; right:0; bottom:0; z-index:71; background:var(--bg2);
+      border-top-left-radius:16px; border-top-right-radius:16px; max-height:80vh; overflow-y:auto;
+      transform:translateY(100%); transition:transform .25s; padding:8px 0 calc(12px + env(safe-area-inset-bottom,0)); }
+    .mnav-sheet.open { transform:translateY(0); }
+    .mnav-sheet .mnav-grip { width:36px; height:4px; border-radius:2px; background:var(--border); margin:8px auto 12px; }
+    .mnav-sheet-item { display:flex; align-items:center; gap:12px; padding:13px 20px; color:var(--text);
+      font-size:15px; cursor:pointer; border:none; background:none; width:100%; text-align:left; font-family:inherit; text-decoration:none; }
+    .mnav-sheet-item svg { width:20px; height:20px; flex-shrink:0; }
+    .mnav-sheet-item.active { color:var(--accent); }
+    .mnav-sheet-sep { height:1px; background:var(--border); margin:8px 0; }
   }`;
 
   function injectCSS() {
@@ -125,9 +137,49 @@
     bar.querySelector('.mnav-more').onclick = openSheet;
   }
 
-  // Implementados em tasks posteriores
-  function openSheet() {}
-  function closeSheet() {}
+  function buildSheetItems() {
+    return _state.items.map(it => {
+      const active = it.slug === _state.activeSlug ? ' active' : '';
+      return '<button class="mnav-sheet-item' + active + '" data-slug="' + it.slug + '">' + it.icon + '<span>' + it.title + '</span></button>';
+    }).join('');
+  }
+
+  function openSheet() {
+    let bg = document.querySelector('.mnav-sheet-bg');
+    if (!bg) {
+      bg = document.createElement('div'); bg.className = 'mnav-sheet-bg';
+      bg.innerHTML = '<div class="mnav-sheet"><div class="mnav-grip"></div><div class="mnav-sheet-body"></div></div>';
+      document.body.appendChild(bg);
+      bg.onclick = (e) => { if (e.target === bg) closeSheet(); };
+    }
+    const body = bg.querySelector('.mnav-sheet-body');
+    body.innerHTML = buildSheetItems() +
+      '<div class="mnav-sheet-sep"></div>' +
+      '<button class="mnav-sheet-item" data-act="personalizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span>Personalizar barra</span></button>' +
+      '<button class="mnav-sheet-item" data-act="tema"><span style="width:20px;text-align:center">🌓</span><span>Alternar tema</span></button>' +
+      '<button class="mnav-sheet-item" data-act="sair"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span>Sair</span></button>';
+    body.querySelectorAll('.mnav-sheet-item[data-slug]').forEach(btn => {
+      btn.onclick = () => { const it = _state.items.find(i => i.slug === btn.dataset.slug); if (it) navigate(it); };
+    });
+    body.querySelector('[data-act="personalizar"]').onclick = openPersonalize;
+    body.querySelector('[data-act="tema"]').onclick = () => {
+      if (typeof window.toggleTheme === 'function') window.toggleTheme();
+      else if (typeof window._sharedNavToggleTheme === 'function') window._sharedNavToggleTheme();
+    };
+    body.querySelector('[data-act="sair"]').onclick = () => {
+      if (typeof window.handleLogout === 'function') window.handleLogout();
+    };
+    requestAnimationFrame(() => { bg.classList.add('open'); bg.querySelector('.mnav-sheet').classList.add('open'); });
+  }
+
+  function closeSheet() {
+    const bg = document.querySelector('.mnav-sheet-bg');
+    if (!bg) return;
+    bg.classList.remove('open'); bg.querySelector('.mnav-sheet').classList.remove('open');
+    setTimeout(() => { if (!bg.classList.contains('open')) bg.remove(); }, 260);
+  }
+
+  function openPersonalize() {} // implementado na proxima task
 
   window.MobileNav = {
     isMobile,
