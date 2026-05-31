@@ -18,7 +18,7 @@ E adicionar: **entrada** (1º pagamento, automático do Clinicorp), **tempos por
 
 | Tema | Decisão |
 |---|---|
-| Avaliação válida | Só conta avaliação se o paciente tem **orçamento particular criado** a partir da data da consulta (janela 30 dias). |
+| Avaliação válida | Só conta avaliação se o paciente tem **orçamento particular criado** a partir da data da consulta (janela 60 dias). |
 | "Fechou" | Orçamento **particular APPROVED**. Data de fechamento = `LastChange_Date`. |
 | Valor fechado | Soma dos procedimentos **não-convênio** (não-`CLAIM`) do orçamento. |
 | Entrada | **Primeiro pagamento** do paciente a partir da data do orçamento (`/payment/list`). |
@@ -41,7 +41,7 @@ E adicionar: **entrada** (1º pagamento, automático do Clinicorp), **tempos por
 **`avaliacoes`** — novas colunas:
 - `agendado_em timestamptz` — `CreateDate` do agendamento (quando foi marcado)
 - `comparecimento_em timestamptz` — `CheckinTime` (quando fez check-in)
-- `tem_orcamento boolean not null default false` — true se o paciente tem orçamento particular criado em `[data, data+30d]`
+- `tem_orcamento boolean not null default false` — true se o paciente tem orçamento particular criado em `[data, data+60d]`
 
 Índices: `idx_orcamentos_fechamento on orcamentos(data_fechamento)`.
 
@@ -65,7 +65,7 @@ Para cada estimate, percorrer `ProcedureList`:
 - Setar `agendado_em` = `CreateDate` do agendamento, `comparecimento_em` = ISO de `CheckinTime` (epoch ms → timestamptz).
 
 ### `marcarAvaliacoesComOrcamento` (nova fase, roda após orçamentos)
-- Para cada avaliação, `tem_orcamento` = existe orçamento **particular** (`valor_particular > 0`) do mesmo `paciente_clinicorp_id` com `data_criacao` em `[avaliacao.data, avaliacao.data + 30d]`.
+- Para cada avaliação, `tem_orcamento` = existe orçamento **particular** (`valor_particular > 0`) do mesmo `paciente_clinicorp_id` com `data_criacao` em `[avaliacao.data, avaliacao.data + 60d]`.
 - Update em lote por paciente.
 
 > Janela de pagamentos sobe para 180d → o sync do funil passa a usar ~18 chamadas Clinicorp. Aceitável dentro do rate limiter (pausa se exceder 24/h); avaliar mover a fase do funil para um job separado do sync pesado de pacientes (fora do escopo deste sub-projeto).
