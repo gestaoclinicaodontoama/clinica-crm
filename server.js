@@ -17,6 +17,14 @@ const threec = require('./lib/3cplus');
 const threecCamp = require('./lib/3cplus-campanhas');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+const webpush = require('web-push');
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    'mailto:gestao.clinicaodontoama@gmail.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
 
 function _webmToOgg(buffer) {
   const r = spawnSync('ffmpeg', ['-i','pipe:0','-c:a','libopus','-f','ogg','pipe:1'], {
@@ -3805,6 +3813,193 @@ app.patch('/api/anuncios/:id', requireRole('admin'), rateLimit, async (req, res)
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ========== NOTIFICAÇÕES + PUSH + TAREFAS ==========
+
+async function sendPushToUser(usuarioId, title, body, data = {}) {
+  if (!process.env.VAPID_PUBLIC_KEY) return;
+  try {
+    const { data: subs } = await supabase.from('push_subscriptions')
+      .select('subscription').eq('usuario_id', usuarioId).eq('ativo', true);
+    if (!subs?.length) return;
+    const payload = JSON.stringify({ title, body, data });
+    await Promise.allSettled(subs.map(s =>
+      webpush.sendNotification(s.subscription, payload).catch(async e => {
+        if (e.statusCode === 410) { // subscription expirada
+          await supabase.from('push_subscriptions')
+            .update({ ativo: false }).eq('usuario_id', usuarioId)
+            .eq('endpoint', s.subscription.endpoint);
+        }
+      })
+    ));
+  } catch(e) { console.error('[push]', e.message); }
+}
+
+async function criarNotificacao(usuarioId, tipo, titulo, corpo, metadata = {}) {
+  if (!usuarioId) return;
+  try {
+    await supabase.from('notificacoes').insert({ usuario_id: usuarioId, tipo, titulo, corpo, metadata });
+    await sendPushToUser(usuarioId, titulo, corpo, { tipo, ...metadata });
+  } catch(e) { console.error('[notif]', e.message); }
+}
+
+// Chave pública VAPID para o frontend registrar o service worker
+app.get('/api/push/vapid-public', (req, res) => {
+  res.json({ key: process.env.VAPID_PUBLIC_KEY || null });
+});
+
+app.post('/api/push/subscribe', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription?.endpoint) return res.status(400).json({ error: 'Subscription inválida' });
+    await supabase.from('push_subscriptions').upsert({
+      usuario_id: req.user.id,
+      endpoint: subscription.endpoint,
+      subscription,
+      ativo: true,
+    }, { onConflict: 'usuario_id,endpoint' });
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/push/subscribe', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    if (endpoint) {
+      await supabase.from('push_subscriptions').update({ ativo: false })
+        .eq('usuario_id', req.user.id).eq('endpoint', endpoint);
+    }
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Notificações
+app.get('/api/notificacoes', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const { data } = await supabase.from('notificacoes')
+      .select('*').eq('usuario_id', req.user.id)
+      .order('criado_em', { ascending: false }).limit(50);
+    const naoLidas = (data || []).filter(n => !n.lida).length;
+    res.json({ notificacoes: data || [], nao_lidas: naoLidas });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/notificacoes/:id/lida', requireAuth, rateLimit, async (req, res) => {
+  try {
+    await supabase.from('notificacoes').update({ lida: true })
+      .eq('id', req.params.id).eq('usuario_id', req.user.id);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/notificacoes/lidas-todas', requireAuth, rateLimit, async (req, res) => {
+  try {
+    await supabase.from('notificacoes').update({ lida: true })
+      .eq('usuario_id', req.user.id).eq('lida', false);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Tarefas
+const _requireGestor = requireRole('admin', 'gestor');
+
+app.get('/api/tarefas', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const usuarioId = req.user.id;
+    const isGestor = req.user.profile?.roles?.some(r => ['admin','gestor'].includes(r));
+    let query = supabase.from('tarefas').select('*').eq('ativo', true);
+    if (!isGestor) query = query.eq('atribuido_para', usuarioId);
+    const { data: tarefas } = await query.order('prioridade', { ascending: false });
+    if (!tarefas?.length) return res.json({ tarefas: [], hoje });
+
+    // Garante instâncias de hoje para tarefas diárias
+    const diarias = tarefas.filter(t => t.tipo === 'diaria');
+    if (diarias.length) {
+      await supabase.from('tarefa_instancias').upsert(
+        diarias.map(t => ({ tarefa_id: t.id, usuario_id: t.atribuido_para, data_ref: hoje, status: 'pendente' })),
+        { onConflict: 'tarefa_id,data_ref', ignoreDuplicates: true }
+      );
+    }
+
+    // Busca instâncias de hoje
+    const ids = tarefas.map(t => t.id);
+    const { data: instancias } = await supabase.from('tarefa_instancias')
+      .select('*').in('tarefa_id', ids).eq('data_ref', hoje);
+    const instMap = {};
+    (instancias || []).forEach(i => { instMap[i.tarefa_id] = i; });
+
+    const resultado = tarefas.map(t => ({ ...t, instancia_hoje: instMap[t.id] || null }));
+    res.json({ tarefas: resultado, hoje });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/tarefas', _requireGestor, rateLimit, async (req, res) => {
+  try {
+    const { titulo, descricao='', tipo='pontual', atribuido_para, data_vencimento, prioridade='normal' } = req.body;
+    if (!titulo || !atribuido_para) return res.status(400).json({ error: 'titulo e atribuido_para obrigatórios' });
+    const { data, error } = await supabase.from('tarefas').insert({
+      titulo: sanitizeStr(titulo, 200), descricao: sanitizeStr(descricao, 2000),
+      tipo, atribuido_para, criado_por: req.user.id,
+      data_vencimento: data_vencimento || null, prioridade,
+    }).select().single();
+    if (error) throw error;
+    // Notifica o usuário
+    await criarNotificacao(atribuido_para, 'tarefa_atribuida',
+      '📋 Nova tarefa atribuída', titulo,
+      { tarefa_id: data.id, tipo, prioridade }
+    );
+    res.json({ ok: true, tarefa: data });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/tarefas/:id', _requireGestor, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const ALLOWED_T = ['titulo','descricao','tipo','atribuido_para','data_vencimento','prioridade','ativo'];
+    const patch = {};
+    ALLOWED_T.forEach(k => { if (req.body[k] !== undefined) patch[k] = req.body[k]; });
+    patch.atualizado_em = new Date().toISOString();
+    const { error } = await supabase.from('tarefas').update(patch).eq('id', id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/tarefas/:id/concluir', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const { data: tarefa } = await supabase.from('tarefas').select('id,tipo,atribuido_para')
+      .eq('id', id).single();
+    if (!tarefa) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    if (tarefa.atribuido_para !== req.user.id &&
+        !req.user.profile?.roles?.some(r => ['admin','gestor'].includes(r)))
+      return res.status(403).json({ error: 'Sem permissão' });
+
+    if (tarefa.tipo === 'diaria') {
+      await supabase.from('tarefa_instancias').upsert({
+        tarefa_id: id, usuario_id: tarefa.atribuido_para, data_ref: hoje,
+        status: 'concluida', concluida_em: new Date().toISOString(),
+      }, { onConflict: 'tarefa_id,data_ref' });
+    } else {
+      await supabase.from('tarefa_instancias').upsert({
+        tarefa_id: id, usuario_id: tarefa.atribuido_para, data_ref: hoje,
+        status: 'concluida', concluida_em: new Date().toISOString(),
+      }, { onConflict: 'tarefa_id,data_ref' });
+      await supabase.from('tarefas').update({ ativo: false }).eq('id', id);
+    }
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Limpa notificações lidas com mais de 30 dias (roda no startup e a cada 24h)
+async function limparNotificacoesAntigas() {
+  const corte = new Date(Date.now() - 30 * 86400000).toISOString();
+  await supabase.from('notificacoes').delete().eq('lida', true).lt('criado_em', corte).catch(() => {});
+}
+limparNotificacoesAntigas();
+setInterval(limparNotificacoesAntigas, 24 * 3600000);
+
 // ========== PIXEL RASTREIO ==========
 
 // Token por lead: determinístico (sem coluna extra no banco)
@@ -3886,6 +4081,20 @@ app.post('/t', rateLimit, async (req, res) => {
           'Visitou via link: ' + safePagina + (safeRef ? ' (via ' + safeRef.replace(/^https?:\/\//, '').split('/')[0] + ')' : ''),
           { pagina: safePagina, referrer: safeRef, via: 'lid' }
         );
+        // Notifica a CRC responsável pelo lead
+        const { data: lead } = await supabase.from('leads')
+          .select('id, nome, crc_comercial_id, crc_agendamento_id').eq('id', leadId).single();
+        if (lead) {
+          const crcId = lead.crc_comercial_id || lead.crc_agendamento_id;
+          if (crcId) {
+            const pagLabel = safePagina === '/' ? 'página inicial' : safePagina.replace(/^\//, '');
+            await criarNotificacao(crcId, 'visita_lead',
+              '👀 ' + (lead.nome || 'Lead') + ' acessou o site',
+              'Visitou: ' + pagLabel,
+              { lead_id: leadId, pagina: safePagina }
+            );
+          }
+        }
       }
       return;
     }

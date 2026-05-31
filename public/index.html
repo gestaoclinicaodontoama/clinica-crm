@@ -514,7 +514,14 @@ textarea { resize: vertical; min-height: 80px; }
 </div>
 <div class="shell" id="app-shell" style="display:none">
 <nav>
-  <div class="logo">CRM <span>AMA</span></div>
+  <div class="logo" style="display:flex;align-items:center;justify-content:space-between">
+    <span>CRM <span>AMA</span></span>
+    <button id="btn-sino" onclick="togglePainelNotif()" title="Notificações e Tarefas"
+      style="position:relative;background:none;border:none;cursor:pointer;padding:4px;border-radius:8px;color:var(--text);font-size:18px;line-height:1;transition:opacity .15s" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">
+      🔔
+      <span id="notif-badge" style="display:none;position:absolute;top:-2px;right:-2px;background:var(--red);color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:1px 4px;min-width:14px;text-align:center;line-height:14px"></span>
+    </button>
+  </div>
   <button class="nav-btn active" data-page="dashboard" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento" onclick="setPage('dashboard',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
     Dashboard
@@ -584,6 +591,10 @@ textarea { resize: vertical; min-height: 80px; }
   <button class="nav-btn" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)" style="display:none">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     Usuários
+  </button>
+  <button class="nav-btn" data-page="tarefas-gestor" data-roles="admin,gestor" onclick="setPage('tarefas-gestor',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    Tarefas
   </button>
   <button class="nav-btn" data-page="config" data-roles="admin,gestor" onclick="setPage('config',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -908,6 +919,63 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
       <button id="btn-importar" class="btn btn-success" style="width:100%;display:none" onclick="confirmarImportacao()">✅ Importar Pacientes</button>
     </div>
 
+  </div>
+</div>
+
+<!-- TAREFAS (GESTOR) -->
+<div id="page-tarefas-gestor" class="page">
+  <h1>Tarefas</h1>
+
+  <!-- Criar nova tarefa -->
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:700px;margin-bottom:24px">
+    <div style="font-size:14px;font-weight:600;margin-bottom:14px">Nova tarefa</div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2">
+        <label>Título</label>
+        <input id="nt-titulo" placeholder="Ex: Ligar para leads frios">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Tipo</label>
+        <select id="nt-tipo">
+          <option value="pontual">📌 Pontual (uma vez)</option>
+          <option value="diaria">🔁 Diária (repete todo dia)</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2">
+        <label>Atribuir para</label>
+        <select id="nt-usuario"><option value="">Carregando usuários...</option></select>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Prioridade</label>
+        <select id="nt-prioridade">
+          <option value="normal">Normal</option>
+          <option value="alta">Alta</option>
+          <option value="urgente">Urgente</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Descrição (opcional)</label>
+      <textarea id="nt-descricao" rows="2" placeholder="Detalhes sobre a tarefa..."></textarea>
+    </div>
+    <div class="form-group" id="nt-venc-wrap">
+      <label>Data limite (apenas tarefas pontuais)</label>
+      <input type="datetime-local" id="nt-vencimento">
+    </div>
+    <button class="btn btn-primary" onclick="criarTarefaGestor(this)">Criar tarefa</button>
+  </div>
+
+  <!-- Lista de tarefas -->
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:700px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:14px;font-weight:600">Tarefas existentes</div>
+      <select id="tg-filtro-usuario" class="filter-select" style="font-size:12px" onchange="carregarTarefasGestor()">
+        <option value="">Todos os usuários</option>
+      </select>
+    </div>
+    <div id="tg-lista"><div class="empty-small">Carregando...</div></div>
   </div>
 </div>
 
@@ -1581,6 +1649,7 @@ function setPage(p, btn) {
   if (p === 'funil') loadKanban();
   if (p === 'config') atualizarLinks();
   if (p === 'usuarios') loadUsuarios();
+  if (p === 'tarefas-gestor') initTarefasGestor();
   if (p === 'conv-agendamentos') { _chatMode = 'agendamentos'; loadConversas(); }
   if (p === 'conv-avaliacao')    { _chatMode = 'avaliacao';    loadConversas(); }
   if (p === 'disparos') loadDisparos();
@@ -4241,6 +4310,85 @@ async function carregarTrajeto(leadId, offset) {
 }
 
 function carregarMaisTrajeto() { if (_trajetoLeadId) carregarTrajeto(_trajetoLeadId, _trajetoOffset); }
+
+// ============ GESTÃO DE TAREFAS (GESTOR/ADMIN) ============
+let _tgUsuarios = [];
+
+async function initTarefasGestor() {
+  if (!_tgUsuarios.length) {
+    const users = await api('/api/usuarios').catch(() => []);
+    _tgUsuarios = Array.isArray(users) ? users : [];
+    const sel = document.getElementById('nt-usuario');
+    const filtro = document.getElementById('tg-filtro-usuario');
+    const opts = _tgUsuarios.map(u => `<option value="${u.id}">${escHtml(u.nome||u.email||u.id)}</option>`).join('');
+    if (sel) sel.innerHTML = '<option value="">Selecione...</option>' + opts;
+    if (filtro) filtro.innerHTML = '<option value="">Todos os usuários</option>' + opts;
+  }
+  document.getElementById('nt-tipo').onchange = function() {
+    document.getElementById('nt-venc-wrap').style.display = this.value === 'pontual' ? '' : 'none';
+  };
+  carregarTarefasGestor();
+}
+
+async function criarTarefaGestor(btn) {
+  const titulo = document.getElementById('nt-titulo').value.trim();
+  const tipo = document.getElementById('nt-tipo').value;
+  const atribuido_para = document.getElementById('nt-usuario').value;
+  const prioridade = document.getElementById('nt-prioridade').value;
+  const descricao = document.getElementById('nt-descricao').value.trim();
+  const data_vencimento = document.getElementById('nt-vencimento').value || null;
+  if (!titulo || !atribuido_para) { toast('❌ Título e usuário são obrigatórios', true); return; }
+  btn.disabled = true; btn.textContent = 'Criando...';
+  try {
+    await api('/api/tarefas', { method: 'POST', body: JSON.stringify({ titulo, tipo, atribuido_para, prioridade, descricao, data_vencimento }) });
+    toast('✅ Tarefa criada!');
+    document.getElementById('nt-titulo').value = '';
+    document.getElementById('nt-descricao').value = '';
+    document.getElementById('nt-vencimento').value = '';
+    carregarTarefasGestor();
+  } catch(e) { toast('❌ ' + e.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'Criar tarefa'; }
+}
+
+async function carregarTarefasGestor() {
+  const lista = document.getElementById('tg-lista');
+  const filtroUsuario = document.getElementById('tg-filtro-usuario')?.value || '';
+  lista.innerHTML = '<div class="empty-small">Carregando...</div>';
+  try {
+    const r = await api('/api/tarefas');
+    let tarefas = r.tarefas || [];
+    if (filtroUsuario) tarefas = tarefas.filter(t => t.atribuido_para === filtroUsuario);
+    if (!tarefas.length) { lista.innerHTML = '<div class="empty-small">Nenhuma tarefa</div>'; return; }
+    const usuNome = id => { const u = _tgUsuarios.find(u => u.id === id); return u?.nome || u?.email || id.slice(0,8); };
+    const COR_PRIOR = { urgente:'var(--red)', alta:'var(--yellow)', normal:'var(--muted)' };
+    lista.innerHTML = tarefas.map(t => `
+      <div style="padding:12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);margin-bottom:8px;opacity:${t.ativo?1:.5}">
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600">${escHtml(t.titulo)}</div>
+            ${t.descricao ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${escHtml(t.descricao)}</div>` : ''}
+            <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;font-size:11px">
+              <span>👤 ${escHtml(usuNome(t.atribuido_para))}</span>
+              <span style="color:${COR_PRIOR[t.prioridade]};font-weight:600">${t.prioridade}</span>
+              <span>${t.tipo === 'diaria' ? '🔁 diária' : '📌 pontual'}</span>
+              ${t.data_vencimento ? `<span>📅 ${_fmtDateFull(t.data_vencimento)}</span>` : ''}
+            </div>
+          </div>
+          ${t.ativo ? `<button onclick="desativarTarefa(${t.id},this)" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px;padding:2px 6px;border-radius:4px" title="Desativar">✕</button>` : '<span style="font-size:11px;color:var(--muted)">inativa</span>'}
+        </div>
+      </div>`).join('');
+  } catch(e) { lista.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar</div>'; }
+}
+
+async function desativarTarefa(id, btn) {
+  if (!confirm('Desativar esta tarefa?')) return;
+  btn.disabled = true;
+  try {
+    await api('/api/tarefas/' + id, { method: 'PATCH', body: JSON.stringify({ ativo: false }) });
+    toast('Tarefa desativada');
+    carregarTarefasGestor();
+  } catch(e) { toast('❌ ' + e.message, true); btn.disabled = false; }
+}
 </script>
 
 <!-- Drawer Detalhe NF -->
@@ -4276,6 +4424,11 @@ function _showLogin() {
 function _showApp() {
   document.getElementById('login-screen').classList.remove('active');
   document.getElementById('app-shell').style.display = '';
+  // Inicia push e carrega badge de notificações
+  setTimeout(() => {
+    initPush().catch(() => {});
+    api('/api/notificacoes').then(r => atualizarBadge(r.nao_lidas)).catch(() => {});
+  }, 1000);
 }
 
 async function handleLogin() {
@@ -4703,5 +4856,170 @@ function _abrirModalCampanhaLeads(tipo, preview) {
 }
 </script>
 <script src="/js/campanha-widget.js"></script>
+
+<!-- PAINEL NOTIFICAÇÕES + TAREFAS -->
+<div id="notif-overlay" style="display:none;position:fixed;inset:0;z-index:900" onclick="fecharPainelNotif()"></div>
+<div id="notif-painel" style="display:none;position:fixed;top:0;right:0;height:100vh;width:340px;max-width:100vw;background:var(--bg2);border-left:1px solid var(--border);z-index:901;overflow:hidden;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.25)">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="font-size:14px;font-weight:700">Notificações &amp; Tarefas</div>
+    <button onclick="fecharPainelNotif()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--muted);line-height:1">×</button>
+  </div>
+  <div style="display:flex;border-bottom:1px solid var(--border);flex-shrink:0">
+    <button id="ntab-notif" onclick="switchNotifTab('notif')" style="flex:1;padding:10px;font-size:12.5px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);color:var(--accent)">🔔 Notificações</button>
+    <button id="ntab-tarefas" onclick="switchNotifTab('tarefas')" style="flex:1;padding:10px;font-size:12.5px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted)">📋 Tarefas</button>
+  </div>
+  <!-- Tab Notificações -->
+  <div id="ntab-content-notif" style="flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+      <button onclick="marcarTodasLidas()" style="font-size:11px;color:var(--muted);background:none;border:none;cursor:pointer;text-decoration:underline">Marcar todas como lidas</button>
+    </div>
+    <div id="notif-lista"><div class="empty-small">Carregando...</div></div>
+  </div>
+  <!-- Tab Tarefas -->
+  <div id="ntab-content-tarefas" style="display:none;flex:1;overflow-y:auto;padding:10px 14px;flex-direction:column;gap:8px">
+    <div id="tarefas-lista"><div class="empty-small">Carregando...</div></div>
+  </div>
+</div>
+
+<script>
+// ============ NOTIFICAÇÕES + TAREFAS + PUSH ============
+let _notifAberto = false;
+let _notifTab = 'notif';
+let _swReg = null;
+
+async function initPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const { key } = await api('/api/push/vapid-public');
+    if (!key) return;
+    _swReg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return;
+    let sub = await _swReg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await _swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: _b64ToUint8(key),
+      });
+    }
+    await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub }) });
+  } catch(e) { console.warn('[push]', e.message); }
+}
+
+function _b64ToUint8(base64) {
+  const raw = atob(base64.replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+function togglePainelNotif() {
+  _notifAberto ? fecharPainelNotif() : abrirPainelNotif();
+}
+function abrirPainelNotif() {
+  _notifAberto = true;
+  document.getElementById('notif-overlay').style.display = 'block';
+  document.getElementById('notif-painel').style.display = 'flex';
+  carregarNotificacoes();
+  carregarTarefas();
+}
+function fecharPainelNotif() {
+  _notifAberto = false;
+  document.getElementById('notif-overlay').style.display = 'none';
+  document.getElementById('notif-painel').style.display = 'none';
+}
+function switchNotifTab(tab) {
+  _notifTab = tab;
+  ['notif','tarefas'].forEach(t => {
+    const btn = document.getElementById('ntab-' + t);
+    const cnt = document.getElementById('ntab-content-' + t);
+    const isActive = t === tab;
+    btn.style.borderBottomColor = isActive ? 'var(--accent)' : 'transparent';
+    btn.style.color = isActive ? 'var(--accent)' : 'var(--muted)';
+    cnt.style.display = isActive ? 'flex' : 'none';
+  });
+}
+
+async function carregarNotificacoes() {
+  const lista = document.getElementById('notif-lista');
+  try {
+    const r = await api('/api/notificacoes');
+    atualizarBadge(r.nao_lidas);
+    if (!r.notificacoes.length) { lista.innerHTML = '<div class="empty-small">Nenhuma notificação</div>'; return; }
+    const esc = s => String(s||'').replace(/</g,'&lt;');
+    lista.innerHTML = r.notificacoes.map(n => `
+      <div onclick="marcarLida(${n.id},this)" style="padding:10px;border-radius:8px;cursor:pointer;background:${n.lida?'transparent':'rgba(79,142,247,.07)'};border:1px solid ${n.lida?'transparent':'rgba(79,142,247,.2)'};margin-bottom:4px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${n.lida?'transparent':'rgba(79,142,247,.07)'}'">
+        <div style="font-size:12.5px;font-weight:${n.lida?'400':'600'};margin-bottom:2px">${esc(n.titulo)}</div>
+        <div style="font-size:11.5px;color:var(--muted)">${esc(n.corpo)}</div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px">${_fmtDateFull(n.criado_em)}</div>
+      </div>`).join('');
+  } catch(e) { lista.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar</div>'; }
+}
+
+async function marcarLida(id, el) {
+  await api('/api/notificacoes/' + id + '/lida', { method: 'POST' }).catch(() => {});
+  if (el) { el.style.background = 'transparent'; el.style.border = '1px solid transparent'; el.querySelector('div').style.fontWeight = '400'; }
+  const badge = document.getElementById('notif-badge');
+  const atual = parseInt(badge.textContent) || 0;
+  atualizarBadge(Math.max(0, atual - 1));
+}
+async function marcarTodasLidas() {
+  await api('/api/notificacoes/lidas-todas', { method: 'POST' }).catch(() => {});
+  atualizarBadge(0);
+  carregarNotificacoes();
+}
+function atualizarBadge(n) {
+  const b = document.getElementById('notif-badge');
+  b.style.display = n > 0 ? 'block' : 'none';
+  b.textContent = n > 9 ? '9+' : n;
+}
+
+async function carregarTarefas() {
+  const lista = document.getElementById('tarefas-lista');
+  try {
+    const r = await api('/api/tarefas');
+    if (!r.tarefas.length) { lista.innerHTML = '<div class="empty-small">Nenhuma tarefa para hoje</div>'; return; }
+    const esc = s => String(s||'').replace(/</g,'&lt;');
+    const COR_PRIOR = { urgente:'var(--red)', alta:'var(--yellow)', normal:'var(--muted)' };
+    lista.innerHTML = r.tarefas.map(t => {
+      const inst = t.instancia_hoje;
+      const feita = inst?.status === 'concluida';
+      return `<div style="padding:10px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);opacity:${feita?'.5':'1'}">
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <input type="checkbox" ${feita?'checked':''} ${feita?'disabled':''} onchange="concluirTarefa(${t.id},this)" style="margin-top:3px;cursor:pointer;width:15px;height:15px;flex-shrink:0">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;font-weight:600;text-decoration:${feita?'line-through':'none'}">${esc(t.titulo)}</div>
+            ${t.descricao ? `<div style="font-size:11.5px;color:var(--muted);margin-top:2px">${esc(t.descricao)}</div>` : ''}
+            <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">
+              <span style="font-size:10px;color:${COR_PRIOR[t.prioridade]};text-transform:uppercase;font-weight:600">${t.prioridade}</span>
+              <span style="font-size:10px;color:var(--muted)">${t.tipo === 'diaria' ? '🔁 diária' : '📌 pontual'}</span>
+              ${feita ? '<span style="font-size:10px;color:var(--green)">✓ concluída</span>' : ''}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { lista.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar</div>'; }
+}
+
+async function concluirTarefa(id, el) {
+  el.disabled = true;
+  try {
+    await api('/api/tarefas/' + id + '/concluir', { method: 'POST' });
+    carregarTarefas();
+  } catch(e) {
+    el.checked = false; el.disabled = false;
+    toast('❌ Erro: ' + e.message, true);
+  }
+}
+
+// Poll de badge a cada 60s quando painel fechado
+setInterval(async () => {
+  if (_notifAberto || !_sbSession) return;
+  try {
+    const r = await api('/api/notificacoes');
+    atualizarBadge(r.nao_lidas);
+  } catch(_) {}
+}, 60000);
+</script>
 </body>
 </html>
