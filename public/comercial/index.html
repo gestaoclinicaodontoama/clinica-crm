@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Comercial — CRM AMA</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+  :root[data-theme="dark"] {
+    --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+    --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+    --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --orange: #f97316;
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+    --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+    --green: #16a34a; --yellow: #d97706; --red: #dc2626; --orange: #ea580c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .filtros { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:22px; }
+  .filtros label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); font-weight:500; }
+  .filtros input, .filtros select {
+    padding:7px 10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--bg2); color:var(--text); font-size:13px; font-family:inherit;
+  }
+  .filtros button {
+    padding:8px 16px; border-radius:8px; border:none; background:var(--accent); color:#fff;
+    font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; transition:background .15s;
+  }
+  .filtros button:hover { background:var(--accent-hover); }
+  .visoes { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:860px){ .visoes{ grid-template-columns:1fr; } }
+  .col h2 { font-size:14px; font-weight:700; margin:0 0 4px; }
+  .col .sub { font-size:11.5px; color:var(--muted); margin-bottom:12px; }
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:13px 14px; }
+  .card .rotulo { font-size:11.5px; color:var(--muted); font-weight:500; margin-bottom:5px; line-height:1.3; }
+  .card .valor { font-size:20px; font-weight:700; color:var(--text); letter-spacing:-.3px; }
+  .vazio { color:var(--muted); font-size:13px; padding:20px 0; }
+  </style>
+  <script src="/js/shared-nav.js" data-active="comercial" defer></script>
+</head>
+<body class="crm-shell">
+<main style="flex:1;padding:28px 32px;overflow-y:auto;max-width:1100px">
+  <h1 style="font-size:20px;font-weight:700;margin:0 0 6px">Funil Comercial</h1>
+  <p style="font-size:12.5px;color:var(--muted);margin:0 0 20px">Avaliações dos avaliadores · comparecimento e fechamento</p>
+
+  <div class="filtros">
+    <label>De <input type="date" id="f-from"></label>
+    <label>Até <input type="date" id="f-to"></label>
+    <label>Origem
+      <select id="f-origem"><option value="all">Todas</option></select>
+    </label>
+    <button id="f-aplicar">Aplicar</button>
+  </div>
+
+  <div class="visoes">
+    <div class="col">
+      <h2>Toda a clínica</h2>
+      <div class="sub">por avaliador (Marcos + Matheus)</div>
+      <div class="cards" id="cards-clinica"></div>
+    </div>
+    <div class="col">
+      <h2>Leads rastreados</h2>
+      <div class="sub">leads do CRM vinculados por telefone</div>
+      <div class="cards" id="cards-leads"></div>
+    </div>
+  </div>
+
+  <script src="/js/comercial/api.js"></script>
+  <script src="/js/comercial/app.js"></script>
+</main>
+</body>
+</html>
