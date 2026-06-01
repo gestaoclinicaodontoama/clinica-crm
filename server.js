@@ -43,7 +43,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Aguardando', 'Agendado', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Aguardando', 'Agendado', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -245,6 +245,7 @@ function requireRole(...allowed) {
 }
 const requireDentista = requireRole('dentista', 'admin', 'mod_avaliacao_dentista');
 const requireGestor   = requireRole('gestor', 'admin');
+const requireCrcSucesso = requireRole('crc_sucesso', 'crc_comercial', 'gestor', 'admin');
 const requireCrcLead  = requireRole('crc_leads', 'crc_comercial', 'admin', 'gestor');
 const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial');
 
@@ -1694,6 +1695,7 @@ const EVENTOS_FUNIL = {
   'D3':                null,
   'D4':                null,
   'D5':                null,
+  'Reclassificar':     null,
   'Em nutrição':       null,
   'Fechou':            'Purchase',
   'Perdido':           null,
@@ -2583,7 +2585,7 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
     if (!['aprovar', 'rejeitar'].includes(acao)) return res.status(400).json({ error: 'acao inválida' });
 
     const { data: orc } = await supabase.from('orcamentos')
-      .select('valor_particular, entrada_valor, clinicorp_lastchange')
+      .select('valor_particular, entrada_valor, clinicorp_lastchange, lead_id, paciente_nome, data_fechamento')
       .eq('clinicorp_estimate_id', id).maybeSingle();
     if (!orc) return res.status(404).json({ error: 'Fechamento não encontrado' });
 
@@ -2606,8 +2608,62 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
     }
     const { error } = await supabase.from('orcamentos').update(patch).eq('clinicorp_estimate_id', id);
     if (error) throw error;
+
+    if (acao === 'aprovar' && orc.lead_id) {
+      try {
+        const { data: jaExisteArr } = await supabase.from('pacientes_sucesso')
+          .select('id').eq('lead_id', orc.lead_id).limit(1);
+        if (!jaExisteArr?.length) {
+          const { data: lead } = await supabase.from('leads')
+            .select('telefone').eq('id', orc.lead_id).maybeSingle();
+          await supabase.from('pacientes_sucesso').insert({
+            lead_id: orc.lead_id,
+            nome: orc.paciente_nome || '',
+            telefone: lead?.telefone || '',
+            data_venda: orc.data_fechamento,
+            valor_fechado: patch.valor_aprovado,
+            importado_historico: false,
+          });
+        }
+      } catch (hookErr) { console.error('Hook pacientes_sucesso:', hookErr.message); }
+    }
+
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ========== MÓDULO PACIENTES (Sucesso do Cliente) ==========
+app.get('/api/pacientes/config', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('tratamentos_config').select('*').order('tratamento');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/pacientes', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
+  try {
+    const { tratamento, executor } = req.query;
+    let q = supabase.from('pacientes_sucesso').select('*').order('data_venda', { ascending: false, nullsFirst: false });
+    if (tratamento) q = q.eq('tratamento', tratamento);
+    if (executor) q = q.eq('executor', executor);
+    const { data, error } = await q.limit(2000);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/pacientes/:id', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
+  try {
+    const allowed = ['data_atualizacao','proximo_passo','data_agendamento','avaliador','executor','obs','is_alta','prioridade','tratamento'];
+    const patch = {};
+    for (const k of allowed) { if (k in req.body) patch[k] = req.body[k] === '' ? null : req.body[k]; }
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'nada para atualizar' });
+    patch.atualizado_em = new Date().toISOString();
+    const { data, error } = await supabase.from('pacientes_sucesso').update(patch).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Lista CRCs que já agendaram hoje (para filtro) ───────────────────────────
