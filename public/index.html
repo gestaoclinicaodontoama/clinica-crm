@@ -803,6 +803,7 @@ textarea { resize: vertical; min-height: 80px; }
                 <button class="btn btn-primary" onclick="enviarMensagemChat()" style="height:34px;font-size:13px">Enviar</button>
                 <button class="btn btn-ghost" onclick="toggleAgendarMsg()" style="height:34px;font-size:12px" title="Agendar envio">📅 Agendar</button>
                 <button class="btn btn-ghost" onclick="abrirModalTemplate()" style="height:34px;font-size:12px">📢 Template</button>
+                <button class="btn btn-ghost" id="btn-emoji" onclick="toggleEmojiPicker(event)" style="height:34px;font-size:16px;padding:0 10px;position:relative" title="Emoji">😊</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-img').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar imagem">🖼️</button>
                 <button class="btn btn-ghost" id="btn-gravar" onclick="toggleGravacao()" style="height:34px;font-size:16px;padding:0 10px;transition:all .2s" title="Gravar áudio de voz">🎙️</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-audio').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo de áudio">🎵</button>
@@ -2943,6 +2944,40 @@ async function carregarMensagensChat(leadId, silencioso = false) {
   } catch(e) {
     if (!silencioso) toast('❌ Erro ao carregar mensagens: ' + e.message, true);
   }
+}
+
+const _EMOJIS = ['😀','😁','😂','🤣','😊','😍','😘','😅','😉','🙂','😎','🤩','🥳','🤗','🤔','😐','😴','😢','😭','😡','👍','👎','👏','🙏','🙌','💪','👋','🤝','✌️','🤞','❤️','🧡','💛','💚','💙','💜','🔥','✨','⭐','🎉','✅','❌','⚠️','📌','📅','📞','💬','💰','🦷','😬','🥰'];
+let _emojiPickerEl = null;
+
+function toggleEmojiPicker(ev) {
+  ev.stopPropagation();
+  if (_emojiPickerEl) { _emojiPickerEl.remove(); _emojiPickerEl = null; return; }
+  const btn = document.getElementById('btn-emoji');
+  const box = document.createElement('div');
+  box.id = 'emoji-picker';
+  box.style.cssText = 'position:absolute;bottom:42px;left:0;z-index:200;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:grid;grid-template-columns:repeat(8,1fr);gap:2px;width:300px;max-height:200px;overflow-y:auto';
+  box.innerHTML = _EMOJIS.map(e => `<button type="button" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="inserirEmoji('${e}')">${e}</button>`).join('');
+  btn.appendChild(box);
+  _emojiPickerEl = box;
+  setTimeout(() => document.addEventListener('click', _fecharEmojiFora), 0);
+}
+
+function _fecharEmojiFora(e) {
+  if (_emojiPickerEl && !_emojiPickerEl.contains(e.target) && e.target.id !== 'btn-emoji') {
+    _emojiPickerEl.remove(); _emojiPickerEl = null;
+    document.removeEventListener('click', _fecharEmojiFora);
+  }
+}
+
+function inserirEmoji(e) {
+  const input = document.getElementById('chat-input');
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  input.value = input.value.slice(0, start) + e + input.value.slice(end);
+  input.focus();
+  const pos = start + e.length;
+  input.setSelectionRange(pos, pos);
+  if (typeof autoResizeChat === 'function') autoResizeChat(input);
 }
 
 async function enviarMensagemChat() {
