@@ -508,7 +508,8 @@ textarea { resize: vertical; min-height: 80px; }
   .funil-row { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .modal, .modal-card, .modal-content { width: 96vw !important; max-width: 96vw !important; max-height: 88vh !important; }
   .toolbar, .filtros, .filter-row, .table-head { flex-wrap: wrap !important; }
-  .mnav-desktop-only { display: none; text-align: center; padding: 48px 20px; color: var(--muted); }
+  /* aparência do aviso quando exibido (JS controla o display) */
+  .mnav-desktop-only { text-align: center; padding: 48px 20px; color: var(--muted); }
   /* Conversas (WhatsApp): um painel por vez no celular */
   #page-conversas.active { height: auto; }
   #page-conversas .chat-layout { height: calc(100dvh - 200px); min-height: 320px; }
@@ -520,6 +521,7 @@ textarea { resize: vertical; min-height: 80px; }
   #chat-kanban-view { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .mnav-chat-back { display: inline-flex !important; align-items: center; justify-content: center; }
 }
+.mnav-desktop-only { display: none; }
 .mnav-desktop-only-card { max-width: 340px; margin: 0 auto; background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 28px 22px; }
 .mnav-chat-back { display: none; }
 </style>
