@@ -2679,7 +2679,9 @@ function _initPainel(lead) {
     const criativoHtmlBase = renderCriativoAnuncio(lead.referral_data, { compact: false });
     const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
     const imgReferral = _safeUrl((lead.referral_data||{}).image_url) || _safeUrl((lead.referral_data||{}).thumbnail_url) || '';
+    const _painelGuard = () => chatLeadAtual?.id !== lead.id;
     api('/api/anuncios').then(catalog => {
+      if (_painelGuard()) return;
       const entrada = Array.isArray(catalog) ? catalog.find(a => a.chave === chave && a.ativo) : null;
       const nome = entrada?.nome || lead.campanha || (lead.ctwa_clid ? 'Meta Ads (sem campanha)' : lead.fbclid ? 'Meta Ads' : 'Google Ads');
       const nomeEsc = _esc(nome);
@@ -2691,6 +2693,7 @@ function _initPainel(lead) {
       // Fallback: se não veio imagem no referral, tenta a Graph API pelo ad_id
       if (!imgReferral && adId) {
         api('/api/anuncio-thumb/' + adId).then(t => {
+          if (_painelGuard()) return;
           const safeThumb = (t && typeof t.thumbnail_url === 'string' && /^https?:\/\//i.test(t.thumbnail_url)) ? t.thumbnail_url : '';
           if (safeThumb) {
             const thumbEl = document.getElementById('painel-anuncio-thumb');
@@ -2701,6 +2704,7 @@ function _initPainel(lead) {
         }).catch(() => {});
       }
     }).catch(() => {
+      if (_painelGuard()) return;
       el.innerHTML = criativoHtmlBase + `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge;
     });
   }

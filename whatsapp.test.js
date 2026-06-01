@@ -40,3 +40,30 @@ test('sticker extrai media_id', () => {
   assert.strictEqual(r.tipo, 'sticker');
   assert.strictEqual(r.media_id, 'MEDIA_STK');
 });
+
+test('interactive button_reply extrai titulo como texto', () => {
+  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.6', type: 'interactive', timestamp: '6', interactive: { type: 'button_reply', button_reply: { id: 'btn1', title: 'Sim, tenho interesse' } } }));
+  assert.strictEqual(r.tipo, 'interactive');
+  assert.strictEqual(r.texto, 'Sim, tenho interesse');
+  assert.strictEqual(r.media_id, '');
+});
+
+test('interactive list_reply extrai titulo como texto', () => {
+  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.7', type: 'interactive', timestamp: '7', interactive: { type: 'list_reply', list_reply: { id: 'opt1', title: 'Segunda às 10h' } } }));
+  assert.strictEqual(r.tipo, 'interactive');
+  assert.strictEqual(r.texto, 'Segunda às 10h');
+});
+
+test('button extrai texto do botao', () => {
+  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.8', type: 'button', timestamp: '8', button: { text: 'Confirmar', payload: 'confirm' } }));
+  assert.strictEqual(r.tipo, 'button');
+  assert.strictEqual(r.texto, 'Confirmar');
+  assert.strictEqual(r.media_id, '');
+});
+
+test('reaction armazena tipo sem texto e sem media_id', () => {
+  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.9', type: 'reaction', timestamp: '9', reaction: { message_id: 'wamid.1', emoji: '👍' } }));
+  assert.strictEqual(r.tipo, 'reaction');
+  assert.strictEqual(r.texto, '');
+  assert.strictEqual(r.media_id, '');
+});
