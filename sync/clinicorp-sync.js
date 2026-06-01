@@ -401,6 +401,8 @@ async function syncOrcamentos() {
       status:                o.Status || null,
       data_criacao:          toDate(o.CreateDate),
       data_fechamento:       o.Status === 'APPROVED' ? toDate(o.LastChange_Date) : null,
+      paciente_nome:         o.PatientName || '',
+      clinicorp_lastchange:  o.LastChange_Date || null,
       atualizado_em:         new Date().toISOString(),
     });
   }
@@ -509,6 +511,54 @@ async function marcarAvaliacoesComOrcamento() {
   return validas;
 }
 
+// Reabre (pendente) os aprovados cujo orçamento mudou no Clinicorp (LastChange_Date diferente do retrato).
+async function reavaliarFechamentos() {
+  const aprovados = await selectAll('orcamentos',
+    'clinicorp_estimate_id, clinicorp_lastchange, revisao_ref_lastchange',
+    q => q.eq('revisao_status', 'aprovado'));
+  let n = 0;
+  for (const o of aprovados) {
+    const atual = o.clinicorp_lastchange ? new Date(o.clinicorp_lastchange).getTime() : null;
+    const ref   = o.revisao_ref_lastchange ? new Date(o.revisao_ref_lastchange).getTime() : null;
+    if (atual !== ref) {
+      await supabase.from('orcamentos')
+        .update({ revisao_status: 'pendente', revisao_notificado: false })
+        .eq('clinicorp_estimate_id', o.clinicorp_estimate_id);
+      n++;
+    }
+  }
+  log(`Fechamentos reabertos (tratamento mudou): ${n}`);
+  return n;
+}
+
+// Avisa os crc_comercial dos fechamentos pendentes ainda não notificados (uma notificação agregada).
+async function notificarPendentes() {
+  const pend = await selectAll('orcamentos', 'clinicorp_estimate_id',
+    q => q.eq('status', 'APPROVED').gt('valor_particular', 0).not('data_fechamento', 'is', null)
+          .eq('revisao_status', 'pendente').eq('revisao_notificado', false));
+  if (!pend.length) { log('notificarPendentes: nenhum novo'); return 0; }
+
+  const { data: crcs } = await supabase.from('profiles').select('id').contains('roles', ['crc_comercial']);
+  const corpo = `${pend.length} fechamento(s) aguardando sua conferência`;
+  const rows = (crcs || []).map(u => ({
+    usuario_id: u.id, tipo: 'conferencia_pendente',
+    titulo: '📋 Fechamentos para conferir', corpo,
+    metadata: { url: '/comercial/conferencia/' },
+  }));
+  if (rows.length) {
+    const { error } = await supabase.from('notificacoes').insert(rows);
+    if (error) log(`ERRO notificacoes: ${error.message}`);
+  }
+
+  const ids = pend.map(p => p.clinicorp_estimate_id);
+  for (let i = 0; i < ids.length; i += 500) {
+    await supabase.from('orcamentos').update({ revisao_notificado: true })
+      .in('clinicorp_estimate_id', ids.slice(i, i + 500));
+  }
+  log(`notificarPendentes: ${pend.length} pendentes, ${rows.length} CRC avisados`);
+  return pend.length;
+}
+
 // ─── entrada principal ───────────────────────────────────────────────────────
 
 async function runSync() {
@@ -552,6 +602,12 @@ async function runSync() {
     // Fase 10: marcar avaliações válidas (com orçamento particular em 60d)
     result.steps.avaliacoes_validas = await marcarAvaliacoesComOrcamento();
 
+    // Fase 11: reabrir aprovados cujo tratamento mudou
+    result.steps.fechamentos_reabertos = await reavaliarFechamentos();
+
+    // Fase 12: notificar CRC dos pendentes novos
+    result.steps.pendentes_notificados = await notificarPendentes();
+
     result.ok        = true;
     result.req_count = api.reqCount; // requisições feitas nesta hora
   } catch (err) {
@@ -569,4 +625,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, marcarAvaliacoesComOrcamento };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes };
