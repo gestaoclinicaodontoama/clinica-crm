@@ -133,7 +133,7 @@ function parseMensagemRecebida(body) {
     return {
       from: msg.from,
       nome: contato?.profile?.name || '',
-      texto: msg.text?.body || msg.button?.text || caption || '',
+      texto: msg.text?.body || msg.button?.text || msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || caption || '',
       tipo,
       media_id,
       mime,

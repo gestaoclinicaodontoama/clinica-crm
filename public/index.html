@@ -2357,6 +2357,7 @@ let _chatMsgsSig = '';
 const _midiaCache = new Map();
 let chatLeads = [];
 let chatPollInterval = null;
+let _chatGen = 0; // geração do abrirChat — previne double interval em cliques rápidos
 let _chatViewMode = 'lista';
 let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
 let _kanbanDragging = false;
@@ -2868,6 +2869,7 @@ function voltarListaChat() {
 async function abrirChat(leadId) {
   chatLeadAtual = chatLeads.find(l => l.id === leadId);
   if (!chatLeadAtual) return;
+  const _gen = ++_chatGen;
   // Revogar blob URLs da conversa anterior para liberar memória
   _midiaCache.forEach(url => URL.revokeObjectURL(url));
   _midiaCache.clear();
@@ -2903,6 +2905,7 @@ async function abrirChat(leadId) {
     _bannerEl.style.display = _bannerHtml ? 'block' : 'none';
   }
   await carregarMensagensChat(leadId);
+  if (_gen !== _chatGen) return; // invocação obsoleta — outro abrirChat disparou depois
   chatPollInterval = setInterval(() => {
     if (chatLeadAtual) { _markRead(chatLeadAtual.id); carregarMensagensChat(chatLeadAtual.id, true); }
   }, 4000);
