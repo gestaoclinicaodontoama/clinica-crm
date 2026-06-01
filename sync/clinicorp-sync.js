@@ -10,6 +10,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
 const ClinicorpApi     = require('./clinicorp-api');
 const { normalizarTelefone } = require('../lib/funil/telefone');
+const { classificarOrcamento } = require('../lib/funil/orcamento');
 
 const FUNIL_DIAS = 180; // janela de coleta do funil comercial
 
@@ -368,6 +369,7 @@ async function syncOrcamentos() {
   for (const o of arr) {
     const id = String(o.id || '');
     if (!id || id === 'undefined') continue;
+    const { valorParticular, ehConvenio } = classificarOrcamento(o);
     byId.set(id, {
       clinicorp_estimate_id: id,
       treatment_id:          o.TreatmentId != null ? String(o.TreatmentId) : null,
@@ -375,8 +377,11 @@ async function syncOrcamentos() {
       telefone:              normalizarTelefone(o.PatientMobilePhone),
       profissional_nome:     o.ProfessionalName || '',
       valor:                 Number(o.Amount || 0),
+      valor_particular:      valorParticular,
+      eh_convenio:           ehConvenio,
       status:                o.Status || null,
       data_criacao:          toDate(o.CreateDate),
+      data_fechamento:       o.Status === 'APPROVED' ? toDate(o.LastChange_Date) : null,
       atualizado_em:         new Date().toISOString(),
     });
   }
