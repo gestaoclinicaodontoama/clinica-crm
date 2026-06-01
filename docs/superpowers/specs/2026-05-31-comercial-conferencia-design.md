@@ -6,18 +6,19 @@
 
 ## Objetivo
 
-Adicionar um portão de conferência: todo fechamento (orçamento particular aprovado) nasce **pendente**. A CRC comercial revisa cada um e **Aprova / Edita+Aprova / Rejeita**. Só os aprovados entram no número "Confirmado" do dashboard; os não revisados aparecem como "Pendente"; rejeitados saem de tudo. Se o valor/entrada mudar no Clinicorp depois de aprovado, volta para pendente (reaprovação).
+Adicionar um portão de conferência: todo fechamento (orçamento particular aprovado) nasce **pendente**. A CRC comercial revisa cada um e **Aprova / Edita+Aprova / Rejeita** (rejeição com motivo obrigatório). Só os aprovados entram no número "Confirmado" do dashboard; os não revisados aparecem como "Pendente"; rejeitados saem de tudo. Se qualquer coisa do tratamento mudar no Clinicorp depois de aprovado, volta para pendente (reaprovação). Ao surgir pendente novo, a CRC é avisada na central de notificação.
 
 ## Decisões (definidas com o usuário)
 
 | Tema | Decisão |
 |---|---|
-| Ações da CRC | **Aprovar** (confirma automáticos), **Editar+Aprovar** (corrige valor e/ou entrada), **Rejeitar** (não foi venda válida; motivo opcional). |
+| Ações da CRC | **Aprovar** (confirma automáticos), **Editar+Aprovar** (corrige valor e/ou entrada), **Rejeitar** (**motivo obrigatório**). |
 | Totais no dashboard | "Fechamentos do mês" mostra **Confirmado** (aprovados) **e Pendente** (não revisados) lado a lado. Rejeitado sai de tudo. |
 | Local | Página própria **`/comercial/conferencia/`** (link no menu). |
 | Unidade de revisão | Por **orçamento** (cada orçamento particular aprovado é uma linha na fila). |
 | Fila | Compartilhada: qualquer `crc_comercial`/`gestor`/`admin` resolve. |
-| Mudança no Clinicorp | Se o valor/entrada automático divergir do retrato salvo na aprovação, **volta para pendente**. |
+| Mudança no Clinicorp | Se **qualquer coisa do tratamento mudar** (detectado pelo `LastChange_Date` do orçamento), o aprovado **volta para pendente** (reaprovação). |
+| Aviso à CRC | Ao surgir fechamento pendente novo, **notificar os `crc_comercial`** na central de notificação (+ push). |
 
 ## Modelo de dados
 
@@ -29,9 +30,10 @@ Adicionar um portão de conferência: todo fechamento (orçamento particular apr
 - `entrada_aprovada numeric(12,2)` — entrada confirmada/editada pela CRC
 - `revisado_por uuid` — id do usuário que revisou
 - `revisado_em timestamptz`
-- `revisao_motivo text` — opcional (rejeição)
-- `revisao_ref_valor numeric(12,2)` — retrato do `valor_particular` no momento da aprovação
-- `revisao_ref_entrada numeric(12,2)` — retrato do `entrada_valor` no momento da aprovação
+- `revisao_motivo text` — motivo da rejeição (obrigatório ao rejeitar)
+- `clinicorp_lastchange timestamptz` — `LastChange_Date` do orçamento (atualizado a cada sync)
+- `revisao_ref_lastchange timestamptz` — retrato do `clinicorp_lastchange` no momento da aprovação
+- `revisao_notificado boolean not null default false` — já avisou a CRC deste pendente?
 - `paciente_nome text` — nome do paciente (para a fila; hoje só temos o id)
 
 Índice: `idx_orcamentos_revisao on orcamentos(revisao_status)`.
@@ -40,8 +42,9 @@ Adicionar um portão de conferência: todo fechamento (orçamento particular apr
 
 ## Sync (`sync/clinicorp-sync.js`)
 
-- **`syncOrcamentos`**: passar a gravar `paciente_nome: o.PatientName || ''`. (O upsert não inclui as colunas de revisão, então elas são preservadas.)
-- **Nova fase `reavaliarFechamentos`** (após `syncEntradas`): reverte para pendente os aprovados cujo valor/entrada automático divergiu do retrato salvo na aprovação. Implementação em JS (o cliente Supabase não compara coluna-com-coluna): buscar (via `selectAll`) os `revisao_status='aprovado'` com `clinicorp_estimate_id, valor_particular, entrada_valor, revisao_ref_valor, revisao_ref_entrada`; para cada um, se `valor_particular !== revisao_ref_valor` **ou** `entrada_valor !== revisao_ref_entrada` (comparação numérica, tratando null), dar `update({ revisao_status: 'pendente' })`. Logar quantos voltaram.
+- **`syncOrcamentos`**: passar a gravar `paciente_nome: o.PatientName || ''` e `clinicorp_lastchange: o.LastChange_Date || null`. (O upsert não inclui as colunas de revisão `revisao_*`/`entrada_aprovada`/`valor_aprovado`/`revisao_notificado`, então são preservadas.)
+- **Nova fase `reavaliarFechamentos`** (após `syncEntradas`): reverte para pendente os aprovados cujo tratamento mudou. Em JS (o cliente Supabase não compara coluna-com-coluna): `selectAll` dos `revisao_status='aprovado'` com `clinicorp_estimate_id, clinicorp_lastchange, revisao_ref_lastchange`; para cada um, se `clinicorp_lastchange !== revisao_ref_lastchange`, `update({ revisao_status: 'pendente', revisao_notificado: false })`. Logar quantos voltaram.
+- **Nova fase `notificarPendentes`** (após `reavaliarFechamentos`): avisa a CRC dos fechamentos pendentes ainda não notificados. `selectAll` dos orçamentos `status='APPROVED'`, `valor_particular>0`, `data_fechamento not null`, `revisao_status='pendente'`, `revisao_notificado=false`. Se houver `N>0`: buscar usuários `crc_comercial` (`profiles` com `.contains('roles', ['crc_comercial'])`) e, para cada, `criarNotificacao(id, 'conferencia_pendente', '📋 Fechamentos para conferir', '<N> fechamento(s) aguardando sua conferência', { url: '/comercial/conferencia/' })`. Depois marcar todos esses orçamentos com `revisao_notificado=true` (update por id, em lote). Uma notificação agregada por sync, sem spam por item.
 
 ## Endpoints (`server.js`)
 
@@ -50,9 +53,9 @@ Reusar `requireDashboardAvaliacao` (gestor/admin/crc_comercial).
 - **`GET /api/comercial/conferencia?status=pendente`** (default pendente; aceita `aprovado`/`rejeitado`): lista orçamentos particulares aprovados com `data_fechamento`, filtrados por `revisao_status`. Campos: `clinicorp_estimate_id, paciente_nome, profissional_nome, valor_particular, entrada_valor, data_fechamento, valor_aprovado, entrada_aprovada, revisao_status`. Ordenar por `data_fechamento desc`.
 
 - **`POST /api/comercial/conferencia/:estimateId`** body `{ acao, valor, entrada, motivo }`:
-  - `acao='aprovar'`: `revisao_status='aprovado'`, `valor_aprovado = (valor ?? valor_particular)`, `entrada_aprovada = (entrada ?? entrada_valor)`, `revisao_ref_valor = valor_particular`, `revisao_ref_entrada = entrada_valor`, `revisado_por = req.user.id`, `revisado_em = now()`, `revisao_motivo = null`.
-  - `acao='rejeitar'`: `revisao_status='rejeitado'`, `revisao_motivo = motivo || null`, `revisado_por`, `revisado_em`.
-  - Validar `acao`; sanitizar `valor`/`entrada` (números >= 0); `motivo` string curta.
+  - `acao='aprovar'`: `revisao_status='aprovado'`, `valor_aprovado = (valor ?? valor_particular)`, `entrada_aprovada = (entrada ?? entrada_valor)`, `revisao_ref_lastchange = clinicorp_lastchange` (retrato p/ detectar mudança futura), `revisado_por = req.user.id`, `revisado_em = now()`, `revisao_motivo = null`. (Buscar a linha antes p/ ler `valor_particular`, `entrada_valor`, `clinicorp_lastchange`.)
+  - `acao='rejeitar'`: **`motivo` obrigatório** (400 se vazio); `revisao_status='rejeitado'`, `revisao_motivo = motivo`, `revisado_por`, `revisado_em`.
+  - Validar `acao` (aprovar|rejeitar); sanitizar `valor`/`entrada` (números >= 0, opcionais); `motivo` string curta (sanitizeStr).
 
 - **`GET /api/comercial/funil`** (ajuste): o `fechamentos_mes` passa a ser `{ confirmado, pendente }`.
   - Buscar `fechados` no período (já existe) agora também com `revisao_status, valor_aprovado, entrada_aprovada`.
@@ -68,7 +71,7 @@ Reusar `requireDashboardAvaliacao` (gestor/admin/crc_comercial).
 
 - **Dashboard** (`public/comercial/app.js`): o bloco "Fechamentos do mês" renderiza **dois grupos** — "Confirmado" e "Pendente de conferência" — cada um com os cards (fechamentos, valor, entradas, ticket, tempo médio, origem). Remover o selo antigo; o rótulo passa a ser o título de cada grupo.
 
-- **Página nova `public/comercial/conferencia/index.html`** + `public/js/comercial/conferencia.js` (+ reusa `api.js`): lista de pendentes (paciente, profissional, data, valor, entrada) com, por linha, **Aprovar**, **Editar** (campos de valor/entrada inline) e **Rejeitar** (motivo opcional). Após a ação, remove a linha da lista. Mostra contador de pendentes. Filtro de status (pendente/aprovado/rejeitado).
+- **Página nova `public/comercial/conferencia/index.html`** + `public/js/comercial/conferencia.js` (+ reusa `api.js`): lista de pendentes (paciente, profissional, data, valor, entrada) com, por linha, **Aprovar**, **Editar** (campos de valor/entrada inline) e **Rejeitar** (exige digitar o **motivo** — `prompt`/campo; bloqueia se vazio). Após a ação, remove a linha da lista. Mostra contador de pendentes. Filtro de status (pendente/aprovado/rejeitado).
 
 - **Nav**: link "Conferência" em `index.html` e `shared-nav.js` (roles `admin,gestor,crc_comercial`), slug `conferencia`.
 
@@ -77,6 +80,7 @@ Reusar `requireDashboardAvaliacao` (gestor/admin/crc_comercial).
 - Histórico/auditoria de edições além do último revisor.
 
 ## Riscos e verificações
-- Re-sync deve preservar as colunas de revisão (upsert sem elas no payload) — verificar após o primeiro sync pós-deploy que aprovados não viram pendente sem motivo.
-- A fase `reavaliarFechamentos` roda em todo sync; conferir que só re-pende quando o valor realmente mudou.
+- Re-sync deve preservar as colunas de revisão (upsert sem elas no payload) — verificar após o primeiro sync pós-deploy que aprovados não viram pendente à toa.
+- A fase `reavaliarFechamentos` roda em todo sync; conferir que só re-pende quando o `LastChange_Date` do orçamento realmente mudou (não a cada sync).
+- Notificação agregada e deduplicada por `revisao_notificado` — não pode disparar push repetido a cada sync para o mesmo pendente.
 - Entrada por paciente contada uma vez (evitar dobra) — coberto por teste novo.
