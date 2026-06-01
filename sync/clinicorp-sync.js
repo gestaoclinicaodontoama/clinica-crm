@@ -298,6 +298,23 @@ async function fetchRangeChunked(path, dias, chunkDias = 30) {
   return all;
 }
 
+/** Lê TODAS as linhas de uma tabela (o client Supabase limita a 1000 por select). */
+async function selectAll(table, columns, filtro) {
+  const all = [];
+  const PAGE = 1000;
+  let offset = 0;
+  for (;;) {
+    let q = supabase.from(table).select(columns).range(offset, offset + PAGE - 1);
+    if (filtro) q = filtro(q);
+    const { data, error } = await q;
+    if (error) { log(`ERRO selectAll ${table}: ${error.message}`); break; }
+    all.push(...(data || []));
+    if (!data || data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 /** Carrega config: avaliadores (id→nome) + StatusId que contam como compareceu. */
 async function loadFunilConfig() {
   const [{ data: av }, { data: st }] = await Promise.all([
@@ -439,9 +456,8 @@ async function syncEntradas() {
   for (const arr of byPat.values()) arr.sort((a, b) => (a.data < b.data ? -1 : 1));
 
   // orçamentos aprovados particulares → casar 1º pagamento >= data_criacao
-  const { data: orcs } = await supabase.from('orcamentos')
-    .select('clinicorp_estimate_id, paciente_clinicorp_id, data_criacao')
-    .eq('status', 'APPROVED').gt('valor_particular', 0);
+  const orcs = await selectAll('orcamentos', 'clinicorp_estimate_id, paciente_clinicorp_id, data_criacao',
+    q => q.eq('status', 'APPROVED').gt('valor_particular', 0));
 
   let n = 0;
   for (const o of (orcs || [])) {
@@ -464,16 +480,15 @@ function addDias(dateStr, dias) {
 
 // Marca avaliacoes.tem_orcamento = paciente tem orçamento PARTICULAR criado em [data, data+60d].
 async function marcarAvaliacoesComOrcamento() {
-  const { data: orcs } = await supabase.from('orcamentos')
-    .select('paciente_clinicorp_id, data_criacao').gt('valor_particular', 0);
+  const orcs = await selectAll('orcamentos', 'paciente_clinicorp_id, data_criacao',
+    q => q.gt('valor_particular', 0));
   const byPat = new Map();
   for (const o of (orcs || [])) {
     if (!byPat.has(o.paciente_clinicorp_id)) byPat.set(o.paciente_clinicorp_id, []);
     byPat.get(o.paciente_clinicorp_id).push(o.data_criacao);
   }
 
-  const { data: avals } = await supabase.from('avaliacoes')
-    .select('clinicorp_appointment_id, paciente_clinicorp_id, data');
+  const avals = await selectAll('avaliacoes', 'clinicorp_appointment_id, paciente_clinicorp_id, data');
 
   const updates = [];
   for (const a of (avals || [])) {
