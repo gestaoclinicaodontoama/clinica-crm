@@ -2474,7 +2474,7 @@ app.get('/api/comercial/funil', requireAuth, requireDashboardAvaliacao, rateLimi
 
     // Fechamentos no período (por data_fechamento) — particular aprovado
     const { data: fechados } = await supabase.from('orcamentos')
-      .select('paciente_clinicorp_id, valor_particular, entrada_valor, data_fechamento, lead_id')
+      .select('paciente_clinicorp_id, valor_particular, entrada_valor, data_fechamento, lead_id, revisao_status, valor_aprovado, entrada_aprovada')
       .eq('status', 'APPROVED').gt('valor_particular', 0)
       .gte('data_fechamento', from).lte('data_fechamento', to);
 
@@ -2493,9 +2493,10 @@ app.get('/api/comercial/funil', requireAuth, requireDashboardAvaliacao, rateLimi
       if (!avaliacoesPorPaciente.has(a.paciente_clinicorp_id)) avaliacoesPorPaciente.set(a.paciente_clinicorp_id, []);
       avaliacoesPorPaciente.get(a.paciente_clinicorp_id).push(a);
     }
+    const naoRejeitados = (fechados || []).filter(f => f.revisao_status !== 'rejeitado');
     const fechamentoPorPaciente = new Map();
     const fechamentoPorLead = new Map();
-    for (const f of (fechados || [])) {
+    for (const f of naoRejeitados) {
       const cur = fechamentoPorPaciente.get(f.paciente_clinicorp_id);
       if (!cur || f.data_fechamento > cur) fechamentoPorPaciente.set(f.paciente_clinicorp_id, f.data_fechamento);
       if (f.lead_id != null) {
@@ -2504,10 +2505,17 @@ app.get('/api/comercial/funil', requireAuth, requireDashboardAvaliacao, rateLimi
       }
     }
 
+    const aprovados = naoRejeitados.filter(f => f.revisao_status === 'aprovado')
+      .map(f => ({ ...f, valor_particular: f.valor_aprovado, entrada_valor: f.entrada_aprovada }));
+    const pendentes = naoRejeitados.filter(f => f.revisao_status === 'pendente');
+
     // topo do funil: usa valor_particular como "valor"
     const orcTopo = (orcCriados || []).map(o => ({ ...o, valor: o.valor_particular }));
     const resultado = agregarFunil({ leads: leads || [], avaliacoes: avaliacoes || [], orcamentos: orcTopo, origem });
-    const fechamentos_mes = agregarFechamentos({ orcamentos: fechados || [], avaliacoesPorPaciente });
+    const fechamentos_mes = {
+      confirmado: agregarFechamentos({ orcamentos: aprovados, avaliacoesPorPaciente }),
+      pendente:   agregarFechamentos({ orcamentos: pendentes, avaliacoesPorPaciente }),
+    };
     const tempos_fase = temposPorFase({ avaliacoes: avaliacoes || [], fechamentoPorPaciente, leads: leads || [], fechamentoPorLead });
 
     const origens = [...new Set((leads || []).map(l => l.origem).filter(Boolean))].sort();
@@ -2515,6 +2523,56 @@ app.get('/api/comercial/funil', requireAuth, requireDashboardAvaliacao, rateLimi
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ===== Conferência da CRC =====
+// GET /api/comercial/conferencia?status=pendente|aprovado|rejeitado
+app.get('/api/comercial/conferencia', requireAuth, requireDashboardAvaliacao, rateLimit, async (req, res) => {
+  try {
+    const status = ['pendente', 'aprovado', 'rejeitado'].includes(req.query.status) ? req.query.status : 'pendente';
+    const { data, error } = await supabase.from('orcamentos')
+      .select('clinicorp_estimate_id, paciente_nome, profissional_nome, valor_particular, entrada_valor, data_fechamento, valor_aprovado, entrada_aprovada, revisao_status, revisao_motivo')
+      .eq('status', 'APPROVED').gt('valor_particular', 0).not('data_fechamento', 'is', null)
+      .eq('revisao_status', status)
+      .order('data_fechamento', { ascending: false }).limit(500);
+    if (error) throw error;
+    res.json({ status, fechamentos: data || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/comercial/conferencia/:estimateId  body { acao:'aprovar'|'rejeitar', valor?, entrada?, motivo? }
+app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboardAvaliacao, rateLimit, async (req, res) => {
+  try {
+    const id = String(req.params.estimateId);
+    const { acao } = req.body;
+    if (!['aprovar', 'rejeitar'].includes(acao)) return res.status(400).json({ error: 'acao inválida' });
+
+    const { data: orc } = await supabase.from('orcamentos')
+      .select('valor_particular, entrada_valor, clinicorp_lastchange')
+      .eq('clinicorp_estimate_id', id).maybeSingle();
+    if (!orc) return res.status(404).json({ error: 'Fechamento não encontrado' });
+
+    const now = new Date().toISOString();
+    let patch;
+    if (acao === 'aprovar') {
+      const num = (v, fb) => (v === undefined || v === null || v === '' || isNaN(Number(v))) ? fb : Math.max(0, Number(v));
+      patch = {
+        revisao_status: 'aprovado',
+        valor_aprovado: num(req.body.valor, Number(orc.valor_particular || 0)),
+        entrada_aprovada: num(req.body.entrada, Number(orc.entrada_valor || 0)),
+        revisao_ref_lastchange: orc.clinicorp_lastchange || null,
+        revisao_motivo: null,
+        revisado_por: req.user.id, revisado_em: now,
+      };
+    } else {
+      const motivo = sanitizeStr(req.body.motivo || '', 500).trim();
+      if (!motivo) return res.status(400).json({ error: 'motivo é obrigatório para rejeitar' });
+      patch = { revisao_status: 'rejeitado', revisao_motivo: motivo, revisado_por: req.user.id, revisado_em: now };
+    }
+    const { error } = await supabase.from('orcamentos').update(patch).eq('clinicorp_estimate_id', id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── Lista CRCs que já agendaram hoje (para filtro) ───────────────────────────
