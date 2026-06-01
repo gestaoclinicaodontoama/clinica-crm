@@ -105,11 +105,21 @@ function parseMensagemRecebida(body) {
     const contato = v?.contacts?.[0];
     // Anúncios CTWA (Click-to-WhatsApp): Meta inclui referral com ctwa_clid
     const referral = msg.referral || null;
+    // Mídia: WhatsApp manda o conteúdo conforme msg.type (audio/image/video/document/sticker)
+    const tipo = msg.type || 'text';
+    const midiaObj = (tipo !== 'text' && msg[tipo]) ? msg[tipo] : null;
+    const media_id = midiaObj?.id || '';
+    const mime = midiaObj?.mime_type || '';
+    const media_filename = msg.document?.filename || '';
+    const caption = msg.image?.caption || msg.video?.caption || msg.document?.caption || '';
     return {
       from: msg.from,
       nome: contato?.profile?.name || '',
-      texto: msg.text?.body || msg.button?.text || '',
-      tipo: msg.type,
+      texto: msg.text?.body || msg.button?.text || caption || '',
+      tipo,
+      media_id,
+      mime,
+      media_filename,
       timestamp: msg.timestamp,
       id: msg.id,
       ctwa_clid:   referral?.ctwa_clid  || '',
