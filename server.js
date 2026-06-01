@@ -1258,6 +1258,25 @@ app.get('/api/leads/:id/mensagens', requireAuth, rateLimit, async (req, res) => 
   }
 });
 
+app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const msgId = parseInt(req.params.msgId, 10);
+    if (Number.isNaN(id) || Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: msg } = await supabase.from('mensagens')
+      .select('id, lead_id, media_id, mime').eq('id', msgId).maybeSingle();
+    if (!msg || msg.lead_id !== id) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    if (!msg.media_id) return res.status(404).json({ error: 'Mensagem sem mídia' });
+    const { buffer, contentType } = await whatsapp.baixarMidia(msg.media_id);
+    res.set('Content-Type', msg.mime || contentType);
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.send(buffer);
+  } catch (e) {
+    console.error('❌ wa midia download:', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 app.post('/api/leads/:id/agendar-mensagem', requireAuth, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
