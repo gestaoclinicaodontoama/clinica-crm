@@ -1608,6 +1608,10 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       await supabase.from('mensagens').insert({
         lead_id: lead.id, direcao: 'recebida', canal: 'sdr',
         texto: sanitizeStr(m.texto, 4000), wa_id: m.id || '',
+        tipo: m.tipo || 'text',
+        media_id: m.media_id || null,
+        mime: m.mime ? sanitizeStr(m.mime, 120) : null,
+        media_filename: m.media_filename ? sanitizeStr(m.media_filename, 200) : null,
       });
       logEvento(lead.id, 'mensagem_recebida',
         'Mensagem recebida: "' + (m.texto || '').slice(0, 80) + (m.texto?.length > 80 ? '…' : '') + '"',
