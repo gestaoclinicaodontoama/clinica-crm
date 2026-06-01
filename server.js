@@ -16,6 +16,7 @@ const whatsapp = require('./whatsapp');
 const threec = require('./lib/3cplus');
 const threecCamp = require('./lib/3cplus-campanhas');
 const { agregarFunil } = require('./lib/funil/agregar');
+const { agregarFechamentos, temposPorFase } = require('./lib/funil/fechamentos');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -2454,30 +2455,63 @@ app.get('/api/comercial/funil', requireAuth, requireDashboardAvaliacao, rateLimi
     const { from, to } = req.query;
     const origem = (req.query.origem && req.query.origem !== 'all') ? req.query.origem : null;
     if (!from || !to) return res.status(400).json({ error: 'from e to são obrigatórios (YYYY-MM-DD)' });
+    const toEnd = to + 'T23:59:59';
 
-    const [{ data: avaliacoes, error: e1 }, { data: orcamentos, error: e2 }, { data: leadsRaw, error: e3 }] =
-      await Promise.all([
-        supabase.from('avaliacoes')
-          .select('paciente_clinicorp_id, telefone, data, compareceu, lead_id')
-          .gte('data', from).lte('data', to),
-        supabase.from('orcamentos')
-          .select('paciente_clinicorp_id, telefone, valor, status, data_criacao, lead_id')
-          .gte('data_criacao', from).lte('data_criacao', to),
-        // leads usam data_lead (data de entrada do lead) como data da coorte
-        supabase.from('leads')
-          .select('id, telefone, origem, data_lead')
-          .gte('data_lead', from).lte('data_lead', to + 'T23:59:59'),
-      ]);
-    if (e1 || e2 || e3) throw new Error((e1 || e2 || e3).message);
+    // Avaliações VÁLIDAS (com orçamento) no período — topo do funil + tempos clínica
+    const { data: avaliacoes } = await supabase.from('avaliacoes')
+      .select('paciente_clinicorp_id, telefone, data, compareceu, lead_id, agendado_em, comparecimento_em')
+      .eq('tem_orcamento', true).gte('data', from).lte('data', to);
 
-    const resultado = agregarFunil({
-      leads: leadsRaw || [], avaliacoes: avaliacoes || [], orcamentos: orcamentos || [], origem,
-    });
+    // Orçamentos PARTICULARES criados no período (pipeline do topo)
+    const { data: orcCriados } = await supabase.from('orcamentos')
+      .select('paciente_clinicorp_id, telefone, valor_particular, status, data_criacao, lead_id')
+      .gt('valor_particular', 0).gte('data_criacao', from).lte('data_criacao', to);
 
-    // lista de origens disponíveis para o seletor
-    const origens = [...new Set((leadsRaw || []).map(l => l.origem).filter(Boolean))].sort();
+    // Leads no período
+    const { data: leads } = await supabase.from('leads')
+      .select('id, telefone, origem, data_lead, data_agendamento, data_comparecimento')
+      .gte('data_lead', from).lte('data_lead', toEnd);
 
-    res.json({ from, to, origem: origem || 'all', origens, ...resultado });
+    // Fechamentos no período (por data_fechamento) — particular aprovado
+    const { data: fechados } = await supabase.from('orcamentos')
+      .select('paciente_clinicorp_id, valor_particular, entrada_valor, data_fechamento, lead_id')
+      .eq('status', 'APPROVED').gt('valor_particular', 0)
+      .gte('data_fechamento', from).lte('data_fechamento', to);
+
+    // Avaliações dos pacientes dos fechamentos (qualquer data) p/ tempo-até-fechar e split
+    const pacientesFechados = [...new Set((fechados || []).map(f => f.paciente_clinicorp_id))];
+    let avalFechados = [];
+    if (pacientesFechados.length) {
+      const r = await supabase.from('avaliacoes')
+        .select('paciente_clinicorp_id, data, comparecimento_em')
+        .in('paciente_clinicorp_id', pacientesFechados);
+      avalFechados = r.data || [];
+    }
+
+    const avaliacoesPorPaciente = new Map();
+    for (const a of avalFechados) {
+      if (!avaliacoesPorPaciente.has(a.paciente_clinicorp_id)) avaliacoesPorPaciente.set(a.paciente_clinicorp_id, []);
+      avaliacoesPorPaciente.get(a.paciente_clinicorp_id).push(a);
+    }
+    const fechamentoPorPaciente = new Map();
+    const fechamentoPorLead = new Map();
+    for (const f of (fechados || [])) {
+      const cur = fechamentoPorPaciente.get(f.paciente_clinicorp_id);
+      if (!cur || f.data_fechamento > cur) fechamentoPorPaciente.set(f.paciente_clinicorp_id, f.data_fechamento);
+      if (f.lead_id != null) {
+        const c2 = fechamentoPorLead.get(f.lead_id);
+        if (!c2 || f.data_fechamento > c2) fechamentoPorLead.set(f.lead_id, f.data_fechamento);
+      }
+    }
+
+    // topo do funil: usa valor_particular como "valor"
+    const orcTopo = (orcCriados || []).map(o => ({ ...o, valor: o.valor_particular }));
+    const resultado = agregarFunil({ leads: leads || [], avaliacoes: avaliacoes || [], orcamentos: orcTopo, origem });
+    const fechamentos_mes = agregarFechamentos({ orcamentos: fechados || [], avaliacoesPorPaciente });
+    const tempos_fase = temposPorFase({ avaliacoes: avaliacoes || [], fechamentoPorPaciente, leads: leads || [], fechamentoPorLead });
+
+    const origens = [...new Set((leads || []).map(l => l.origem).filter(Boolean))].sort();
+    res.json({ from, to, origem: origem || 'all', origens, ...resultado, fechamentos_mes, tempos_fase });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
