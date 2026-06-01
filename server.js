@@ -1231,10 +1231,11 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
     else if (mimetype.startsWith('video/')) tipo = 'video';
     const caption = sanitizeStr(req.body.caption || '', 500);
     const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption });
-    const textoLog = caption || `[${tipo}: ${sanitizeStr(originalname, 100)}]`;
     await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
-      texto: textoLog, wa_id: resultado.messages?.[0]?.id || '',
+      texto: caption || '', wa_id: resultado.messages?.[0]?.id || '',
+      tipo, media_id: mediaId, mime: sanitizeStr(mimetype, 120),
+      media_filename: tipo === 'document' ? sanitizeStr(originalname, 200) : null,
     });
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
