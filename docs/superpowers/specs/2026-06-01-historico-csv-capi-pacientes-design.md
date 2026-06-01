@@ -192,9 +192,12 @@ senão                                             → 🟢 EM DIA
 - STATUS calculado e colorido em tempo real (sem reload)
 - Filtros: por status, por tratamento, por executor
 - Botão WhatsApp em cada linha
-- Acesso: roles `crc_comercial`, `gestor`, `admin` (novo role `crc_sucesso` opcional na V2)
+- Acesso: roles `crc_sucesso`, `crc_comercial`, `gestor`, `admin`
+- Novo role `crc_sucesso` criado no sistema de usuários (perfil base)
 
 ### Importação do Google Sheets
+
+Leitura via Google Drive MCP (permissão de leitura já concedida pelo usuário).
 
 ```
 Para cada linha das abas Acompanhamento + Invisalign:
@@ -243,6 +246,7 @@ Leads já importados (histórico) não são duplicados. Novos fechamentos aprova
 1. `create table pacientes_sucesso` (definição acima)
 2. `create table tratamentos_config` + insert dos valores iniciais
 3. Adicionar `importado_historico boolean default false` na tabela `leads`
+4. Adicionar role `crc_sucesso` à função `admin_create_user` e ao módulo de Usuários
 
 ---
 
@@ -250,5 +254,5 @@ Leads já importados (histórico) não são duplicados. Novos fechamentos aprova
 
 - Interface de configuração dos `tratamentos_config` (gestor edita diretamente na V2)
 - Notificações automáticas quando status vira CRÍTICO (V2)
-- Role dedicado `crc_sucesso` (usa `crc_comercial` por ora)
+- Interface de configuração dos `tratamentos_config` via UI (gestor edita na V2)
 - Histórico de edições das células do módulo Pacientes (V2)
