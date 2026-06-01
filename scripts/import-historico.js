@@ -174,7 +174,7 @@ async function main() {
       status = null; stats.CompSemOrc++;
       extraData = { dataCadastro: parseDate(leadRow['Data de cadastro']), dataAgendamento: aRow ? parseDate(aRow['Criação do agendamento']) : null };
     } else if (aRow) {
-      status = 'Faltou'; stats.Faltou++;
+      status = 'Nutrir'; stats.Faltou++;
       extraData = {
         dataCadastro: parseDate(leadRow['Data de cadastro']),
         dataAgendamento: parseDate(aRow['Data da consulta']) || parseDate(aRow['Criação do agendamento']),
