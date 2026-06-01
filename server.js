@@ -1267,8 +1267,19 @@ app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) 
       .select('id, lead_id, media_id, mime').eq('id', msgId).maybeSingle();
     if (!msg || msg.lead_id !== id) return res.status(404).json({ error: 'Mensagem não encontrada' });
     if (!msg.media_id) return res.status(404).json({ error: 'Mensagem sem mídia' });
+    const MIME_ALLOWLIST = new Set([
+      'image/jpeg','image/png','image/webp','image/gif','image/heic',
+      'audio/ogg','audio/ogg; codecs=opus','audio/mpeg','audio/mp4','audio/aac',
+      'video/mp4','video/3gpp',
+      'application/pdf',
+      'image/webp', // sticker
+    ]);
     const { buffer, contentType } = await whatsapp.baixarMidia(msg.media_id);
-    res.set('Content-Type', msg.mime || contentType);
+    const safeMime = MIME_ALLOWLIST.has(msg.mime) ? msg.mime
+      : MIME_ALLOWLIST.has(contentType) ? contentType
+      : 'application/octet-stream';
+    res.set('Content-Type', safeMime);
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Cache-Control', 'private, max-age=86400');
     res.send(buffer);
   } catch (e) {
