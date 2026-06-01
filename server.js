@@ -3881,7 +3881,7 @@ app.get('/ligacoes', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'ligacoes.html'));
 });
 app.use(express.static(path.join(__dirname, 'public')));
-app.get(/^\/(?!api\/|lead(\?|$)|webhooks\/).*/, (req, res) => {
+app.get(/^\/(?!api\/|lead(\?|$)|webhooks\/|track\.js).*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 // ========== TRAJETO / ATRIBUICAO / ANUNCIOS ==========
