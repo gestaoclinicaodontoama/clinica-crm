@@ -545,17 +545,21 @@ async function notificarPendentes() {
     titulo: '📋 Fechamentos para conferir', corpo,
     metadata: { url: '/comercial/conferencia/' },
   }));
+  let notifOk = true;
   if (rows.length) {
     const { error } = await supabase.from('notificacoes').insert(rows);
-    if (error) log(`ERRO notificacoes: ${error.message}`);
+    if (error) { log(`ERRO notificacoes: ${error.message}`); notifOk = false; }
   }
 
-  const ids = pend.map(p => p.clinicorp_estimate_id);
-  for (let i = 0; i < ids.length; i += 500) {
-    await supabase.from('orcamentos').update({ revisao_notificado: true })
-      .in('clinicorp_estimate_id', ids.slice(i, i + 500));
+  // Só marca como notificado se o aviso realmente entrou (senão re-tenta no próximo sync).
+  if (notifOk) {
+    const ids = pend.map(p => p.clinicorp_estimate_id);
+    for (let i = 0; i < ids.length; i += 500) {
+      await supabase.from('orcamentos').update({ revisao_notificado: true })
+        .in('clinicorp_estimate_id', ids.slice(i, i + 500));
+    }
   }
-  log(`notificarPendentes: ${pend.length} pendentes, ${rows.length} CRC avisados`);
+  log(`notificarPendentes: ${pend.length} pendentes, ${rows.length} CRC avisados${notifOk ? '' : ' (FALHOU — não marcado)'}`);
   return pend.length;
 }
 
