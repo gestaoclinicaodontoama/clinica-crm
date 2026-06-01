@@ -1233,7 +1233,7 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
     const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption });
     await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
-      texto: caption || '', wa_id: resultado.messages?.[0]?.id || '',
+      texto: caption || `[${tipo}: ${sanitizeStr(originalname, 60)}]`, wa_id: resultado.messages?.[0]?.id || '',
       tipo, media_id: mediaId, mime: sanitizeStr(mimetype, 120),
       media_filename: tipo === 'document' ? sanitizeStr(originalname, 200) : null,
     });

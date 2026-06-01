@@ -2893,6 +2893,7 @@ async function abrirChat(leadId) {
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModal(${chatLeadAtual.id})">Ver perfil</button>
   `;
 
+  if (chatPollInterval) clearInterval(chatPollInterval);
   _markRead(leadId);
   _initPainel(chatLeadAtual);
   const _bannerEl = document.getElementById('chat-anuncio-banner');
@@ -2902,7 +2903,6 @@ async function abrirChat(leadId) {
     _bannerEl.style.display = _bannerHtml ? 'block' : 'none';
   }
   await carregarMensagensChat(leadId);
-  if (chatPollInterval) clearInterval(chatPollInterval);
   chatPollInterval = setInterval(() => {
     if (chatLeadAtual) { _markRead(chatLeadAtual.id); carregarMensagensChat(chatLeadAtual.id, true); }
   }, 4000);
