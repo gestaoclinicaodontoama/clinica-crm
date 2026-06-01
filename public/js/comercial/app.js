@@ -24,8 +24,8 @@ function render(el, v) {
     .join('');
 }
 
-function renderFechamentos(el, f) {
-  const cards = [
+function cardsFech(f) {
+  return [
     ['Fechamentos no mês', NUM(f.fechamentos)],
     ['Valor fechado', BRL(f.valor_fechado)],
     ['Entradas recebidas', BRL(f.entradas_recebidas)],
@@ -33,7 +33,9 @@ function renderFechamentos(el, f) {
     ['Tempo médio até fechar', DIAS(f.tempo_medio_ate_fechar)],
     ['Origem do fechamento', `${PCT(f.origem_fechamento.pct_mesmo_mes)} no mês · ${f.origem_fechamento.meses_anteriores} de antes`],
   ];
-  el.innerHTML = cards
+}
+function renderFechamentosGrupo(el, f) {
+  el.innerHTML = cardsFech(f)
     .map(([r, val]) => `<div class="card"><div class="rotulo">${r}</div><div class="valor">${val}</div></div>`)
     .join('');
 }
@@ -65,7 +67,8 @@ async function carregar() {
   }
   render(document.getElementById('cards-clinica'), data.clinica);
   render(document.getElementById('cards-leads'), data.leads);
-  renderFechamentos(document.getElementById('cards-fechamentos'), data.fechamentos_mes);
+  renderFechamentosGrupo(document.getElementById('cards-fech-confirmado'), data.fechamentos_mes.confirmado);
+  renderFechamentosGrupo(document.getElementById('cards-fech-pendente'), data.fechamentos_mes.pendente);
   renderFases(document.getElementById('fases-clinica'), 'clinica', data.tempos_fase.clinica);
   renderFases(document.getElementById('fases-leads'), 'leads', data.tempos_fase.leads);
 }

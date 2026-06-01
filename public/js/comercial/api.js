@@ -15,4 +15,20 @@ async function getFunil({ from, to, origem }) {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   return r.json();
 }
-window.ComercialApi = { getFunil };
+async function listarConferencia(status) {
+  const r = await fetch(`/api/comercial/conferencia?status=${status || 'pendente'}`, {
+    headers: { Authorization: `Bearer ${_token()}` },
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+async function revisarConferencia(id, body) {
+  const r = await fetch(`/api/comercial/conferencia/${id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_token()}` },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+window.ComercialApi = { getFunil, listarConferencia, revisarConferencia };
