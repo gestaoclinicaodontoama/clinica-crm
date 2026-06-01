@@ -92,13 +92,15 @@ async function enviarMidia({ para, mediaId, tipo, caption }) {
 // Passo 1: GET /{mediaId} → retorna { url, mime_type }. Passo 2: baixar a url com o token.
 async function baixarMidia(mediaId) {
   if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
+  const timeout = () => AbortSignal.timeout(10_000);
   const meta = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${mediaId}`, {
     headers: { 'Authorization': `Bearer ${WA_TOKEN}` },
+    signal: timeout(),
   });
   const info = await meta.json();
   if (info.error) throw new Error(info.error.message);
   if (!info.url) throw new Error('Mídia sem URL (expirada?)');
-  const bin = await fetch(info.url, { headers: { 'Authorization': `Bearer ${WA_TOKEN}` } });
+  const bin = await fetch(info.url, { headers: { 'Authorization': `Bearer ${WA_TOKEN}` }, signal: timeout() });
   if (!bin.ok) throw new Error('Falha ao baixar mídia: HTTP ' + bin.status);
   const arrayBuf = await bin.arrayBuffer();
   return { buffer: Buffer.from(arrayBuf), contentType: info.mime_type || bin.headers.get('content-type') || 'application/octet-stream' };
