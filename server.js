@@ -3928,7 +3928,7 @@ app.get('/api/leads/:id/trajeto', requireRole('admin', 'gestor', 'crc_leads', 'c
     const offset = parseInt(req.query.offset, 10) || 0;
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const { data, error, count } = await supabase.from('lead_eventos')
-      .select('*', { count: 'exact' })
+      .select('*', { count: 'planned' })
       .eq('lead_id', id)
       .order('criado_em', { ascending: false })
       .range(offset, offset + limit - 1);
