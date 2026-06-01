@@ -346,6 +346,8 @@ async function syncAvaliacoes(cfg) {
       data:                     toDate(a.date || a.Date),
       compareceu:               !!a.CheckinTime || cfg.statusCompareceu.has(statusId),
       status_raw:               statusId || null,
+      agendado_em:              a.CreateDate || null,
+      comparecimento_em:        a.CheckinTime ? new Date(Number(a.CheckinTime)).toISOString() : null,
       atualizado_em:            new Date().toISOString(),
     });
   }
@@ -419,6 +421,79 @@ async function vincularLeads() {
   return n;
 }
 
+/** Casa a entrada (1º pagamento do paciente a partir da data do orçamento) nos orçamentos aprovados particulares. */
+async function syncEntradas() {
+  log(`Buscando pagamentos do funil (${FUNIL_DIAS}d) para casar entradas...`);
+  const pays = await fetchRangeChunked('/payment/list', FUNIL_DIAS);
+
+  // mapa paciente → pagamentos ordenados por data asc
+  const byPat = new Map();
+  for (const p of pays) {
+    const pid  = String(p.PatientId || p.patientId || '');
+    const data = toDate(p.ReceivedDate || p.CheckOutDate || p.PaymentDate || p.Date);
+    const valor = Number(p.Amount ?? p.PaidValue ?? p.Value ?? p.TotalPaid ?? 0);
+    if (!pid || !data) continue;
+    if (!byPat.has(pid)) byPat.set(pid, []);
+    byPat.get(pid).push({ data, valor });
+  }
+  for (const arr of byPat.values()) arr.sort((a, b) => (a.data < b.data ? -1 : 1));
+
+  // orçamentos aprovados particulares → casar 1º pagamento >= data_criacao
+  const { data: orcs } = await supabase.from('orcamentos')
+    .select('clinicorp_estimate_id, paciente_clinicorp_id, data_criacao')
+    .eq('status', 'APPROVED').gt('valor_particular', 0);
+
+  let n = 0;
+  for (const o of (orcs || [])) {
+    const arr = byPat.get(String(o.paciente_clinicorp_id)) || [];
+    const entrada = arr.find(p => p.data >= o.data_criacao);
+    if (!entrada) continue;
+    const { error } = await supabase.from('orcamentos')
+      .update({ entrada_valor: entrada.valor, entrada_data: entrada.data })
+      .eq('clinicorp_estimate_id', o.clinicorp_estimate_id);
+    if (!error) n++;
+  }
+  log(`Entradas casadas: ${n}`);
+  return n;
+}
+
+function addDias(dateStr, dias) {
+  const d = new Date(dateStr); d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+// Marca avaliacoes.tem_orcamento = paciente tem orçamento PARTICULAR criado em [data, data+60d].
+async function marcarAvaliacoesComOrcamento() {
+  const { data: orcs } = await supabase.from('orcamentos')
+    .select('paciente_clinicorp_id, data_criacao').gt('valor_particular', 0);
+  const byPat = new Map();
+  for (const o of (orcs || [])) {
+    if (!byPat.has(o.paciente_clinicorp_id)) byPat.set(o.paciente_clinicorp_id, []);
+    byPat.get(o.paciente_clinicorp_id).push(o.data_criacao);
+  }
+
+  const { data: avals } = await supabase.from('avaliacoes')
+    .select('clinicorp_appointment_id, paciente_clinicorp_id, data');
+
+  const updates = [];
+  for (const a of (avals || [])) {
+    const datas = byPat.get(a.paciente_clinicorp_id) || [];
+    const limite = a.data ? addDias(a.data, 60) : null;
+    const tem = !!(a.data && datas.some(d => d >= a.data && d <= limite));
+    updates.push({ clinicorp_appointment_id: a.clinicorp_appointment_id, tem_orcamento: tem });
+  }
+
+  const validas = updates.filter(u => u.tem_orcamento).length;
+  for (let i = 0; i < updates.length; i += 500) {
+    const chunk = updates.slice(i, i + 500);
+    const { error } = await supabase.from('avaliacoes')
+      .upsert(chunk, { onConflict: 'clinicorp_appointment_id' });
+    if (error) log(`ERRO upsert tem_orcamento: ${error.message}`);
+  }
+  log(`Avaliações válidas (com orçamento): ${validas}/${updates.length}`);
+  return validas;
+}
+
 // ─── entrada principal ───────────────────────────────────────────────────────
 
 async function runSync() {
@@ -456,6 +531,12 @@ async function runSync() {
     // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
     result.steps.leads_vinculados = await vincularLeads();
 
+    // Fase 9: entradas (1º pagamento)
+    result.steps.entradas = await syncEntradas();
+
+    // Fase 10: marcar avaliações válidas (com orçamento particular em 60d)
+    result.steps.avaliacoes_validas = await marcarAvaliacoesComOrcamento();
+
     result.ok        = true;
     result.req_count = api.reqCount; // requisições feitas nesta hora
   } catch (err) {
@@ -473,4 +554,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, marcarAvaliacoesComOrcamento };
