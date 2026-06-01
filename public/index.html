@@ -793,6 +793,7 @@ textarea { resize: vertical; min-height: 80px; }
       </div>
       <div class="chat-window" id="chat-window" style="display:none">
         <div class="chat-header" id="chat-header"></div>
+        <div id="chat-anuncio-banner" style="display:none"></div>
         <div style="display:flex;flex:1;min-height:0">
           <!-- Mensagens -->
           <div style="display:flex;flex-direction:column;flex:1;min-width:0">
@@ -2586,6 +2587,26 @@ function abrirChatKanban(leadId) {
 }
 
 // ============ PAINEL DIREITO (chat) ============
+// Monta o HTML do criativo do anúncio a partir de referral_data (CTWA). Compartilhado: chat + perfil.
+function renderCriativoAnuncio(referralData, opts = {}) {
+  const rd = referralData || {};
+  const _esc = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
+  const img = _safeUrl(rd.image_url) || _safeUrl(rd.thumbnail_url) || '';
+  if (!img && !rd.headline && !rd.body) return '';
+  const link = _safeUrl(rd.source_url);
+  const maxH = opts.compact ? 120 : 160;
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:${opts.compact?'8px 12px':'0 0 8px'}">
+    ${img ? `<img src="${_esc(img)}" alt="anúncio" style="width:100%;display:block;max-height:${maxH}px;object-fit:cover" loading="lazy">` : ''}
+    ${(rd.headline || rd.body) ? `<div style="padding:8px">
+      ${opts.compact ? '<div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:2px">📍 VEIO DESTE ANÚNCIO</div>' : ''}
+      ${rd.headline ? `<div style="font-size:11.5px;font-weight:600;line-height:1.3;margin-bottom:2px">${_esc(rd.headline)}</div>` : ''}
+      ${rd.body ? `<div style="font-size:11px;color:var(--muted);line-height:1.35">${_esc(rd.body).slice(0,140)}</div>` : ''}
+    </div>` : ''}
+    ${link ? `<a href="${_esc(link)}" target="_blank" rel="noopener" style="display:block;padding:6px 8px;font-size:10.5px;color:var(--accent);border-top:1px solid var(--border)">🔗 ver anúncio original ↗</a>` : ''}
+  </div>`;
+}
+
 function _initPainel(lead) {
   const ps = document.getElementById('painel-status');
   if (!ps.options.length) FUNIL.forEach(s => ps.appendChild(Object.assign(document.createElement('option'),{value:s,textContent:s})));
@@ -2654,6 +2675,9 @@ function _initPainel(lead) {
     }
     const chave = (lead.campanha || '').toLowerCase();
     const adId = /^\d{6,}$/.test(String(lead.campanha || '').trim()) ? String(lead.campanha).trim() : null;
+    const criativoHtmlBase = renderCriativoAnuncio(lead.referral_data, { compact: false });
+    const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
+    const imgReferral = _safeUrl((lead.referral_data||{}).image_url) || _safeUrl((lead.referral_data||{}).thumbnail_url) || '';
     api('/api/anuncios').then(catalog => {
       const entrada = Array.isArray(catalog) ? catalog.find(a => a.chave === chave && a.ativo) : null;
       const nome = entrada?.nome || lead.campanha || (lead.ctwa_clid ? 'Meta Ads (sem campanha)' : lead.fbclid ? 'Meta Ads' : 'Google Ads');
@@ -2662,24 +2686,7 @@ function _initPainel(lead) {
       const linkHtml = link
         ? `<a href="${linkEsc}" target="_blank" rel="noopener" style="color:${cor};text-decoration:none;word-break:break-all">${nomeEsc} ↗</a>`
         : `<span style="word-break:break-all">${nomeEsc}</span>`;
-      // Criativo capturado direto do referral CTWA (mais confiável que a Graph API)
-      const rd = lead.referral_data || {};
-      // Só aceita URLs http(s) — bloqueia javascript:/data: em href/src (dado vem de webhook externo)
-      const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
-      const imgReferral = _safeUrl(rd.image_url) || _safeUrl(rd.thumbnail_url) || '';
-      let criativoHtml = '';
-      if (imgReferral || rd.headline || rd.body) {
-        const linkAnuncio = _safeUrl(rd.source_url) || (adId ? 'https://www.facebook.com/ads/library/?id=' + adId : '');
-        criativoHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
-          ${imgReferral ? `<img src="${_esc(imgReferral)}" alt="anúncio" style="width:100%;display:block;max-height:160px;object-fit:cover" loading="lazy">` : ''}
-          ${(rd.headline || rd.body) ? `<div style="padding:8px">
-            ${rd.headline ? `<div style="font-size:11.5px;font-weight:600;line-height:1.3;margin-bottom:2px">${_esc(rd.headline)}</div>` : ''}
-            ${rd.body ? `<div style="font-size:11px;color:var(--muted);line-height:1.35">${_esc(rd.body).slice(0,140)}</div>` : ''}
-          </div>` : ''}
-          ${linkAnuncio ? `<a href="${_esc(linkAnuncio)}" target="_blank" rel="noopener" style="display:block;padding:6px 8px;font-size:10.5px;color:var(--accent);border-top:1px solid var(--border)">🔗 ver anúncio original ↗</a>` : ''}
-        </div>`;
-      }
-      el.innerHTML = criativoHtml + `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
+      el.innerHTML = criativoHtmlBase + `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
       // Fallback: se não veio imagem no referral, tenta a Graph API pelo ad_id
       if (!imgReferral && adId) {
         api('/api/anuncio-thumb/' + adId).then(t => {
@@ -2693,7 +2700,7 @@ function _initPainel(lead) {
         }).catch(() => {});
       }
     }).catch(() => {
-      el.innerHTML = `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge;
+      el.innerHTML = criativoHtmlBase + `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge;
     });
   }
 
@@ -2855,6 +2862,7 @@ async function cancelarAgendamento(id) {
 function voltarListaChat() {
   // Mobile: volta da conversa aberta para a lista de conversas (um painel por vez)
   document.getElementById('chat-lista-view').classList.remove('chat-open');
+  const _b = document.getElementById('chat-anuncio-banner'); if (_b) _b.style.display = 'none';
 }
 
 async function abrirChat(leadId) {
@@ -2884,6 +2892,12 @@ async function abrirChat(leadId) {
 
   _markRead(leadId);
   _initPainel(chatLeadAtual);
+  const _bannerEl = document.getElementById('chat-anuncio-banner');
+  if (_bannerEl) {
+    const _bannerHtml = renderCriativoAnuncio(chatLeadAtual.referral_data, { compact: true });
+    _bannerEl.innerHTML = _bannerHtml;
+    _bannerEl.style.display = _bannerHtml ? 'block' : 'none';
+  }
   await carregarMensagensChat(leadId);
   if (chatPollInterval) clearInterval(chatPollInterval);
   chatPollInterval = setInterval(() => {
