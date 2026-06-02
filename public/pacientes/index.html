@@ -199,7 +199,7 @@ function tabRows() {
 }
 
 function calcStatus(row) {
-  const prio = row.prioridade ?? null;
+  const prio = (row.prioridade === undefined) ? null : row.prioridade;
   if (prio === 10) return { label: 'Alta - Consulta Realizada', cls: 'alta-c', icon: '🔵' };
   if (prio === 9 || row.is_alta) return { label: 'Alta', cls: 'alta', icon: '✅' };
   if (!row.data_atualizacao) return { label: 'Sem data', cls: 'sem-data', icon: '⚪' };
@@ -277,9 +277,9 @@ function prioCel(row) {
     badge.textContent = '0';
     badge.title = '0 – Urgente (clique para editar)';
   } else if (prio === null) {
-    badge.classList.add('p-none');
-    badge.textContent = '—';
-    badge.title = 'Sem prioridade (clique para editar)';
+    badge.classList.add('p0');
+    badge.textContent = '0';
+    badge.title = 'Sem prioridade definida — tratado como 0 (clique para editar)';
   } else {
     badge.textContent = prio;
     badge.title = 'Prioridade ' + prio + ' (clique para editar)';
@@ -316,7 +316,7 @@ function makeRow(r) {
   tr.appendChild(tdNome);
 
   tr.appendChild(editCel(r.id, 'tratamento',       r.tratamento,       false));
-  tr.appendChild(editCel(r.id, 'data_venda',        r.data_venda,       false));
+  tr.appendChild(cel(fmtDate(r.data_venda), 'td-date'));
   tr.appendChild(editCel(r.id, 'data_atualizacao',  r.data_atualizacao, false));
   tr.appendChild(editCel(r.id, 'proximo_passo',     r.proximo_passo,    true));
   tr.appendChild(editCel(r.id, 'data_agendamento',  r.data_agendamento, false));
@@ -368,8 +368,9 @@ function applySort(arr) {
   if (!sortCol) {
     if (activeTab === 'geral') {
       return [...arr].sort((a, b) => {
-        const pa = a.prioridade ?? 999;
-        const pb = b.prioridade ?? 999;
+        // null = sem classificação → trata como 0 (urgente, aparece junto com prio 0)
+        const pa = (a.prioridade === null || a.prioridade === undefined) ? 0 : a.prioridade;
+        const pb = (b.prioridade === null || b.prioridade === undefined) ? 0 : b.prioridade;
         return pa - pb;
       });
     }
@@ -396,9 +397,11 @@ function renderTable() {
 
   let filtered = tabRows().filter(r => {
     if (fPrio !== '') {
-      const p = r.prioridade ?? null;
-      if (fPrio === '0' && p !== 0) return false;
-      if (fPrio !== '0' && p !== parseInt(fPrio)) return false;
+      const p = r.prioridade;
+      const fPrioNum = parseInt(fPrio);
+      // null = sem classificação, equivale a 0 para fins de filtro
+      const pEfetivo = (p === null || p === undefined) ? 0 : p;
+      if (pEfetivo !== fPrioNum) return false;
     }
     const st = calcStatus(r);
     if (fStatus && st.cls !== fStatus) return false;
@@ -468,7 +471,7 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
     const inp = document.createElement('input');
     inp.className = 'pac-prio-input';
     inp.type = 'number'; inp.min = 0; inp.max = 10;
-    inp.value = row.prioridade ?? 0;
+    inp.value = (row.prioridade === null || row.prioridade === undefined) ? 0 : row.prioridade;
     prioCell.replaceChildren(inp);
     inp.focus(); inp.select();
 
