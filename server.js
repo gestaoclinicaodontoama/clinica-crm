@@ -612,7 +612,7 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
   }
 });
 // ========== KANBAN ==========
-const CARD_FIELDS = 'id,nome,telefone,origem,status,valor,criado_em,data_comparecimento,data_agendamento,data_fechamento,data_orcamento,data_avaliacao,crc_agendamento_nome,crc_comercial_nome';
+const CARD_FIELDS = 'id,nome,telefone,origem,status,valor,criado_em,data_comparecimento,data_agendamento,data_fechamento,data_orcamento,data_avaliacao,crc_agendamento_nome,crc_comercial_nome,ultimo_contato';
 
 function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
   const now = Date.now();
