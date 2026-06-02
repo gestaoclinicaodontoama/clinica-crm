@@ -2617,7 +2617,8 @@ const normPhone = s => String(s || '').replace(/\D/g, '').slice(-11);
 
 async function syncComparecimentos() {
   if (!process.env.CLINICORP_TOKEN) return;
-  const PRE_COMPARECEU = ['Agendado', 'Aguardando', 'Lead'];
+  // Inclui Nutrir/Reclassificar: leads históricos que podem ter comparecido sem passar pelo CRM
+  const PRE_COMPARECEU = ['Lead', 'Aguardando', 'Agendado', 'Nutrir', 'Reclassificar'];
   try {
     const d30ago  = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
