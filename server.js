@@ -2612,22 +2612,25 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
 });
 
 // ── Sync periódico: detecta comparecimento no Clinicorp e atualiza lead para "Compareceu" ──
+// Últimos 11 dígitos para comparar telefones BR independente do prefixo 55
+const normPhone = s => String(s || '').replace(/\D/g, '').slice(-11);
+
 async function syncComparecimentos() {
   if (!process.env.CLINICORP_TOKEN) return;
+  const PRE_COMPARECEU = ['Agendado', 'Aguardando', 'Lead'];
   try {
-    const { data: leads } = await supabase.from('leads')
-      .select('id, clinicorp_appointment_id, status')
-      .not('clinicorp_appointment_id', 'is', null)
-      .neq('status', 'Compareceu')
-      .in('status', ['Agendado']);
-    if (!leads || !leads.length) return;
-
-    const pastWeek = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const d30ago  = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-    const r = await clinicorpGet('/appointment/list', { from: pastWeek, to: tomorrow });
+    const r = await clinicorpGet('/appointment/list', { from: d30ago, to: tomorrow });
     const apts = r?.data || [];
 
-    for (const lead of leads) {
+    // ── Phase 1: leads com clinicorp_appointment_id (agendados via CRM) ──
+    const { data: linkedLeads } = await supabase.from('leads')
+      .select('id, clinicorp_appointment_id, status')
+      .not('clinicorp_appointment_id', 'is', null)
+      .in('status', PRE_COMPARECEU);
+
+    for (const lead of (linkedLeads || [])) {
       const apt = apts.find(a => String(a.id) === String(lead.clinicorp_appointment_id));
       if (!apt) continue;
       const chegou = apt.CheckinTime || apt.Status === 'Arrived' || apt.StatusId === CLINICORP_STATUS_ARRIVED;
@@ -2649,10 +2652,41 @@ async function syncComparecimentos() {
         }
         continue;
       }
-      await supabase.from('leads').update({ status: 'Compareceu' }).eq('id', lead.id);
+      const dataComp = apt.CheckinTime ? new Date(apt.CheckinTime).toISOString() : new Date().toISOString();
+      await supabase.from('leads').update({ status: 'Compareceu', data_comparecimento: dataComp }).eq('id', lead.id);
       logEvento(lead.id, 'status_mudou', 'Status: Agendado → Compareceu (detectado via Clinicorp)',
-        { de: 'Agendado', para: 'Compareceu' });
+        { de: lead.status, para: 'Compareceu' }, null);
       console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (apt ${lead.clinicorp_appointment_id})`);
+    }
+
+    // ── Phase 2: match por telefone para leads sem clinicorp_appointment_id ──
+    // Constrói mapa phone11 → ISO mais recente do CheckinTime
+    const phoneCheckin = {};
+    for (const apt of apts) {
+      if (!apt.CheckinTime) continue;
+      const p11 = normPhone(apt.MobilePhone || apt.Phone || '');
+      if (!p11 || p11.length < 8) continue;
+      const iso = new Date(apt.CheckinTime).toISOString();
+      if (!phoneCheckin[p11] || iso > phoneCheckin[p11]) phoneCheckin[p11] = iso;
+    }
+
+    const phones11 = Object.keys(phoneCheckin);
+    if (!phones11.length) return;
+
+    // Busca leads em status pré-Compareceu e sem apt_id (para não duplicar Phase 1)
+    const { data: candidates } = await supabase.from('leads')
+      .select('id, telefone, status')
+      .in('status', PRE_COMPARECEU)
+      .is('clinicorp_appointment_id', null);
+
+    for (const lead of (candidates || [])) {
+      const p11 = normPhone(lead.telefone);
+      const dataComp = phoneCheckin[p11];
+      if (!dataComp) continue;
+      await supabase.from('leads').update({ status: 'Compareceu', data_comparecimento: dataComp }).eq('id', lead.id);
+      logEvento(lead.id, 'status_mudou', 'Status: → Compareceu (detectado via Clinicorp por telefone)',
+        { de: lead.status, para: 'Compareceu', telefone: lead.telefone }, null);
+      console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (phone match)`);
     }
 
   } catch(e) {
