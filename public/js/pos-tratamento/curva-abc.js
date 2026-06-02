@@ -292,52 +292,136 @@ function _abrirModalCampanha(tipo, preview) {
     frios: { titulo: 'Leads Frios', sub: 'Leads do 51º ao 151º (não-indicação)' },
   };
   const { titulo, sub } = LABELS[tipo] || { titulo: tipo, sub: '' };
-
-  const cols = tipo === 'abc'
-    ? ['nome', 'telefone', 'dias_sem_visita']
-    : ['nome', 'telefone'];
-  const colLabels = tipo === 'abc'
-    ? ['Nome', 'Telefone', 'Dias sem retorno']
-    : ['Nome', 'Telefone'];
+  const isCols3 = tipo === 'abc';
+  const cols = isCols3 ? ['nome', 'telefone', 'dias_sem_visita'] : ['nome', 'telefone'];
+  const colLabels = isCols3 ? ['Nome', 'Telefone', 'Dias'] : ['Nome', 'Telefone'];
+  const idField = tipo === 'abc' ? 'clinicorp_id' : 'id';
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const rows = (preview.contatos || []).slice(0, 20).map(c =>
-    '<tr>' + cols.map(k => `<td style="padding:6px 8px;border-bottom:1px solid var(--color-border,#e2e8f0);font-size:13px">${esc(c[k]) || '—'}</td>`).join('') + '</tr>'
-  ).join('');
-  const extra = preview.total > 20
-    ? `<tr><td colspan="${cols.length}" style="padding:6px 8px;color:var(--color-text-muted,#718096);font-size:12px">... e mais ${preview.total - 20} contatos</td></tr>`
+
+  const contatos = (preview.contatos || []).slice(0, 100);
+  const total = preview.total;
+  const desmarcados = new Set();
+  const bloqueados = new Set();
+
+  function _countSel() {
+    return contatos.length - desmarcados.size - bloqueados.size;
+  }
+
+  function _buildRows() {
+    return contatos.map(c => {
+      const id = String(c[idField] || '');
+      const isDes = desmarcados.has(id);
+      const isBlq = bloqueados.has(id);
+      const style = (isDes || isBlq) ? 'opacity:0.4' : '';
+      const nuncaBtn = isDes && !isBlq
+        ? `<button class="cmp-nunca" data-id="${esc(id)}" data-nome="${esc(c.nome)}" style="font-size:11px;padding:2px 6px;background:#fff5f5;color:#e53e3e;border:1px solid #fed7d7;border-radius:4px;cursor:pointer">🚫 Nunca ligar</button>`
+        : '';
+      const badge = isBlq ? `<span style="font-size:11px;color:#718096;background:#edf2f7;padding:2px 6px;border-radius:4px">Bloqueado</span>` : '';
+      return `<tr style="${style}">
+        <td style="padding:6px 8px;border-bottom:1px solid var(--color-border,#e2e8f0)">
+          <input type="checkbox" class="cmp-chk" data-id="${esc(id)}" ${isBlq ? 'disabled' : ''} ${isDes || isBlq ? '' : 'checked'}>
+        </td>
+        ${cols.map(k => `<td style="padding:6px 8px;border-bottom:1px solid var(--color-border,#e2e8f0);font-size:13px">${esc(c[k]) || '—'}</td>`).join('')}
+        <td style="padding:6px 8px;border-bottom:1px solid var(--color-border,#e2e8f0)">${nuncaBtn}${badge}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _updateCounter() {
+    const sel = _countSel();
+    overlay.querySelector('#cmp-counter').textContent = `${sel} de ${contatos.length} selecionados`;
+    const btn = overlay.querySelector('#cmp-confirmar');
+    btn.disabled = sel === 0;
+    btn.textContent = sel === 0 ? 'Nenhum contato selecionado' : `📞 Enviar ${sel} para discagem`;
+  }
+
+  function _rebuildTable() {
+    overlay.querySelector('#cmp-tbody').innerHTML = _buildRows();
+    _bindRowEvents();
+    _updateCounter();
+  }
+
+  function _bindRowEvents() {
+    overlay.querySelectorAll('.cmp-chk').forEach(chk => {
+      chk.onchange = () => {
+        if (!chk.checked) desmarcados.add(chk.dataset.id);
+        else desmarcados.delete(chk.dataset.id);
+        _rebuildTable();
+      };
+    });
+    overlay.querySelectorAll('.cmp-nunca').forEach(btn => {
+      btn.onclick = async () => {
+        const { id, nome } = btn.dataset;
+        if (!confirm(`Adicionar ${nome} à lista de não ligar? Esta pessoa não será incluída em nenhuma campanha futura.`)) return;
+        btn.disabled = true; btn.textContent = '...';
+        try {
+          await backendApi('POST', '/api/campanhas/nao-ligar', { tipo: tipo === 'abc' ? 'paciente' : 'lead', id });
+          bloqueados.add(id);
+          desmarcados.delete(id); // evita dupla subtração em _countSel()
+          _rebuildTable();
+        } catch (e) {
+          btn.disabled = false; btn.textContent = '🚫 Nunca ligar';
+          toast(e.message || 'Erro ao salvar.', 'error');
+        }
+      };
+    });
+  }
+
+  const avisoExtra = total > 100
+    ? `<p style="font-size:12px;color:#718096;margin:8px 0 0;padding:8px;background:#fffbeb;border-radius:6px;border:1px solid #fbd38d">ℹ️ Mostrando os primeiros 100 de ${total}. Os demais serão incluídos automaticamente. Use 🚫 Nunca ligar para excluí-los permanentemente.</p>`
     : '';
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:560px;max-height:80vh;display:flex;flex-direction:column">
-      <h3 class="modal__title">${titulo} — ${preview.total} contatos</h3>
-      <p style="font-size:13px;color:var(--color-text-muted,#718096);margin:0 0 12px">${sub}</p>
+    <div class="modal" style="max-width:620px;max-height:85vh;display:flex;flex-direction:column">
+      <h3 class="modal__title">${esc(titulo)} — ${total} contatos</h3>
+      <p style="font-size:13px;color:var(--color-text-muted,#718096);margin:0 0 8px">${esc(sub)}</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="cmp-selectall" checked> Selecionar todos
+        </label>
+        <span id="cmp-counter" style="font-size:12px;color:#718096"></span>
+      </div>
       <div style="overflow-y:auto;flex:1;border:1px solid var(--color-border,#e2e8f0);border-radius:8px">
         <table style="width:100%;border-collapse:collapse">
-          <thead><tr>${colLabels.map(l => `<th style="padding:8px;text-align:left;font-size:12px;background:var(--color-surface-alt,#f7fafc);border-bottom:2px solid var(--color-border,#e2e8f0)">${l}</th>`).join('')}</tr></thead>
-          <tbody>${rows}${extra}</tbody>
+          <thead><tr>
+            <th style="width:32px;padding:8px;background:var(--color-surface-alt,#f7fafc);border-bottom:2px solid var(--color-border,#e2e8f0)"></th>
+            ${colLabels.map(l => `<th style="padding:8px;text-align:left;font-size:12px;background:var(--color-surface-alt,#f7fafc);border-bottom:2px solid var(--color-border,#e2e8f0)">${l}</th>`).join('')}
+            <th style="padding:8px;background:var(--color-surface-alt,#f7fafc);border-bottom:2px solid var(--color-border,#e2e8f0)"></th>
+          </tr></thead>
+          <tbody id="cmp-tbody"></tbody>
         </table>
       </div>
-      <div class="modal__actions" style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+      ${avisoExtra}
+      <div class="modal__actions" style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">
         <button id="cmp-cancelar" class="btn btn--ghost">Cancelar</button>
-        <button id="cmp-confirmar" class="btn btn--success">📞 Enviar para discagem</button>
+        <button id="cmp-confirmar" class="btn btn--success">📞 Enviar ${contatos.length} para discagem</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
 
-  document.getElementById('cmp-cancelar').onclick = () => overlay.remove();
-  document.getElementById('cmp-confirmar').onclick = async () => {
-    const btn = document.getElementById('cmp-confirmar');
+  _rebuildTable();
+
+  overlay.querySelector('#cmp-selectall').onchange = e => {
+    if (e.target.checked) desmarcados.clear();
+    else contatos.forEach(c => { const id = String(c[idField]||''); if (!bloqueados.has(id)) desmarcados.add(id); });
+    _rebuildTable();
+  };
+  overlay.querySelector('#cmp-cancelar').onclick = () => overlay.remove();
+  overlay.querySelector('#cmp-confirmar').onclick = async () => {
+    const btn = overlay.querySelector('#cmp-confirmar');
+    const excluir = [...desmarcados];
+    const sel = _countSel();
     btn.disabled = true; btn.textContent = 'Enviando...';
     try {
-      await backendApi('POST', '/api/campanhas/lancar', { tipo });
+      await backendApi('POST', '/api/campanhas/lancar', { tipo, excluir });
       overlay.remove();
-      toast(`Campanha iniciada! ${preview.total} contatos na fila de discagem.`);
+      toast(`Campanha iniciada! ${sel} contatos na fila de discagem.`);
       if (window.campanhaWidgetRefresh) window.campanhaWidgetRefresh();
     } catch (e) {
-      btn.disabled = false; btn.textContent = '📞 Enviar para discagem';
+      btn.disabled = false; btn.textContent = `📞 Enviar ${sel} para discagem`;
       toast(e.message, 'error');
     }
   };
