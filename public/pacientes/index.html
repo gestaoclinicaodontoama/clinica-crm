@@ -9,23 +9,30 @@
 :root[data-theme="dark"] {
   --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
   --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
-  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6;
 }
 :root[data-theme="light"] {
   --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
   --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
-  --green: #16a34a; --yellow: #d97706; --red: #dc2626;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
 .pac-wrap { padding: 20px 24px; }
 
-.pac-header {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+/* ── Tabs ── */
+.pac-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 18px; }
+.pac-tab {
+  padding: 9px 20px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  border: none; background: none; color: var(--muted); border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: all .15s; font-family: inherit;
 }
-.pac-header h2 { margin: 0; font-size: 17px; font-weight: 700; }
+.pac-tab:hover { color: var(--text); }
+.pac-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* ── Header ── */
+.pac-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .pac-filters { display: flex; gap: 8px; flex-wrap: wrap; }
 .pac-filters select {
   padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
@@ -33,37 +40,44 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
   font-family: inherit; cursor: pointer; outline: none;
 }
 .pac-filters select:focus { border-color: var(--accent); }
-
 .pac-count { font-size: 12px; color: var(--muted); margin-left: auto; }
 
+/* ── Table ── */
 .pac-table-wrap {
   background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
   overflow-x: auto;
 }
-
-table.pac { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 900px; }
-
+table.pac { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 860px; }
 table.pac th {
   padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600;
   color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap;
   background: var(--bg2); text-transform: uppercase; letter-spacing: .5px;
 }
-
-table.pac td {
-  padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
-}
+table.pac td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.pac tr:last-child td { border-bottom: none; }
 table.pac tr:hover td { background: var(--bg3); }
 
-/* Date columns: nowrap */
 td.td-date { white-space: nowrap; font-size: 12px; color: var(--muted); }
-
-/* Text columns: wrap */
 td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
 
-/* Name */
-td.td-nome strong { font-weight: 600; font-size: 13px; }
+/* ── Prioridade ── */
+.pac-prio-cell { text-align: center; cursor: pointer; }
+.pac-prio-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px; font-size: 12px; font-weight: 700;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text); cursor: pointer;
+}
+.pac-prio-num:hover { border-color: var(--accent); }
+.pac-prio-num.p-alta    { background: rgba(34,197,94,.15); color: var(--green); border-color: transparent; font-size: 10px; width: 34px; }
+.pac-prio-num.p-altac   { background: rgba(20,184,166,.15); color: var(--teal); border-color: transparent; font-size: 10px; width: 34px; }
+.pac-prio-num.p-vazio   { background: none; border-color: var(--border); color: var(--muted); }
+.pac-prio-input {
+  width: 42px; padding: 3px 4px; border: 1px solid var(--accent); border-radius: 5px;
+  font-size: 12px; font-weight: 700; text-align: center; background: var(--bg3);
+  color: var(--text); font-family: inherit; outline: none;
+}
 
+/* ── Status badges ── */
 .pac-status {
   display: inline-block; padding: 2px 8px; border-radius: 12px;
   font-size: 11px; font-weight: 600; white-space: nowrap;
@@ -74,11 +88,9 @@ td.td-nome strong { font-weight: 600; font-size: 13px; }
 .pac-status.sem-data { background: var(--bg3); color: var(--muted); }
 .pac-status.alta     { background: rgba(34,197,94,.12);  color: var(--green); }
 
-.pac-alta-btn { cursor: pointer; font-size: 15px; background: none; border: none; padding: 0; line-height: 1; }
-
+/* ── Editable cells ── */
 .pac-cell-edit { cursor: pointer; }
 .pac-cell-edit:hover { background: rgba(99,102,241,.06); border-radius: 4px; }
-
 .pac-edit-input {
   width: 100%; padding: 3px 6px; border: 1px solid var(--accent);
   border-radius: 4px; font-size: 12px; background: var(--bg3);
@@ -102,8 +114,15 @@ td.td-nome strong { font-weight: 600; font-size: 13px; }
 <script src="/js/shared-nav.js" data-active="pacientes"></script>
 <div class="main-content">
 <div class="pac-wrap">
+
+  <!-- Tabs -->
+  <div class="pac-tabs">
+    <button class="pac-tab active" data-tab="geral" onclick="switchTab('geral')">Geral</button>
+    <button class="pac-tab" data-tab="invisalign" onclick="switchTab('invisalign')">💎 Invisalign</button>
+  </div>
+
+  <!-- Filtros -->
   <div class="pac-header">
-    <h2>👥 Pacientes — Sucesso do Cliente</h2>
     <div class="pac-filters">
       <select id="fStatus" onchange="renderTable()">
         <option value="">Todos os status</option>
@@ -118,23 +137,24 @@ td.td-nome strong { font-weight: 600; font-size: 13px; }
     </div>
     <span class="pac-count" id="pacCount"></span>
   </div>
+
   <div id="pacMsg">Carregando...</div>
   <div class="pac-table-wrap" id="pacTableWrap" style="display:none">
     <table class="pac">
       <thead><tr>
-        <th></th>
+        <th style="width:42px">P</th>
         <th>Nome</th>
-        <th>Tratamento</th>
-        <th>Venda</th>
-        <th>Atualiz.</th>
+        <th style="width:110px">Tratamento</th>
+        <th style="width:88px">Venda</th>
+        <th style="width:88px">Atualiz.</th>
         <th>Próximo Passo</th>
-        <th>Agend.</th>
-        <th>Avaliador</th>
-        <th>Executor</th>
+        <th style="width:88px">Agend.</th>
+        <th style="width:96px">Avaliador</th>
+        <th style="width:96px">Executor</th>
         <th>Obs</th>
-        <th>Dias</th>
-        <th>Status</th>
-        <th></th>
+        <th style="width:50px">Dias</th>
+        <th style="width:88px">Status</th>
+        <th style="width:40px"></th>
       </tr></thead>
       <tbody id="pacTbody"></tbody>
     </table>
@@ -144,10 +164,28 @@ td.td-nome strong { font-weight: 600; font-size: 13px; }
 
 <script src="/js/pacientes/api.js"></script>
 <script>
-let rows = [], config = {};
+let rows = [], config = {}, activeTab = 'geral';
+
+const INVISALIGN_TRATS = new Set(['Invisalign', 'Vivera']);
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.pac-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  // Resetar filtro de tratamento ao trocar aba
+  document.getElementById('fTratamento').value = '';
+  populateTratamentoFilter();
+  renderTable();
+}
+
+function isInvisalign(r) {
+  return INVISALIGN_TRATS.has(r.tratamento);
+}
 
 function calcStatus(row) {
-  if (row.is_alta) return { label:'ALTA', cls:'alta', icon:'✅' };
+  const prio = row.prioridade ?? 0;
+  if (prio >= 9 || row.is_alta) return { label:'ALTA', cls:'alta', icon:'✅' };
   if (!row.data_atualizacao) return { label:'SEM DATA', cls:'sem-data', icon:'⚪' };
   const cfg = config[row.tratamento] || { dias_atualizacao: 10 };
   const dias = Math.floor((Date.now() - new Date(row.data_atualizacao).getTime()) / 86400000);
@@ -173,31 +211,48 @@ function editCel(rowId, field, value, isText) {
   return td;
 }
 
+function prioCel(row) {
+  const td = document.createElement('td');
+  td.className = 'pac-prio-cell';
+  td.dataset.id = row.id;
+
+  const prio = row.prioridade ?? 0;
+  const badge = document.createElement('span');
+  badge.className = 'pac-prio-num';
+  if (prio === 10) {
+    badge.classList.add('p-altac');
+    badge.textContent = 'Alta+';
+    badge.title = 'Alta — consulta realizada';
+  } else if (prio === 9) {
+    badge.classList.add('p-alta');
+    badge.textContent = 'Alta';
+    badge.title = 'Alta';
+  } else if (prio === 0) {
+    badge.classList.add('p-vazio');
+    badge.textContent = '—';
+    badge.title = 'Sem prioridade definida';
+  } else {
+    badge.textContent = prio;
+    badge.title = 'Prioridade ' + prio + ' (clique para editar)';
+  }
+  td.appendChild(badge);
+  return td;
+}
+
 function makeRow(r) {
   const st = calcStatus(r);
+  const prio = r.prioridade ?? 0;
   const dias = st.dias !== undefined ? st.dias
     : (r.data_atualizacao ? Math.floor((Date.now() - new Date(r.data_atualizacao).getTime()) / 86400000) : null);
 
   const tr = document.createElement('tr');
   tr.dataset.id = r.id;
 
-  // Alta button
-  const btnAlta = document.createElement('button');
-  btnAlta.className = 'pac-alta-btn';
-  btnAlta.title = r.is_alta ? 'Remover alta' : 'Marcar como alta';
-  btnAlta.textContent = r.is_alta ? '✅' : '○';
-  btnAlta.dataset.id   = r.id;
-  btnAlta.dataset.alta = r.is_alta ? '1' : '';
-  const tdAlta = document.createElement('td');
-  tdAlta.style.textAlign = 'center';
-  tdAlta.appendChild(btnAlta);
-  tr.appendChild(tdAlta);
+  tr.appendChild(prioCel(r));
 
-  // Nome
   const strong = document.createElement('strong');
   strong.textContent = r.nome || '';
   const tdNome = document.createElement('td');
-  tdNome.className = 'td-nome';
   tdNome.appendChild(strong);
   tr.appendChild(tdNome);
 
@@ -238,17 +293,43 @@ function makeRow(r) {
   return tr;
 }
 
+function tabRows() {
+  if (activeTab === 'invisalign') return rows.filter(r => isInvisalign(r));
+  return rows.filter(r => !isInvisalign(r));
+}
+
+function populateTratamentoFilter() {
+  const fTrat = document.getElementById('fTratamento');
+  const current = fTrat.value;
+  while (fTrat.options.length > 1) fTrat.remove(1);
+  [...new Set(tabRows().map(r => r.tratamento).filter(Boolean))].sort().forEach(t => {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = t;
+    if (t === current) o.selected = true;
+    fTrat.appendChild(o);
+  });
+}
+
 function renderTable() {
   const fStatus = document.getElementById('fStatus').value;
   const fTrat   = document.getElementById('fTratamento').value;
   const fExec   = document.getElementById('fExecutor').value;
 
-  const filtered = rows.filter(r => {
+  let filtered = tabRows().filter(r => {
     const st = calcStatus(r);
     if (fStatus && st.cls !== fStatus) return false;
     if (fTrat  && r.tratamento !== fTrat) return false;
     if (fExec  && r.executor   !== fExec) return false;
     return true;
+  });
+
+  // Ordenar: prioridade 1-8 primeiro (menor = mais urgente), 0/null por último, 9/10 (alta) por último
+  filtered.sort((a, b) => {
+    const pa = a.prioridade ?? 0;
+    const pb = b.prioridade ?? 0;
+    const valA = pa === 0 ? 99 : pa;
+    const valB = pb === 0 ? 99 : pb;
+    return valA - valB;
   });
 
   document.getElementById('pacCount').textContent = `${filtered.length} paciente(s)`;
@@ -259,20 +340,52 @@ function renderTable() {
   tbody.appendChild(frag);
 }
 
+// ── Interações ─────────────────────────────────────────────────────────────
+
 document.getElementById('pacTbody').addEventListener('click', async e => {
-  const btn = e.target.closest('.pac-alta-btn');
-  if (btn) {
-    const id      = btn.dataset.id;
-    const current = btn.dataset.alta === '1';
-    try {
-      const updated = await PacientesAPI.atualizar(id, { is_alta: !current });
-      const idx = rows.findIndex(r => r.id === id);
-      if (idx >= 0) rows[idx] = updated;
-      renderTable();
-    } catch(err) { alert('Erro: ' + err.message); }
+  // Click na célula de prioridade
+  const prioCell = e.target.closest('.pac-prio-cell');
+  if (prioCell && !prioCell.querySelector('.pac-prio-input')) {
+    const id = prioCell.dataset.id;
+    const row = rows.find(r => r.id === id);
+    if (!row) return;
+    const badge = prioCell.querySelector('.pac-prio-num');
+    const inp = document.createElement('input');
+    inp.className = 'pac-prio-input';
+    inp.type = 'number'; inp.min = 0; inp.max = 10;
+    inp.value = row.prioridade ?? 0;
+    prioCell.innerHTML = '';
+    prioCell.appendChild(inp);
+    inp.focus(); inp.select();
+
+    async function savePrio() {
+      inp.removeEventListener('blur', savePrio);
+      const val = Math.max(0, Math.min(10, parseInt(inp.value) || 0));
+      try {
+        const updated = await PacientesAPI.atualizar(id, {
+          prioridade: val,
+          is_alta: val >= 9
+        });
+        const idx = rows.findIndex(r => r.id === id);
+        if (idx >= 0) rows[idx] = updated;
+        renderTable();
+      } catch(err) {
+        prioCell.replaceChildren(badge);
+        alert('Erro: ' + err.message);
+      }
+    }
+    inp.addEventListener('blur', savePrio);
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
+      if (e.key === 'Escape') {
+        inp.removeEventListener('blur', savePrio);
+        prioCell.replaceChildren(badge);
+      }
+    });
     return;
   }
 
+  // Click em célula editável normal
   const td = e.target.closest('.pac-cell-edit');
   if (!td || td.querySelector('input')) return;
   const { id, field, value } = td.dataset;
@@ -295,7 +408,6 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
       renderTable();
     } catch(err) { td.textContent = orig; alert('Erro: ' + err.message); }
   }
-
   inp.addEventListener('blur', save);
   inp.addEventListener('keydown', e => {
     if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
@@ -303,20 +415,20 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
   });
 });
 
+// ── Init ────────────────────────────────────────────────────────────────────
+
 async function init() {
   try {
     const [data, cfg] = await Promise.all([PacientesAPI.listar(), PacientesAPI.config()]);
     rows   = data;
     config = Object.fromEntries(cfg.map(c => [c.tratamento, c]));
 
-    const fTrat = document.getElementById('fTratamento');
     const fExec = document.getElementById('fExecutor');
-    [...new Set(data.map(r => r.tratamento).filter(Boolean))].sort().forEach(t => {
-      const o = document.createElement('option'); o.textContent = t; fTrat.appendChild(o);
-    });
     [...new Set(data.map(r => r.executor).filter(Boolean))].sort().forEach(e => {
       const o = document.createElement('option'); o.textContent = e; fExec.appendChild(o);
     });
+
+    populateTratamentoFilter();
 
     document.getElementById('pacMsg').style.display = 'none';
     document.getElementById('pacTableWrap').style.display = '';
