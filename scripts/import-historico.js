@@ -148,7 +148,7 @@ async function main() {
   const mapExisting = new Map(existing.map(l => [l.telefone, l]));
   console.log(`Já existem no Supabase: ${mapExisting.size}`);
 
-  const stats = { Fechou:0, Reclassificar:0, Faltou:0, Nutrir:0, CompSemOrc:0, Novo:0, Existente:0 };
+  const stats = { Fechou:0, Reclassificar:0, Nutrir:0, CompSemOrc:0, Novo:0, Existente:0 };
 
   const classified = [];
   for (const [tel, leadRow] of mapLead) {
