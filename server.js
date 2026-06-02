@@ -735,19 +735,25 @@ const TIPOS_VALIDOS = Object.keys(CAMP_ENV);
 
 async function buscarContatos(tipo) {
   if (tipo === 'abc') {
+    const { data: bloqueados, error: blqError } = await supabase.from('nao_ligar_pacientes').select('clinicorp_id');
+    if (blqError) throw blqError; // falha aberta incluiria pacientes bloqueados na campanha
+    const bloqueadosSet = new Set((bloqueados || []).map(r => String(r.clinicorp_id)));
     const { data, error } = await supabase.from('pacientes_abc')
       .select('nome, telefone, clinicorp_id, dias_sem_visita')
       .in('classe', ['A', 'B'])
       .gte('dias_sem_visita', 180)
       .is('proxima_consulta', null);
     if (error) throw error;
-    return (data || []).map(c => ({ ...c, tipo_origem: 'abc' }));
+    return (data || [])
+      .filter(p => !bloqueadosSet.has(String(p.clinicorp_id)))
+      .map(c => ({ ...c, tipo_origem: 'abc' }));
   }
   if (tipo === 'indicacoes') {
     const { data, error } = await supabase.from('leads')
       .select('id, nome, telefone')
       .eq('origem', 'Indicação')
-      .not('status', 'in', '("Fechou","Perdido")');
+      .not('status', 'in', '("Fechou","Perdido")')
+      .eq('nao_ligar', false);
     if (error) throw error;
     return (data || []).map(c => ({ ...c, tipo_origem: 'indicacoes' }));
   }
@@ -756,6 +762,7 @@ async function buscarContatos(tipo) {
       .select('id, nome, telefone')
       .neq('origem', 'Indicação')
       .not('status', 'in', '("Fechou","Perdido")')
+      .eq('nao_ligar', false)
       .order('criado_em', { ascending: false })
       .limit(50);
     if (error) throw error;
@@ -766,6 +773,7 @@ async function buscarContatos(tipo) {
       .select('id, nome, telefone')
       .neq('origem', 'Indicação')
       .not('status', 'in', '("Fechou","Perdido")')
+      .eq('nao_ligar', false)
       .order('criado_em', { ascending: false })
       .range(50, 150);
     if (error) throw error;
@@ -781,6 +789,24 @@ app.get('/api/campanhas/preview/:tipo', requireAuth, requireCrcLead, async (req,
     const contatos = await buscarContatos(tipo);
     if (req.query.count_only === 'true') return res.json({ total: contatos.length });
     res.json({ total: contatos.length, contatos });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/campanhas/nao-ligar', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const { tipo, id } = req.body;
+    if (!tipo || !id) return res.status(400).json({ error: 'tipo e id são obrigatórios' });
+    if (!['paciente', 'lead'].includes(tipo)) return res.status(400).json({ error: 'tipo deve ser "paciente" ou "lead"' });
+    if (tipo === 'paciente') {
+      const { error } = await supabase.from('nao_ligar_pacientes').insert({ clinicorp_id: String(id) });
+      if (error && error.code !== '23505') throw error; // 23505 = unique violation (já bloqueado — OK)
+    } else {
+      const { error } = await supabase.from('leads').update({ nao_ligar: true }).eq('id', id);
+      if (error) throw error;
+    }
+    res.json({ ok: true });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -804,7 +830,14 @@ app.post('/api/campanhas/lancar', requireAuth, requireCrcLead, async (req, res) 
     }
 
     const contatos = await buscarContatos(tipo);
-    const comTelefone = contatos.filter(c => c.telefone?.trim());
+    const excluirSet = new Set((req.body.excluir || []).map(String));
+    const contatosFiltrados = excluirSet.size > 0
+      ? contatos.filter(c => {
+          const idField = tipo === 'abc' ? 'clinicorp_id' : 'id';
+          return !excluirSet.has(String(c[idField]));
+        })
+      : contatos;
+    const comTelefone = contatosFiltrados.filter(c => c.telefone?.trim());
     if (!comTelefone.length) {
       return res.status(400).json({ error: 'Nenhum contato encontrado com telefone cadastrado.' });
     }
