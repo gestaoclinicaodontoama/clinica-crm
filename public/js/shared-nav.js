@@ -126,6 +126,14 @@
       `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>`,
       'Comercial')}
 
+    ${navLink('/kanban-leads/', 'admin,crc,crc_leads,crc_comercial,mod_kanban_leads', 'kanban-leads',
+      `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg>`,
+      'Kanban Leads')}
+
+    ${navLink('/kanban-comercial/', 'admin,crc,crc_comercial,mod_kanban_comercial', 'kanban-comercial',
+      `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="14" rx="1"/><rect x="10" y="3" width="5" height="18" rx="1"/><rect x="17" y="3" width="4" height="10" rx="1"/></svg>`,
+      'Kanban Comercial')}
+
     ${navLink('/comercial/conferencia/', 'admin,gestor,crc_comercial', 'conferencia',
       `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
       'Conferência')}

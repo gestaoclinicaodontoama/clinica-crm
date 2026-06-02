@@ -617,6 +617,14 @@ textarea { resize: vertical; min-height: 80px; }
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     Conferência
   </a>
+  <a class="nav-btn" href="/kanban-leads/" data-roles="admin,crc,crc_leads,crc_comercial,mod_kanban_leads">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg>
+    Kanban Leads
+  </a>
+  <a class="nav-btn" href="/kanban-comercial/" data-roles="admin,crc,crc_comercial,mod_kanban_comercial">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="14" rx="1"/><rect x="10" y="3" width="5" height="18" rx="1"/><rect x="17" y="3" width="4" height="10" rx="1"/></svg>
+    Kanban Comercial
+  </a>
   <a class="nav-btn" href="/pacientes/" data-roles="crc_sucesso,crc_comercial,gestor,admin">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M12 11v4"/><path d="M10 13h4"/></svg>
     Pacientes
@@ -1067,6 +1075,8 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-notas_fiscais"> Notas Fiscais</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-inadimplentes"> Inadimplentes</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-avaliacao_dentista"> Avalia&#231;&#227;o Dentista</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-kanban_leads"> Kanban Leads</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-kanban_comercial"> Kanban Comercial</label>
       </div></div>
       <button class="btn btn-primary" onclick="criarUsuario()" id="nu-btn" style="width:100%">Criar Usu&#225;rio</button>
       <div id="nu-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
@@ -4724,6 +4734,20 @@ function iniciarApp() {
   else loadDash();
 }
 
+// Abre lead vindo de outro módulo (ex: kanban)
+const _openLeadParam = new URLSearchParams(location.search).get('abrir_lead');
+if (_openLeadParam) {
+  history.replaceState(null, '', location.pathname + location.hash);
+  const _tryOpen = setInterval(() => {
+    if (typeof abrirChat === 'function') {
+      clearInterval(_tryOpen);
+      showPage('conversas');
+      abrirChat(parseInt(_openLeadParam, 10));
+    }
+  }, 150);
+  setTimeout(() => clearInterval(_tryOpen), 5000);
+}
+
 // Check existing session on load
 (async () => {
   if (!_sb) {
@@ -4789,7 +4813,9 @@ const _ROLE_LABELS = {
   crc_sucesso:'CRC Sucesso', crc_pos_tratamento:'CRC Pós Tratamento',
   dentista:'Dentista',
   mod_notas_fiscais:'Notas Fiscais', mod_inadimplentes:'Inadimplentes',
-  mod_avaliacao_dentista:'Avaliação Dentista'
+  mod_avaliacao_dentista:'Avaliação Dentista',
+  mod_kanban_leads:    'Kanban Leads',
+  mod_kanban_comercial: 'Kanban Comercial'
 };
 function _renderRoles(roles) {
   const base = [], mods = [];
@@ -4846,6 +4872,8 @@ async function criarUsuario() {
   if (document.getElementById('nu-mod-notas_fiscais').checked) roles.push('mod_notas_fiscais');
   if (document.getElementById('nu-mod-inadimplentes').checked) roles.push('mod_inadimplentes');
   if (document.getElementById('nu-mod-avaliacao_dentista').checked) roles.push('mod_avaliacao_dentista');
+  if (document.getElementById('nu-mod-kanban_leads').checked) roles.push('mod_kanban_leads');
+  if (document.getElementById('nu-mod-kanban_comercial').checked) roles.push('mod_kanban_comercial');
   if (!roles.length) roles.push('crc_leads');
   btn.disabled = true; btn.textContent = 'Criando...'; msg.textContent = '';
   try {
