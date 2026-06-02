@@ -31,7 +31,7 @@ Ambos resolvem a limitação do kanban embutido no Chat (que carrega todos os le
 | **Compareceu** | `Compareceu` | `data_comparecimento >= hoje−30d` | — |
 | **Não tem interesse** | `Não tem Interesse` | — | — |
 
-¹ *"não-comercial"* = exclui `Agendado`, `Faltou`, `Compareceu`, `Não tem Interesse`, `D0`–`D5`, `Em nutrição`, `Fechou`, `Perdido`.
+¹ *"não-comercial"* = exclui `Aguardando`, `Agendado`, `Faltou`, `Compareceu`, `Não tem Interesse`, `D0`–`D5`, `Em nutrição`, `Fechou`, `Perdido`.
 
 ### Ordenação dos cards
 
@@ -67,13 +67,20 @@ Leads com `status = 'Compareceu'` e `data_comparecimento <= hoje−30d` **não a
 
 ### Critério detalhado das sub-colunas Em nutrição
 
-A referência de tempo é `COALESCE(data_comparecimento, data_orcamento, criado_em)` (fallback para leads que entraram em Em nutrição sem passar pelo fluxo Compareceu → D0).
+A referência de tempo varia por status — o campo mais relevante é diferente em cada caso:
+
+- `status = 'Compareceu'` → `ref = data_comparecimento`
+- `status IN ('Em nutrição', 'Reclassificar')` → `ref = COALESCE(data_orcamento, data_comparecimento, criado_em)`
+
+Motivo: para leads em Em nutrição, o que importa é quando o **orçamento foi feito**, não quando veio à clínica. Usar `data_comparecimento` primeiro colocaria um paciente que veio há 200 dias e recebeu orçamento há 60 dias na bucket errada (180–365d em vez de 30–180d).
 
 | Coluna | Critério completo |
 |--------|-------------------|
-| **Em nutrição 30–180d** | (`status = 'Em nutrição'` OU (`status = 'Compareceu'` E ref < hoje−30d)) E ref >= hoje−180d |
+| **Em nutrição 30–180d** | (`status IN ('Em nutrição','Reclassificar')` OU (`status = 'Compareceu'` E ref < hoje−30d)) E ref >= hoje−180d |
 | **Em nutrição 180–365d** | mesmas condições de status E ref entre hoje−365d e hoje−180d |
 | **Em nutrição 365+** | mesmas condições de status E ref < hoje−365d |
+
+**`Reclassificar` incluso:** os 1.362 leads históricos com orçamento aberto usam `COALESCE(data_orcamento, data_comparecimento, criado_em)` como ref e aparecem na sub-coluna correspondente ao tempo do orçamento.
 
 ### Fluxo esperado das CRCs
 
@@ -146,6 +153,8 @@ GET /api/kanban/comercial/:coluna
   "data_comparecimento": null,
   "data_agendamento": null,
   "data_fechamento": null,
+  "data_orcamento": null,
+  "data_avaliacao": null,
   "crc_agendamento_nome": "Ana",
   "crc_comercial_nome": null
 }
@@ -187,7 +196,8 @@ GET /api/kanban/comercial/:coluna
 
 - **Tempo na coluna**: calculado no frontend a partir do campo de data relevante:
   - Kanban Leads: `criado_em`
-  - Kanban Comercial Compareceu/Em nutrição: `data_comparecimento`
+  - Kanban Comercial Compareceu: `data_comparecimento`
+  - Kanban Comercial Em nutrição: `data_orcamento ?? data_comparecimento ?? criado_em`
   - D0–D5: `data_avaliacao`
   - Fechou: `data_fechamento`
 - **Valor**: exibido apenas se preenchido
@@ -203,6 +213,8 @@ GET /api/kanban/comercial/:coluna
 | Todas as demais | ✓ | ✓ |
 
 Ao soltar: `PATCH /api/leads/:id` com novo status. Card some da coluna origem e aparece na destino imediatamente (otimista).
+
+**Edge case — drop Em nutrição → Compareceu bloqueado:** arrastar um card de Em nutrição para a coluna Compareceu definiria `status = 'Compareceu'`, mas como `data_comparecimento` é antigo (> 30 dias), o lead não apareceria em nenhuma coluna após recarregar. O implementador deve bloquear esse drop e exibir tooltip: *"Use D0–D5 para reativar este lead"*.
 
 ### Filtros
 
