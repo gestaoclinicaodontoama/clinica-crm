@@ -4738,19 +4738,20 @@ function iniciarApp() {
 const _openLeadParam = new URLSearchParams(location.search).get('abrir_lead');
 if (_openLeadParam) {
   history.replaceState(null, '', location.pathname + location.hash);
-  const _tryOpen = setInterval(() => {
-    if (typeof abrirChat === 'function') {
-      const _openLeadId = parseInt(_openLeadParam, 10);
-      if (!isNaN(_openLeadId)) {
+  const _openLeadId = parseInt(_openLeadParam, 10);
+  if (!isNaN(_openLeadId)) {
+    // Navigate to conversas (loads chatLeads async)
+    const _convBtn = document.querySelector('[data-page="conv-agendamentos"]');
+    if (_convBtn) _convBtn.click();
+    // Poll until the lead appears in chatLeads
+    const _tryOpen = setInterval(() => {
+      if (Array.isArray(chatLeads) && chatLeads.find(l => l.id === _openLeadId)) {
         clearInterval(_tryOpen);
-        showPage('conversas');
         abrirChat(_openLeadId);
-      } else {
-        clearInterval(_tryOpen);
       }
-    }
-  }, 150);
-  setTimeout(() => clearInterval(_tryOpen), 5000);
+    }, 200);
+    setTimeout(() => clearInterval(_tryOpen), 8000);
+  }
 }
 
 // Check existing session on load

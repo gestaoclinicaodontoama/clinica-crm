@@ -359,6 +359,15 @@ document.getElementById('kb-crc').addEventListener('change', function() {
 // ── INIT ──────────────────────────────────────────────────────────────────────
 buildBoard();
 loadAll();
+api('/api/kanban/comercial/crcs').then(crcs => {
+  const sel = document.getElementById('kb-crc');
+  crcs.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+}).catch(() => {});
 </script>
 </body>
 </html>

@@ -247,6 +247,8 @@ const requireDentista = requireRole('dentista', 'admin', 'mod_avaliacao_dentista
 const requireGestor   = requireRole('gestor', 'admin');
 const requireCrcSucesso = requireRole('crc_sucesso', 'crc_comercial', 'gestor', 'admin');
 const requireCrcLead  = requireRole('crc_leads', 'crc_comercial', 'admin', 'gestor');
+const requireKanbanLeads    = requireRole('admin', 'gestor', 'crc', 'crc_leads', 'crc_comercial', 'mod_kanban_leads');
+const requireKanbanComercial = requireRole('admin', 'gestor', 'crc', 'crc_comercial', 'mod_kanban_comercial');
 const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial');
 
 // ========== ADMIN MIDDLEWARE ==========
@@ -649,7 +651,7 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
 const LEADS_COLUNAS = ['lead','nutrir_30','nutrir_180','nutrir_365','aguardando','agendado','faltou','compareceu','nao_tem_interesse'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
-app.get('/api/kanban/leads/counts', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/kanban/leads/counts', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
   const q   = req.query.q   || null;
   const crc = req.query.crc || null;
   try {
@@ -666,7 +668,19 @@ app.get('/api/kanban/leads/counts', requireAuth, rateLimit, async (req, res) => 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/kanban/leads/:coluna', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/kanban/leads/crcs', requireAuth, requireKanbanLeads, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('leads')
+      .select('crc_agendamento_nome')
+      .not('crc_agendamento_nome', 'is', null)
+      .neq('crc_agendamento_nome', '');
+    if (error) throw error;
+    const unique = [...new Set(data.map(r => r.crc_agendamento_nome))].sort();
+    res.json(unique);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/kanban/leads/:coluna', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
   const { coluna } = req.params;
   const page = Math.max(0, parseInt(req.query.page, 10) || 0);
   const q   = req.query.q   || null;
@@ -719,7 +733,7 @@ const COMERCIAL_SIMPLES = ['compareceu','d0','d1','d2','d3','d4','d5','fechou','
 const COMERCIAL_COLUNAS = [...COMERCIAL_SIMPLES, 'nutricao_30','nutricao_180','nutricao_365'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
-app.get('/api/kanban/comercial/counts', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/kanban/comercial/counts', requireAuth, requireKanbanComercial, rateLimit, async (req, res) => {
   const q   = req.query.q   || null;
   const crc = req.query.crc || null;
   try {
@@ -743,7 +757,19 @@ app.get('/api/kanban/comercial/counts', requireAuth, rateLimit, async (req, res)
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/kanban/comercial/:coluna', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/kanban/comercial/crcs', requireAuth, requireKanbanComercial, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('leads')
+      .select('crc_comercial_nome')
+      .not('crc_comercial_nome', 'is', null)
+      .neq('crc_comercial_nome', '');
+    if (error) throw error;
+    const unique = [...new Set(data.map(r => r.crc_comercial_nome))].sort();
+    res.json(unique);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/kanban/comercial/:coluna', requireAuth, requireKanbanComercial, rateLimit, async (req, res) => {
   const { coluna } = req.params;
   const page = Math.max(0, parseInt(req.query.page, 10) || 0);
   const q   = req.query.q   || null;
