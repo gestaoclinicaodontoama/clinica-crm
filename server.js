@@ -2695,7 +2695,7 @@ app.get('/api/pacientes', requireAuth, requireCrcSucesso, rateLimit, async (req,
 
 app.patch('/api/pacientes/:id', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
   try {
-    const allowed = ['data_atualizacao','proximo_passo','data_agendamento','avaliador','executor','obs','is_alta','prioridade','tratamento','situacao_tratamento','data_vencimento'];
+    const allowed = ['data_atualizacao','proximo_passo','data_agendamento','avaliador','executor','obs','is_alta','prioridade','tratamento','situacao_tratamento','data_vencimento','aba'];
     const patch = {};
     for (const k of allowed) { if (k in req.body) patch[k] = req.body[k] === '' ? null : req.body[k]; }
     if (!Object.keys(patch).length) return res.status(400).json({ error: 'nada para atualizar' });

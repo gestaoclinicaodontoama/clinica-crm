@@ -121,6 +121,15 @@ td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
 }
 .pac-wpp:hover { opacity: .85; }
 
+.pac-move {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--muted);
+  font-size: 14px; font-family: inherit; transition: all .12s;
+}
+.pac-move:hover { border-color: var(--accent); color: var(--accent); }
+.pac-move:disabled { opacity: .4; cursor: default; }
+
 #pacMsg { padding: 40px; color: var(--muted); text-align: center; }
 </style>
 </head>
@@ -189,13 +198,14 @@ function fmtDate(d) {
   return parts[2] + '/' + parts[1] + '/' + parts[0];
 }
 
-function isInvisalign(r) {
-  return INVISALIGN_TRATS.has(r.tratamento);
+// Aba do paciente: marcador explícito 'aba' tem prioridade; senão deriva do tratamento
+function resolveAba(r) {
+  if (r.aba === 'geral' || r.aba === 'invisalign') return r.aba;
+  return INVISALIGN_TRATS.has(r.tratamento) ? 'invisalign' : 'geral';
 }
 
 function tabRows() {
-  if (activeTab === 'invisalign') return rows.filter(r => isInvisalign(r));
-  return rows.filter(r => !isInvisalign(r));
+  return rows.filter(r => resolveAba(r) === activeTab);
 }
 
 function calcStatus(row) {
@@ -226,6 +236,7 @@ const COLS_GERAL = [
   { key: '_dias',      label: 'Dias',         cls: '',         sortable: true,  width: '50px'  },
   { key: '_status',    label: 'Status',       cls: '',         sortable: true,  width: '88px'  },
   { key: '_wpp',       label: '',             cls: '',         sortable: false, width: '40px'  },
+  { key: '_move',      label: '',             cls: '',         sortable: false, width: '40px'  },
 ];
 
 // Aba Invisalign: layout espelha a planilha (Situação + Vencimento, sem Venda, Responsável no lugar de Avaliador/Executor)
@@ -242,6 +253,7 @@ const COLS_INVISALIGN = [
   { key: '_dias',              label: 'Dias',          cls: '', sortable: true,  width: '50px'  },
   { key: '_status',            label: 'Status',        cls: '', sortable: true,  width: '88px'  },
   { key: '_wpp',               label: '',              cls: '', sortable: false, width: '40px'  },
+  { key: '_move',              label: '',              cls: '', sortable: false, width: '40px'  },
 ];
 
 function buildHeader() {
@@ -357,6 +369,18 @@ function diasStatusWppCels(tr, r) {
     tdWpp.appendChild(a);
   }
   tr.appendChild(tdWpp);
+
+  const tdMove = document.createElement('td');
+  tdMove.style.textAlign = 'center';
+  const target = resolveAba(r) === 'invisalign' ? 'geral' : 'invisalign';
+  const mv = document.createElement('button');
+  mv.className = 'pac-move';
+  mv.textContent = '⇄';
+  mv.dataset.id = r.id;
+  mv.dataset.target = target;
+  mv.title = target === 'invisalign' ? 'Mover para 💎 Invisalign' : 'Mover para Geral';
+  tdMove.appendChild(mv);
+  tr.appendChild(tdMove);
 }
 
 function makeRow(r) {
@@ -500,6 +524,22 @@ document.getElementById('pacThead').addEventListener('click', e => {
 });
 
 document.getElementById('pacTbody').addEventListener('click', async e => {
+  // Mover de aba
+  const moveBtn = e.target.closest('.pac-move');
+  if (moveBtn) {
+    const id = moveBtn.dataset.id, target = moveBtn.dataset.target;
+    const row = rows.find(r => r.id === id);
+    if (!row) return;
+    moveBtn.disabled = true;
+    try {
+      const updated = await PacientesAPI.atualizar(id, { aba: target });
+      const idx = rows.findIndex(r => r.id === id);
+      if (idx >= 0) rows[idx] = updated;
+      renderTable();
+    } catch(err) { moveBtn.disabled = false; alert('Erro ao mover: ' + err.message); }
+    return;
+  }
+
   // Prioridade
   const prioCell = e.target.closest('.pac-prio-cell');
   if (prioCell && !prioCell.querySelector('.pac-prio-input')) {
