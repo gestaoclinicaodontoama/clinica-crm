@@ -579,24 +579,32 @@ app.patch('/api/leads/:id/status', requireAuth, rateLimit, patchLead);
 // ========== STATS ==========
 app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
   try {
-    const { data: leads, error } = await supabase.from('leads').select('*').range(0, 9999);
-    if (error) throw error;
-    const total = leads.length;
-    const porStatus = FUNIL.map(s => ({ status: s, n: leads.filter(l => l.status === s).length }));
-    const origens = [...new Set(leads.map(l => l.origem))];
-    const porOrigem = origens.map(o => {
-      const arr = leads.filter(l => l.origem === o);
-      const fechados = arr.filter(l => l.status === 'Fechou');
-      return { origem: o, n: arr.length, fechados: fechados.length, receita: fechados.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0) };
-    }).sort((a, b) => b.n - a.n);
-    const fechados = leads.filter(l => l.status === 'Fechou' && l.valor);
-    const receita = fechados.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
-    const ticketMedio = fechados.length ? receita / fechados.length : 0;
-    const oportunidade = leads
-      .filter(l => ['Agendado','Compareceu','D0','D1','D2','D3','D4','D5','Em nutrição'].includes(l.status))
-      .reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
-    const ultimosLeads = [...leads].sort((a, b) => b.id - a.id).slice(0, 10);
-    res.json({ total, porStatus, porOrigem, receita, ticketMedio, oportunidade, ultimosLeads, _v: 4 });
+    const [totaisRes, statusRes, origensRes, ultimosRes] = await Promise.all([
+      supabase.rpc('stats_totais'),
+      supabase.rpc('stats_por_status'),
+      supabase.rpc('stats_por_origem'),
+      supabase.from('leads').select('id,nome,telefone,origem,campanha,status,valor,criado_em').order('id', { ascending: false }).limit(10),
+    ]);
+    if (totaisRes.error) throw totaisRes.error;
+    if (statusRes.error) throw statusRes.error;
+    if (origensRes.error) throw origensRes.error;
+    if (ultimosRes.error) throw ultimosRes.error;
+
+    const t = totaisRes.data;
+    const total = Number(t.total);
+    const receita = Number(t.receita) || 0;
+    const fechadosN = Number(t.fechados) || 0;
+    const ticketMedio = fechadosN ? receita / fechadosN : 0;
+    const oportunidade = Number(t.oportunidade) || 0;
+
+    const statusMap = new Map((statusRes.data || []).map(r => [r.status, Number(r.n)]));
+    const porStatus = FUNIL.map(s => ({ status: s, n: statusMap.get(s) || 0 }));
+
+    const porOrigem = (origensRes.data || []).map(r => ({
+      origem: r.origem, n: Number(r.n), fechados: Number(r.fechados), receita: Number(r.receita) || 0,
+    }));
+
+    res.json({ total, porStatus, porOrigem, receita, ticketMedio, oportunidade, ultimosLeads: ultimosRes.data || [], _v: 5 });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
