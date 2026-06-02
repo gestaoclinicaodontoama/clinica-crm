@@ -803,8 +803,13 @@ app.post('/api/campanhas/nao-ligar', requireAuth, requireCrcLead, async (req, re
       const { error } = await supabase.from('nao_ligar_pacientes').insert({ clinicorp_id: String(id) });
       if (error && error.code !== '23505') throw error; // 23505 = unique violation (já bloqueado — OK)
     } else {
-      const { error } = await supabase.from('leads').update({ nao_ligar: true }).eq('id', id);
+      const { data: updated, error } = await supabase
+        .from('leads')
+        .update({ nao_ligar: true })
+        .eq('id', id)
+        .select('id');
       if (error) throw error;
+      if (!updated || updated.length === 0) return res.status(404).json({ error: 'Lead não encontrado' });
     }
     res.json({ ok: true });
   } catch (e) {
