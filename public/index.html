@@ -4740,9 +4740,14 @@ if (_openLeadParam) {
   history.replaceState(null, '', location.pathname + location.hash);
   const _tryOpen = setInterval(() => {
     if (typeof abrirChat === 'function') {
-      clearInterval(_tryOpen);
-      showPage('conversas');
-      abrirChat(parseInt(_openLeadParam, 10));
+      const _openLeadId = parseInt(_openLeadParam, 10);
+      if (!isNaN(_openLeadId)) {
+        clearInterval(_tryOpen);
+        showPage('conversas');
+        abrirChat(_openLeadId);
+      } else {
+        clearInterval(_tryOpen);
+      }
     }
   }, 150);
   setTimeout(() => clearInterval(_tryOpen), 5000);
