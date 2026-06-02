@@ -9,12 +9,12 @@
 :root[data-theme="dark"] {
   --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
   --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
-  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6; --purple: #a855f7;
 }
 :root[data-theme="light"] {
   --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
   --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
-  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488; --purple: #9333ea;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
@@ -31,64 +31,78 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .pac-tab:hover { color: var(--text); }
 .pac-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-/* ── Header ── */
-.pac-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-.pac-filters { display: flex; gap: 8px; flex-wrap: wrap; }
-.pac-filters select {
+/* ── Filtros ── */
+.pac-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.pac-header select {
   padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
   font-size: 13px; background: var(--bg2); color: var(--text);
   font-family: inherit; cursor: pointer; outline: none;
 }
-.pac-filters select:focus { border-color: var(--accent); }
-.pac-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+.pac-header select:focus { border-color: var(--accent); }
+.pac-count { font-size: 12px; color: var(--muted); margin-left: auto; white-space: nowrap; }
 
-/* ── Table ── */
+/* ── Tabela ── */
 .pac-table-wrap {
   background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
   overflow-x: auto;
 }
-table.pac { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 860px; }
+table.pac { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 820px; }
+
 table.pac th {
   padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600;
   color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap;
   background: var(--bg2); text-transform: uppercase; letter-spacing: .5px;
+  user-select: none;
 }
+table.pac th.sortable { cursor: pointer; }
+table.pac th.sortable:hover { color: var(--text); }
+table.pac th .sort-icon { margin-left: 4px; opacity: .4; font-style: normal; }
+table.pac th.sort-asc .sort-icon,
+table.pac th.sort-desc .sort-icon { opacity: 1; color: var(--accent); }
+
 table.pac td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.pac tr:last-child td { border-bottom: none; }
 table.pac tr:hover td { background: var(--bg3); }
+
+/* Ocultar col P na aba Invisalign */
+table.pac.hide-prio .col-prio { display: none; }
 
 td.td-date { white-space: nowrap; font-size: 12px; color: var(--muted); }
 td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
 
 /* ── Prioridade ── */
-.pac-prio-cell { text-align: center; cursor: pointer; }
+.pac-prio-cell { text-align: center; cursor: pointer; width: 42px; }
 .pac-prio-num {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border-radius: 6px; font-size: 12px; font-weight: 700;
-  background: var(--bg3); border: 1px solid var(--border); color: var(--text); cursor: pointer;
+  min-width: 28px; height: 26px; padding: 0 5px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  transition: border-color .12s;
 }
 .pac-prio-num:hover { border-color: var(--accent); }
-.pac-prio-num.p-alta    { background: rgba(34,197,94,.15); color: var(--green); border-color: transparent; font-size: 10px; width: 34px; }
-.pac-prio-num.p-altac   { background: rgba(20,184,166,.15); color: var(--teal); border-color: transparent; font-size: 10px; width: 34px; }
-.pac-prio-num.p-vazio   { background: none; border-color: var(--border); color: var(--muted); }
+.pac-prio-num.p0    { background: rgba(239,68,68,.13);  color: var(--red);    border-color: transparent; }
+.pac-prio-num.p-alta  { background: rgba(34,197,94,.13);  color: var(--green);  border-color: transparent; font-size: 10px; }
+.pac-prio-num.p-altac { background: rgba(20,184,166,.13); color: var(--teal);   border-color: transparent; font-size: 10px; }
+.pac-prio-num.p-none  { background: none; border-color: var(--border); color: var(--muted); }
 .pac-prio-input {
-  width: 42px; padding: 3px 4px; border: 1px solid var(--accent); border-radius: 5px;
-  font-size: 12px; font-weight: 700; text-align: center; background: var(--bg3);
-  color: var(--text); font-family: inherit; outline: none;
+  width: 44px; padding: 3px 4px; border: 1px solid var(--accent); border-radius: 5px;
+  font-size: 12px; font-weight: 700; text-align: center;
+  background: var(--bg3); color: var(--text); font-family: inherit; outline: none;
 }
 
-/* ── Status badges ── */
+/* ── Status ── */
 .pac-status {
   display: inline-block; padding: 2px 8px; border-radius: 12px;
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.pac-status.critico  { background: rgba(239,68,68,.12);  color: var(--red); }
-.pac-status.atencao  { background: rgba(245,158,11,.12); color: var(--yellow); }
-.pac-status.em-dia   { background: rgba(34,197,94,.12);  color: var(--green); }
-.pac-status.sem-data { background: var(--bg3); color: var(--muted); }
-.pac-status.alta     { background: rgba(34,197,94,.12);  color: var(--green); }
+.pac-status.critico   { background: rgba(239,68,68,.12);  color: var(--red); }
+.pac-status.atencao   { background: rgba(245,158,11,.12); color: var(--yellow); }
+.pac-status.em-dia    { background: rgba(34,197,94,.12);  color: var(--green); }
+.pac-status.sem-data  { background: var(--bg3); color: var(--muted); }
+.pac-status.alta      { background: rgba(34,197,94,.12);  color: var(--green); }
+.pac-status.alta-c    { background: rgba(20,184,166,.12); color: var(--teal); }
 
-/* ── Editable cells ── */
+/* ── Células editáveis ── */
 .pac-cell-edit { cursor: pointer; }
 .pac-cell-edit:hover { background: rgba(99,102,241,.06); border-radius: 4px; }
 .pac-edit-input {
@@ -115,47 +129,44 @@ td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
 <div class="main-content">
 <div class="pac-wrap">
 
-  <!-- Tabs -->
   <div class="pac-tabs">
     <button class="pac-tab active" data-tab="geral" onclick="switchTab('geral')">Geral</button>
     <button class="pac-tab" data-tab="invisalign" onclick="switchTab('invisalign')">💎 Invisalign</button>
   </div>
 
-  <!-- Filtros -->
   <div class="pac-header">
-    <div class="pac-filters">
-      <select id="fStatus" onchange="renderTable()">
-        <option value="">Todos os status</option>
-        <option value="critico">🔴 Crítico</option>
-        <option value="atencao">🟡 Atenção</option>
-        <option value="em-dia">🟢 Em dia</option>
-        <option value="sem-data">⚪ Sem data</option>
-        <option value="alta">✅ Alta</option>
-      </select>
-      <select id="fTratamento" onchange="renderTable()"><option value="">Todos os tratamentos</option></select>
-      <select id="fExecutor" onchange="renderTable()"><option value="">Todos os executores</option></select>
-    </div>
+    <select id="fPrioridade" onchange="renderTable()">
+      <option value="">Todas as prioridades</option>
+      <option value="0">0 – Urgente</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+      <option value="7">7</option>
+      <option value="8">8</option>
+      <option value="9">9 – Alta</option>
+      <option value="10">10 – Alta Consulta</option>
+    </select>
+    <select id="fStatus" onchange="renderTable()">
+      <option value="">Todos os status</option>
+      <option value="critico">🔴 Crítico</option>
+      <option value="atencao">🟡 Atenção</option>
+      <option value="em-dia">🟢 Em dia</option>
+      <option value="sem-data">⚪ Sem data</option>
+      <option value="alta">✅ Alta</option>
+      <option value="alta-c">🔵 Alta Consulta</option>
+    </select>
+    <select id="fTratamento" onchange="renderTable()"><option value="">Todos os tratamentos</option></select>
+    <select id="fExecutor" onchange="renderTable()"><option value="">Todos os executores</option></select>
     <span class="pac-count" id="pacCount"></span>
   </div>
 
   <div id="pacMsg">Carregando...</div>
   <div class="pac-table-wrap" id="pacTableWrap" style="display:none">
-    <table class="pac">
-      <thead><tr>
-        <th style="width:42px">P</th>
-        <th>Nome</th>
-        <th style="width:110px">Tratamento</th>
-        <th style="width:88px">Venda</th>
-        <th style="width:88px">Atualiz.</th>
-        <th>Próximo Passo</th>
-        <th style="width:88px">Agend.</th>
-        <th style="width:96px">Avaliador</th>
-        <th style="width:96px">Executor</th>
-        <th>Obs</th>
-        <th style="width:50px">Dias</th>
-        <th style="width:88px">Status</th>
-        <th style="width:40px"></th>
-      </tr></thead>
+    <table class="pac" id="pacTable">
+      <thead id="pacThead"></thead>
       <tbody id="pacTbody"></tbody>
     </table>
   </div>
@@ -165,72 +176,110 @@ td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
 <script src="/js/pacientes/api.js"></script>
 <script>
 let rows = [], config = {}, activeTab = 'geral';
+let sortCol = null, sortDir = 'asc';
 
 const INVISALIGN_TRATS = new Set(['Invisalign', 'Vivera']);
 
-function switchTab(tab) {
-  activeTab = tab;
-  document.querySelectorAll('.pac-tab').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
-  });
-  // Resetar filtro de tratamento ao trocar aba
-  document.getElementById('fTratamento').value = '';
-  populateTratamentoFilter();
-  renderTable();
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtDate(d) {
+  if (!d) return '—';
+  const parts = String(d).split('-');
+  if (parts.length !== 3) return d;
+  return parts[2] + '/' + parts[1] + '/' + parts[0];
 }
 
 function isInvisalign(r) {
   return INVISALIGN_TRATS.has(r.tratamento);
 }
 
+function tabRows() {
+  if (activeTab === 'invisalign') return rows.filter(r => isInvisalign(r));
+  return rows.filter(r => !isInvisalign(r));
+}
+
 function calcStatus(row) {
-  const prio = row.prioridade ?? 0;
-  if (prio >= 9 || row.is_alta) return { label:'ALTA', cls:'alta', icon:'✅' };
-  if (!row.data_atualizacao) return { label:'SEM DATA', cls:'sem-data', icon:'⚪' };
+  const prio = row.prioridade ?? null;
+  if (prio === 10) return { label: 'Alta - Consulta Realizada', cls: 'alta-c', icon: '🔵' };
+  if (prio === 9 || row.is_alta) return { label: 'Alta', cls: 'alta', icon: '✅' };
+  if (!row.data_atualizacao) return { label: 'Sem data', cls: 'sem-data', icon: '⚪' };
   const cfg = config[row.tratamento] || { dias_atualizacao: 10 };
   const dias = Math.floor((Date.now() - new Date(row.data_atualizacao).getTime()) / 86400000);
-  if (dias > cfg.dias_atualizacao) return { label:'CRÍTICO', cls:'critico', icon:'🔴', dias };
-  if (dias > cfg.dias_atualizacao - 5) return { label:'ATENÇÃO', cls:'atencao', icon:'🟡', dias };
-  return { label:'EM DIA', cls:'em-dia', icon:'🟢', dias };
+  if (dias > cfg.dias_atualizacao) return { label: 'Crítico', cls: 'critico', icon: '🔴', dias };
+  if (dias > cfg.dias_atualizacao - 5) return { label: 'Atenção', cls: 'atencao', icon: '🟡', dias };
+  return { label: 'Em dia', cls: 'em-dia', icon: '🟢', dias };
 }
 
-function cel(text, cls) {
-  const td = document.createElement('td');
-  td.textContent = text || '—';
-  if (cls) td.className = cls;
-  return td;
+// ── Header ───────────────────────────────────────────────────────────────────
+
+const COLS_GERAL = [
+  { key: 'prioridade', label: 'P',            cls: 'col-prio', sortable: true,  width: '42px'  },
+  { key: 'nome',       label: 'Nome',         cls: '',         sortable: true,  width: ''      },
+  { key: 'tratamento', label: 'Tratamento',   cls: '',         sortable: true,  width: '110px' },
+  { key: 'data_venda', label: 'Venda',        cls: '',         sortable: true,  width: '88px'  },
+  { key: 'data_atualizacao', label: 'Atualiz.', cls: '',       sortable: true,  width: '88px'  },
+  { key: 'proximo_passo', label: 'Próximo Passo', cls: '',     sortable: false, width: ''      },
+  { key: 'data_agendamento', label: 'Agend.', cls: '',         sortable: true,  width: '88px'  },
+  { key: 'avaliador',  label: 'Avaliador',    cls: '',         sortable: true,  width: '90px'  },
+  { key: 'executor',   label: 'Executor',     cls: '',         sortable: true,  width: '90px'  },
+  { key: 'obs',        label: 'Obs',          cls: '',         sortable: false, width: ''      },
+  { key: '_dias',      label: 'Dias',         cls: '',         sortable: true,  width: '50px'  },
+  { key: '_status',    label: 'Status',       cls: '',         sortable: true,  width: '88px'  },
+  { key: '_wpp',       label: '',             cls: '',         sortable: false, width: '40px'  },
+];
+
+const COLS_INVISALIGN = COLS_GERAL.filter(c => c.key !== 'prioridade');
+
+function buildHeader() {
+  const cols = activeTab === 'invisalign' ? COLS_INVISALIGN : COLS_GERAL;
+  const tr = document.createElement('tr');
+  cols.forEach(col => {
+    const th = document.createElement('th');
+    if (col.cls) th.className = col.cls;
+    if (col.width) th.style.width = col.width;
+    if (col.sortable) {
+      th.className += ' sortable';
+      th.dataset.col = col.key;
+      if (sortCol === col.key) {
+        th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      }
+    }
+    th.innerHTML = col.label
+      + (col.sortable ? `<i class="sort-icon">${sortCol === col.key ? (sortDir === 'asc' ? '▲' : '▼') : '⬍'}</i>` : '');
+    tr.appendChild(th);
+  });
+  const thead = document.getElementById('pacThead');
+  thead.textContent = '';
+  thead.appendChild(tr);
 }
 
-function editCel(rowId, field, value, isText) {
-  const td = document.createElement('td');
-  td.className = 'pac-cell-edit' + (isText ? ' td-text' : ' td-date');
-  td.textContent = value || '—';
-  td.dataset.id    = rowId;
-  td.dataset.field = field;
-  td.dataset.value = value || '';
-  return td;
-}
+// ── Row builder ──────────────────────────────────────────────────────────────
 
 function prioCel(row) {
   const td = document.createElement('td');
-  td.className = 'pac-prio-cell';
+  td.className = 'pac-prio-cell col-prio';
   td.dataset.id = row.id;
 
-  const prio = row.prioridade ?? 0;
+  const prio = row.prioridade ?? null;
   const badge = document.createElement('span');
   badge.className = 'pac-prio-num';
+
   if (prio === 10) {
     badge.classList.add('p-altac');
     badge.textContent = 'Alta+';
-    badge.title = 'Alta — consulta realizada';
+    badge.title = '10 – Alta Consulta Realizada';
   } else if (prio === 9) {
     badge.classList.add('p-alta');
     badge.textContent = 'Alta';
-    badge.title = 'Alta';
+    badge.title = '9 – Alta';
   } else if (prio === 0) {
-    badge.classList.add('p-vazio');
+    badge.classList.add('p0');
+    badge.textContent = '0';
+    badge.title = '0 – Urgente (clique para editar)';
+  } else if (prio === null) {
+    badge.classList.add('p-none');
     badge.textContent = '—';
-    badge.title = 'Sem prioridade definida';
+    badge.title = 'Sem prioridade (clique para editar)';
   } else {
     badge.textContent = prio;
     badge.title = 'Prioridade ' + prio + ' (clique para editar)';
@@ -239,31 +288,41 @@ function prioCel(row) {
   return td;
 }
 
+function editCel(rowId, field, value, isText) {
+  const td = document.createElement('td');
+  const isDate = field.includes('data');
+  td.className = 'pac-cell-edit' + (isText ? ' td-text' : (isDate ? ' td-date' : ''));
+  td.textContent = isDate ? fmtDate(value) : (value || '—');
+  td.dataset.id    = rowId;
+  td.dataset.field = field;
+  td.dataset.value = value || '';
+  return td;
+}
+
 function makeRow(r) {
   const st = calcStatus(r);
-  const prio = r.prioridade ?? 0;
   const dias = st.dias !== undefined ? st.dias
     : (r.data_atualizacao ? Math.floor((Date.now() - new Date(r.data_atualizacao).getTime()) / 86400000) : null);
 
   const tr = document.createElement('tr');
   tr.dataset.id = r.id;
 
-  tr.appendChild(prioCel(r));
+  if (activeTab === 'geral') tr.appendChild(prioCel(r));
 
+  const tdNome = document.createElement('td');
   const strong = document.createElement('strong');
   strong.textContent = r.nome || '';
-  const tdNome = document.createElement('td');
   tdNome.appendChild(strong);
   tr.appendChild(tdNome);
 
-  tr.appendChild(editCel(r.id, 'tratamento',      r.tratamento,      false));
-  tr.appendChild(cel(r.data_venda, 'td-date'));
-  tr.appendChild(editCel(r.id, 'data_atualizacao', r.data_atualizacao, false));
-  tr.appendChild(editCel(r.id, 'proximo_passo',    r.proximo_passo,    true));
-  tr.appendChild(editCel(r.id, 'data_agendamento', r.data_agendamento, false));
-  tr.appendChild(editCel(r.id, 'avaliador',        r.avaliador,        false));
-  tr.appendChild(editCel(r.id, 'executor',         r.executor,         false));
-  tr.appendChild(editCel(r.id, 'obs',              r.obs,              true));
+  tr.appendChild(editCel(r.id, 'tratamento',       r.tratamento,       false));
+  tr.appendChild(editCel(r.id, 'data_venda',        r.data_venda,       false));
+  tr.appendChild(editCel(r.id, 'data_atualizacao',  r.data_atualizacao, false));
+  tr.appendChild(editCel(r.id, 'proximo_passo',     r.proximo_passo,    true));
+  tr.appendChild(editCel(r.id, 'data_agendamento',  r.data_agendamento, false));
+  tr.appendChild(editCel(r.id, 'avaliador',         r.avaliador,        false));
+  tr.appendChild(editCel(r.id, 'executor',          r.executor,         false));
+  tr.appendChild(editCel(r.id, 'obs',               r.obs,              true));
 
   const tdDias = document.createElement('td');
   tdDias.className = 'pac-dias' + (typeof dias === 'number' && dias > 0 ? ' over' : '');
@@ -293,9 +352,70 @@ function makeRow(r) {
   return tr;
 }
 
-function tabRows() {
-  if (activeTab === 'invisalign') return rows.filter(r => isInvisalign(r));
-  return rows.filter(r => !isInvisalign(r));
+// ── Render ───────────────────────────────────────────────────────────────────
+
+function getSortValue(row, col) {
+  if (col === '_dias') {
+    if (!row.data_atualizacao) return -1;
+    return Math.floor((Date.now() - new Date(row.data_atualizacao).getTime()) / 86400000);
+  }
+  if (col === '_status') return calcStatus(row).cls;
+  const v = row[col];
+  return v ?? '';
+}
+
+function applySort(arr) {
+  if (!sortCol) {
+    if (activeTab === 'geral') {
+      return [...arr].sort((a, b) => {
+        const pa = a.prioridade ?? 999;
+        const pb = b.prioridade ?? 999;
+        return pa - pb;
+      });
+    }
+    return arr;
+  }
+  return [...arr].sort((a, b) => {
+    let va = getSortValue(a, sortCol);
+    let vb = getSortValue(b, sortCol);
+    if (va === '' && vb === '') return 0;
+    if (va === '') return 1;
+    if (vb === '') return -1;
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function renderTable() {
+  const fPrio   = document.getElementById('fPrioridade').value;
+  const fStatus = document.getElementById('fStatus').value;
+  const fTrat   = document.getElementById('fTratamento').value;
+  const fExec   = document.getElementById('fExecutor').value;
+
+  let filtered = tabRows().filter(r => {
+    if (fPrio !== '') {
+      const p = r.prioridade ?? null;
+      if (fPrio === '0' && p !== 0) return false;
+      if (fPrio !== '0' && p !== parseInt(fPrio)) return false;
+    }
+    const st = calcStatus(r);
+    if (fStatus && st.cls !== fStatus) return false;
+    if (fTrat  && r.tratamento !== fTrat) return false;
+    if (fExec  && r.executor   !== fExec) return false;
+    return true;
+  });
+
+  filtered = applySort(filtered);
+
+  document.getElementById('pacCount').textContent = `${filtered.length} paciente(s)`;
+  buildHeader();
+  const tbody = document.getElementById('pacTbody');
+  tbody.textContent = '';
+  const frag = document.createDocumentFragment();
+  filtered.forEach(r => frag.appendChild(makeRow(r)));
+  tbody.appendChild(frag);
 }
 
 function populateTratamentoFilter() {
@@ -310,40 +430,35 @@ function populateTratamentoFilter() {
   });
 }
 
-function renderTable() {
-  const fStatus = document.getElementById('fStatus').value;
-  const fTrat   = document.getElementById('fTratamento').value;
-  const fExec   = document.getElementById('fExecutor').value;
-
-  let filtered = tabRows().filter(r => {
-    const st = calcStatus(r);
-    if (fStatus && st.cls !== fStatus) return false;
-    if (fTrat  && r.tratamento !== fTrat) return false;
-    if (fExec  && r.executor   !== fExec) return false;
-    return true;
+function switchTab(tab) {
+  activeTab = tab;
+  sortCol = null; sortDir = 'asc';
+  document.querySelectorAll('.pac-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
   });
-
-  // Ordenar: prioridade 1-8 primeiro (menor = mais urgente), 0/null por último, 9/10 (alta) por último
-  filtered.sort((a, b) => {
-    const pa = a.prioridade ?? 0;
-    const pb = b.prioridade ?? 0;
-    const valA = pa === 0 ? 99 : pa;
-    const valB = pb === 0 ? 99 : pb;
-    return valA - valB;
-  });
-
-  document.getElementById('pacCount').textContent = `${filtered.length} paciente(s)`;
-  const tbody = document.getElementById('pacTbody');
-  tbody.textContent = '';
-  const frag = document.createDocumentFragment();
-  filtered.forEach(r => frag.appendChild(makeRow(r)));
-  tbody.appendChild(frag);
+  document.getElementById('fTratamento').value = '';
+  document.getElementById('fPrioridade').style.display = tab === 'invisalign' ? 'none' : '';
+  populateTratamentoFilter();
+  renderTable();
 }
 
-// ── Interações ─────────────────────────────────────────────────────────────
+// ── Interações ────────────────────────────────────────────────────────────────
+
+document.getElementById('pacThead').addEventListener('click', e => {
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  const col = th.dataset.col;
+  if (sortCol === col) {
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortCol = col;
+    sortDir = 'asc';
+  }
+  renderTable();
+});
 
 document.getElementById('pacTbody').addEventListener('click', async e => {
-  // Click na célula de prioridade
+  // Prioridade
   const prioCell = e.target.closest('.pac-prio-cell');
   if (prioCell && !prioCell.querySelector('.pac-prio-input')) {
     const id = prioCell.dataset.id;
@@ -354,18 +469,14 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
     inp.className = 'pac-prio-input';
     inp.type = 'number'; inp.min = 0; inp.max = 10;
     inp.value = row.prioridade ?? 0;
-    prioCell.innerHTML = '';
-    prioCell.appendChild(inp);
+    prioCell.replaceChildren(inp);
     inp.focus(); inp.select();
 
     async function savePrio() {
       inp.removeEventListener('blur', savePrio);
       const val = Math.max(0, Math.min(10, parseInt(inp.value) || 0));
       try {
-        const updated = await PacientesAPI.atualizar(id, {
-          prioridade: val,
-          is_alta: val >= 9
-        });
+        const updated = await PacientesAPI.atualizar(id, { prioridade: val, is_alta: val >= 9 });
         const idx = rows.findIndex(r => r.id === id);
         if (idx >= 0) rows[idx] = updated;
         renderTable();
@@ -375,22 +486,19 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
       }
     }
     inp.addEventListener('blur', savePrio);
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
-      if (e.key === 'Escape') {
-        inp.removeEventListener('blur', savePrio);
-        prioCell.replaceChildren(badge);
-      }
+    inp.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter')  { ev.preventDefault(); inp.blur(); }
+      if (ev.key === 'Escape') { inp.removeEventListener('blur', savePrio); prioCell.replaceChildren(badge); }
     });
     return;
   }
 
-  // Click em célula editável normal
+  // Células editáveis
   const td = e.target.closest('.pac-cell-edit');
   if (!td || td.querySelector('input')) return;
   const { id, field, value } = td.dataset;
-  const orig = td.textContent;
-  const inp  = document.createElement('input');
+  const origText = td.textContent;
+  const inp = document.createElement('input');
   inp.className = 'pac-edit-input';
   inp.type  = field.includes('data') ? 'date' : 'text';
   inp.value = value;
@@ -406,16 +514,16 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
       const idx = rows.findIndex(r => r.id === id);
       if (idx >= 0) rows[idx] = updated;
       renderTable();
-    } catch(err) { td.textContent = orig; alert('Erro: ' + err.message); }
+    } catch(err) { td.textContent = origText; alert('Erro: ' + err.message); }
   }
   inp.addEventListener('blur', save);
-  inp.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
-    if (e.key === 'Escape') { inp.removeEventListener('blur', save); td.textContent = orig; }
+  inp.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter')  { ev.preventDefault(); inp.blur(); }
+    if (ev.key === 'Escape') { inp.removeEventListener('blur', save); td.textContent = origText; }
   });
 });
 
-// ── Init ────────────────────────────────────────────────────────────────────
+// ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
   try {
@@ -427,7 +535,6 @@ async function init() {
     [...new Set(data.map(r => r.executor).filter(Boolean))].sort().forEach(e => {
       const o = document.createElement('option'); o.textContent = e; fExec.appendChild(o);
     });
-
     populateTratamentoFilter();
 
     document.getElementById('pacMsg').style.display = 'none';
