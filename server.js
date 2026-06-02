@@ -635,8 +635,6 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
     case 'aguardando':        qb = qb.eq('status', 'Aguardando'); break;
     case 'agendado':          qb = qb.eq('status', 'Agendado'); break;
     case 'faltou':            qb = qb.eq('status', 'Faltou'); break;
-    case 'compareceu':
-      qb = qb.eq('status', 'Compareceu').gte('data_comparecimento', d30); break;
     case 'nao_tem_interesse': qb = qb.eq('status', 'Não tem Interesse'); break;
     default: return null;
   }
@@ -648,7 +646,7 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
   return qb;
 }
 
-const LEADS_COLUNAS = ['lead','nutrir_30','nutrir_180','nutrir_365','aguardando','agendado','faltou','compareceu','nao_tem_interesse'];
+const LEADS_COLUNAS = ['lead','nutrir_30','nutrir_180','nutrir_365','aguardando','agendado','faltou','nao_tem_interesse'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
 app.get('/api/kanban/leads/counts', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
@@ -687,9 +685,7 @@ app.get('/api/kanban/leads/:coluna', requireAuth, requireKanbanLeads, rateLimit,
   const crc = req.query.crc || null;
   if (!LEADS_COLUNAS.includes(coluna)) return res.status(400).json({ error: 'Coluna inválida' });
   try {
-    const orderField = coluna === 'agendado' ? 'data_agendamento'
-      : coluna === 'compareceu' ? 'data_comparecimento'
-      : 'criado_em';
+    const orderField = coluna === 'agendado' ? 'data_agendamento' : 'criado_em';
     const ascending = coluna === 'agendado';
     const offset = page * 30;
     const { data, count, error } = await buildLeadsColFilter(coluna, q, crc)
