@@ -43,7 +43,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Aguardando', 'Agendado', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Aguardando', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -608,6 +608,78 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+// ========== KANBAN ==========
+const CARD_FIELDS = 'id,nome,telefone,origem,status,valor,criado_em,data_comparecimento,data_agendamento,data_fechamento,data_orcamento,data_avaliacao,crc_agendamento_nome,crc_comercial_nome';
+
+function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
+  const now = Date.now();
+  const d30  = new Date(now - 30  * 864e5).toISOString();
+  const d180 = new Date(now - 180 * 864e5).toISOString();
+  const d365 = new Date(now - 365 * 864e5).toISOString();
+  const NURTURE = ['Lead', 'Nutrir', 'Reclassificar'];
+  const sel = countOnly ? '*' : CARD_FIELDS;
+  const opts = countOnly ? { count: 'exact', head: true } : { count: 'exact' };
+  let qb = supabase.from('leads').select(sel, opts);
+  switch (coluna) {
+    case 'lead':
+      qb = qb.in('status', NURTURE).gte('criado_em', d30); break;
+    case 'nutrir_30':
+      qb = qb.in('status', NURTURE).lt('criado_em', d30).gte('criado_em', d180); break;
+    case 'nutrir_180':
+      qb = qb.in('status', NURTURE).lt('criado_em', d180).gte('criado_em', d365); break;
+    case 'nutrir_365':
+      qb = qb.in('status', NURTURE).lt('criado_em', d365); break;
+    case 'aguardando':        qb = qb.eq('status', 'Aguardando'); break;
+    case 'agendado':          qb = qb.eq('status', 'Agendado'); break;
+    case 'faltou':            qb = qb.eq('status', 'Faltou'); break;
+    case 'compareceu':
+      qb = qb.eq('status', 'Compareceu').gte('data_comparecimento', d30); break;
+    case 'nao_tem_interesse': qb = qb.eq('status', 'Não tem Interesse'); break;
+    default: return null;
+  }
+  if (q) qb = qb.or(`nome.ilike.%${q}%,telefone.ilike.%${q}%`);
+  if (crc) qb = qb.eq('crc_agendamento_nome', crc);
+  return qb;
+}
+
+const LEADS_COLUNAS = ['lead','nutrir_30','nutrir_180','nutrir_365','aguardando','agendado','faltou','compareceu','nao_tem_interesse'];
+
+// IMPORTANTE: /counts deve vir ANTES de /:coluna
+app.get('/api/kanban/leads/counts', requireAuth, rateLimit, async (req, res) => {
+  const q   = req.query.q   || null;
+  const crc = req.query.crc || null;
+  try {
+    const results = await Promise.all(
+      LEADS_COLUNAS.map(async col => {
+        const qb = buildLeadsColFilter(col, q, crc, true);
+        if (!qb) return [col, 0];
+        const { count, error } = await qb;
+        return [col, error ? 0 : (count ?? 0)];
+      })
+    );
+    res.json(Object.fromEntries(results));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/kanban/leads/:coluna', requireAuth, rateLimit, async (req, res) => {
+  const { coluna } = req.params;
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0);
+  const q   = req.query.q   || null;
+  const crc = req.query.crc || null;
+  if (!LEADS_COLUNAS.includes(coluna)) return res.status(400).json({ error: 'Coluna inválida' });
+  try {
+    const orderField = coluna === 'agendado' ? 'data_agendamento'
+      : coluna === 'compareceu' ? 'data_comparecimento'
+      : 'criado_em';
+    const ascending = coluna === 'agendado';
+    const offset = page * 30;
+    const { data, count, error } = await buildLeadsColFilter(coluna, q, crc)
+      .order(orderField, { ascending })
+      .range(offset, offset + 29);
+    if (error) throw error;
+    res.json({ leads: data, total: count ?? 0, page, hasMore: (data?.length ?? 0) === 30 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ========== TELEFONIA ==========
 // DEBUG TEMPORÁRIO — remover após diagnóstico
