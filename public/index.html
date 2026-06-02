@@ -5070,53 +5070,137 @@ function _abrirModalCampanhaLeads(tipo, preview) {
   const { titulo, sub } = CAMP_LABELS[tipo] || { titulo: tipo, sub: '' };
   const safeTitle = _esc(titulo);
   const safeSub = _esc(sub);
-  const rows = (preview.contatos || []).slice(0, 20).map(c =>
-    `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${_esc(c.nome)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${_esc(c.telefone)}</td>
-    </tr>`
-  ).join('');
-  const extra = preview.total > 20
-    ? `<tr><td colspan="2" style="padding:6px 10px;color:var(--muted);font-size:12px">... e mais ${preview.total - 20} leads</td></tr>`
+  const contatos = (preview.contatos || []).slice(0, 100);
+  const total = preview.total ?? contatos.length;
+  const desmarcados = new Set();
+  const bloqueados = new Set();
+
+  function _countSel() {
+    return contatos.length - desmarcados.size - bloqueados.size;
+  }
+
+  function _buildRows() {
+    return contatos.map(c => {
+      const id = String(c.id || '');
+      const isDes = desmarcados.has(id);
+      const isBlq = bloqueados.has(id);
+      const style = (isDes || isBlq) ? 'opacity:0.4' : '';
+      const nuncaBtn = isDes && !isBlq
+        ? `<button class="cml-nunca" data-id="${_esc(id)}" data-nome="${_esc(c.nome)}" style="font-size:11px;padding:2px 6px;background:#fff5f5;color:#e53e3e;border:1px solid #fed7d7;border-radius:4px;cursor:pointer">🚫 Nunca ligar</button>`
+        : '';
+      const badge = isBlq ? `<span style="font-size:11px;color:#718096;background:#edf2f7;padding:2px 6px;border-radius:4px">Bloqueado</span>` : '';
+      return `<tr style="${style}">
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border)">
+          <input type="checkbox" class="cml-chk" data-id="${_esc(id)}" ${isBlq ? 'disabled' : ''} ${isDes || isBlq ? '' : 'checked'}>
+        </td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${_esc(c.nome)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px">${_esc(c.telefone)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${nuncaBtn}${badge}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _updateCounter() {
+    const sel = _countSel();
+    bg.querySelector('#cml-counter').textContent = `${sel} de ${contatos.length} selecionados`;
+    const btn = bg.querySelector('#cml-confirmar');
+    btn.disabled = sel === 0;
+    btn.textContent = sel === 0 ? 'Nenhum contato selecionado' : `📞 Enviar ${sel} para discagem`;
+  }
+
+  function _rebuildTable() {
+    bg.querySelector('#cml-tbody').innerHTML = _buildRows();
+    _bindRowEvents();
+    _updateCounter();
+  }
+
+  function _bindRowEvents() {
+    bg.querySelectorAll('.cml-chk').forEach(chk => {
+      chk.onchange = () => {
+        if (!chk.checked) desmarcados.add(chk.dataset.id);
+        else desmarcados.delete(chk.dataset.id);
+        _rebuildTable();
+      };
+    });
+    bg.querySelectorAll('.cml-nunca').forEach(btn => {
+      btn.onclick = async () => {
+        const { id, nome } = btn.dataset;
+        if (!confirm(`Adicionar ${nome} à lista de não ligar? Esta pessoa não será incluída em nenhuma campanha futura.`)) return;
+        btn.disabled = true; btn.textContent = '...';
+        try {
+          const result = await api('/api/campanhas/nao-ligar', { method: 'POST', body: JSON.stringify({ tipo: 'lead', id }) });
+          if (result?.error) throw new Error(result.error);
+          bloqueados.add(id);
+          desmarcados.delete(id);
+          _rebuildTable();
+        } catch (e) {
+          btn.disabled = false; btn.textContent = '🚫 Nunca ligar';
+          toast(e.message || 'Erro ao salvar.', true);
+        }
+      };
+    });
+  }
+
+  const avisoExtra = total > 100
+    ? `<p style="font-size:12px;color:#718096;margin:8px 0 0;padding:8px;background:#fffbeb;border-radius:6px;border:1px solid #fbd38d">ℹ️ Mostrando os primeiros 100 de ${total}. Os demais serão incluídos automaticamente. Use 🚫 Nunca ligar para excluí-los permanentemente.</p>`
     : '';
 
   const bg = document.createElement('div');
   bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:2000';
   bg.innerHTML = `
-    <div class="modal" style="max-width:480px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal" style="max-width:540px;max-height:85vh;display:flex;flex-direction:column">
       <div class="modal-header">
-        <span class="modal-titulo">${safeTitle} — ${preview.total} leads</span>
+        <span class="modal-titulo">${safeTitle} — ${total} leads</span>
         <button class="modal-close" id="cml-close">×</button>
       </div>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">${safeSub}</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">${safeSub}</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="cml-selectall" checked> Selecionar todos
+        </label>
+        <span id="cml-counter" style="font-size:12px;color:#718096"></span>
+      </div>
       <div style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:8px">
         <table style="width:100%;border-collapse:collapse">
           <thead><tr>
+            <th style="width:32px;padding:8px 10px;background:#f7fafc;border-bottom:2px solid var(--border)"></th>
             <th style="padding:8px 10px;text-align:left;font-size:12px;background:#f7fafc;border-bottom:2px solid var(--border)">Nome</th>
             <th style="padding:8px 10px;text-align:left;font-size:12px;background:#f7fafc;border-bottom:2px solid var(--border)">Telefone</th>
+            <th style="padding:8px 10px;background:#f7fafc;border-bottom:2px solid var(--border)"></th>
           </tr></thead>
-          <tbody>${rows}${extra}</tbody>
+          <tbody id="cml-tbody"></tbody>
         </table>
       </div>
-      <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+      ${avisoExtra}
+      <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">
         <button id="cml-cancelar" class="btn" style="background:#edf2f7;color:#4a5568">Cancelar</button>
-        <button id="cml-confirmar" class="btn btn-primary">📞 Enviar para discagem</button>
+        <button id="cml-confirmar" class="btn btn-primary">📞 Enviar ${contatos.length} para discagem</button>
       </div>
     </div>`;
   document.body.appendChild(bg);
 
+  _rebuildTable();
+
+  bg.querySelector('#cml-selectall').onchange = e => {
+    if (e.target.checked) desmarcados.clear();
+    else contatos.forEach(c => { const id = String(c.id||''); if (!bloqueados.has(id)) desmarcados.add(id); });
+    _rebuildTable();
+  };
   bg.querySelector('#cml-close').onclick = () => bg.remove();
   bg.querySelector('#cml-cancelar').onclick = () => bg.remove();
   bg.querySelector('#cml-confirmar').onclick = async () => {
     const btn = bg.querySelector('#cml-confirmar');
+    const excluir = [...desmarcados];
+    const sel = _countSel();
     btn.disabled = true; btn.textContent = 'Enviando...';
     try {
-      await api('/api/campanhas/lancar', { method: 'POST', body: JSON.stringify({ tipo }) });
+      const launchResult = await api('/api/campanhas/lancar', { method: 'POST', body: JSON.stringify({ tipo, excluir }) });
+      if (launchResult?.error) throw new Error(launchResult.error);
       bg.remove();
-      toast('Campanha iniciada! ' + preview.total + ' leads na fila de discagem.');
+      toast(`Campanha iniciada! ${sel} leads na fila de discagem.`);
       if (window.campanhaWidgetRefresh) window.campanhaWidgetRefresh();
     } catch (e) {
-      btn.disabled = false; btn.textContent = '📞 Enviar para discagem';
+      btn.disabled = false; btn.textContent = `📞 Enviar ${sel} para discagem`;
       toast(e.message || 'Erro ao lançar campanha.', true);
     }
   };
