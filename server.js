@@ -685,6 +685,95 @@ app.get('/api/kanban/leads/:coluna', requireAuth, rateLimit, async (req, res) =>
     res.json({ leads: data, total: count ?? 0, page, hasMore: offset + (data?.length ?? 0) < (count ?? 0) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ========== KANBAN COMERCIAL ==========
+function buildComercialColFilter(coluna, q, crc, countOnly = false) {
+  const now = Date.now();
+  const d30  = new Date(now - 30 * 864e5).toISOString();
+  const sel  = countOnly ? '*' : CARD_FIELDS;
+  const opts = countOnly ? { count: 'exact', head: true } : { count: 'exact' };
+  let qb = supabase.from('leads').select(sel, opts);
+  switch (coluna) {
+    case 'compareceu':
+      qb = qb.eq('status', 'Compareceu').gte('data_comparecimento', d30); break;
+    case 'd0': qb = qb.eq('status', 'D0'); break;
+    case 'd1': qb = qb.eq('status', 'D1'); break;
+    case 'd2': qb = qb.eq('status', 'D2'); break;
+    case 'd3': qb = qb.eq('status', 'D3'); break;
+    case 'd4': qb = qb.eq('status', 'D4'); break;
+    case 'd5': qb = qb.eq('status', 'D5'); break;
+    case 'fechou':
+      qb = qb.eq('status', 'Fechou').gte('data_fechamento', d30); break;
+    case 'perdido': qb = qb.eq('status', 'Perdido'); break;
+    default: return null; // nutricao_* handled via RPC
+  }
+  if (q) {
+    const safe = q.replace(/[%,()]/g, '');
+    qb = qb.or(`nome.ilike.%${safe}%,telefone.ilike.%${safe}%`);
+  }
+  if (crc) qb = qb.eq('crc_comercial_nome', crc);
+  return qb;
+}
+
+const COMERCIAL_SIMPLES = ['compareceu','d0','d1','d2','d3','d4','d5','fechou','perdido'];
+const COMERCIAL_COLUNAS = [...COMERCIAL_SIMPLES, 'nutricao_30','nutricao_180','nutricao_365'];
+
+// IMPORTANTE: /counts deve vir ANTES de /:coluna
+app.get('/api/kanban/comercial/counts', requireAuth, rateLimit, async (req, res) => {
+  const q   = req.query.q   || null;
+  const crc = req.query.crc || null;
+  try {
+    const simplesPromises = COMERCIAL_SIMPLES.map(async col => {
+      const qb = buildComercialColFilter(col, q, crc, true);
+      const { count, error } = await qb;
+      if (error) console.error('[kanban/comercial/counts]', col, error.message);
+      return [col, count ?? 0];
+    });
+    const nutricaoPromises = ['30','180','365'].map(async bucket => {
+      const { data, error } = await supabase.rpc('kanban_nutricao_count', {
+        p_bucket: bucket,
+        p_q: q,
+        p_crc: crc,
+      });
+      if (error) console.error('[kanban/comercial/counts] nutricao_' + bucket, error.message);
+      return [`nutricao_${bucket}`, Number(data) || 0];
+    });
+    const results = await Promise.all([...simplesPromises, ...nutricaoPromises]);
+    res.json(Object.fromEntries(results));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/kanban/comercial/:coluna', requireAuth, rateLimit, async (req, res) => {
+  const { coluna } = req.params;
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0);
+  const q   = req.query.q   || null;
+  const crc = req.query.crc || null;
+  if (!COMERCIAL_COLUNAS.includes(coluna)) return res.status(400).json({ error: 'Coluna inválida' });
+  try {
+    const offset = page * 30;
+    if (coluna.startsWith('nutricao_')) {
+      const bucket = coluna.replace('nutricao_', '');
+      const [{ data, error: e1 }, { data: total, error: e2 }] = await Promise.all([
+        supabase.rpc('kanban_nutricao', { p_bucket: bucket, p_limit: 30, p_offset: offset, p_q: q, p_crc: crc }),
+        supabase.rpc('kanban_nutricao_count', { p_bucket: bucket, p_q: q, p_crc: crc }),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+      const tot = Number(total) || 0;
+      return res.json({ leads: data, total: tot, page, hasMore: offset + (data?.length ?? 0) < tot });
+    }
+    const orderField = coluna === 'compareceu' ? 'data_comparecimento'
+      : ['d0','d1','d2','d3','d4','d5'].includes(coluna) ? 'data_avaliacao'
+      : coluna === 'fechou' ? 'data_fechamento'
+      : 'criado_em';
+    const { data, count, error } = await buildComercialColFilter(coluna, q, crc)
+      .order(orderField, { ascending: false, nullsFirst: false })
+      .range(offset, offset + 29);
+    if (error) throw error;
+    res.json({ leads: data, total: count ?? 0, page, hasMore: offset + (data?.length ?? 0) < (count ?? 0) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ========== TELEFONIA ==========
 // DEBUG TEMPORÁRIO — remover após diagnóstico
 app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
