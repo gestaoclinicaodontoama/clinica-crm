@@ -143,21 +143,24 @@ function fmtBRL(v) {
 }
 
 // ── CARD RENDER ───────────────────────────────────────────────────────────────
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 function renderCard(lead) {
   const age = timeAgo(lead.criado_em);
   const tel = lead.telefone || '';
-  return `<div class="kb-card" draggable="true" data-id="${lead.id}" data-status="${lead.status}"
+  return `<div class="kb-card" draggable="true" data-id="${lead.id}" data-status="${esc(lead.status)}"
     ondragstart="onDragStart(event)" ondragend="onDragEnd(event)"
     onclick="if(!window._kbDragging)abrirLead(${lead.id})">
     <div class="kb-card-top">
-      <span class="kb-card-nome">${lead.nome || 'Sem nome'}</span>
+      <span class="kb-card-nome">${esc(lead.nome || 'Sem nome')}</span>
       <span class="kb-card-age">${age}</span>
     </div>
-    <div class="kb-card-tel">${fmtTel(tel)}</div>
+    <div class="kb-card-tel">${esc(fmtTel(tel))}</div>
     <div class="kb-card-foot">
-      <span class="kb-badge">${lead.origem || ''}</span>
+      <span class="kb-badge">${esc(lead.origem || '')}</span>
       ${lead.valor ? `<span class="kb-valor">${fmtBRL(lead.valor)}</span>` : ''}
-      <button class="kb-wa" onclick="event.stopPropagation();abrirWA('${tel}')">💬</button>
+      <button class="kb-wa" onclick="event.stopPropagation();abrirWA('${tel.replace(/\D/g,'')}')">💬</button>
     </div>
   </div>`;
 }
@@ -229,8 +232,8 @@ async function loadColCards(slug, page = 0) {
   const col = COLUNAS.find(c => c.slug === slug);
   renderCol(col);
   try {
-    const sep = qs() ? qs() + '&' : '?';
-    const data = await api(`/api/kanban/leads/${slug}${qs()}${qs() ? '&' : '?'}page=${page}`);
+    const q = qs();
+    const data = await api(`/api/kanban/leads/${slug}${q}${q ? '&' : '?'}page=${page}`);
     if (page === 0) s.leads = data.leads;
     else s.leads = [...s.leads, ...data.leads];
     s.total   = data.total;
