@@ -300,7 +300,7 @@ function _abrirModalCampanha(tipo, preview) {
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   const contatos = (preview.contatos || []).slice(0, 100);
-  const total = preview.total;
+  const total = preview.total ?? contatos.length;
   const desmarcados = new Set();
   const bloqueados = new Set();
 
