@@ -4,32 +4,98 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pacientes — AMA</title>
-<link rel="stylesheet" href="/style.css">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  .pac-wrap { padding: 16px; max-width: 100%; }
-  .pac-header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
-  .pac-header h2 { margin:0; font-size:18px; }
-  .pac-filters { display:flex; gap:8px; flex-wrap:wrap; }
-  .pac-filters select { padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--card); color:var(--text); }
-  .pac-table-wrap { overflow-x:auto; }
-  table.pac { border-collapse:collapse; width:100%; font-size:13px; }
-  table.pac th { background:var(--bg); padding:8px 10px; text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); border-bottom:2px solid var(--border); white-space:nowrap; position:sticky; top:0; z-index:1; }
-  table.pac td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
-  table.pac tr:hover td { background:var(--hover,rgba(99,102,241,.04)); }
-  .pac-status { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; }
-  .pac-status.critico  { background:#fef2f2; color:#dc2626; }
-  .pac-status.atencao  { background:#fffbeb; color:#d97706; }
-  .pac-status.em-dia   { background:#f0fdf4; color:#16a34a; }
-  .pac-status.sem-data { background:#f8fafc; color:#94a3b8; }
-  .pac-status.alta     { background:#f0fdf4; color:#16a34a; }
-  .pac-alta-btn { cursor:pointer; font-size:16px; background:none; border:none; padding:0; }
-  .pac-cell-edit { cursor:pointer; }
-  .pac-cell-edit:hover { background:var(--hover,rgba(99,102,241,.08)); border-radius:4px; }
-  .pac-edit-input { width:100%; padding:3px 6px; border:1px solid var(--primary,#6366f1); border-radius:4px; font-size:12px; }
-  .pac-dias { font-weight:600; }
-  .pac-dias.over { color:#dc2626; }
-  .pac-wpp { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; background:#25D366; color:#fff; border-radius:6px; text-decoration:none; font-size:11px; font-weight:600; }
-  .pac-count { font-size:12px; color:var(--text-muted); margin-left:auto; }
+:root[data-theme="dark"] {
+  --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+  --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444;
+}
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+  --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+.pac-wrap { padding: 20px 24px; }
+
+.pac-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.pac-header h2 { margin: 0; font-size: 17px; font-weight: 700; }
+
+.pac-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.pac-filters select {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--bg2); color: var(--text);
+  font-family: inherit; cursor: pointer; outline: none;
+}
+.pac-filters select:focus { border-color: var(--accent); }
+
+.pac-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+.pac-table-wrap {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  overflow-x: auto;
+}
+
+table.pac { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 900px; }
+
+table.pac th {
+  padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap;
+  background: var(--bg2); text-transform: uppercase; letter-spacing: .5px;
+}
+
+table.pac td {
+  padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+}
+table.pac tr:last-child td { border-bottom: none; }
+table.pac tr:hover td { background: var(--bg3); }
+
+/* Date columns: nowrap */
+td.td-date { white-space: nowrap; font-size: 12px; color: var(--muted); }
+
+/* Text columns: wrap */
+td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
+
+/* Name */
+td.td-nome strong { font-weight: 600; font-size: 13px; }
+
+.pac-status {
+  display: inline-block; padding: 2px 8px; border-radius: 12px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.pac-status.critico  { background: rgba(239,68,68,.12);  color: var(--red); }
+.pac-status.atencao  { background: rgba(245,158,11,.12); color: var(--yellow); }
+.pac-status.em-dia   { background: rgba(34,197,94,.12);  color: var(--green); }
+.pac-status.sem-data { background: var(--bg3); color: var(--muted); }
+.pac-status.alta     { background: rgba(34,197,94,.12);  color: var(--green); }
+
+.pac-alta-btn { cursor: pointer; font-size: 15px; background: none; border: none; padding: 0; line-height: 1; }
+
+.pac-cell-edit { cursor: pointer; }
+.pac-cell-edit:hover { background: rgba(99,102,241,.06); border-radius: 4px; }
+
+.pac-edit-input {
+  width: 100%; padding: 3px 6px; border: 1px solid var(--accent);
+  border-radius: 4px; font-size: 12px; background: var(--bg3);
+  color: var(--text); font-family: inherit; outline: none;
+}
+
+.pac-dias { font-weight: 600; font-size: 13px; }
+.pac-dias.over { color: var(--red); }
+
+.pac-wpp {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; background: #25D366; color: #fff;
+  border-radius: 8px; text-decoration: none; font-size: 14px;
+}
+.pac-wpp:hover { opacity: .85; }
+
+#pacMsg { padding: 40px; color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
@@ -52,13 +118,23 @@
     </div>
     <span class="pac-count" id="pacCount"></span>
   </div>
-  <div id="pacMsg" style="padding:20px;color:var(--text-muted);text-align:center">Carregando...</div>
+  <div id="pacMsg">Carregando...</div>
   <div class="pac-table-wrap" id="pacTableWrap" style="display:none">
     <table class="pac">
       <thead><tr>
-        <th>P</th><th>NOME</th><th>TRATAMENTO</th><th>DATA VENDA</th>
-        <th>DATA ATUALIZ.</th><th>PRÓXIMO PASSO</th><th>DATA AGEND.</th>
-        <th>AVALIADOR</th><th>EXECUTOR</th><th>OBS</th><th>DIAS</th><th>STATUS</th><th></th>
+        <th></th>
+        <th>Nome</th>
+        <th>Tratamento</th>
+        <th>Venda</th>
+        <th>Atualiz.</th>
+        <th>Próximo Passo</th>
+        <th>Agend.</th>
+        <th>Avaliador</th>
+        <th>Executor</th>
+        <th>Obs</th>
+        <th>Dias</th>
+        <th>Status</th>
+        <th></th>
       </tr></thead>
       <tbody id="pacTbody"></tbody>
     </table>
@@ -87,9 +163,9 @@ function cel(text, cls) {
   return td;
 }
 
-function editCel(rowId, field, value) {
+function editCel(rowId, field, value, isText) {
   const td = document.createElement('td');
-  td.className = 'pac-cell-edit';
+  td.className = 'pac-cell-edit' + (isText ? ' td-text' : ' td-date');
   td.textContent = value || '—';
   td.dataset.id    = rowId;
   td.dataset.field = field;
@@ -105,6 +181,7 @@ function makeRow(r) {
   const tr = document.createElement('tr');
   tr.dataset.id = r.id;
 
+  // Alta button
   const btnAlta = document.createElement('button');
   btnAlta.className = 'pac-alta-btn';
   btnAlta.title = r.is_alta ? 'Remover alta' : 'Marcar como alta';
@@ -112,23 +189,26 @@ function makeRow(r) {
   btnAlta.dataset.id   = r.id;
   btnAlta.dataset.alta = r.is_alta ? '1' : '';
   const tdAlta = document.createElement('td');
+  tdAlta.style.textAlign = 'center';
   tdAlta.appendChild(btnAlta);
   tr.appendChild(tdAlta);
 
+  // Nome
   const strong = document.createElement('strong');
   strong.textContent = r.nome || '';
   const tdNome = document.createElement('td');
+  tdNome.className = 'td-nome';
   tdNome.appendChild(strong);
   tr.appendChild(tdNome);
 
-  tr.appendChild(editCel(r.id, 'tratamento',      r.tratamento));
-  tr.appendChild(cel(r.data_venda));
-  tr.appendChild(editCel(r.id, 'data_atualizacao', r.data_atualizacao));
-  tr.appendChild(editCel(r.id, 'proximo_passo',    r.proximo_passo));
-  tr.appendChild(editCel(r.id, 'data_agendamento', r.data_agendamento));
-  tr.appendChild(editCel(r.id, 'avaliador',        r.avaliador));
-  tr.appendChild(editCel(r.id, 'executor',         r.executor));
-  tr.appendChild(editCel(r.id, 'obs',              r.obs));
+  tr.appendChild(editCel(r.id, 'tratamento',      r.tratamento,      false));
+  tr.appendChild(cel(r.data_venda, 'td-date'));
+  tr.appendChild(editCel(r.id, 'data_atualizacao', r.data_atualizacao, false));
+  tr.appendChild(editCel(r.id, 'proximo_passo',    r.proximo_passo,    true));
+  tr.appendChild(editCel(r.id, 'data_agendamento', r.data_agendamento, false));
+  tr.appendChild(editCel(r.id, 'avaliador',        r.avaliador,        false));
+  tr.appendChild(editCel(r.id, 'executor',         r.executor,         false));
+  tr.appendChild(editCel(r.id, 'obs',              r.obs,              true));
 
   const tdDias = document.createElement('td');
   tdDias.className = 'pac-dias' + (typeof dias === 'number' && dias > 0 ? ' over' : '');
@@ -143,6 +223,7 @@ function makeRow(r) {
   tr.appendChild(tdSt);
 
   const tdWpp = document.createElement('td');
+  tdWpp.style.textAlign = 'center';
   if (r.telefone) {
     const a = document.createElement('a');
     a.className = 'pac-wpp';
