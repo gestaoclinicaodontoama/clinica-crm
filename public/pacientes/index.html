@@ -228,7 +228,21 @@ const COLS_GERAL = [
   { key: '_wpp',       label: '',             cls: '',         sortable: false, width: '40px'  },
 ];
 
-const COLS_INVISALIGN = COLS_GERAL.filter(c => c.key !== 'prioridade');
+// Aba Invisalign: layout espelha a planilha (Situação + Vencimento, sem Venda, Responsável no lugar de Avaliador/Executor)
+const COLS_INVISALIGN = [
+  { key: 'nome',               label: 'Nome',          cls: '', sortable: true,  width: ''      },
+  { key: 'tratamento',         label: 'Tratamento',    cls: '', sortable: true,  width: '110px' },
+  { key: 'situacao_tratamento',label: 'Situação',      cls: '', sortable: true,  width: '120px' },
+  { key: 'data_atualizacao',   label: 'Atualiz.',      cls: '', sortable: true,  width: '88px'  },
+  { key: 'proximo_passo',      label: 'Próximo Passo', cls: '', sortable: false, width: ''      },
+  { key: 'data_agendamento',   label: 'Agend.',        cls: '', sortable: true,  width: '88px'  },
+  { key: 'data_vencimento',    label: 'Vencimento',    cls: '', sortable: true,  width: '95px'  },
+  { key: 'executor',           label: 'Responsável',   cls: '', sortable: true,  width: '95px'  },
+  { key: 'obs',                label: 'Obs',           cls: '', sortable: false, width: ''      },
+  { key: '_dias',              label: 'Dias',          cls: '', sortable: true,  width: '50px'  },
+  { key: '_status',            label: 'Status',        cls: '', sortable: true,  width: '88px'  },
+  { key: '_wpp',               label: '',              cls: '', sortable: false, width: '40px'  },
+];
 
 function buildHeader() {
   const cols = activeTab === 'invisalign' ? COLS_INVISALIGN : COLS_GERAL;
@@ -306,30 +320,18 @@ function editCel(rowId, field, value, isText) {
   return td;
 }
 
-function makeRow(r) {
+function nomeCel(r) {
+  const td = document.createElement('td');
+  const strong = document.createElement('strong');
+  strong.textContent = r.nome || '';
+  td.appendChild(strong);
+  return td;
+}
+
+function diasStatusWppCels(tr, r) {
   const st = calcStatus(r);
   const dias = st.dias !== undefined ? st.dias
     : (r.data_atualizacao ? Math.floor((Date.now() - new Date(r.data_atualizacao).getTime()) / 86400000) : null);
-
-  const tr = document.createElement('tr');
-  tr.dataset.id = r.id;
-
-  if (activeTab === 'geral') tr.appendChild(prioCel(r));
-
-  const tdNome = document.createElement('td');
-  const strong = document.createElement('strong');
-  strong.textContent = r.nome || '';
-  tdNome.appendChild(strong);
-  tr.appendChild(tdNome);
-
-  tr.appendChild(editCel(r.id, 'tratamento',       r.tratamento,       false));
-  tr.appendChild(cel(fmtDate(r.data_venda), 'td-date'));
-  tr.appendChild(editCel(r.id, 'data_atualizacao',  r.data_atualizacao, false));
-  tr.appendChild(editCel(r.id, 'proximo_passo',     r.proximo_passo,    true));
-  tr.appendChild(editCel(r.id, 'data_agendamento',  r.data_agendamento, false));
-  tr.appendChild(editCel(r.id, 'avaliador',         r.avaliador,        false));
-  tr.appendChild(editCel(r.id, 'executor',          r.executor,         false));
-  tr.appendChild(editCel(r.id, 'obs',               r.obs,              true));
 
   const tdDias = document.createElement('td');
   tdDias.className = 'pac-dias' + (typeof dias === 'number' && dias > 0 ? ' over' : '');
@@ -355,7 +357,37 @@ function makeRow(r) {
     tdWpp.appendChild(a);
   }
   tr.appendChild(tdWpp);
+}
 
+function makeRow(r) {
+  const tr = document.createElement('tr');
+  tr.dataset.id = r.id;
+
+  if (activeTab === 'invisalign') {
+    tr.appendChild(nomeCel(r));
+    tr.appendChild(editCel(r.id, 'tratamento',          r.tratamento,          false));
+    tr.appendChild(editCel(r.id, 'situacao_tratamento', r.situacao_tratamento, false));
+    tr.appendChild(editCel(r.id, 'data_atualizacao',    r.data_atualizacao,    false));
+    tr.appendChild(editCel(r.id, 'proximo_passo',       r.proximo_passo,       true));
+    tr.appendChild(editCel(r.id, 'data_agendamento',    r.data_agendamento,    false));
+    tr.appendChild(editCel(r.id, 'data_vencimento',     r.data_vencimento,     false));
+    tr.appendChild(editCel(r.id, 'executor',            r.executor,            false));
+    tr.appendChild(editCel(r.id, 'obs',                 r.obs,                 true));
+    diasStatusWppCels(tr, r);
+    return tr;
+  }
+
+  tr.appendChild(prioCel(r));
+  tr.appendChild(nomeCel(r));
+  tr.appendChild(editCel(r.id, 'tratamento',       r.tratamento,       false));
+  tr.appendChild(cel(fmtDate(r.data_venda), 'td-date'));
+  tr.appendChild(editCel(r.id, 'data_atualizacao',  r.data_atualizacao, false));
+  tr.appendChild(editCel(r.id, 'proximo_passo',     r.proximo_passo,    true));
+  tr.appendChild(editCel(r.id, 'data_agendamento',  r.data_agendamento, false));
+  tr.appendChild(editCel(r.id, 'avaliador',         r.avaliador,        false));
+  tr.appendChild(editCel(r.id, 'executor',          r.executor,         false));
+  tr.appendChild(editCel(r.id, 'obs',               r.obs,              true));
+  diasStatusWppCels(tr, r);
   return tr;
 }
 
