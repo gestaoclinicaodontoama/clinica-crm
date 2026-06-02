@@ -205,6 +205,7 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
   inp.focus();
 
   async function save() {
+    inp.removeEventListener('blur', save);
     const val = inp.value.trim();
     try {
       const updated = await PacientesAPI.atualizar(id, { [field]: val || null });

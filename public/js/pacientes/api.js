@@ -14,6 +14,7 @@ async function api(path, opts = {}) {
     ...opts,
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken(), ...(opts.headers || {}) },
   });
+  if (r.status === 401) _token = null;
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
   return r.json();
 }

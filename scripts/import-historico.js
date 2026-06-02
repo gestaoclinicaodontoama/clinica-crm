@@ -121,9 +121,16 @@ async function main() {
   }
 
   const mapLead = new Map();
-  for (const r of [...leadsCSV, ...fechCSV]) {
+  for (const r of leadsCSV) {
     const t = normalizeTel(r['Telefone']);
     if (!t) continue;
+    const ex = mapLead.get(t);
+    if (!ex || parseDate(r['Data de cadastro']) > parseDate(ex['Data de cadastro'])) mapLead.set(t, r);
+  }
+  const leadsCSVPhones = new Set(mapLead.keys());
+  for (const r of fechCSV) {
+    const t = normalizeTel(r['Telefone']);
+    if (!t || leadsCSVPhones.has(t)) continue;
     const ex = mapLead.get(t);
     if (!ex || parseDate(r['Data de cadastro']) > parseDate(ex['Data de cadastro'])) mapLead.set(t, r);
   }
@@ -174,7 +181,7 @@ async function main() {
       status = null; stats.CompSemOrc++;
       extraData = { dataCadastro: parseDate(leadRow['Data de cadastro']), dataAgendamento: aRow ? parseDate(aRow['Criação do agendamento']) : null };
     } else if (aRow) {
-      status = 'Nutrir'; stats.Faltou++;
+      status = 'Nutrir'; stats.Nutrir++;
       extraData = {
         dataCadastro: parseDate(leadRow['Data de cadastro']),
         dataAgendamento: parseDate(aRow['Data da consulta']) || parseDate(aRow['Criação do agendamento']),

@@ -1646,7 +1646,7 @@ let leadAtual = null;
 let etiquetasAtual = [];
 let discAtual = '';
 let scoreAtual = null;
-const FUNIL = ['Lead','Aguardando','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido'];
+const FUNIL = ['Lead','Aguardando','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
 const ORIGENS = ['Meta Ads','WhatsApp Direto','Indicação','Google','Instagram','TikTok','Evento','Outdoor','Rádio','Outros'];
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
@@ -2128,7 +2128,7 @@ function renderStepper(statusAtual) {
   // Vocabulário rico alinhado com servidor (FUNIL 15) e banco (constraint)
   const idx = FUNIL.indexOf(statusAtual);
   const grupoLead      = ['Lead','Aguardando','Agendado','Compareceu','Nutrir','Não tem Interesse'];
-  const grupoComercial = ['D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido'];
+  const grupoComercial = ['D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
   function mkStep(f) {
     const i = FUNIL.indexOf(f);
     const cls = i < idx && statusAtual !== 'Perdido' ? 'done' : i === idx ? 'current' : '';

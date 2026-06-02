@@ -2610,22 +2610,24 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
     if (error) throw error;
 
     if (acao === 'aprovar' && orc.lead_id) {
-      try {
-        const { data: jaExisteArr } = await supabase.from('pacientes_sucesso')
-          .select('id').eq('lead_id', orc.lead_id).limit(1);
-        if (!jaExisteArr?.length) {
-          const { data: lead } = await supabase.from('leads')
-            .select('telefone').eq('id', orc.lead_id).maybeSingle();
-          await supabase.from('pacientes_sucesso').insert({
-            lead_id: orc.lead_id,
-            nome: orc.paciente_nome || '',
-            telefone: lead?.telefone || '',
-            data_venda: orc.data_fechamento,
-            valor_fechado: patch.valor_aprovado,
-            importado_historico: false,
-          });
-        }
-      } catch (hookErr) { console.error('Hook pacientes_sucesso:', hookErr.message); }
+      (async () => {
+        try {
+          const { data: jaExisteArr } = await supabase.from('pacientes_sucesso')
+            .select('id').eq('lead_id', orc.lead_id).limit(1);
+          if (!jaExisteArr?.length) {
+            const { data: lead } = await supabase.from('leads')
+              .select('telefone').eq('id', orc.lead_id).maybeSingle();
+            await supabase.from('pacientes_sucesso').insert({
+              lead_id: orc.lead_id,
+              nome: orc.paciente_nome || '',
+              telefone: lead?.telefone || '',
+              data_venda: orc.data_fechamento,
+              valor_fechado: patch.valor_aprovado,
+              importado_historico: false,
+            });
+          }
+        } catch (hookErr) { console.error('Hook pacientes_sucesso:', hookErr.message); }
+      })();
     }
 
     res.json({ ok: true });
