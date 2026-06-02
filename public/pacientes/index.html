@@ -288,6 +288,13 @@ function prioCel(row) {
   return td;
 }
 
+function cel(text, cls) {
+  const td = document.createElement('td');
+  if (cls) td.className = cls;
+  td.textContent = (text === undefined || text === null || text === '') ? '—' : text;
+  return td;
+}
+
 function editCel(rowId, field, value, isText) {
   const td = document.createElement('td');
   const isDate = field.includes('data');
