@@ -638,7 +638,10 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
     case 'nao_tem_interesse': qb = qb.eq('status', 'Não tem Interesse'); break;
     default: return null;
   }
-  if (q) qb = qb.or(`nome.ilike.%${q}%,telefone.ilike.%${q}%`);
+  if (q) {
+    const safe = q.replace(/[%,()]/g, '');
+    qb = qb.or(`nome.ilike.%${safe}%,telefone.ilike.%${safe}%`);
+  }
   if (crc) qb = qb.eq('crc_agendamento_nome', crc);
   return qb;
 }
@@ -655,7 +658,8 @@ app.get('/api/kanban/leads/counts', requireAuth, rateLimit, async (req, res) => 
         const qb = buildLeadsColFilter(col, q, crc, true);
         if (!qb) return [col, 0];
         const { count, error } = await qb;
-        return [col, error ? 0 : (count ?? 0)];
+        if (error) console.error('[kanban/leads/counts]', col, error.message);
+        return [col, count ?? 0];
       })
     );
     res.json(Object.fromEntries(results));
@@ -678,7 +682,7 @@ app.get('/api/kanban/leads/:coluna', requireAuth, rateLimit, async (req, res) =>
       .order(orderField, { ascending })
       .range(offset, offset + 29);
     if (error) throw error;
-    res.json({ leads: data, total: count ?? 0, page, hasMore: (data?.length ?? 0) === 30 });
+    res.json({ leads: data, total: count ?? 0, page, hasMore: offset + (data?.length ?? 0) < (count ?? 0) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ========== TELEFONIA ==========
