@@ -99,7 +99,7 @@
           if(arrow)arrow.classList.toggle('open',!open);
           try{localStorage.setItem('crm-nav-'+id,open?'closed':'open');}catch(e){}
         })('${id}')" data-roles="${roles}">
-          ${icon}${label}${IC.arrow.replace('class="nav-arrow"','class="nav-arrow${arrowClass}"')}
+          ${icon}${label}${IC.arrow.replace('class="nav-arrow"',`class="nav-arrow${arrowClass}"`)}
         </button>
         <div class="nav-submenu" id="snav-sub-${id}" style="display:${subDisplay}">${items}</div>
       </div>`;
