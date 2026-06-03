@@ -4554,6 +4554,15 @@ app.post('/api/notificacoes/lidas-todas', requireAuth, rateLimit, async (req, re
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Lista usuários ativos — usado pelo módulo Tarefas para popular o select "Atribuir para"
+app.get('/api/usuarios', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('profiles').select('id,nome').eq('ativo', true).order('nome');
+    if (error) throw error;
+    res.json(data || []);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Tarefas
 const _requireGestor = requireRole('admin', 'gestor');
 

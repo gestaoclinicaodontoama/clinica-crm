@@ -121,6 +121,7 @@
 <script>
 const _tkKey = [...Object.keys(localStorage)].find(k=>k.startsWith('sb-')&&k.endsWith('-auth-token'));
 const _tkn = _tkKey ? (JSON.parse(localStorage.getItem(_tkKey)||'{}')?.access_token || '') : '';
+if (!_tkn) { window.location.href = '/'; throw new Error('no token'); }
 const _api = (path, opts={}) => fetch(path, {
   headers: { 'Authorization': 'Bearer ' + _tkn, 'Content-Type': 'application/json', ...(opts.headers||{}) },
   ...opts
@@ -157,6 +158,7 @@ async function _checkAdmin() {
 }
 
 async function aplicarFiltro() {
+  document.getElementById('tabela-atribuicao').innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">Carregando...</td></tr>';
   try {
     const [dados, isAdmin] = await Promise.all([
       _api('/api/atribuicao?' + getFiltroParams()),
@@ -168,7 +170,10 @@ async function aplicarFiltro() {
       document.getElementById('catalogo-wrap').style.display = '';
       _api('/api/anuncios').then(catalog => renderCatalogo(Array.isArray(catalog) ? catalog : [])).catch(() => {});
     }
-  } catch(e) { console.error('atribuicao:', e); }
+  } catch(e) {
+    document.getElementById('cards-resumo').innerHTML = '';
+    document.getElementById('tabela-atribuicao').innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--red)">Erro ao carregar dados (' + _esc(e.message) + ') — <a href="/" style="color:var(--accent)">voltar ao início</a></td></tr>';
+  }
   carregarInsights();
 }
 
