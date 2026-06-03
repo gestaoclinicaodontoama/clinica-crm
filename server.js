@@ -3426,8 +3426,9 @@ app.post('/api/avaliacoes/transcrever',
     _transcribeJobs.set(jobId, { status: 'pending', result: null, error: null, userId: req.user.id });
     res.json({ jobId }); // respond immediately — no proxy timeout
 
-    geminiLib().transcreverAudio({ audioBuffer: buffer, contentType })
-      .then(({ words }) => {
+    deepgramLib().transcribeBuffer(buffer, contentType)
+      .then(dgResult => {
+        const words = dgResult?.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
         _transcribeJobs.set(jobId, { status: 'done', result: { words }, error: null, userId: req.user.id });
       })
       .catch(e => {
@@ -4334,7 +4335,14 @@ app.get('/api/meta-insights', requireRole('admin', 'gestor'), rateLimit, async (
     const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
       '/insights?level=ad&fields=ad_id,ad_name,campaign_name,spend,actions' +
       '&time_range=' + encodeURIComponent(timeRange) + '&limit=500';
-    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const _metaCtrl = new AbortController();
+    const _metaTimeout = setTimeout(() => _metaCtrl.abort(), 25000);
+    let r;
+    try {
+      r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN }, signal: _metaCtrl.signal });
+    } finally {
+      clearTimeout(_metaTimeout);
+    }
     const json = await r.json();
     if (json.error) {
       return res.status(200).json({ erro_meta: json.error.message || 'Erro Meta', code: json.error.code, anuncios: [] });
@@ -4387,7 +4395,12 @@ app.get('/api/meta-insights', requireRole('admin', 'gestor'), rateLimit, async (
     totais.roas = totais.spend > 0 ? totais.receita / totais.spend : null;
 
     res.json({ anuncios, totais, desde: ymd(dDesde), ate: ymd(dAte), conta: META_AD_ACCOUNT_ID });
-  } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
+  } catch(e) {
+    if (e.name === 'AbortError') {
+      return res.status(200).json({ erro_meta: 'A Meta API não respondeu a tempo. Tente um período menor ou tente novamente.', anuncios: [] });
+    }
+    res.status(e.status || 500).json({ error: e.message });
+  }
 });
 
 // Cache de thumbnails de anúncios (em memória, TTL 6h)

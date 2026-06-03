@@ -65,6 +65,26 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .kb-load-more:hover{border-color:var(--accent);color:var(--accent);}
 .kb-empty{font-size:12px;color:var(--muted);text-align:center;padding:20px 0;}
 .kb-spinner{text-align:center;padding:20px;font-size:12px;color:var(--muted);}
+/* modal */
+#kb-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:1000;align-items:center;justify-content:center;padding:16px;}
+#kb-modal-bg.open{display:flex;}
+#kb-modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:440px;max-width:100%;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.3);position:relative;}
+.km-close{position:absolute;top:14px;right:14px;background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted);line-height:1;}
+.km-close:hover{color:var(--text);}
+.km-name{font-size:18px;font-weight:700;margin-bottom:3px;}
+.km-phone{font-size:13px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:14px;}
+.km-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+.km-field{background:var(--bg3);border-radius:8px;padding:9px 11px;}
+.km-field-label{font-size:10.5px;color:var(--muted);margin-bottom:2px;}
+.km-field-value{font-size:13px;font-weight:500;}
+.km-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.km-btn{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;transition:all .15s;}
+.km-btn-primary{background:var(--accent);color:#fff;}
+.km-btn-primary:hover{background:var(--accent-hover);}
+.km-btn-secondary{background:var(--bg3);color:var(--text);border:1px solid var(--border);}
+.km-btn-secondary:hover{background:var(--border);}
+.km-btn-green{background:var(--green);color:#fff;}
+.km-btn-green:hover{filter:brightness(1.1);}
 </style>
 <script src="/js/shared-nav.js" data-active="kanban-leads" defer></script>
 </head>
@@ -76,6 +96,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <select class="kb-crc" id="kb-crc"><option value="">Todos os CRCs</option></select>
   </div>
   <div class="kb-board" id="kb-board"></div>
+</div>
+<div id="kb-modal-bg" onclick="if(event.target===this)fecharModal()">
+  <div id="kb-modal">
+    <button class="km-close" onclick="fecharModal()">✕</button>
+    <div class="km-name" id="km-nome"></div>
+    <div class="km-phone" id="km-phone"></div>
+    <div class="km-grid" id="km-grid"></div>
+    <div class="km-actions" id="km-actions"></div>
+  </div>
 </div>
 <script>
 // ── AUTH ──────────────────────────────────────────────────────────────────────
@@ -117,6 +146,7 @@ const COLUNAS = [
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const state = {};
+const _leadMap = {};
 COLUNAS.forEach(c => { state[c.slug] = { leads:[], total:0, page:0, hasMore:false, loading:false }; });
 const collapsed = JSON.parse(localStorage.getItem('kb-leads-collapsed') || '{}');
 let _searchQ = '', _crcQ = '', _searchTimer = null, _draggingId = null, _draggingStatus = null;
@@ -235,6 +265,7 @@ async function loadColCards(slug, page = 0) {
     const data = await api(`/api/kanban/leads/${slug}${q}${q ? '&' : '?'}page=${page}`);
     if (page === 0) s.leads = data.leads;
     else s.leads = [...s.leads, ...data.leads];
+    data.leads.forEach(l => { _leadMap[l.id] = l; });
     s.total   = data.total;
     s.page    = page;
     s.hasMore = data.hasMore;
@@ -308,7 +339,46 @@ function toggleCollapse(slug) {
 }
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
-function abrirLead(id) { window.open('/?abrir_lead=' + id, '_blank'); }
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+}
+
+function abrirLead(id) {
+  const l = _leadMap[id];
+  if (!l) { window.open('/?abrir_lead=' + id, '_blank'); return; }
+  document.getElementById('km-nome').textContent = l.nome || 'Sem nome';
+  document.getElementById('km-phone').textContent = fmtTel(l.telefone || '');
+  const fields = [
+    ['Status', l.status || '—'],
+    ['Origem', l.origem || '—'],
+    l.valor ? ['Valor', fmtBRL(l.valor)] : null,
+    ['Criado em', fmtDate(l.criado_em)],
+    l.data_agendamento ? ['Agendado', fmtDate(l.data_agendamento)] : null,
+    l.data_comparecimento ? ['Compareceu', fmtDate(l.data_comparecimento)] : null,
+    l.data_fechamento ? ['Fechou', fmtDate(l.data_fechamento)] : null,
+    l.crc_agendamento_nome ? ['CRC Lead', l.crc_agendamento_nome] : null,
+    l.crc_comercial_nome ? ['CRC Comercial', l.crc_comercial_nome] : null,
+  ].filter(Boolean);
+  document.getElementById('km-grid').innerHTML = fields.map(([label, value]) =>
+    `<div class="km-field"><div class="km-field-label">${esc(label)}</div><div class="km-field-value">${esc(String(value))}</div></div>`
+  ).join('');
+  const tel = (l.telefone || '').replace(/\D/g, '');
+  const safeId = encodeURIComponent(String(id));
+  document.getElementById('km-actions').innerHTML =
+    (tel ? `<button class="km-btn km-btn-green" onclick="window.open('https://wa.me/55${tel}','_blank')">💬 WhatsApp</button>` : '') +
+    `<button class="km-btn km-btn-primary" onclick="window.open('/?abrir_lead=${safeId}','_blank')">Abrir perfil completo</button>` +
+    `<button class="km-btn km-btn-secondary" onclick="fecharModal()">Fechar</button>`;
+  document.getElementById('kb-modal-bg').classList.add('open');
+}
+
+function fecharModal() {
+  document.getElementById('kb-modal-bg').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModal(); });
+
 function abrirWA(tel) {
   const t = tel.replace(/\D/g, '');
   window.open('https://wa.me/55' + t, '_blank');

@@ -490,9 +490,12 @@ textarea { resize: vertical; min-height: 80px; }
 .reset-msg { font-size:12px; margin-top:8px; display:none; text-align:center; }
 .reset-msg.ok { color:var(--green); }
 .reset-msg.error { color:var(--red); }
-.nav-btn--section { font-weight: 600; color: var(--text); }
-.nav-submenu { padding-left: 10px; display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.nav-btn--section { font-weight: 700; color: var(--text); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.nav-submenu { padding-left: 6px; display: flex; flex-direction: column; gap: 1px; margin-top: 1px; }
 .nav-subitem { display: flex; align-items: center; padding: 7px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); text-decoration: none; transition: all .15s; }
+.nav-subitem:hover { background: var(--bg3); color: var(--text); }
+.nav-subitem.active { background: var(--accent) !important; color: white !important; }
+button.nav-subitem { border: none; background: none; cursor: pointer; width: 100%; text-align: left; font-family: inherit; }
 .nav-subitem:hover { background: var(--bg3); color: var(--text); }
 .badge-nav { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; border-radius: 999px; font-size: .65rem; font-weight: 700; padding: 0 .35rem; margin-left: auto; }
 .badge-nav--green { background: #D1FAE5; color: #065F46; }
@@ -553,40 +556,51 @@ textarea { resize: vertical; min-height: 80px; }
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
     Dashboard
   </button>
-  <button class="nav-btn" data-page="leads" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento" onclick="setPage('leads',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-    Todos os Leads
-  </button>
-  <button class="nav-btn" data-page="funil" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('funil',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-    Funil
-  </button>
-  <button class="nav-btn" data-page="conv-agendamentos" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('conv-agendamentos',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-    WhatsApp CRC Lead
-  </button>
-  <button class="nav-btn" data-page="conv-avaliacao" data-roles="admin,gestor,crc_comercial,crc_sucesso" onclick="setPage('conv-avaliacao',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-    WhatsApp CRC Comercial
-  </button>
-  <button class="nav-btn" data-page="disparos" data-roles="admin,gestor,crc_comercial" onclick="setPage('disparos',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
-    Disparos
-  </button>
-  <button class="nav-btn" data-page="notas-fiscais" data-roles="admin,gestor,auxiliar_adm,mod_notas_fiscais" onclick="setPage('notas-fiscais',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-    Notas Fiscais
-  </button>
-  <button class="nav-btn" data-page="inadimplentes" data-roles="admin,gestor,auxiliar_adm,mod_inadimplentes" onclick="setPage('inadimplentes',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    Inadimplentes
-    <span class="inad-nav-badge" id="badge-inadimplentes"></span>
-  </button>
-  <!-- Pos Tratamento submenu -->
+  <!-- CRC de Leads -->
+  <div class="nav-section" id="nav-section-crc-leads" data-roles="admin,gestor,crc_leads,crc_comercial">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('crc-leads')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg>
+      CRC de Leads
+      <svg class="nav-arrow" id="arrow-crc-leads" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-crc-leads" style="display:none">
+      <a href="/kanban-leads/" class="nav-subitem" data-roles="admin,crc,crc_leads,crc_comercial,mod_kanban_leads">Kanban Leads</a>
+      <button class="nav-subitem" data-page="conv-agendamentos" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('conv-agendamentos',this)">WhatsApp CRC Lead</button>
+    </div>
+  </div>
+
+  <!-- CRC Comercial -->
+  <div class="nav-section" id="nav-section-crc-comercial" data-roles="admin,gestor,crc_comercial">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('crc-comercial')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+      CRC Comercial
+      <svg class="nav-arrow" id="arrow-crc-comercial" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-crc-comercial" style="display:none">
+      <a href="/comercial/" class="nav-subitem" data-roles="admin,gestor,crc_comercial">Comercial</a>
+      <a href="/kanban-comercial/" class="nav-subitem" data-roles="admin,crc,crc_comercial,mod_kanban_comercial">Kanban Comercial</a>
+      <button class="nav-subitem" data-page="conv-avaliacao" data-roles="admin,gestor,crc_comercial,crc_sucesso" onclick="setPage('conv-avaliacao',this)">WhatsApp CRC Comercial</button>
+      <a href="/comercial/conferencia/" class="nav-subitem" data-roles="admin,gestor,crc_comercial">Conferência</a>
+    </div>
+  </div>
+
+  <!-- CRC Sucesso do Cliente -->
+  <div class="nav-section" id="nav-section-crc-sucesso" data-roles="admin,gestor,crc_sucesso,crc_comercial">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('crc-sucesso')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      CRC Sucesso do Cliente
+      <svg class="nav-arrow" id="arrow-crc-sucesso" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-crc-sucesso" style="display:none">
+      <a href="/pacientes/" class="nav-subitem" data-roles="crc_sucesso,crc_comercial,gestor,admin">Pacientes</a>
+    </div>
+  </div>
+
+  <!-- CRC Pós Tratamento -->
   <div class="nav-section" id="nav-section-pos" data-roles="admin,gestor,crc_sucesso,crc_pos_tratamento">
     <button class="nav-btn nav-btn--section" onclick="toggleNavSection('pos')">
-      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z"/><path d="M8 4v4l2.5 2.5"/></svg>
-      Pós Tratamento
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      CRC Pós Tratamento
       <svg class="nav-arrow" id="arrow-pos" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
     </button>
     <div class="nav-submenu" id="submenu-pos" style="display:none">
@@ -601,52 +615,70 @@ textarea { resize: vertical; min-height: 80px; }
       <a href="/pos-tratamento/vips.html" class="nav-subitem">VIPs</a>
     </div>
   </div>
-  <a class="nav-btn" href="/avaliacao-dentista/" data-roles="gestor,dentista,admin,mod_avaliacao_dentista,crc_comercial">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-    Avaliação Dentista
-  </a>
-  <a class="nav-btn" href="/atribuicao/" data-roles="admin,gestor">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-    Atribuição
-  </a>
-  <a class="nav-btn" href="/comercial/" data-roles="admin,gestor,crc_comercial">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
-    Comercial
-  </a>
-  <a class="nav-btn" href="/comercial/conferencia/" data-roles="admin,gestor,crc_comercial">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-    Conferência
-  </a>
-  <a class="nav-btn" href="/kanban-leads/" data-roles="admin,crc,crc_leads,crc_comercial,mod_kanban_leads">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg>
-    Kanban Leads
-  </a>
-  <a class="nav-btn" href="/kanban-comercial/" data-roles="admin,crc,crc_comercial,mod_kanban_comercial">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="14" rx="1"/><rect x="10" y="3" width="5" height="18" rx="1"/><rect x="17" y="3" width="4" height="10" rx="1"/></svg>
-    Kanban Comercial
-  </a>
-  <a class="nav-btn" href="/pacientes/" data-roles="crc_sucesso,crc_comercial,gestor,admin">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M12 11v4"/><path d="M10 13h4"/></svg>
-    Pacientes
-  </a>
-  <a class="nav-btn" href="/ligacoes" data-roles="gestor,admin">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.64A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92v2z"/>
-    </svg>
-    Ligações
-  </a>
-  <button class="nav-btn" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)" style="display:none">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-    Usuários
+
+  <!-- Funil e Disparos -->
+  <button class="nav-btn" data-page="funil" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('funil',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+    Funil
   </button>
-  <button class="nav-btn" data-page="tarefas-gestor" data-roles="admin,gestor" onclick="setPage('tarefas-gestor',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-    Tarefas
+  <button class="nav-btn" data-page="disparos" data-roles="admin,gestor,crc_comercial" onclick="setPage('disparos',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
+    Disparos
   </button>
-  <button class="nav-btn" data-page="config" data-roles="admin,gestor" onclick="setPage('config',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    Configurações
-  </button>
+
+  <!-- Administrativo -->
+  <div class="nav-section" id="nav-section-admin" data-roles="admin,gestor,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('admin')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Administrativo
+      <svg class="nav-arrow" id="arrow-admin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-admin" style="display:none">
+      <button class="nav-subitem" data-page="inadimplentes" data-roles="admin,gestor,auxiliar_adm,mod_inadimplentes" onclick="setPage('inadimplentes',this)">
+        Inadimplentes <span class="inad-nav-badge" id="badge-inadimplentes"></span>
+      </button>
+      <button class="nav-subitem" data-page="notas-fiscais" data-roles="admin,gestor,auxiliar_adm,mod_notas_fiscais" onclick="setPage('notas-fiscais',this)">Notas Fiscais</button>
+    </div>
+  </div>
+
+  <!-- Dentistas -->
+  <div class="nav-section" id="nav-section-dentistas" data-roles="admin,gestor,dentista,mod_avaliacao_dentista,crc_comercial">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('dentistas')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Dentistas
+      <svg class="nav-arrow" id="arrow-dentistas" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-dentistas" style="display:none">
+      <a href="/avaliacao-dentista/" class="nav-subitem" data-roles="gestor,dentista,admin,mod_avaliacao_dentista,crc_comercial">Avaliação Dentista</a>
+    </div>
+  </div>
+
+  <!-- Relatórios -->
+  <div class="nav-section" id="nav-section-relatorios" data-roles="admin,gestor">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('relatorios')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Relatórios
+      <svg class="nav-arrow" id="arrow-relatorios" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-relatorios" style="display:none">
+      <a href="/ligacoes" class="nav-subitem" data-roles="gestor,admin">Ligações</a>
+      <a href="/atribuicao/" class="nav-subitem" data-roles="admin,gestor">Atribuição</a>
+    </div>
+  </div>
+
+  <!-- Configurações Gerais -->
+  <div class="nav-section" id="nav-section-config-geral" data-roles="admin,gestor">
+    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('config-geral')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Configurações Gerais
+      <svg class="nav-arrow" id="arrow-config-geral" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
+    <div class="nav-submenu" id="submenu-config-geral" style="display:none">
+      <button class="nav-subitem" data-page="tarefas-gestor" data-roles="admin,gestor" onclick="setPage('tarefas-gestor',this)">Tarefas</button>
+      <button class="nav-subitem" data-page="config" data-roles="admin,gestor" onclick="setPage('config',this)">Configurações</button>
+      <button class="nav-subitem" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)">Usuários</button>
+    </div>
+  </div>
   <button class="nav-btn nav-logout" onclick="handleLogout()">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       Sair
@@ -1697,10 +1729,18 @@ function setPage(p, btn) {
     if (isDO) return;
   }
   document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.nav-btn,.nav-subitem').forEach(x => x.classList.remove('active'));
   const pageId = (p === 'conv-agendamentos' || p === 'conv-avaliacao') ? 'conversas' : p;
   document.getElementById('page-'+pageId).classList.add('active');
   btn.classList.add('active');
+  // Auto-expande seção pai se o botão estiver dentro de um submenu
+  const _parentSub = btn.closest('.nav-submenu');
+  if (_parentSub) {
+    _parentSub.style.display = '';
+    const _sectionId = _parentSub.id.replace('submenu-', '');
+    const _arrow = document.getElementById('arrow-' + _sectionId);
+    if (_arrow) _arrow.style.transform = 'rotate(180deg)';
+  }
   document.querySelector('main').scrollTop = 0;
   const isConv2 = p === 'conv-agendamentos' || p === 'conv-avaliacao';
   document.querySelector('main').classList.toggle('conv-active', isConv2);
@@ -4786,7 +4826,7 @@ async function loadCurrentUser() {
     const roles = Array.isArray(d.roles) ? d.roles : [];
     // Apply role-based nav visibility
     const _canSee = (rolesAttr) => roles.includes('admin') || rolesAttr.split(',').some(r => roles.includes(r));
-    document.querySelectorAll('.nav-btn[data-roles]').forEach(btn => {
+    document.querySelectorAll('.nav-btn[data-roles],.nav-subitem[data-roles]').forEach(btn => {
       btn.style.display = _canSee(btn.dataset.roles) ? '' : 'none';
     });
     document.querySelectorAll('.nav-section[data-roles]').forEach(sec => {
