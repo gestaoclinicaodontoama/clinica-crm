@@ -2597,9 +2597,12 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
     // retorna um array. Helpers para extrair o id de forma robusta:
     const _firstPatient = d => Array.isArray(d) ? d[0] : (Array.isArray(d?.data) ? d.data[0] : (d?.data || d));
     const _patientId = o => (o && (o.PatientId || o.Patient_PersonId || o.id)) || null;
+    // O Clinicorp guarda o telefone SEM o DDI 55; nossos leads guardam COM. Remover o 55
+    // (número BR tem 12-13 dígitos com DDI) — senão /patient/get nunca casa.
+    const _foneClinicorp = raw => { let p = String(raw||'').replace(/\D/g,''); if (p.startsWith('55') && p.length >= 12) p = p.slice(2); return p; };
     let patient_id = lead.clinicorp_patient_id || null;
     if (!patient_id && lead.telefone) {
-      const phone = lead.telefone.replace(/\D/g, '');
+      const phone = _foneClinicorp(lead.telefone);
       const pr = await clinicorpGet('/patient/get', { Phone: phone });
       const pid = _patientId(_firstPatient(pr?.data));
       if (pid) {
@@ -2613,7 +2616,7 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
       if (pid) patient_id = pid;
     }
     if (!patient_id) {
-      const phone = (lead.telefone || '').replace(/\D/g, '');
+      const phone = _foneClinicorp(lead.telefone);
       const cr = await clinicorpPost('/patient/create', {
         subscriber_id: process.env.CLINICORP_SUBSCRIBER_ID || 'clinicaama',
         Name: sanitizeStr(lead.nome || 'Paciente', 100),
