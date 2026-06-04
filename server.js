@@ -1924,12 +1924,32 @@ app.post('/webhooks/whatsapp', async (req, res) => {
 const META_PAGE_ID = process.env.META_PAGE_ID || '';
 const META_API_VERSION = 'v21.0';
 
-// Mapa wa_number_id -> page_id da Página do Facebook que originou o ctwa_clid.
-// Config via env META_PAGE_ID_BY_WA (JSON). Ex.:
-//   {"993441140514749":"<page_id do número novo>","default":"<page_id do número padrão>"}
-// A Meta EXIGE que o page_id enviado no CAPI seja o da mesma Página que gerou o ctwa_clid
-// (erro 400 subcode 2804072 quando não batem). Por isso o page_id é resolvido por número.
-function pageIdParaLead(lead) {
+// page_id do CAPI: a Meta EXIGE que o page_id enviado seja o da mesma Página que gerou o
+// ctwa_clid (erro 400 subcode 2804072 quando não batem). A Página é determinada pelo ANÚNCIO
+// (não pelo número de WhatsApp): o mesmo número pode receber cliques de anúncios de Páginas
+// diferentes. Por isso resolvemos o page_id a partir do anúncio (referral.source_id):
+//   ad -> creative.effective_object_story_id = "<page_id>_<post_id>".
+// Requer token com ads_read (META_ADS_TOKEN; cai para META_ACCESS_TOKEN). Em cache por ad_id.
+const _adPageCache = new Map();
+async function resolveAdPageId(adId) {
+  if (!adId) return '';
+  if (_adPageCache.has(adId)) return _adPageCache.get(adId);
+  const token = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+  if (!token) return '';
+  try {
+    const r = await fetch('https://graph.facebook.com/' + META_API_VERSION + '/' + encodeURIComponent(adId) +
+      '?fields=creative%7Beffective_object_story_id%7D&access_token=' + encodeURIComponent(token));
+    const j = await r.json();
+    const story = (j && j.creative && j.creative.effective_object_story_id) || '';
+    const pageId = String(story).split('_')[0] || '';
+    if (pageId) _adPageCache.set(adId, pageId);
+    return pageId;
+  } catch (e) { console.error('resolveAdPageId:', e.message); return ''; }
+}
+
+// Fallback de page_id por env quando não dá para resolver pelo anúncio.
+// META_PAGE_ID_BY_WA (JSON) opcional: {"<wa_number_id>":"<page_id>","default":"<page_id>"}
+function pageIdFallback(lead) {
   let map = {};
   try { map = JSON.parse(process.env.META_PAGE_ID_BY_WA || '{}'); } catch { map = {}; }
   const wa = lead && lead.wa_number_id ? lead.wa_number_id : 'default';
@@ -1977,7 +1997,9 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
   if (lead.nome) user_data.fn = [sha256(lead.nome.split(' ')[0])];
   if (isCTWA) {
     user_data.ctwa_clid = lead.ctwa_clid;
-    const pageId = pageIdParaLead(lead);
+    // Prefere a Página resolvida pelo próprio anúncio; cai para o fallback por env.
+    const adId = (lead.referral_data || {}).source_id || '';
+    const pageId = (await resolveAdPageId(adId)) || pageIdFallback(lead);
     if (pageId) user_data.page_id = pageId;
   } else if (lead.fbclid) {
     user_data.fbc = 'fb.1.' + Math.floor(Date.now()/1000) + '.' + lead.fbclid;
