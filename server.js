@@ -1964,6 +1964,7 @@ function pageIdFallback(lead) {
 const EVENTOS_FUNIL = {
   'Lead':              'LeadSubmitted',
   'Aguardando':        null,
+  'Em conversa - Qualificado': 'LeadQualified',
   'Agendado':          'Schedule',
   'Compareceu':        'Contact',
   'Nutrir':            null,
@@ -2592,20 +2593,24 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
 
     // 1. Buscar/criar paciente no Clinicorp
+    // A API do Clinicorp identifica paciente por `PatientId` (não `id`); /patient/get
+    // retorna um array. Helpers para extrair o id de forma robusta:
+    const _firstPatient = d => Array.isArray(d) ? d[0] : (Array.isArray(d?.data) ? d.data[0] : (d?.data || d));
+    const _patientId = o => (o && (o.PatientId || o.Patient_PersonId || o.id)) || null;
     let patient_id = lead.clinicorp_patient_id || null;
     if (!patient_id && lead.telefone) {
       const phone = lead.telefone.replace(/\D/g, '');
       const pr = await clinicorpGet('/patient/get', { Phone: phone });
-      const pd = pr?.data;
-      if (pd?.id || (Array.isArray(pd) && pd[0]?.id)) {
-        patient_id = pd?.id || pd[0]?.id;
+      const pid = _patientId(_firstPatient(pr?.data));
+      if (pid) {
+        patient_id = pid;
         await supabase.from('leads').update({ clinicorp_patient_id: patient_id }).eq('id', leadId);
       }
     }
     if (!patient_id && lead.nome) {
       const pr = await clinicorpGet('/patient/get', { Name: lead.nome });
-      const pd = pr?.data;
-      if (pd?.id || (Array.isArray(pd) && pd[0]?.id)) patient_id = pd?.id || pd[0]?.id;
+      const pid = _patientId(_firstPatient(pr?.data));
+      if (pid) patient_id = pid;
     }
     if (!patient_id) {
       const phone = (lead.telefone || '').replace(/\D/g, '');
@@ -2614,7 +2619,7 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
         Name: sanitizeStr(lead.nome || 'Paciente', 100),
         ...(phone ? { MobilePhone: parseInt(phone) } : {}),
       });
-      patient_id = cr?.data?.id || null;
+      patient_id = _patientId(_firstPatient(cr?.data));
       if (patient_id) await supabase.from('leads').update({ clinicorp_patient_id: patient_id }).eq('id', leadId);
     }
 
