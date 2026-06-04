@@ -837,10 +837,10 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       </div>
       <div class="chat-window" id="chat-window" style="display:none">
         <div class="chat-header" id="chat-header"></div>
-        <div id="chat-anuncio-banner" style="display:none"></div>
         <div style="display:flex;flex:1;min-height:0">
           <!-- Mensagens -->
           <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+            <div id="chat-anuncio-banner" style="display:none"></div>
             <div class="chat-msgs" id="chat-msgs"></div>
             <div class="chat-input-area" style="flex-direction:column;gap:6px">
               <textarea class="chat-textarea" id="chat-input" placeholder="Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)" rows="1" onkeydown="chatKeyDown(event)" oninput="autoResizeChat(this)"></textarea>
@@ -2376,6 +2376,19 @@ async function ligarLead3c() {
   }
 }
 
+// Ligação a partir do chat (WhatsApp CRC Lead). Usa o lead do chat, não o do modal.
+async function ligarChatLead() {
+  if (!chatLeadAtual || !chatLeadAtual.telefone) return;
+  try {
+    toast('📞 Iniciando ligação...');
+    const r = await api(`/api/leads/${chatLeadAtual.id}/ligar`, { method: 'POST' });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    toast('✅ Ligação iniciada! Aguarde o seu telefone tocar.');
+  } catch (e) {
+    toast('❌ ' + e.message, true);
+  }
+}
+
 // ============ CONFIG ============
 function atualizarLinks() {
   const base = document.getElementById('cfg-url')?.value || 'http://localhost:3000';
@@ -2949,6 +2962,7 @@ async function abrirChat(leadId) {
         ${chatLeadAtual.ctwa_clid ? '<span class="ctwa-badge">📍 veio de anúncio</span>' : ''}
       </div>
     </div>
+    ${chatLeadAtual.telefone ? `<button class="btn btn-call" style="font-size:12px;flex-shrink:0" onclick="ligarChatLead()" title="Ligar via 3CPlus">📞 Ligar</button>` : ''}
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModalTemplate()">📢 Template</button>
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModal(${chatLeadAtual.id})">Ver perfil</button>
   `;
