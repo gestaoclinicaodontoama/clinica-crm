@@ -1956,9 +1956,10 @@ function pageIdFallback(lead) {
   return map[wa] || map.default || META_PAGE_ID || '';
 }
 
-// Eventos aceitos pela Meta quando action_source = business_messaging (leads CTWA).
-// Nomes de pixel padrão como 'Schedule'/'Contact' são REJEITADOS (400 subcode 2804066).
-const EVENTOS_BUSINESS_MESSAGING_OK = new Set(['LeadSubmitted', 'Purchase']);
+// Eventos por action_source (testado ao vivo na API da Meta):
+// - business_messaging: SÓ aceita LeadSubmitted e Purchase (demais dão 400 subcode 2804066).
+// - system_generated:   aceita o funil inteiro (Lead/LeadQualified/Schedule/Contact/Purchase)
+//   carregando o mesmo ctwa_clid → usado para as fases geradas pelo CRM.
 
 const EVENTOS_FUNIL = {
   'Lead':              'LeadSubmitted',
@@ -1986,11 +1987,12 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
   const eventName = eventoCustom || EVENTOS_FUNIL[lead.status];
   if (!eventName) { console.log('⏭️  Lead #' + lead.id + ' status "' + lead.status + '" não dispara CAPI'); return; }
   const isCTWA = !!lead.ctwa_clid;
-  if (isCTWA && !EVENTOS_BUSINESS_MESSAGING_OK.has(eventName)) {
-    console.log('⏭️  CTWA Lead #' + lead.id + ' — evento "' + eventName + '" não é válido para business_messaging; pulado (evitaria 400)');
-    return;
-  }
-  const action_source = isCTWA ? 'business_messaging' : 'website';
+  // action_source por evento (CTWA): a 1ª mensagem (LeadSubmitted) é ação do usuário no chat →
+  // business_messaging; as fases geradas pelo CRM (Schedule/Contact/Purchase/LeadQualified) vão
+  // como system_generated (que aceita o funil inteiro). Ambos levam ctwa_clid + page_id.
+  // Leads não-CTWA (web) continuam como website.
+  const action_source = !isCTWA ? 'website'
+    : (eventName === 'LeadSubmitted' ? 'business_messaging' : 'system_generated');
   const user_data = {};
   if (lead.telefone) user_data.ph = [sha256(lead.telefone)];
   if (lead.email) user_data.em = [sha256(lead.email)];
@@ -2009,7 +2011,7 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
       event_name: eventName,
       event_time: Math.floor(Date.now() / 1000),
       action_source,
-      ...(isCTWA && { messaging_channel: 'whatsapp' }),
+      ...(action_source === 'business_messaging' && { messaging_channel: 'whatsapp' }),
       event_id: 'lead_' + lead.id + '_' + eventName,
       user_data,
       custom_data: { currency: 'BRL', value: parseFloat(lead.valor) || 0 },
