@@ -2752,7 +2752,7 @@ app.get('/api/meta-agendamentos', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/meta-agendamentos', requireRole('admin', 'gestor'), async (req, res) => {
+app.patch('/api/meta-agendamentos', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
   const { meta } = req.body;
   const valor = parseInt(meta, 10);
   if (!valor || valor < 1) return res.status(400).json({ error: 'meta deve ser um número positivo' });
@@ -4257,7 +4257,7 @@ app.get(/^\/(?!api\/|lead(\?|$)|webhooks\/|track\.js).*/, (req, res) => {
 });
 // ========== TRAJETO / ATRIBUICAO / ANUNCIOS ==========
 
-app.get('/api/leads/:id/trajeto', requireRole('admin', 'gestor', 'crc_leads', 'crc_comercial', 'crc_sucesso', 'crc_pos_tratamento'), rateLimit, async (req, res) => {
+app.get('/api/leads/:id/trajeto', requireAuth, requireRole('admin', 'gestor', 'crc_leads', 'crc_comercial', 'crc_sucesso', 'crc_pos_tratamento'), rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -4273,7 +4273,7 @@ app.get('/api/leads/:id/trajeto', requireRole('admin', 'gestor', 'crc_leads', 'c
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const periodo = parseInt(req.query.periodo, 10) || 30;
     const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida: ' + s), { status: 400 }); return d.toISOString(); };
@@ -4328,7 +4328,7 @@ app.get('/api/atribuicao', requireRole('admin', 'gestor'), rateLimit, async (req
 
 // CPA / ROAS / Discrepância — cruza gasto+conversas do Meta com leads do CRM
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID || '945699087658457';
-app.get('/api/meta-insights', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+app.get('/api/meta-insights', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const TOKEN = process.env.META_ACCESS_TOKEN;
     if (!TOKEN) return res.status(200).json({ error: 'META_ACCESS_TOKEN não configurado', sem_token: true, anuncios: [] });
@@ -4440,7 +4440,7 @@ app.get('/api/anuncio-thumb/:adId', requireAuth, rateLimit, async (req, res) => 
   } catch(e) { res.json({ thumbnail_url: null, nome: null, indisponivel: true }); }
 });
 
-app.get('/api/anuncios', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+app.get('/api/anuncios', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const { data, error } = await supabase.from('anuncios').select('*').order('criado_em', { ascending: false });
     if (error) throw error;
@@ -4448,7 +4448,7 @@ app.get('/api/anuncios', requireRole('admin', 'gestor'), rateLimit, async (req, 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/anuncios', requireRole('admin'), rateLimit, async (req, res) => {
+app.post('/api/anuncios', requireAuth, requireRole('admin'), rateLimit, async (req, res) => {
   try {
     const { fonte, chave, nome, descricao = '' } = req.body;
     if (!fonte || !chave || !nome) return res.status(400).json({ error: 'fonte, chave e nome obrigatórios' });
@@ -4461,7 +4461,7 @@ app.post('/api/anuncios', requireRole('admin'), rateLimit, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/anuncios/:id', requireRole('admin'), rateLimit, async (req, res) => {
+app.patch('/api/anuncios/:id', requireAuth, requireRole('admin'), rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -4564,7 +4564,7 @@ app.post('/api/notificacoes/lidas-todas', requireAuth, rateLimit, async (req, re
 });
 
 // Lista usuários ativos — usado pelo módulo Tarefas para popular o select "Atribuir para"
-app.get('/api/usuarios', requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+app.get('/api/usuarios', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const { data, error } = await supabase.from('profiles').select('id,nome').eq('ativo', true).order('nome');
     if (error) throw error;
