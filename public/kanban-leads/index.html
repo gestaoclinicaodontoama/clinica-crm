@@ -118,9 +118,15 @@ for (const k of Object.keys(localStorage)) {
 }
 if (!_token) { window.location.href = '/'; throw new Error('no token'); }
 
-async function api(path) {
+async function api(path, _retry=0) {
   const r = await fetch(path, { headers: { Authorization: 'Bearer ' + _token } });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    if (r.status >= 500 && _retry < 2) {
+      await new Promise(res => setTimeout(res, 1500 * (_retry + 1)));
+      return api(path, _retry + 1);
+    }
+    throw new Error(await r.text());
+  }
   return r.json();
 }
 

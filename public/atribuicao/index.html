@@ -122,10 +122,20 @@
 const _tkKey = [...Object.keys(localStorage)].find(k=>k.startsWith('sb-')&&k.endsWith('-auth-token'));
 const _tkn = _tkKey ? (JSON.parse(localStorage.getItem(_tkKey)||'{}')?.access_token || '') : '';
 if (!_tkn) { window.location.href = '/'; throw new Error('no token'); }
-const _api = (path, opts={}) => fetch(path, {
-  headers: { 'Authorization': 'Bearer ' + _tkn, 'Content-Type': 'application/json', ...(opts.headers||{}) },
-  ...opts
-}).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+async function _api(path, opts={}, _retry=0) {
+  const r = await fetch(path, {
+    headers: { 'Authorization': 'Bearer ' + _tkn, 'Content-Type': 'application/json', ...(opts.headers||{}) },
+    ...opts
+  });
+  if (!r.ok) {
+    if (r.status >= 500 && _retry < 2) {
+      await new Promise(res => setTimeout(res, 1500 * (_retry + 1)));
+      return _api(path, opts, _retry + 1);
+    }
+    throw new Error(r.status);
+  }
+  return r.json();
+}
 const _esc = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const _brl = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
 
