@@ -34,9 +34,11 @@ async function _post(phoneId, token, payload) {
 }
 
 // Número 1 — texto livre (SDR, janela de 24h)
-async function enviarTexto({ para, texto }) {
+// phoneNumberId opcional: usa o número que recebeu a mensagem do lead (multi-número)
+async function enviarTexto({ para, texto, phoneNumberId }) {
   if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
-  return _post(WA_PHONE_ID, WA_TOKEN, {
+  const pid = phoneNumberId || WA_PHONE_ID;
+  return _post(pid, WA_TOKEN, {
     messaging_product: 'whatsapp', to: limparNumero(para),
     type: 'text', text: { body: texto },
   });
@@ -79,13 +81,13 @@ async function uploadMidia({ buffer, mimetype, filename }) {
 }
 
 // Envio de mensagem com mídia já carregada (media_id)
-async function enviarMidia({ para, mediaId, tipo, caption }) {
+async function enviarMidia({ para, mediaId, tipo, caption, phoneNumberId }) {
   const payload = {
     messaging_product: 'whatsapp', to: limparNumero(para),
     type: tipo,
     [tipo]: { id: mediaId, ...(caption ? { caption } : {}) },
   };
-  return _post(WA_PHONE_ID, WA_TOKEN, payload);
+  return _post(phoneNumberId || WA_PHONE_ID, WA_TOKEN, payload);
 }
 
 // Baixa mídia recebida/enviada pelo media_id (proxy sob demanda).
@@ -140,6 +142,7 @@ function parseMensagemRecebida(body) {
       media_filename,
       timestamp: msg.timestamp,
       id: msg.id,
+      phone_number_id: v?.metadata?.phone_number_id || '',
       ctwa_clid:   referral?.ctwa_clid  || '',
       ad_id:       referral?.source_id  || '',   // ID do anúncio no Meta Ads
       source_type: referral?.source_type || '',  // 'ad' | 'post' | etc

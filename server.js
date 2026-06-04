@@ -1410,15 +1410,17 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
     const { texto, templateName, variaveis } = req.body;
     let resultado;
     if (!templateName && !texto) return res.status(400).json({ error: 'texto ou templateName obrigatorio' });
+    const replyPhoneId = lead.wa_number_id || undefined;
     if (templateName) {
       resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis });
     } else {
-      resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto });
+      resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: replyPhoneId });
     }
     await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
       texto: sanitizeStr(texto || '[template:' + sanitizeStr(templateName, 100) + ']', 4000),
       wa_id: resultado.messages?.[0]?.id || '',
+      wa_number_id: replyPhoneId || '',
     });
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
@@ -1464,12 +1466,14 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
     else if (mimetype.startsWith('audio/')) tipo = 'audio';
     else if (mimetype.startsWith('video/')) tipo = 'video';
     const caption = sanitizeStr(req.body.caption || '', 500);
-    const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption });
+    const mediaPid = lead.wa_number_id || undefined;
+    const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption, phoneNumberId: mediaPid });
     await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
       texto: caption || `[${tipo}: ${sanitizeStr(originalname, 60)}]`, wa_id: resultado.messages?.[0]?.id || '',
       tipo, media_id: mediaId, mime: sanitizeStr(mimetype, 120),
       media_filename: tipo === 'document' ? sanitizeStr(originalname, 200) : null,
+      wa_number_id: mediaPid || '',
     });
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
@@ -1841,6 +1845,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         campanha: sanitizeStr(m.ad_id || '', 200), conteudo: '', fbclid: '', gclid: '',
         ctwa_clid: sanitizeStr(m.ctwa_clid || '', 500),
         referral_data: m.referral_data || {},
+        wa_number_id: sanitizeStr(m.phone_number_id || '', 50),
         status: 'Lead', valor: null, tipo_trat: '',
         notas_sdr: '', notas_avaliacao: '', notas_comercial: '',
         score_interesse: null, perfil_disc: '',
@@ -1863,6 +1868,9 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         if (m.ad_id) upd.campanha = sanitizeStr(m.ad_id, 200);
         if (m.referral_data) upd.referral_data = m.referral_data;
       }
+      if (m.phone_number_id && !lead.wa_number_id) {
+        upd.wa_number_id = sanitizeStr(m.phone_number_id, 50);
+      }
       const { data: updatedLead } = await supabase.from('leads').update(upd).eq('id', lead.id).select().single();
       if (m.ctwa_clid && !lead.ctwa_clid && updatedLead) {
         console.log('🔗 ctwa_clid atualizado em lead existente #' + lead.id);
@@ -1877,6 +1885,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         media_id: m.media_id || null,
         mime: m.mime ? sanitizeStr(m.mime, 120) : null,
         media_filename: m.media_filename ? sanitizeStr(m.media_filename, 200) : null,
+        wa_number_id: sanitizeStr(m.phone_number_id || '', 50),
       });
       logEvento(lead.id, 'mensagem_recebida',
         'Mensagem recebida: "' + (m.texto || '').slice(0, 80) + (m.texto?.length > 80 ? '…' : '') + '"',
