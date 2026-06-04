@@ -2675,6 +2675,21 @@ function renderCriativoAnuncio(referralData, opts = {}) {
   </div>`;
 }
 
+// Deriva a plataforma do anúncio CTWA (Facebook x Instagram) a partir do source_url.
+// O placement (feed/stories/reels) NÃO vem no payload CTWA da Meta; só a plataforma é confiável.
+function _canalMeta(referralData) {
+  const u = ((referralData || {}).source_url || '').toLowerCase();
+  if (!u) return '';
+  if (/instagram\.com|ig\.me|instagr\.am/.test(u)) return 'Instagram';
+  if (/facebook\.com|fb\.me|fb\.com|fb\.watch|fb\.gg/.test(u)) return 'Facebook';
+  return '';
+}
+function _canalChip(canal) {
+  if (!canal) return '';
+  const icon = canal === 'Instagram' ? '📷' : '👍';
+  return `<span style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;font-size:10px;font-weight:600;padding:2px 6px;color:var(--text);white-space:nowrap">${icon} ${canal}</span>`;
+}
+
 function _initPainel(lead) {
   const ps = document.getElementById('painel-status');
   if (!ps.options.length) FUNIL.forEach(s => ps.appendChild(Object.assign(document.createElement('option'),{value:s,textContent:s})));
@@ -2744,6 +2759,7 @@ function _initPainel(lead) {
     const chave = (lead.campanha || '').toLowerCase();
     const adId = /^\d{6,}$/.test(String(lead.campanha || '').trim()) ? String(lead.campanha).trim() : null;
     const criativoHtmlBase = renderCriativoAnuncio(lead.referral_data, { compact: false });
+    const canalChip = _canalChip(_canalMeta(lead.referral_data));
     const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
     const imgReferral = _safeUrl((lead.referral_data||{}).image_url) || _safeUrl((lead.referral_data||{}).thumbnail_url) || '';
     const _painelGuard = () => chatLeadAtual?.id !== lead.id;
@@ -2756,7 +2772,7 @@ function _initPainel(lead) {
       const linkHtml = link
         ? `<a href="${linkEsc}" target="_blank" rel="noopener" style="color:${cor};text-decoration:none;word-break:break-all">${nomeEsc} ↗</a>`
         : `<span style="word-break:break-all">${nomeEsc}</span>`;
-      el.innerHTML = criativoHtmlBase + `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
+      el.innerHTML = criativoHtmlBase + `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge + (canalChip ? ' ' + canalChip : '');
       // Fallback: se não veio imagem no referral, tenta a Graph API pelo ad_id
       if (!imgReferral && adId) {
         api('/api/anuncio-thumb/' + adId).then(t => {
@@ -2772,7 +2788,7 @@ function _initPainel(lead) {
       }
     }).catch(() => {
       if (_painelGuard()) return;
-      el.innerHTML = criativoHtmlBase + `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge;
+      el.innerHTML = criativoHtmlBase + `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge + (canalChip ? ' ' + canalChip : '');
     });
   }
 
@@ -2959,7 +2975,7 @@ async function abrirChat(leadId) {
       <div style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span>${escHtml(chatLeadAtual.telefone||'sem telefone')}</span>
         <span class="badge ${classBadge(chatLeadAtual.status)}" style="font-size:10px">${chatLeadAtual.status}</span>
-        ${chatLeadAtual.ctwa_clid ? '<span class="ctwa-badge">📍 veio de anúncio</span>' : ''}
+        ${chatLeadAtual.ctwa_clid ? `<span class="ctwa-badge">📍 veio de anúncio${_canalMeta(chatLeadAtual.referral_data) ? ' · ' + _canalMeta(chatLeadAtual.referral_data) : ''}</span>` : ''}
       </div>
     </div>
     ${chatLeadAtual.telefone ? `<button class="btn btn-call" style="font-size:12px;flex-shrink:0" onclick="ligarChatLead()" title="Ligar via 3CPlus">📞 Ligar</button>` : ''}

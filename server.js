@@ -1924,6 +1924,22 @@ app.post('/webhooks/whatsapp', async (req, res) => {
 const META_PAGE_ID = process.env.META_PAGE_ID || '';
 const META_API_VERSION = 'v21.0';
 
+// Mapa wa_number_id -> page_id da Página do Facebook que originou o ctwa_clid.
+// Config via env META_PAGE_ID_BY_WA (JSON). Ex.:
+//   {"993441140514749":"<page_id do número novo>","default":"<page_id do número padrão>"}
+// A Meta EXIGE que o page_id enviado no CAPI seja o da mesma Página que gerou o ctwa_clid
+// (erro 400 subcode 2804072 quando não batem). Por isso o page_id é resolvido por número.
+function pageIdParaLead(lead) {
+  let map = {};
+  try { map = JSON.parse(process.env.META_PAGE_ID_BY_WA || '{}'); } catch { map = {}; }
+  const wa = lead && lead.wa_number_id ? lead.wa_number_id : 'default';
+  return map[wa] || map.default || META_PAGE_ID || '';
+}
+
+// Eventos aceitos pela Meta quando action_source = business_messaging (leads CTWA).
+// Nomes de pixel padrão como 'Schedule'/'Contact' são REJEITADOS (400 subcode 2804066).
+const EVENTOS_BUSINESS_MESSAGING_OK = new Set(['LeadSubmitted', 'Purchase']);
+
 const EVENTOS_FUNIL = {
   'Lead':              'LeadSubmitted',
   'Aguardando':        null,
@@ -1950,6 +1966,10 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
   const eventName = eventoCustom || EVENTOS_FUNIL[lead.status];
   if (!eventName) { console.log('⏭️  Lead #' + lead.id + ' status "' + lead.status + '" não dispara CAPI'); return; }
   const isCTWA = !!lead.ctwa_clid;
+  if (isCTWA && !EVENTOS_BUSINESS_MESSAGING_OK.has(eventName)) {
+    console.log('⏭️  CTWA Lead #' + lead.id + ' — evento "' + eventName + '" não é válido para business_messaging; pulado (evitaria 400)');
+    return;
+  }
   const action_source = isCTWA ? 'business_messaging' : 'website';
   const user_data = {};
   if (lead.telefone) user_data.ph = [sha256(lead.telefone)];
@@ -1957,7 +1977,8 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
   if (lead.nome) user_data.fn = [sha256(lead.nome.split(' ')[0])];
   if (isCTWA) {
     user_data.ctwa_clid = lead.ctwa_clid;
-    if (META_PAGE_ID) user_data.page_id = META_PAGE_ID;
+    const pageId = pageIdParaLead(lead);
+    if (pageId) user_data.page_id = pageId;
   } else if (lead.fbclid) {
     user_data.fbc = 'fb.1.' + Math.floor(Date.now()/1000) + '.' + lead.fbclid;
   }
