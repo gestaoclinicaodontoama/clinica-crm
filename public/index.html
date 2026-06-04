@@ -2998,7 +2998,7 @@ function _bolhaMsgHtml(m) {
   return `${escHtml(m.texto||'').replace(/\n/g,'<br>')}`;
 }
 
-async function carregarMensagensChat(leadId, silencioso = false) {
+async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0) {
   try {
     const msgs = await api(`/api/leads/${leadId}/mensagens`);
     const el = document.getElementById('chat-msgs');
@@ -3030,6 +3030,10 @@ async function carregarMensagensChat(leadId, silencioso = false) {
     });
     if (!silencioso || atFundo) el.scrollTop = el.scrollHeight;
   } catch(e) {
+    if (/Erro 5\d\d/.test(e.message) && _tentativa < 2) {
+      await new Promise(r => setTimeout(r, 1500 * (_tentativa + 1)));
+      return carregarMensagensChat(leadId, silencioso, _tentativa + 1);
+    }
     if (!silencioso) toast('❌ Erro ao carregar mensagens: ' + e.message, true);
   }
 }
