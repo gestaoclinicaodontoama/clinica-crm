@@ -247,9 +247,9 @@ E logo após `if (error) throw error;` da linha do update (linha ~2607), antes d
 ```js
 if (acao === 'aprovar' && orc.lead_id) {
   try {
-    const { data: jaExiste } = await supabase.from('pacientes_sucesso')
-      .select('id').eq('lead_id', orc.lead_id).maybeSingle();
-    if (!jaExiste) {
+    const { data: jaExisteArr } = await supabase.from('pacientes_sucesso')
+      .select('id').eq('lead_id', orc.lead_id).limit(1);
+    if (!jaExisteArr?.length) {
       const { data: lead } = await supabase.from('leads')
         .select('telefone').eq('id', orc.lead_id).maybeSingle();
       await supabase.from('pacientes_sucesso').insert({
@@ -334,6 +334,20 @@ function normalizeTel(raw) {
   return t;
 }
 
+// Telefone para a Meta: dígitos COM código do país (55). normalizeTel devolve SEM 55 (chave interna).
+function phoneForMeta(tel) {
+  const t = String(tel || '').replace(/\D/g, '');
+  if (!t) return null;
+  return t.startsWith('55') ? t : '55' + t;
+}
+
+// Valores em formato pt-BR: "1.500,00" -> 1500.0 (corrige parseFloat que quebra com vírgula/ponto).
+function parseBRMoney(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = Number(String(v).replace(/\s/g, '').replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+
 function parseDate(s) {
   if (!s || s === '') return null;
   const d = new Date(s);
@@ -342,20 +356,53 @@ function parseDate(s) {
 
 function toDateStr(d) { return d ? d.toISOString().split('T')[0] : null; }
 
+// Detecção de encoding: prefere UTF-8 (com ou sem BOM); cai para Latin-1/Win-1252
+// só se o decode UTF-8 produzir byte inválido (U+FFFD). Evita corromper ã/ç/é silenciosamente.
+function readFileSmart(file) {
+  const buf = fs.readFileSync(file);
+  if (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) return buf.slice(3).toString('utf8'); // BOM UTF-8
+  const utf8 = buf.toString('utf8');
+  const REPL = String.fromCharCode(0xFFFD); // caractere de substituição (byte inválido em UTF-8)
+  if (utf8.indexOf(REPL) === -1) return utf8; // decodificou limpo como UTF-8
+  return buf.toString('latin1');              // bytes inválidos em UTF-8 → Latin-1
+}
+
+// Parser CSV com state-machine: respeita aspas, delimitador dentro de aspas,
+// aspas escapadas ("") e quebras de linha dentro de campos entre aspas.
+function parseCSV(text, delim = ';') {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } // "" → aspas literal
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === delim) { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (c === '\r') { /* ignora CR; \r\n tratado pelo \n */ }
+      else field += c;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
 function readCSVDir(dir) {
   const rows = [];
   const files = fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith('.csv')).sort();
   for (const f of files) {
-    let content;
-    try { content = fs.readFileSync(path.join(dir, f), 'latin1'); }
-    catch { content = fs.readFileSync(path.join(dir, f), 'utf8'); }
-    const lines = content.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim());
-    if (lines.length < 2) continue;
-    const headers = lines[0].split(';').map(h => h.replace(/^"|"$/g, '').trim());
-    for (let i = 1; i < lines.length; i++) {
-      const vals = lines[i].split(';').map(v => v.replace(/^"|"$/g, '').trim());
+    const recs = parseCSV(readFileSmart(path.join(dir, f)), ';');
+    if (recs.length < 2) continue;
+    const headers = recs[0].map(h => h.trim());
+    for (let i = 1; i < recs.length; i++) {
+      const vals = recs[i];
+      if (vals.length === 1 && vals[0].trim() === '') continue; // linha em branco
       const row = {};
-      headers.forEach((h, j) => { row[h] = vals[j] !== undefined ? vals[j] : ''; });
+      headers.forEach((h, j) => { row[h] = vals[j] !== undefined ? vals[j].trim() : ''; });
       rows.push(row);
     }
   }
@@ -421,21 +468,21 @@ async function main() {
   console.log(`Já existem no Supabase: ${mapExisting.size}`);
 
   const stats = { Fechou:0, Reclassificar:0, Faltou:0, Nutrir:0, CompSemOrc:0, Novo:0, Existente:0 };
-  const processed = []; // { leadId, tel, status, extraData, existingLead }
 
+  // ── 1) classificar todos (sem I/O) ─────────────────────────────
+  const classified = [];
   for (const [tel, leadRow] of mapLead) {
     const fRow  = mapFech.get(tel);
     const oRow  = mapOrcOpen.get(tel);
     const aRow  = mapAgend.get(tel);
-    const isComp = telsComparecimento.has(tel);
+    const isComp = telsComp.has(tel);
 
     let status, extraData = {};
-
     if (fRow) {
       status = 'Fechou'; stats.Fechou++;
       extraData = {
-        valor: parseFloat(fRow['Valor fechado']) || 0,
-        entrada: parseFloat(fRow['Valor entrada']) || 0,
+        valor: parseBRMoney(fRow['Valor fechado']),
+        entrada: parseBRMoney(fRow['Valor entrada']),
         tratamento: fRow['Tratamento'] || '',
         dataCadastro: parseDate(fRow['Data de cadastro']),
         dataAgendamento: parseDate(fRow['Criação do agendamento']),
@@ -463,191 +510,291 @@ async function main() {
       status = 'Nutrir'; stats.Nutrir++;
       extraData = { dataCadastro: parseDate(leadRow['Data de cadastro']) };
     }
-
-    const existingLead = mapExisting.get(tel);
-    let leadId;
-
-    if (existingLead) {
-      leadId = existingLead.id;
-      stats.Existente++;
-    } else {
-      if (!status) continue; // comp sem orc e sem lead existente → pula
-      const { data: ins, error } = await supabase.from('leads').insert({
-        nome: leadRow['Nome'] || 'Sem nome',
-        telefone: tel,
-        origem: leadRow['Origem'] || 'Importado',
-        status,
-        importado_historico: true,
-        ...(extraData.dataCadastro && { criado_em: extraData.dataCadastro.toISOString() }),
-        ...(extraData.valor ? { valor: extraData.valor } : {}),
-      }).select('id, eventos_meta_enviados, email, valor').single();
-      if (error) { console.error(`Erro ao inserir ${tel}:`, error.message); continue; }
-      leadId = ins.id;
-      mapExisting.set(tel, { ...ins, telefone: tel });
-      stats.Novo++;
-    }
-
-    // lead_eventos (apenas históricos, sem duplicar)
-    const evts = [];
-    const dc = extraData.dataCadastro || new Date();
-    evts.push({ lead_id: leadId, tipo: 'historico_lead_criado', descricao: `Lead histórico — ${leadRow['Origem'] || 'Importado'}`, metadata: { importado: true }, criado_em: dc.toISOString() });
-    if (extraData.dataAgendamento) evts.push({ lead_id: leadId, tipo: 'historico_agendado', descricao: `Agendamento histórico em ${extraData.dataAgendamento.toLocaleDateString('pt-BR')}`, metadata: { importado: true }, criado_em: extraData.dataAgendamento.toISOString() });
-    if (isComp && extraData.dataAgendamento) evts.push({ lead_id: leadId, tipo: 'historico_compareceu', descricao: 'Compareceu à consulta (histórico)', metadata: { importado: true }, criado_em: extraData.dataAgendamento.toISOString() });
-    if (extraData.dataOrcamento) evts.push({ lead_id: leadId, tipo: 'historico_orcamento', descricao: `Orçamento: R$ ${extraData.valor || 0} — ${extraData.tratamento}`, metadata: { importado: true }, criado_em: extraData.dataOrcamento.toISOString() });
-    if (extraData.dataFechamento && status === 'Fechou') evts.push({ lead_id: leadId, tipo: 'historico_fechou', descricao: `Fechamento: R$ ${extraData.valor} (entrada: R$ ${extraData.entrada})`, metadata: { valor: extraData.valor, entrada: extraData.entrada, tratamento: extraData.tratamento, importado: true }, criado_em: extraData.dataFechamento.toISOString() });
-
-    const { data: existEvts } = await supabase.from('lead_eventos').select('tipo').eq('lead_id', leadId).like('tipo', 'historico_%');
-    const existTypes = new Set((existEvts || []).map(e => e.tipo));
-    const novos = evts.filter(e => !existTypes.has(e.tipo));
-    if (novos.length) {
-      const { error: ee } = await supabase.from('lead_eventos').insert(novos);
-      if (ee) console.error(`Erro eventos ${tel}:`, ee.message);
-    }
-
-    processed.push({ leadId, tel, status, extraData, existingLead: mapExisting.get(tel) });
+    classified.push({ tel, leadRow, status, extraData, isComp });
   }
+
+  // ── 2) inserir leads NOVOS em lote (500/req) ───────────────────
+  const toInsertLeads = [];
+  for (const c of classified) {
+    if (mapExisting.has(c.tel)) { stats.Existente++; continue; }
+    if (!c.status) continue; // comp sem orc e sem lead existente → pula
+    toInsertLeads.push({
+      nome: c.leadRow['Nome'] || 'Sem nome',
+      telefone: c.tel,
+      origem: c.leadRow['Origem'] || 'Importado',
+      status: c.status,
+      importado_historico: true,
+      ...(c.extraData.dataCadastro && { criado_em: c.extraData.dataCadastro.toISOString() }),
+      ...(c.extraData.valor ? { valor: c.extraData.valor } : {}),
+    });
+  }
+  for (let i = 0; i < toInsertLeads.length; i += 500) {
+    const { data: ins, error } = await supabase.from('leads')
+      .insert(toInsertLeads.slice(i, i + 500))
+      .select('id, telefone, eventos_meta_enviados, email, valor');
+    if (error) { console.error('Erro insert leads lote:', error.message); continue; }
+    for (const l of (ins || [])) { mapExisting.set(l.telefone, l); stats.Novo++; }
+  }
+
+  // ── 3) montar processed + acumular lead_eventos ────────────────
+  const processed = []; // { leadId, tel, status, extraData, existingLead }
+  const allEvts = [];
+  for (const { tel, leadRow, status, extraData, isComp } of classified) {
+    const existingLead = mapExisting.get(tel);
+    if (!existingLead) continue; // não inserido (comp sem orc sem lead, ou erro no lote)
+    const leadId = existingLead.id;
+
+    const dc = extraData.dataCadastro || new Date();
+    allEvts.push({ lead_id: leadId, tipo: 'historico_lead_criado', descricao: `Lead histórico — ${leadRow['Origem'] || 'Importado'}`, metadata: { importado: true }, criado_em: dc.toISOString() });
+    if (extraData.dataAgendamento) allEvts.push({ lead_id: leadId, tipo: 'historico_agendado', descricao: `Agendamento histórico em ${extraData.dataAgendamento.toLocaleDateString('pt-BR')}`, metadata: { importado: true }, criado_em: extraData.dataAgendamento.toISOString() });
+    if (isComp && extraData.dataAgendamento) allEvts.push({ lead_id: leadId, tipo: 'historico_compareceu', descricao: 'Compareceu à consulta (histórico)', metadata: { importado: true }, criado_em: extraData.dataAgendamento.toISOString() });
+    if (extraData.dataOrcamento) allEvts.push({ lead_id: leadId, tipo: 'historico_orcamento', descricao: `Orçamento: R$ ${extraData.valor || 0} — ${extraData.tratamento}`, metadata: { importado: true }, criado_em: extraData.dataOrcamento.toISOString() });
+    if (extraData.dataFechamento && status === 'Fechou') allEvts.push({ lead_id: leadId, tipo: 'historico_fechou', descricao: `Fechamento: R$ ${extraData.valor} (entrada: R$ ${extraData.entrada})`, metadata: { valor: extraData.valor, entrada: extraData.entrada, tratamento: extraData.tratamento, importado: true }, criado_em: extraData.dataFechamento.toISOString() });
+
+    processed.push({ leadId, tel, status, extraData, existingLead });
+  }
+
+  // ── 4) dedup + insert lead_eventos em lote ─────────────────────
+  const evtLeadIds = [...new Set(allEvts.map(e => e.lead_id))];
+  const existKeys = new Set();
+  for (let i = 0; i < evtLeadIds.length; i += 500) {
+    const { data } = await supabase.from('lead_eventos')
+      .select('lead_id, tipo').in('lead_id', evtLeadIds.slice(i, i + 500)).like('tipo', 'historico_%');
+    for (const e of (data || [])) existKeys.add(`${e.lead_id}|${e.tipo}`);
+  }
+  const novosEvts = allEvts.filter(e => !existKeys.has(`${e.lead_id}|${e.tipo}`));
+  for (let i = 0; i < novosEvts.length; i += 500) {
+    const { error } = await supabase.from('lead_eventos').insert(novosEvts.slice(i, i + 500));
+    if (error) console.error('Erro insert eventos lote:', error.message);
+  }
+  console.log(`Eventos: ${novosEvts.length} novos de ${allEvts.length} candidatos`);
 
   console.log('\n📊 Stats leads:', stats);
 
   // ── pacientes_sucesso ──────────────────────────────────────────
   await upsertPacientes(processed, sheetsRows, mapFech);
 
-  // ── CAPI backfill ──────────────────────────────────────────────
-  await capiBackfill(processed);
+  // ── Meta: audiência histórica (SEM limite) + CAPI offline recente (≤62d) ──
+  await buildCustomAudience(processed);
+  await offlineCapiRecent(processed);
 
   console.log('\n✅ Importação concluída!');
 }
 
 async function upsertPacientes(processed, sheetsRows, mapFech) {
   console.log('\n📋 Inserindo pacientes_sucesso...');
-  const processedTels = new Set();
   const mapProcessed = new Map(processed.map(p => [p.tel, p]));
 
+  // ── existentes (uma vez, paginado) ─────────────────────────────
+  const existTel = new Set(), existNome = new Set();
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabase.from('pacientes_sucesso').select('telefone, nome').range(from, from + 999);
+    if (!data || !data.length) break;
+    for (const r of data) { if (r.telefone) existTel.add(r.telefone); if (r.nome) existNome.add(r.nome.trim()); }
+    if (data.length < 1000) break;
+  }
+
+  const toInsert = [];
+  const willTel = new Set(); // já enfileirados nesta execução (evita duplicar entre Sheets e CSV)
+
+  // Sheets (fonte primária)
   for (const row of sheetsRows) {
     const tel = normalizeTel(row.telefone || '');
     const nome = (row.nome || '').trim();
     if (!nome) continue;
-
-    const checkQ = tel
-      ? supabase.from('pacientes_sucesso').select('id').eq('telefone', tel).maybeSingle()
-      : supabase.from('pacientes_sucesso').select('id').eq('nome', nome).maybeSingle();
-    const { data: ex } = await checkQ;
-    if (ex) { if (tel) processedTels.add(tel); continue; }
+    const existe = tel ? (existTel.has(tel) || willTel.has(tel)) : existNome.has(nome);
+    if (existe) { if (tel) willTel.add(tel); continue; }
 
     const fRow = tel ? mapFech.get(tel) : null;
     const p = tel ? mapProcessed.get(tel) : null;
-
-    try {
-      await supabase.from('pacientes_sucesso').insert({
-        lead_id: p?.leadId || null,
-        nome, telefone: tel || null,
-        tratamento: row.tratamento || null,
-        data_venda: row.data_venda || (fRow ? toDateStr(parseDate(fRow['Data fechamento'])) : null),
-        valor_fechado: fRow ? parseFloat(fRow['Valor fechado']) || null : null,
-        data_atualizacao: row.data_atualizacao || null,
-        proximo_passo: row.proximo_passo || null,
-        data_agendamento: row.data_agendamento || null,
-        avaliador: row.avaliador || null,
-        executor: row.executor || null,
-        obs: row.obs || null,
-        is_alta: row.status === 'ALTA' || row.is_alta === true,
-        prioridade: parseInt(row.prioridade) || 0,
-        importado_historico: true,
-      });
-    } catch (e) { console.error('pacientes_sucesso sheets:', e.message); }
-    if (tel) processedTels.add(tel);
+    toInsert.push({
+      lead_id: p?.leadId || null,
+      nome, telefone: tel || null,
+      tratamento: row.tratamento || null,
+      data_venda: row.data_venda || (fRow ? toDateStr(parseDate(fRow['Data fechamento'])) : null),
+      valor_fechado: fRow ? (parseBRMoney(fRow['Valor fechado']) || null) : null,
+      data_atualizacao: row.data_atualizacao || null,
+      proximo_passo: row.proximo_passo || null,
+      data_agendamento: row.data_agendamento || null,
+      avaliador: row.avaliador || null,
+      executor: row.executor || null,
+      obs: row.obs || null,
+      is_alta: row.status === 'ALTA' || row.is_alta === true,
+      prioridade: parseInt(row.prioridade) || 0,
+      importado_historico: true,
+    });
+    if (tel) willTel.add(tel); else existNome.add(nome);
   }
 
   // CSV fechamentos não cobertos pelo Sheets
   for (const [tel, fRow] of mapFech) {
-    if (processedTels.has(tel)) continue;
-    const { data: ex } = await supabase.from('pacientes_sucesso').select('id').eq('telefone', tel).maybeSingle();
-    if (ex) continue;
+    if (existTel.has(tel) || willTel.has(tel)) continue;
     const p = mapProcessed.get(tel) || {};
-    try {
-      await supabase.from('pacientes_sucesso').insert({
-        lead_id: p.leadId || null,
-        nome: fRow['Nome'] || '',
-        telefone: tel,
-        tratamento: fRow['Tratamento'] || null,
-        data_venda: toDateStr(parseDate(fRow['Data fechamento'])),
-        valor_fechado: parseFloat(fRow['Valor fechado']) || null,
-        importado_historico: true,
-      });
-    } catch (e) { console.error('pacientes_sucesso csv:', e.message); }
+    toInsert.push({
+      lead_id: p.leadId || null,
+      nome: fRow['Nome'] || '',
+      telefone: tel,
+      tratamento: fRow['Tratamento'] || null,
+      data_venda: toDateStr(parseDate(fRow['Data fechamento'])),
+      valor_fechado: parseBRMoney(fRow['Valor fechado']) || null,
+      importado_historico: true,
+    });
+    willTel.add(tel);
   }
-  console.log('✅ pacientes_sucesso ok');
+
+  // insert em lote (500/req)
+  for (let i = 0; i < toInsert.length; i += 500) {
+    const { error } = await supabase.from('pacientes_sucesso').insert(toInsert.slice(i, i + 500));
+    if (error) console.error('pacientes_sucesso lote:', error.message);
+  }
+  console.log(`✅ pacientes_sucesso ok (${toInsert.length} inseridos)`);
 }
 
-async function capiBackfill(processed) {
-  const PIXEL = process.env.META_PIXEL_ID;
+const AUDIENCE_NAME = 'Pacientes Fechados (histórico 2023–2026)';
+const SIXTY_TWO_DAYS_MS = 62 * 24 * 60 * 60 * 1000;
+
+// Cria (ou reusa) a Custom Audience pelo nome e devolve o id.
+async function getOrCreateAudience(adAccount, token) {
+  const list = await fetch(`https://graph.facebook.com/v21.0/act_${adAccount}/customaudiences?fields=id,name&limit=500&access_token=${token}`);
+  const lj = await list.json();
+  if (lj.error) throw new Error('listar audiences: ' + JSON.stringify(lj.error));
+  const found = (lj.data || []).find(a => a.name === AUDIENCE_NAME);
+  if (found) { console.log(`  audiência existente: ${found.id}`); return found.id; }
+
+  const create = await fetch(`https://graph.facebook.com/v21.0/act_${adAccount}/customaudiences`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: AUDIENCE_NAME,
+      description: 'Pacientes que fecharam tratamento (importação histórica CSV). Seed de Lookalike e exclusão.',
+      subtype: 'CUSTOM',
+      customer_file_source: 'USER_PROVIDED_ONLY',
+      access_token: token,
+    }),
+  });
+  const cj = await create.json();
+  if (cj.error) throw new Error('criar audience: ' + JSON.stringify(cj.error));
+  console.log(`  audiência criada: ${cj.id}`);
+  return cj.id;
+}
+
+// PARTE 2A — Custom Audience (histórico COMPLETO, sem limite de tempo).
+// É a ferramenta correta para o objetivo: seed de Lookalike + exclusão de pacientes ativos.
+async function buildCustomAudience(processed) {
   const TOKEN = process.env.META_ACCESS_TOKEN;
-  if (!PIXEL || !TOKEN) { console.log('⚠️  CAPI: META_PIXEL_ID ou META_ACCESS_TOKEN ausentes — pulando'); return; }
-  console.log('\n📤 CAPI backfill...');
+  const AD_ACCOUNT = process.env.META_AD_ACCOUNT_ID; // ex.: 945699087658457 (sem "act_")
+  if (!TOKEN || !AD_ACCOUNT) { console.log('⚠️  Custom Audience: META_ACCESS_TOKEN ou META_AD_ACCOUNT_ID ausentes — pulando'); return; }
+  console.log('\n👥 Custom Audience (pacientes fechados)...');
 
-  const CAPI_MAP = { Fechou: 'Purchase', Reclassificar: 'Schedule', Faltou: 'Schedule', Nutrir: 'LeadSubmitted' };
+  // Só quem fechou, dedup por telefone, com hash COM código do país.
+  const seen = new Set();
+  const rows = [];
+  for (const { tel, status, existingLead } of processed) {
+    if (status !== 'Fechou') continue;
+    const phRaw = phoneForMeta(tel);
+    const phHash = phRaw ? sha256(phRaw) : '';
+    const emHash = existingLead?.email ? sha256(existingLead.email) : '';
+    if (!phHash && !emHash) continue;
+    const key = phHash || emHash;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push([emHash, phHash]); // ordem casa com schema ['EMAIL','PHONE']
+  }
+  console.log(`  ${rows.length} pacientes fechados para upload`);
+  if (!rows.length) { console.log('  nada a enviar'); return; }
 
+  const audienceId = await getOrCreateAudience(AD_ACCOUNT, TOKEN);
+
+  let enviados = 0;
+  for (let i = 0; i < rows.length; i += 10000) {
+    const chunk = rows.slice(i, i + 10000);
+    const body = { payload: { schema: ['EMAIL', 'PHONE'], data: chunk }, access_token: TOKEN };
+    const r = await fetch(`https://graph.facebook.com/v21.0/${audienceId}/users`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok || j.error) { console.error('  ✗ upload lote:', JSON.stringify(j.error || j).slice(0, 200)); continue; }
+    enviados += j.num_received ?? chunk.length;
+    console.log(`  ✓ lote ${Math.floor(i / 10000) + 1}: recebidos=${j.num_received} inválidos=${j.num_invalid_entries ?? 0}`);
+  }
+  console.log(`✅ Custom Audience ok (${enviados} enviados, audience ${audienceId})`);
+}
+
+// PARTE 2B — CAPI offline (action_source 'physical_store', janela de 62 dias).
+// Para o histórico 2023–2025 NÃO envia nada (tudo > 62 dias); fica pronto para conversões recentes.
+async function offlineCapiRecent(processed) {
+  const PIXEL = process.env.META_PIXEL_ID;        // dataset/pixel id
+  const TOKEN = process.env.META_ACCESS_TOKEN;
+  const TEST  = process.env.META_TEST_EVENT_CODE; // opcional: valida na aba Test Events antes de produção
+  if (!PIXEL || !TOKEN) { console.log('⚠️  CAPI offline: META_PIXEL_ID ou META_ACCESS_TOKEN ausentes — pulando'); return; }
+  console.log('\n📤 CAPI offline (Purchase ≤62 dias)...');
+
+  const limite = Date.now() - SIXTY_TWO_DAYS_MS;
+  let enviados = 0, foraJanela = 0;
   for (const { leadId, tel, status, extraData, existingLead } of processed) {
-    const eventName = CAPI_MAP[status];
-    if (!eventName) continue;
-    if ((existingLead?.eventos_meta_enviados || []).includes(eventName)) continue;
-
-    let eventTime = status === 'Fechou' ? extraData.dataFechamento
-      : (status === 'Reclassificar' || status === 'Faltou') ? (extraData.dataAgendamento || extraData.dataCadastro)
-      : extraData.dataCadastro;
-    if (!eventTime) eventTime = new Date();
+    if (status !== 'Fechou') continue;
+    const dt = extraData.dataFechamento;
+    if (!dt) continue;
+    if (dt.getTime() < limite) { foraJanela++; continue; } // > 62 dias → não enviável como evento
+    if ((existingLead?.eventos_meta_enviados || []).includes('Purchase')) continue;
 
     const user_data = {};
-    if (tel) user_data.ph = [sha256(tel)];
+    const phRaw = phoneForMeta(tel);
+    if (phRaw) user_data.ph = [sha256(phRaw)];
     if (existingLead?.email) user_data.em = [sha256(existingLead.email)];
 
-    const payload = { data: [{ event_name: eventName, event_time: Math.floor(eventTime.getTime() / 1000), action_source: 'website', event_id: `hist_${leadId}_${eventName}`, user_data, custom_data: { currency: 'BRL', value: parseFloat(extraData.valor) || 0 } }] };
+    const evt = {
+      event_name: 'Purchase',
+      event_time: Math.floor(dt.getTime() / 1000),
+      action_source: 'physical_store',
+      event_id: `hist_${leadId}_Purchase`,
+      user_data,
+      custom_data: { currency: 'BRL', value: Number(extraData.valor) || 0 }, // extraData.valor já é número (parseBRMoney)
+    };
+    const payload = { data: [evt], ...(TEST ? { test_event_code: TEST } : {}) };
 
     try {
-      const r = await fetch(`https://graph.facebook.com/v21.0/${PIXEL}/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN }, body: JSON.stringify(payload) });
-      const json = await r.json();
-      if (json.events_received) {
-        console.log(`  ✓ ${eventName} lead ${leadId} (${toDateStr(eventTime)})`);
+      const r = await fetch(`https://graph.facebook.com/v21.0/${PIXEL}/events`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json();
+      // events_received SOZINHO não prova aceitação — checar r.ok e ausência de error.
+      if (r.ok && !j.error && j.events_received) {
+        console.log(`  ✓ Purchase lead ${leadId} (${toDateStr(dt)})`);
         const evs = [...(existingLead?.eventos_meta_enviados || [])];
-        if (!evs.includes(eventName)) evs.push(eventName);
-        const upd = { eventos_meta_enviados: evs };
-        if (eventName === 'Purchase') upd.enviado_meta = true;
-        await supabase.from('leads').update(upd).eq('id', leadId);
+        if (!evs.includes('Purchase')) evs.push('Purchase');
+        await supabase.from('leads').update({ eventos_meta_enviados: evs, enviado_meta: true }).eq('id', leadId);
+        enviados++;
       } else {
-        console.error(`  ✗ ${eventName} lead ${leadId}:`, JSON.stringify(json).slice(0, 150));
+        console.error(`  ✗ Purchase lead ${leadId}:`, JSON.stringify(j.error || j).slice(0, 200));
       }
-    } catch (e) { console.error(`  ✗ CAPI ${eventName} lead ${leadId}:`, e.message); }
+    } catch (e) { console.error(`  ✗ CAPI offline lead ${leadId}:`, e.message); }
     await new Promise(r => setTimeout(r, 50));
   }
-  console.log('✅ CAPI backfill ok');
+  console.log(`✅ CAPI offline ok (${enviados} enviados, ${foraJanela} fora da janela de 62 dias → cobertos pela Custom Audience)`);
 }
-
-function toDateStr(d) { return d ? d.toISOString().split('T')[0] : null; }
-
-// corrigir referência ao telsComparecimento (definir antes do loop)
-const telsComparecimento = new Set(); // preenchido em main() — ver Step 5.1
 
 main().catch(e => { console.error('💥', e); process.exit(1); });
 ```
 
-> **ATENÇÃO:** A linha `const telsComparecimento = new Set()` no final é um placeholder — no script final, ela DEVE ser a variável já declarada dentro de `main()` como `const telsComp`. Renomear todas as referências de `telsComparecimento` para `telsComp` para consistência com o corpo do script.
+- [ ] **Step 5.2: Validar sintaxe do script**
 
-- [ ] **Step 5.2: Corrigir consistência de nomes no script**
-
-No script gerado no Step 5.1, garantir que a variável `telsComparecimento` (usada nos loops) seja a mesma `telsComp` declarada em `main()`. Fazer find-replace: `telsComparecimento` → `telsComp` em todo o arquivo.
+Rodar `node --check scripts/import-historico.js` para garantir que não há erro de sintaxe antes de executar. O script usa `telsComp` de forma consistente (declarada uma única vez em `main()`) e `toDateStr` é declarada apenas uma vez — não há placeholder nem duplicata a corrigir.
 
 - [ ] **Step 5.3: Commit**
 
 ```bash
 git add scripts/import-historico.js
-git commit -m "feat: script de importacao historica CSV + CAPI backfill"
+git commit -m "feat: script de importacao historica CSV + Custom Audience + CAPI offline"
 ```
 
 ---
 
 ## Task 6: Executar o Script de Importação
 
-**Pré-requisito:** Tasks 1–5 completas. `.env` com `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `META_PIXEL_ID`, `META_ACCESS_TOKEN`.
+**Pré-requisito:** Tasks 1–5 completas. `.env` com `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID` (ex.: `945699087658457`, sem `act_`) e `META_PIXEL_ID`. Opcional: `META_TEST_EVENT_CODE` (valida o CAPI offline na aba Test Events antes de produção).
+
+> **Token Meta:** precisa de permissão `ads_management` (Custom Audience usa a Marketing API, não só o Pixel). Faça **uma** chamada de teste antes do run em massa: `GET /act_<id>/customaudiences` deve responder 200. Se der erro de permissão/escopo, corrija o token antes de prosseguir.
 
 - [ ] **Step 6.1: Dry-run — verificar leitura dos CSVs**
 
@@ -680,9 +827,15 @@ node scripts/import-historico.js
 
 Monitorar o output. O script loga stats ao final:
 ```
-📊 Stats leads: { Fechou: ~817, Reclassificar: ~N, Faltou: ~N, Nutrir: ~N, ... }
-✅ pacientes_sucesso ok
-✅ CAPI backfill ok
+Telefones únicos: ~N
+Já existem no Supabase: ~N
+Eventos: ~N novos de ~M candidatos
+📊 Stats leads: { Fechou: ~817, Reclassificar: ~N, Faltou: ~N, Nutrir: ~N, Novo: ~N, Existente: ~N, ... }
+📋 Inserindo pacientes_sucesso...
+✅ pacientes_sucesso ok (~N inseridos)
+👥 Custom Audience (pacientes fechados)...
+✅ Custom Audience ok (~817 enviados, audience <id>)
+✅ CAPI offline ok (0 enviados, ~817 fora da janela de 62 dias → cobertos pela Custom Audience)
 ✅ Importação concluída!
 ```
 
@@ -703,6 +856,15 @@ const s = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_RO
 ```
 
 Verificar que `leads_importados` > 0, `pacientes_sucesso` > 0 (deve ser ~total Sheets + fechamentos não no Sheets), `lead_eventos_historicos` > 0.
+
+- [ ] **Step 6.4: Verificar a Custom Audience no Gerenciador da Meta**
+
+1. Abrir **Gerenciador de Anúncios → Públicos** na conta `945699087658457`.
+2. Confirmar que existe o público **"Pacientes Fechados (histórico 2023–2026)"**.
+3. O tamanho aparece como "Preenchendo"/"Pronto" em algumas horas (a Meta processa o match de forma assíncrona). Esperado: alcance próximo ao nº de fechamentos com telefone válido.
+4. Conferir o `num_invalid_entries` do log do script (Step 6.2): se alto, revisar normalização de telefone/email.
+
+> A partir desse público é possível criar o **Lookalike** (semelhantes a quem fechou) e usá-lo como **exclusão** nas campanhas de prospecção. Isso é manual no Gerenciador — fora do escopo do script.
 
 ---
 
@@ -1062,10 +1224,22 @@ Acessar o Gerenciador de Eventos da Meta (pixel 904146029308947). Confirmar que 
 
 ## Notas de Implementação
 
-**Encoding CSV:** Tentar `latin1` primeiro, fallback para `utf8`. Chars como `ã`, `ç`, `é` devem renderizar corretamente nos nomes.
+**Encoding CSV:** `readFileSmart` prefere **UTF-8** (com/sem BOM) e só cai para Latin-1 se o decode UTF-8 produzir byte inválido (U+FFFD) — evita corromper `ã/ç/é` silenciosamente, que era o risco de ler `latin1` cego. Confira 1 nome com acento na tabela após o import (Step 6.3) para validar o encoding.
 
-**CAPI event_time:** Eventos com datas > 7 dias no passado têm peso menor para atribuição mas alimentam normalmente as Audiências Personalizadas e Lookalike — que é o objetivo principal.
+**Parsing CSV:** `parseCSV` é um state-machine que respeita aspas, delimitador `;` dentro de aspas, aspas escapadas (`""`) e quebras de linha dentro de campos. Substitui o `split(';')`/`split('\n')` ingênuo, que desalinhava colunas quando **Nome** ou **Obs** continham `;` ou aspas.
 
-**Re-execução segura:** O script verifica `lead_eventos` com `tipo like 'historico_%'` antes de inserir e verifica `pacientes_sucesso` por telefone antes de inserir. Pode ser re-executado sem duplicar dados.
+**Dedup `pacientes_sucesso`:** as checagens de existência usam `.limit(1)` (não `.maybeSingle()`), que não estoura se houver telefone duplicado na base.
 
-**Pacientes sem telefone no Sheets:** São inseridos em `pacientes_sucesso` com `telefone = null`, vinculados apenas por nome. Não aparecem no CAPI backfill.
+**Janela de tempo da Meta (CRÍTICO):** a Conversions API **rejeita** eventos web com `event_time` > 7 dias e offline > 62 dias. Como os CSVs são de 2023–2025 (tudo > 62 dias em jun/2026), **eventos CAPI não servem para o histórico** — usaríamos e a Meta descartaria silenciosamente. Por isso o histórico vai por **Custom Audience (lista)**, que não tem janela de tempo. O CAPI offline (`physical_store`) fica só para fechamentos recentes (≤62 dias).
+
+**`events_received` não prova aceitação:** a Meta pode responder `events_received: 1` e descartar o evento depois (fora da janela, payload inválido). O script checa `r.ok` + ausência de `error` e recomenda validar com `META_TEST_EVENT_CODE` antes do run real.
+
+**Hash de PII:** telefone vai com código do país (`55` + DDD + número, só dígitos) via `phoneForMeta()` — sem isso o match quality é ~0. Email em minúsculas + trim. Ambos SHA-256.
+
+**Re-execução segura:** dedup de leads por telefone (via `mapExisting`, carregado do Supabase no início), de `lead_eventos` por `(lead_id, tipo)` com `tipo like 'historico_%'`, e de `pacientes_sucesso` por telefone/nome (carregados uma vez). Pode ser re-executado sem duplicar.
+
+**Performance (batch):** inserts em lote de 500 (`leads`, `lead_eventos`, `pacientes_sucesso`) e leituras de dedup paginadas — em vez de 1 round-trip por lead. Reduz de ~1-2h para minutos em ~10k leads. Se um lote falhar (ex.: coluna/constraint), o erro é logado e os demais seguem; re-rodar reenvia só o que faltou (idempotente). Se um lote inteiro falhar de forma sistemática, inspecione o erro e reduza o tamanho do lote.
+
+**Pacientes sem telefone no Sheets:** São inseridos em `pacientes_sucesso` com `telefone = null`, vinculados apenas por nome. Não entram na Custom Audience (sem telefone/email para match).
+
+**Re-execução da audiência:** reenviar os mesmos usuários hasheados é idempotente do lado da Meta (é um conjunto). `getOrCreateAudience` reusa o público pelo nome, então re-rodar não cria duplicatas.

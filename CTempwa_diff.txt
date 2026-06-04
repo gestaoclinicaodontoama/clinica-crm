@@ -1,0 +1,438 @@
+diff --git a/public/index.html b/public/index.html
+index a81157a..680a967 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -508,7 +508,8 @@ textarea { resize: vertical; min-height: 80px; }
+   .funil-row { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+   .modal, .modal-card, .modal-content { width: 96vw !important; max-width: 96vw !important; max-height: 88vh !important; }
+   .toolbar, .filtros, .filter-row, .table-head { flex-wrap: wrap !important; }
+-  .mnav-desktop-only { display: none; text-align: center; padding: 48px 20px; color: var(--muted); }
++  /* aparência do aviso quando exibido (JS controla o display) */
++  .mnav-desktop-only { text-align: center; padding: 48px 20px; color: var(--muted); }
+   /* Conversas (WhatsApp): um painel por vez no celular */
+   #page-conversas.active { height: auto; }
+   #page-conversas .chat-layout { height: calc(100dvh - 200px); min-height: 320px; }
+@@ -520,6 +521,7 @@ textarea { resize: vertical; min-height: 80px; }
+   #chat-kanban-view { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+   .mnav-chat-back { display: inline-flex !important; align-items: center; justify-content: center; }
+ }
++.mnav-desktop-only { display: none; }
+ .mnav-desktop-only-card { max-width: 340px; margin: 0 auto; background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 28px 22px; }
+ .mnav-chat-back { display: none; }
+ </style>
+@@ -791,6 +793,7 @@ textarea { resize: vertical; min-height: 80px; }
+       </div>
+       <div class="chat-window" id="chat-window" style="display:none">
+         <div class="chat-header" id="chat-header"></div>
++        <div id="chat-anuncio-banner" style="display:none"></div>
+         <div style="display:flex;flex:1;min-height:0">
+           <!-- Mensagens -->
+           <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+@@ -801,6 +804,7 @@ textarea { resize: vertical; min-height: 80px; }
+                 <button class="btn btn-primary" onclick="enviarMensagemChat()" style="height:34px;font-size:13px">Enviar</button>
+                 <button class="btn btn-ghost" onclick="toggleAgendarMsg()" style="height:34px;font-size:12px" title="Agendar envio">📅 Agendar</button>
+                 <button class="btn btn-ghost" onclick="abrirModalTemplate()" style="height:34px;font-size:12px">📢 Template</button>
++                <button class="btn btn-ghost" id="btn-emoji" onclick="toggleEmojiPicker(event)" style="height:34px;font-size:16px;padding:0 10px;position:relative" title="Emoji">😊</button>
+                 <button class="btn btn-ghost" onclick="document.getElementById('midia-img').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar imagem">🖼️</button>
+                 <button class="btn btn-ghost" id="btn-gravar" onclick="toggleGravacao()" style="height:34px;font-size:16px;padding:0 10px;transition:all .2s" title="Gravar áudio de voz">🎙️</button>
+                 <button class="btn btn-ghost" onclick="document.getElementById('midia-audio').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo de áudio">🎵</button>
+@@ -2349,6 +2353,8 @@ function toast(msg, erro=false) {
+ 
+ // ============ CONVERSAS ============
+ let chatLeadAtual = null;
++let _chatMsgsSig = '';
++const _midiaCache = new Map();
+ let chatLeads = [];
+ let chatPollInterval = null;
+ let _chatViewMode = 'lista';
+@@ -2581,6 +2587,26 @@ function abrirChatKanban(leadId) {
+ }
+ 
+ // ============ PAINEL DIREITO (chat) ============
++// Monta o HTML do criativo do anúncio a partir de referral_data (CTWA). Compartilhado: chat + perfil.
++function renderCriativoAnuncio(referralData, opts = {}) {
++  const rd = referralData || {};
++  const _esc = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
++  const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
++  const img = _safeUrl(rd.image_url) || _safeUrl(rd.thumbnail_url) || '';
++  if (!img && !rd.headline && !rd.body) return '';
++  const link = _safeUrl(rd.source_url);
++  const maxH = opts.compact ? 120 : 160;
++  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:${opts.compact?'8px 12px':'0 0 8px'}">
++    ${img ? `<img src="${_esc(img)}" alt="anúncio" style="width:100%;display:block;max-height:${maxH}px;object-fit:cover" loading="lazy">` : ''}
++    ${(rd.headline || rd.body) ? `<div style="padding:8px">
++      ${opts.compact ? '<div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:2px">📍 VEIO DESTE ANÚNCIO</div>' : ''}
++      ${rd.headline ? `<div style="font-size:11.5px;font-weight:600;line-height:1.3;margin-bottom:2px">${_esc(rd.headline)}</div>` : ''}
++      ${rd.body ? `<div style="font-size:11px;color:var(--muted);line-height:1.35">${_esc(rd.body).slice(0,140)}</div>` : ''}
++    </div>` : ''}
++    ${link ? `<a href="${_esc(link)}" target="_blank" rel="noopener" style="display:block;padding:6px 8px;font-size:10.5px;color:var(--accent);border-top:1px solid var(--border)">🔗 ver anúncio original ↗</a>` : ''}
++  </div>`;
++}
++
+ function _initPainel(lead) {
+   const ps = document.getElementById('painel-status');
+   if (!ps.options.length) FUNIL.forEach(s => ps.appendChild(Object.assign(document.createElement('option'),{value:s,textContent:s})));
+@@ -2649,6 +2675,9 @@ function _initPainel(lead) {
+     }
+     const chave = (lead.campanha || '').toLowerCase();
+     const adId = /^\d{6,}$/.test(String(lead.campanha || '').trim()) ? String(lead.campanha).trim() : null;
++    const criativoHtmlBase = renderCriativoAnuncio(lead.referral_data, { compact: false });
++    const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
++    const imgReferral = _safeUrl((lead.referral_data||{}).image_url) || _safeUrl((lead.referral_data||{}).thumbnail_url) || '';
+     api('/api/anuncios').then(catalog => {
+       const entrada = Array.isArray(catalog) ? catalog.find(a => a.chave === chave && a.ativo) : null;
+       const nome = entrada?.nome || lead.campanha || (lead.ctwa_clid ? 'Meta Ads (sem campanha)' : lead.fbclid ? 'Meta Ads' : 'Google Ads');
+@@ -2657,24 +2686,7 @@ function _initPainel(lead) {
+       const linkHtml = link
+         ? `<a href="${linkEsc}" target="_blank" rel="noopener" style="color:${cor};text-decoration:none;word-break:break-all">${nomeEsc} ↗</a>`
+         : `<span style="word-break:break-all">${nomeEsc}</span>`;
+-      // Criativo capturado direto do referral CTWA (mais confiável que a Graph API)
+-      const rd = lead.referral_data || {};
+-      // Só aceita URLs http(s) — bloqueia javascript:/data: em href/src (dado vem de webhook externo)
+-      const _safeUrl = u => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u : '';
+-      const imgReferral = _safeUrl(rd.image_url) || _safeUrl(rd.thumbnail_url) || '';
+-      let criativoHtml = '';
+-      if (imgReferral || rd.headline || rd.body) {
+-        const linkAnuncio = _safeUrl(rd.source_url) || (adId ? 'https://www.facebook.com/ads/library/?id=' + adId : '');
+-        criativoHtml = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
+-          ${imgReferral ? `<img src="${_esc(imgReferral)}" alt="anúncio" style="width:100%;display:block;max-height:160px;object-fit:cover" loading="lazy">` : ''}
+-          ${(rd.headline || rd.body) ? `<div style="padding:8px">
+-            ${rd.headline ? `<div style="font-size:11.5px;font-weight:600;line-height:1.3;margin-bottom:2px">${_esc(rd.headline)}</div>` : ''}
+-            ${rd.body ? `<div style="font-size:11px;color:var(--muted);line-height:1.35">${_esc(rd.body).slice(0,140)}</div>` : ''}
+-          </div>` : ''}
+-          ${linkAnuncio ? `<a href="${_esc(linkAnuncio)}" target="_blank" rel="noopener" style="display:block;padding:6px 8px;font-size:10.5px;color:var(--accent);border-top:1px solid var(--border)">🔗 ver anúncio original ↗</a>` : ''}
+-        </div>`;
+-      }
+-      el.innerHTML = criativoHtml + `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
++      el.innerHTML = criativoHtmlBase + `<div id="painel-anuncio-thumb"></div>` + linkHtml + badge;
+       // Fallback: se não veio imagem no referral, tenta a Graph API pelo ad_id
+       if (!imgReferral && adId) {
+         api('/api/anuncio-thumb/' + adId).then(t => {
+@@ -2688,7 +2700,7 @@ function _initPainel(lead) {
+         }).catch(() => {});
+       }
+     }).catch(() => {
+-      el.innerHTML = `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge;
++      el.innerHTML = criativoHtmlBase + `<span style="word-break:break-all">${_esc(lead.campanha || 'Anúncio')}</span>` + badge;
+     });
+   }
+ 
+@@ -2850,11 +2862,13 @@ async function cancelarAgendamento(id) {
+ function voltarListaChat() {
+   // Mobile: volta da conversa aberta para a lista de conversas (um painel por vez)
+   document.getElementById('chat-lista-view').classList.remove('chat-open');
++  const _b = document.getElementById('chat-anuncio-banner'); if (_b) _b.style.display = 'none';
+ }
+ 
+ async function abrirChat(leadId) {
+   chatLeadAtual = chatLeads.find(l => l.id === leadId);
+   if (!chatLeadAtual) return;
++  _chatMsgsSig = '';
+   switchPainelTab('perfil');
+   renderChatList(chatLeads);
+ 
+@@ -2878,6 +2892,12 @@ async function abrirChat(leadId) {
+ 
+   _markRead(leadId);
+   _initPainel(chatLeadAtual);
++  const _bannerEl = document.getElementById('chat-anuncio-banner');
++  if (_bannerEl) {
++    const _bannerHtml = renderCriativoAnuncio(chatLeadAtual.referral_data, { compact: true });
++    _bannerEl.innerHTML = _bannerHtml;
++    _bannerEl.style.display = _bannerHtml ? 'block' : 'none';
++  }
+   await carregarMensagensChat(leadId);
+   if (chatPollInterval) clearInterval(chatPollInterval);
+   chatPollInterval = setInterval(() => {
+@@ -2886,10 +2906,33 @@ async function abrirChat(leadId) {
+   document.getElementById('chat-input').focus();
+ }
+ 
++async function _midiaUrlChat(leadId, msgId) {
++  if (_midiaCache.has(msgId)) return _midiaCache.get(msgId);
++  const token = (_sbSession && _sbSession.access_token) || '';
++  const r = await fetch(`/api/leads/${leadId}/midia/${msgId}`, { headers: { Authorization: 'Bearer ' + token } });
++  if (!r.ok) throw new Error('HTTP ' + r.status);
++  const url = URL.createObjectURL(await r.blob());
++  _midiaCache.set(msgId, url);
++  return url;
++}
++
++function _bolhaMsgHtml(m) {
++  const caption = m.texto ? `<div style="margin-top:4px">${escHtml(m.texto).replace(/\n/g,'<br>')}</div>` : '';
++  const t = m.tipo || 'text';
++  if (t === 'audio') return `<audio controls preload="none" data-midia="${m.id}" style="width:230px;max-width:100%"></audio>${caption}`;
++  if (t === 'image' || t === 'sticker') return `<img data-midia="${m.id}" alt="imagem" style="max-width:220px;max-height:240px;border-radius:8px;cursor:pointer;display:block" onclick="if(this.src)window.open(this.src,'_blank')">${caption}`;
++  if (t === 'video') return `<video controls preload="none" data-midia="${m.id}" style="max-width:240px;max-height:260px;border-radius:8px;display:block"></video>${caption}`;
++  if (t === 'document') return `<a href="#" data-midia="${m.id}" data-fname="${escHtml(m.media_filename||'arquivo')}" style="display:inline-flex;align-items:center;gap:8px;color:inherit;text-decoration:none">📎 <span style="text-decoration:underline">${escHtml(m.media_filename||'arquivo')}</span></a>${caption}`;
++  return `${escHtml(m.texto).replace(/\n/g,'<br>')}`;
++}
++
+ async function carregarMensagensChat(leadId, silencioso = false) {
+   try {
+     const msgs = await api(`/api/leads/${leadId}/mensagens`);
+     const el = document.getElementById('chat-msgs');
++    const sig = leadId + ':' + msgs.length + ':' + (msgs[msgs.length-1]?.id || 0);
++    if (silencioso && sig === _chatMsgsSig) return;
++    _chatMsgsSig = sig;
+     const atFundo = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
+     if (!msgs.length) {
+       el.innerHTML = '<div class="empty-small" style="text-align:center;padding:30px">Nenhuma mensagem ainda.<br>Digite abaixo para iniciar a conversa.</div>';
+@@ -2897,16 +2940,60 @@ async function carregarMensagensChat(leadId, silencioso = false) {
+     }
+     el.innerHTML = msgs.map(m => `
+       <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}">
+-        <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${escHtml(m.texto).replace(/\n/g,'<br>')}</div>
++        <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${_bolhaMsgHtml(m)}</div>
+         <div class="msg-time">${_brt(m.criada_em)}</div>
+       </div>
+     `).join('');
++    el.querySelectorAll('[data-midia]').forEach(node => {
++      const mid = node.getAttribute('data-midia');
++      _midiaUrlChat(leadId, mid).then(url => {
++        if (node.tagName === 'A') { node.href = url; node.setAttribute('download', node.getAttribute('data-fname') || 'arquivo'); }
++        else { node.src = url; }
++      }).catch(() => {
++        if (node.tagName === 'A') node.innerHTML = '⚠️ mídia indisponível';
++        else node.outerHTML = '<span style="font-size:12px;color:var(--muted)">⚠️ mídia indisponível</span>';
++      });
++    });
+     if (!silencioso || atFundo) el.scrollTop = el.scrollHeight;
+   } catch(e) {
+     if (!silencioso) toast('❌ Erro ao carregar mensagens: ' + e.message, true);
+   }
+ }
+ 
++const _EMOJIS = ['😀','😁','😂','🤣','😊','😍','😘','😅','😉','🙂','😎','🤩','🥳','🤗','🤔','😐','😴','😢','😭','😡','👍','👎','👏','🙏','🙌','💪','👋','🤝','✌️','🤞','❤️','🧡','💛','💚','💙','💜','🔥','✨','⭐','🎉','✅','❌','⚠️','📌','📅','📞','💬','💰','🦷','😬','🥰'];
++let _emojiPickerEl = null;
++
++function toggleEmojiPicker(ev) {
++  ev.stopPropagation();
++  if (_emojiPickerEl) { _emojiPickerEl.remove(); _emojiPickerEl = null; return; }
++  const btn = document.getElementById('btn-emoji');
++  const box = document.createElement('div');
++  box.id = 'emoji-picker';
++  box.style.cssText = 'position:absolute;bottom:42px;left:0;z-index:200;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:grid;grid-template-columns:repeat(8,1fr);gap:2px;width:300px;max-height:200px;overflow-y:auto';
++  box.innerHTML = _EMOJIS.map(e => `<button type="button" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'" onclick="inserirEmoji('${e}')">${e}</button>`).join('');
++  btn.appendChild(box);
++  _emojiPickerEl = box;
++  setTimeout(() => document.addEventListener('click', _fecharEmojiFora), 0);
++}
++
++function _fecharEmojiFora(e) {
++  if (_emojiPickerEl && !_emojiPickerEl.contains(e.target) && e.target.id !== 'btn-emoji') {
++    _emojiPickerEl.remove(); _emojiPickerEl = null;
++    document.removeEventListener('click', _fecharEmojiFora);
++  }
++}
++
++function inserirEmoji(e) {
++  const input = document.getElementById('chat-input');
++  const start = input.selectionStart ?? input.value.length;
++  const end = input.selectionEnd ?? input.value.length;
++  input.value = input.value.slice(0, start) + e + input.value.slice(end);
++  input.focus();
++  const pos = start + e.length;
++  input.setSelectionRange(pos, pos);
++  if (typeof autoResizeChat === 'function') autoResizeChat(input);
++}
++
+ async function enviarMensagemChat() {
+   if (!chatLeadAtual) return;
+   const input = document.getElementById('chat-input');
+diff --git a/server.js b/server.js
+index e09598b..1dd560a 100644
+--- a/server.js
++++ b/server.js
+@@ -1231,10 +1231,11 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
+     else if (mimetype.startsWith('video/')) tipo = 'video';
+     const caption = sanitizeStr(req.body.caption || '', 500);
+     const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption });
+-    const textoLog = caption || `[${tipo}: ${sanitizeStr(originalname, 100)}]`;
+     await supabase.from('mensagens').insert({
+       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
+-      texto: textoLog, wa_id: resultado.messages?.[0]?.id || '',
++      texto: caption || '', wa_id: resultado.messages?.[0]?.id || '',
++      tipo, media_id: mediaId, mime: sanitizeStr(mimetype, 120),
++      media_filename: tipo === 'document' ? sanitizeStr(originalname, 200) : null,
+     });
+     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
+     res.json({ ok: true });
+@@ -1257,6 +1258,36 @@ app.get('/api/leads/:id/mensagens', requireAuth, rateLimit, async (req, res) =>
+   }
+ });
+ 
++app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) => {
++  try {
++    const id = parseInt(req.params.id, 10);
++    const msgId = parseInt(req.params.msgId, 10);
++    if (Number.isNaN(id) || Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
++    const { data: msg } = await supabase.from('mensagens')
++      .select('id, lead_id, media_id, mime').eq('id', msgId).maybeSingle();
++    if (!msg || msg.lead_id !== id) return res.status(404).json({ error: 'Mensagem não encontrada' });
++    if (!msg.media_id) return res.status(404).json({ error: 'Mensagem sem mídia' });
++    const MIME_ALLOWLIST = new Set([
++      'image/jpeg','image/png','image/webp','image/gif','image/heic',
++      'audio/ogg','audio/ogg; codecs=opus','audio/mpeg','audio/mp4','audio/aac',
++      'video/mp4','video/3gpp',
++      'application/pdf',
++      'image/webp', // sticker
++    ]);
++    const { buffer, contentType } = await whatsapp.baixarMidia(msg.media_id);
++    const safeMime = MIME_ALLOWLIST.has(msg.mime) ? msg.mime
++      : MIME_ALLOWLIST.has(contentType) ? contentType
++      : 'application/octet-stream';
++    res.set('Content-Type', safeMime);
++    res.set('X-Content-Type-Options', 'nosniff');
++    res.set('Cache-Control', 'private, max-age=86400');
++    res.send(buffer);
++  } catch (e) {
++    console.error('❌ wa midia download:', e.message);
++    res.status(502).json({ error: e.message });
++  }
++});
++
+ app.post('/api/leads/:id/agendar-mensagem', requireAuth, rateLimit, async (req, res) => {
+   try {
+     const id = parseInt(req.params.id, 10);
+@@ -1608,6 +1639,10 @@ app.post('/webhooks/whatsapp', async (req, res) => {
+       await supabase.from('mensagens').insert({
+         lead_id: lead.id, direcao: 'recebida', canal: 'sdr',
+         texto: sanitizeStr(m.texto, 4000), wa_id: m.id || '',
++        tipo: m.tipo || 'text',
++        media_id: m.media_id || null,
++        mime: m.mime ? sanitizeStr(m.mime, 120) : null,
++        media_filename: m.media_filename ? sanitizeStr(m.media_filename, 200) : null,
+       });
+       logEvento(lead.id, 'mensagem_recebida',
+         'Mensagem recebida: "' + (m.texto || '').slice(0, 80) + (m.texto?.length > 80 ? '…' : '') + '"',
+@@ -3893,7 +3928,7 @@ app.get('/api/leads/:id/trajeto', requireRole('admin', 'gestor', 'crc_leads', 'c
+     const offset = parseInt(req.query.offset, 10) || 0;
+     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+     const { data, error, count } = await supabase.from('lead_eventos')
+-      .select('*', { count: 'exact' })
++      .select('*', { count: 'planned' })
+       .eq('lead_id', id)
+       .order('criado_em', { ascending: false })
+       .range(offset, offset + limit - 1);
+diff --git a/supabase/migrations/20260601000002_add_media_cols_mensagens.sql b/supabase/migrations/20260601000002_add_media_cols_mensagens.sql
+new file mode 100644
+index 0000000..1c8ada8
+--- /dev/null
++++ b/supabase/migrations/20260601000002_add_media_cols_mensagens.sql
+@@ -0,0 +1,8 @@
++alter table public.mensagens
++  add column if not exists tipo text not null default 'text',
++  add column if not exists media_id text,
++  add column if not exists mime text,
++  add column if not exists media_filename text;
++
++comment on column public.mensagens.tipo is 'text | audio | image | video | document | sticker';
++comment on column public.mensagens.media_id is 'ID da midia na Meta Cloud API (proxy sob demanda)';
+diff --git a/whatsapp.js b/whatsapp.js
+index ea5881d..6e360e0 100644
+--- a/whatsapp.js
++++ b/whatsapp.js
+@@ -88,6 +88,22 @@ async function enviarMidia({ para, mediaId, tipo, caption }) {
+   return _post(WA_PHONE_ID, WA_TOKEN, payload);
+ }
+ 
++// Baixa mídia recebida/enviada pelo media_id (proxy sob demanda).
++// Passo 1: GET /{mediaId} → retorna { url, mime_type }. Passo 2: baixar a url com o token.
++async function baixarMidia(mediaId) {
++  if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
++  const meta = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${mediaId}`, {
++    headers: { 'Authorization': `Bearer ${WA_TOKEN}` },
++  });
++  const info = await meta.json();
++  if (info.error) throw new Error(info.error.message);
++  if (!info.url) throw new Error('Mídia sem URL (expirada?)');
++  const bin = await fetch(info.url, { headers: { 'Authorization': `Bearer ${WA_TOKEN}` } });
++  if (!bin.ok) throw new Error('Falha ao baixar mídia: HTTP ' + bin.status);
++  const arrayBuf = await bin.arrayBuffer();
++  return { buffer: Buffer.from(arrayBuf), contentType: info.mime_type || bin.headers.get('content-type') || 'application/octet-stream' };
++}
++
+ // --------- VERIFY TOKEN para webhook ----------
+ function verifyToken() {
+   if (!WA_VERIFY_TOKEN) console.warn('⚠️  WHATSAPP_VERIFY_TOKEN não configurado — configure esta variável de ambiente');
+@@ -105,11 +121,21 @@ function parseMensagemRecebida(body) {
+     const contato = v?.contacts?.[0];
+     // Anúncios CTWA (Click-to-WhatsApp): Meta inclui referral com ctwa_clid
+     const referral = msg.referral || null;
++    // Mídia: WhatsApp manda o conteúdo conforme msg.type (audio/image/video/document/sticker)
++    const tipo = msg.type || 'text';
++    const midiaObj = (tipo !== 'text' && msg[tipo]) ? msg[tipo] : null;
++    const media_id = midiaObj?.id || '';
++    const mime = midiaObj?.mime_type || '';
++    const media_filename = msg.document?.filename || '';
++    const caption = msg.image?.caption || msg.video?.caption || msg.document?.caption || '';
+     return {
+       from: msg.from,
+       nome: contato?.profile?.name || '',
+-      texto: msg.text?.body || msg.button?.text || '',
+-      tipo: msg.type,
++      texto: msg.text?.body || msg.button?.text || caption || '',
++      tipo,
++      media_id,
++      mime,
++      media_filename,
+       timestamp: msg.timestamp,
+       id: msg.id,
+       ctwa_clid:   referral?.ctwa_clid  || '',
+@@ -140,6 +166,7 @@ module.exports = {
+   enviarBroadcast,
+   uploadMidia,
+   enviarMidia,
++  baixarMidia,
+   temToken,
+   temBroadcast,
+   verifyToken,
+diff --git a/whatsapp.test.js b/whatsapp.test.js
+new file mode 100644
+index 0000000..b8808c7
+--- /dev/null
++++ b/whatsapp.test.js
+@@ -0,0 +1,42 @@
++const { test } = require('node:test');
++const assert = require('node:assert');
++const { parseMensagemRecebida } = require('./whatsapp');
++
++function body(msg, contact = { profile: { name: 'Paciente' }, wa_id: '5531999990000' }) {
++  return { entry: [{ changes: [{ field: 'messages', value: { contacts: [contact], messages: [msg] } }] }] };
++}
++
++test('texto continua funcionando', () => {
++  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.1', type: 'text', timestamp: '1', text: { body: 'oi' } }));
++  assert.strictEqual(r.tipo, 'text');
++  assert.strictEqual(r.texto, 'oi');
++  assert.strictEqual(r.media_id, '');
++});
++
++test('audio extrai media_id e mime', () => {
++  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.2', type: 'audio', timestamp: '2', audio: { id: 'MEDIA_AUD', mime_type: 'audio/ogg; codecs=opus' } }));
++  assert.strictEqual(r.tipo, 'audio');
++  assert.strictEqual(r.media_id, 'MEDIA_AUD');
++  assert.strictEqual(r.mime, 'audio/ogg; codecs=opus');
++  assert.strictEqual(r.texto, '');
++});
++
++test('image extrai media_id e usa caption como texto', () => {
++  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.3', type: 'image', timestamp: '3', image: { id: 'MEDIA_IMG', mime_type: 'image/jpeg', caption: 'minha foto' } }));
++  assert.strictEqual(r.tipo, 'image');
++  assert.strictEqual(r.media_id, 'MEDIA_IMG');
++  assert.strictEqual(r.texto, 'minha foto');
++});
++
++test('document extrai filename', () => {
++  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.4', type: 'document', timestamp: '4', document: { id: 'MEDIA_DOC', mime_type: 'application/pdf', filename: 'exame.pdf' } }));
++  assert.strictEqual(r.tipo, 'document');
++  assert.strictEqual(r.media_id, 'MEDIA_DOC');
++  assert.strictEqual(r.media_filename, 'exame.pdf');
++});
++
++test('sticker extrai media_id', () => {
++  const r = parseMensagemRecebida(body({ from: '5531999990000', id: 'wamid.5', type: 'sticker', timestamp: '5', sticker: { id: 'MEDIA_STK', mime_type: 'image/webp' } }));
++  assert.strictEqual(r.tipo, 'sticker');
++  assert.strictEqual(r.media_id, 'MEDIA_STK');
++});

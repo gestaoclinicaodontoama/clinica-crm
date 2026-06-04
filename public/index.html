@@ -2664,7 +2664,7 @@ function renderCriativoAnuncio(referralData, opts = {}) {
   if (!img && !rd.headline && !rd.body) return '';
   const link = _safeUrl(rd.source_url);
   const maxH = opts.compact ? 120 : 160;
-  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:${opts.compact?'8px 12px':'0 0 8px'}">
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:${opts.bare ? '0' : (opts.compact?'8px 12px':'0 0 8px')}">
     ${img ? `<img src="${_esc(img)}" alt="anúncio" style="width:100%;display:block;max-height:${maxH}px;object-fit:cover" loading="lazy">` : ''}
     ${(rd.headline || rd.body) ? `<div style="padding:8px">
       ${opts.compact ? '<div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:2px">📍 VEIO DESTE ANÚNCIO</div>' : ''}
@@ -2688,6 +2688,34 @@ function _canalChip(canal) {
   if (!canal) return '';
   const icon = canal === 'Instagram' ? '📷' : '👍';
   return `<span style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;font-size:10px;font-weight:600;padding:2px 6px;color:var(--text);white-space:nowrap">${icon} ${canal}</span>`;
+}
+
+// Banner do anúncio no topo do chat, colapsável (começa fechado para não dominar a conversa).
+function renderBannerAnuncioColapsavel(referralData) {
+  const inner = renderCriativoAnuncio(referralData, { compact: true, bare: true });
+  if (!inner) return '';
+  const rd = referralData || {};
+  const _esc = s => String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const canal = _canalMeta(rd);
+  const titulo = _esc(String(rd.headline || rd.body || 'ver criativo').slice(0, 46));
+  return `<div style="margin:8px 12px 0">
+    <button type="button" onclick="toggleBannerAnuncio(this)" aria-expanded="false"
+      style="width:100%;display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:11.5px;color:var(--text);text-align:left">
+      <span>📍</span>
+      <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">veio de anúncio${canal ? ' · ' + canal : ''} — ${titulo}</span>
+      <span class="banner-caret" style="color:var(--muted);transition:transform .15s;flex-shrink:0">▾</span>
+    </button>
+    <div class="banner-conteudo" style="display:none;margin-top:6px">${inner}</div>
+  </div>`;
+}
+function toggleBannerAnuncio(btn) {
+  const cont = btn.nextElementSibling;
+  if (!cont) return;
+  const abrir = cont.style.display === 'none';
+  cont.style.display = abrir ? 'block' : 'none';
+  btn.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+  const caret = btn.querySelector('.banner-caret');
+  if (caret) caret.style.transform = abrir ? 'rotate(180deg)' : '';
 }
 
 function _initPainel(lead) {
@@ -2976,6 +3004,7 @@ async function abrirChat(leadId) {
         <span>${escHtml(chatLeadAtual.telefone||'sem telefone')}</span>
         <span class="badge ${classBadge(chatLeadAtual.status)}" style="font-size:10px">${chatLeadAtual.status}</span>
         ${chatLeadAtual.ctwa_clid ? `<span class="ctwa-badge">📍 veio de anúncio${_canalMeta(chatLeadAtual.referral_data) ? ' · ' + _canalMeta(chatLeadAtual.referral_data) : ''}</span>` : ''}
+        ${chatLeadAtual.ctwa_clid && !((chatLeadAtual.eventos_meta_enviados) || []).includes('LeadSubmitted') ? `<span title="Evento CAPI deste lead não confirmado pela Meta. Abra o Trajeto para ver o erro." style="background:rgba(220,38,38,.12);color:#dc2626;border:1px solid rgba(220,38,38,.35);border-radius:6px;font-size:10px;font-weight:700;padding:2px 6px;cursor:help">⚠️ CAPI</span>` : ''}
       </div>
     </div>
     ${chatLeadAtual.telefone ? `<button class="btn btn-call" style="font-size:12px;flex-shrink:0" onclick="ligarChatLead()" title="Ligar via 3CPlus">📞 Ligar</button>` : ''}
@@ -2988,7 +3017,7 @@ async function abrirChat(leadId) {
   _initPainel(chatLeadAtual);
   const _bannerEl = document.getElementById('chat-anuncio-banner');
   if (_bannerEl) {
-    const _bannerHtml = renderCriativoAnuncio(chatLeadAtual.referral_data, { compact: true });
+    const _bannerHtml = renderBannerAnuncioColapsavel(chatLeadAtual.referral_data);
     _bannerEl.innerHTML = _bannerHtml;
     _bannerEl.style.display = _bannerHtml ? 'block' : 'none';
   }
