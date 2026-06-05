@@ -35,13 +35,16 @@ async function _post(phoneId, token, payload) {
 
 // Número 1 — texto livre (SDR, janela de 24h)
 // phoneNumberId opcional: usa o número que recebeu a mensagem do lead (multi-número)
-async function enviarTexto({ para, texto, phoneNumberId }) {
+// contextWaId opcional: wamid da mensagem sendo respondida (reply)
+async function enviarTexto({ para, texto, phoneNumberId, contextWaId }) {
   if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
   const pid = phoneNumberId || WA_PHONE_ID;
-  return _post(pid, WA_TOKEN, {
+  const payload = {
     messaging_product: 'whatsapp', to: limparNumero(para),
     type: 'text', text: { body: texto },
-  });
+  };
+  if (contextWaId) payload.context = { message_id: contextWaId };
+  return _post(pid, WA_TOKEN, payload);
 }
 
 // Número 2 — template aprovado (broadcast, fora da janela)

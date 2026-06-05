@@ -93,6 +93,13 @@ function mapOrigem(src = '', medium = '') {
   };
   return map[s] || (s ? 'Outros' : 'Direto');
 }
+// Deriva origem de lead CTWA (Facebook/Instagram) a partir do source_url do referral
+function _origemCTWA(referralData) {
+  const u = ((referralData || {}).source_url || '').toLowerCase();
+  if (/instagram\.com|ig\.me|instagr\.am/.test(u)) return 'Instagram';
+  if (/facebook\.com|fb\.me|fb\.com|fb\.watch|fb\.gg/.test(u)) return 'Facebook';
+  return 'Meta Ads';
+}
 function nowLocal() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' });
 }
@@ -1417,14 +1424,15 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
     if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
-    const { texto, templateName, variaveis } = req.body;
+    const { texto, templateName, variaveis, reply_wa_id } = req.body;
     let resultado;
     if (!templateName && !texto) return res.status(400).json({ error: 'texto ou templateName obrigatorio' });
     const replyPhoneId = lead.wa_number_id || undefined;
     if (templateName) {
       resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis });
     } else {
-      resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: replyPhoneId });
+      const contextWaId = reply_wa_id ? sanitizeStr(reply_wa_id, 500) : null;
+      resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: replyPhoneId, contextWaId });
     }
     await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
@@ -1851,7 +1859,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       const { data: inserted, error: insertErr } = await supabase.from('leads').insert({
         nome: sanitizeStr(m.nome || 'Lead WhatsApp'),
         telefone: sanitizeStr(m.from, 30), email: '',
-        origem: m.ctwa_clid ? 'Meta Ads' : 'WhatsApp Direto',
+        origem: m.ctwa_clid ? _origemCTWA(m.referral_data) : 'WhatsApp Direto',
         campanha: sanitizeStr(m.ad_id || '', 200), conteudo: '', fbclid: '', gclid: '',
         ctwa_clid: sanitizeStr(m.ctwa_clid || '', 500),
         referral_data: m.referral_data || {},
@@ -1874,7 +1882,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       const upd = { ultimo_contato: new Date().toISOString() };
       if (m.ctwa_clid && !lead.ctwa_clid) {
         upd.ctwa_clid = sanitizeStr(m.ctwa_clid, 500);
-        upd.origem = 'Meta Ads';
+        upd.origem = _origemCTWA(m.referral_data);
         if (m.ad_id) upd.campanha = sanitizeStr(m.ad_id, 200);
         if (m.referral_data) upd.referral_data = m.referral_data;
       }

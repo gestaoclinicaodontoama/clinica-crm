@@ -261,13 +261,16 @@ textarea { resize: vertical; min-height: 80px; }
 .chat-window { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .chat-header { padding: 12px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .chat-msgs { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
-.msg-wrap { display: flex; flex-direction: column; }
+.msg-wrap { display: flex; flex-direction: column; position: relative; }
 .msg-wrap.out { align-items: flex-end; }
 .msg-wrap.in { align-items: flex-start; }
 .msg-bubble { max-width: 68%; padding: 9px 13px; border-radius: 14px; font-size: 13px; line-height: 1.5; word-break: break-word; }
 .msg-bubble.in { background: var(--bg3); border-bottom-left-radius: 3px; }
 .msg-bubble.out { background: var(--accent); color: white; border-bottom-right-radius: 3px; }
 .msg-time { font-size: 10.5px; color: var(--muted); margin-top: 3px; padding: 0 4px; }
+.msg-reply-btn { opacity: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; padding: 2px 5px; color: var(--muted); transition: opacity .15s; line-height: 1; margin-bottom: 2px; }
+.msg-wrap:hover .msg-reply-btn { opacity: 1; }
+.msg-reply-btn:hover { color: var(--accent); border-color: var(--accent); }
 .chat-input-area { padding: 12px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; align-items: flex-end; }
 .chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 120px; min-height: 40px; line-height: 1.4; }
 .chat-textarea:focus { outline: none; border-color: var(--accent); }
@@ -750,7 +753,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
         </select>
         <select class="filter-select" id="filter-origem" onchange="loadLeads()">
           <option value="">Todas origens</option>
-          <option>Meta Ads</option><option>Google Ads</option><option>Orgânico</option><option>Indicação</option><option>Direto</option>
+          <option>Meta Ads</option><option>Facebook</option><option>Instagram</option><option>Google Ads</option><option>Orgânico</option><option>Indicação</option><option>Direto</option>
         </select>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
@@ -845,6 +848,11 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
             <div id="chat-anuncio-banner" style="display:none"></div>
             <div class="chat-msgs" id="chat-msgs"></div>
             <div class="chat-input-area" style="flex-direction:column;gap:6px">
+              <div id="reply-ctx-bar" style="display:none;align-items:center;gap:8px;padding:6px 10px;background:var(--bg3);border-radius:8px;border-left:3px solid var(--accent);font-size:12px">
+                <span style="color:var(--accent);font-weight:600;font-size:11px;flex-shrink:0">↩ Respondendo:</span>
+                <span id="reply-ctx-text" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)"></span>
+                <button onclick="clearReply()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:17px;padding:0;line-height:1">×</button>
+              </div>
               <textarea class="chat-textarea" id="chat-input" placeholder="Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)" rows="1" onkeydown="chatKeyDown(event)" oninput="autoResizeChat(this)"></textarea>
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <button class="btn btn-primary" onclick="enviarMensagemChat()" style="height:34px;font-size:13px">Enviar</button>
@@ -855,6 +863,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
                 <button class="btn btn-ghost" id="btn-gravar" onclick="toggleGravacao()" style="height:34px;font-size:16px;padding:0 10px;transition:all .2s" title="Gravar áudio de voz">🎙️</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-audio').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo de áudio">🎵</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-doc').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo">📎</button>
+                <span id="chat-via-label" style="font-size:11px;color:var(--muted);display:none;margin-left:auto"></span>
                 <span id="rec-indicator" style="display:none;align-items:center;gap:4px;font-size:12px;color:var(--red);font-weight:600">
                   <span style="width:8px;height:8px;background:var(--red);border-radius:50%;animation:blink 1s step-start infinite"></span>
                   <span id="rec-timer">0s</span>
@@ -1691,9 +1700,9 @@ let etiquetasAtual = [];
 let discAtual = '';
 let scoreAtual = null;
 const FUNIL = ['Lead','Aguardando','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
-const ORIGENS = ['Meta Ads','WhatsApp Direto','Indicação','Google','Instagram','TikTok','Evento','Outdoor','Rádio','Outros'];
+const ORIGENS = ['Meta Ads','Facebook','Instagram','WhatsApp Direto','Indicação','Google','TikTok','Evento','Outdoor','Rádio','Outros'];
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
-const COR_ORIG = { 'Meta Ads':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
+const COR_ORIG = { 'Meta Ads':'orig-meta','Facebook':'orig-meta','Instagram':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
 
 function classStatus(s) { return 's-' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,''); }
 function classBadge(s) { return 'badge-' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,''); }
@@ -3022,8 +3031,16 @@ async function abrirChat(leadId) {
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModal(${chatLeadAtual.id})">Ver perfil</button>
   `;
 
+  clearReply();
   if (chatPollInterval) clearInterval(chatPollInterval);
   _markRead(leadId);
+  const _viaEl = document.getElementById('chat-via-label');
+  if (_viaEl) {
+    const _waLabel2 = chatLeadAtual.wa_number_id && _waNumbers[chatLeadAtual.wa_number_id]
+      ? _waNumbers[chatLeadAtual.wa_number_id] : '';
+    _viaEl.textContent = _waLabel2 ? '📱 via ' + _waLabel2 : '';
+    _viaEl.style.display = _waLabel2 ? '' : 'none';
+  }
   _initPainel(chatLeadAtual);
   const _bannerEl = document.getElementById('chat-anuncio-banner');
   if (_bannerEl) {
@@ -3079,12 +3096,23 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
       el.innerHTML = '<div class="empty-small" style="text-align:center;padding:30px">Nenhuma mensagem ainda.<br>Digite abaixo para iniciar a conversa.</div>';
       return;
     }
-    el.innerHTML = msgs.map(m => `
-      <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}">
-        <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${_bolhaMsgHtml(m)}</div>
-        <div class="msg-time">${_brt(m.criada_em)}</div>
-      </div>
-    `).join('');
+    el.innerHTML = msgs.map((m, i) => {
+      const waLabel = m.direcao === 'enviada' && m.wa_number_id && _waNumbers[m.wa_number_id]
+        ? ` · <span style="opacity:.7">${escHtml(_waNumbers[m.wa_number_id])}</span>` : '';
+      const replyBtnHtml = m.wa_id
+        ? `<button class="msg-reply-btn" data-ri="${i}" title="Responder">↩</button>` : '';
+      return `
+        <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}">
+          ${replyBtnHtml}
+          <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${_bolhaMsgHtml(m)}</div>
+          <div class="msg-time">${_brt(m.criada_em)}${waLabel}</div>
+        </div>`;
+    }).join('');
+    el.querySelectorAll('.msg-reply-btn').forEach(btn => {
+      const idx = parseInt(btn.dataset.ri, 10);
+      const m = msgs[idx];
+      btn.addEventListener('click', () => setReply(m.wa_id, m.texto || '', m.direcao));
+    });
     el.querySelectorAll('[data-midia]').forEach(node => {
       const mid = node.getAttribute('data-midia');
       _midiaUrlChat(leadId, mid).then(url => {
@@ -3141,17 +3169,41 @@ function inserirEmoji(e) {
   if (typeof autoResizeChat === 'function') autoResizeChat(input);
 }
 
+let _replyContext = null;
+
+function setReply(waId, texto, direcao) {
+  _replyContext = { wa_id: waId };
+  const bar = document.getElementById('reply-ctx-bar');
+  const textEl = document.getElementById('reply-ctx-text');
+  if (bar && textEl) {
+    const prefix = direcao === 'enviada' ? 'Nós: ' : '';
+    textEl.textContent = prefix + (texto || '[mídia]').slice(0, 120);
+    bar.style.display = 'flex';
+  }
+  document.getElementById('chat-input').focus();
+}
+
+function clearReply() {
+  _replyContext = null;
+  const bar = document.getElementById('reply-ctx-bar');
+  if (bar) bar.style.display = 'none';
+}
+
 async function enviarMensagemChat() {
   if (!chatLeadAtual) return;
   const input = document.getElementById('chat-input');
   const texto = input.value.trim();
   if (!texto) return;
+  const replyWaId = _replyContext?.wa_id || null;
   input.value = '';
   input.style.height = 'auto';
   input.disabled = true;
+  clearReply();
   try {
+    const body = { texto };
+    if (replyWaId) body.reply_wa_id = replyWaId;
     const r = await api(`/api/leads/${chatLeadAtual.id}/whatsapp`, {
-      method: 'POST', body: JSON.stringify({ texto }),
+      method: 'POST', body: JSON.stringify(body),
     });
     if (r.error) toast('❌ ' + r.error, true);
     else await carregarMensagensChat(chatLeadAtual.id);

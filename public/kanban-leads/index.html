@@ -197,7 +197,7 @@ function renderCard(lead) {
     <div class="kb-card-foot">
       <span class="kb-badge">${esc(lead.origem || '')}</span>
       ${lead.valor ? `<span class="kb-valor">${fmtBRL(lead.valor)}</span>` : ''}
-      <button class="kb-wa" onclick="event.stopPropagation();abrirWA('${tel.replace(/\D/g,'')}')">💬</button>
+      <button class="kb-wa" onclick="event.stopPropagation();abrirConversa(${lead.id})">💬</button>
     </div>
   </div>`;
 }
@@ -387,9 +387,8 @@ function fecharModal() {
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModal(); });
 
-function abrirWA(tel) {
-  const t = tel.replace(/\D/g, '');
-  window.open('https://wa.me/55' + t, '_blank');
+function abrirConversa(id) {
+  window.location.href = '/?abrir_lead=' + id;
 }
 
 // ── FILTERS ───────────────────────────────────────────────────────────────────
