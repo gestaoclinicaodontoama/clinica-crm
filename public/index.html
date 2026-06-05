@@ -744,7 +744,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
         <select class="filter-select" id="filter-status" onchange="loadLeads()">
           <option value="">Todos status</option>
           <optgroup label="CRC Lead">
-            <option>Lead</option><option>Aguardando</option><option>Em conversa - Qualificado</option><option>Agendado</option>
+            <option>Lead</option><option>Em conversa - Qualificado</option><option>Agendado</option>
             <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
           </optgroup>
           <optgroup label="CRC Comercial">
@@ -803,10 +803,12 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
 
 <!-- CONVERSAS -->
 <div id="page-conversas" class="page">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
-    <h1 style="margin:0" id="conv-titulo">Conversas</h1>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <div id="meta-por-crc-top" style="display:none;align-items:center;gap:5px;flex-wrap:wrap"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;overflow:hidden">
+      <h1 style="margin:0;flex-shrink:0" id="conv-titulo">Conversas</h1>
+      <div id="meta-por-crc-top" style="display:none;align-items:center;gap:3px;flex-wrap:nowrap;overflow:hidden"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
       <input class="search-input" style="width:150px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
         <option value="">Todas as CRCs</option>
@@ -1465,7 +1467,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label>Status</label>
         <select id="m-status">
           <optgroup label="CRC Lead">
-            <option>Lead</option><option>Aguardando</option><option>Em conversa - Qualificado</option><option>Agendado</option>
+            <option>Lead</option><option>Em conversa - Qualificado</option><option>Agendado</option>
             <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
           </optgroup>
           <optgroup label="CRC Comercial">
@@ -1620,7 +1622,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Status inicial</label>
           <select id="nl-status" class="filter-select" style="width:100%">
             <optgroup label="CRC Lead">
-              <option>Lead</option><option>Aguardando</option><option>Em conversa - Qualificado</option><option>Agendado</option>
+              <option>Lead</option><option>Em conversa - Qualificado</option><option>Agendado</option>
               <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
             </optgroup>
             <optgroup label="CRC Comercial">
@@ -1709,7 +1711,7 @@ let leadAtual = null;
 let etiquetasAtual = [];
 let discAtual = '';
 let scoreAtual = null;
-const FUNIL = ['Lead','Aguardando','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
+const FUNIL = ['Lead','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
 const ORIGENS = ['Meta Ads','Facebook','Instagram','WhatsApp Direto','Indicação','Google','TikTok','Evento','Outdoor','Rádio','Outros'];
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Facebook':'orig-meta','Instagram':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
@@ -2533,7 +2535,7 @@ async function carregarMetaAgendamentos() {
     const topEl = document.getElementById('meta-por-crc-top');
     if (topEl) {
       topEl.innerHTML = (m.por_crc || []).map(c =>
-        `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:11.5px;white-space:nowrap">
+        `<span style="display:inline-flex;align-items:center;gap:2px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-size:10px;white-space:nowrap">
           <span style="color:var(--muted)">${escHtml(c.nome.split(' ')[0])}</span>
           <span style="font-weight:700;color:var(--accent)">${c.total}</span>
         </span>`
@@ -5024,29 +5026,29 @@ function iniciarApp() {
   loadCurrentUser();
   setInterval(captchaVerificar, 3000);
   api('/api/config/wa').then(r => { if (r?.numbers) _waNumbers = r.numbers; if (r?.defaultPhoneId) _waDefaultId = r.defaultPhoneId; }).catch(() => {});
+
+  // Abre lead vindo de outro módulo (ex: kanban) — deve rodar após auth
+  const _openLeadParam = new URLSearchParams(location.search).get('abrir_lead');
+  if (_openLeadParam) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    const _openLeadId = parseInt(_openLeadParam, 10);
+    if (!isNaN(_openLeadId)) {
+      const _convBtn = document.querySelector('[data-page="conv-agendamentos"]');
+      if (_convBtn) _convBtn.click();
+      const _tryOpen = setInterval(() => {
+        if (Array.isArray(chatLeads) && chatLeads.find(l => l.id === _openLeadId)) {
+          clearInterval(_tryOpen);
+          abrirChat(_openLeadId);
+        }
+      }, 200);
+      setTimeout(() => clearInterval(_tryOpen), 8000);
+      return;
+    }
+  }
+
   const btn = document.querySelector('.nav-btn[onclick*="dashboard"]');
   if (btn) setPage('dashboard', btn);
   else loadDash();
-}
-
-// Abre lead vindo de outro módulo (ex: kanban)
-const _openLeadParam = new URLSearchParams(location.search).get('abrir_lead');
-if (_openLeadParam) {
-  history.replaceState(null, '', location.pathname + location.hash);
-  const _openLeadId = parseInt(_openLeadParam, 10);
-  if (!isNaN(_openLeadId)) {
-    // Navigate to conversas (loads chatLeads async)
-    const _convBtn = document.querySelector('[data-page="conv-agendamentos"]');
-    if (_convBtn) _convBtn.click();
-    // Poll until the lead appears in chatLeads
-    const _tryOpen = setInterval(() => {
-      if (Array.isArray(chatLeads) && chatLeads.find(l => l.id === _openLeadId)) {
-        clearInterval(_tryOpen);
-        abrirChat(_openLeadId);
-      }
-    }, 200);
-    setTimeout(() => clearInterval(_tryOpen), 8000);
-  }
 }
 
 // Check existing session on load

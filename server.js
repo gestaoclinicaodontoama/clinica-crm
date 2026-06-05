@@ -43,7 +43,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Aguardando', 'Em conversa - Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Em conversa - Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -564,7 +564,7 @@ async function patchLead(req, res) {
       if (k === 'status') {
         if (!FUNIL.includes(v)) return res.status(400).json({ error: 'Status inválido. Use: ' + FUNIL.join(', ') });
         if (v === 'Agendado' && !lead.data_agendamento) patch.data_agendamento = agora;
-        if (v === 'Agendado') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.name || req.user?.email || null; }
+        if (v === 'Agendado') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.nome || req.user?.email || null; }
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
         // D0 = entrada na régua comercial (avaliação realizada)
         if (v === 'D0' && !lead.data_avaliacao) patch.data_avaliacao = agora;
@@ -688,7 +688,6 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
       qb = qb.in('status', NURTURE).lt('criado_em', d180).gte('criado_em', d365); break;
     case 'nutrir_365':
       qb = qb.in('status', NURTURE).lt('criado_em', d365); break;
-    case 'aguardando':        qb = qb.eq('status', 'Aguardando'); break;
     case 'agendado':          qb = qb.eq('status', 'Agendado'); break;
     case 'faltou':            qb = qb.eq('status', 'Faltou'); break;
     case 'nao_tem_interesse': qb = qb.eq('status', 'Não tem Interesse'); break;
@@ -702,7 +701,7 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
   return qb;
 }
 
-const LEADS_COLUNAS = ['lead','nutrir_30','nutrir_180','nutrir_365','aguardando','agendado','faltou','nao_tem_interesse'];
+const LEADS_COLUNAS = ['lead','agendado','faltou','nao_tem_interesse','nutrir_30','nutrir_180','nutrir_365'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
 app.get('/api/kanban/leads/counts', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
@@ -1805,7 +1804,16 @@ app.post('/api/templates/sync-meta', requireAuth, rateLimit, async (req, res) =>
   try {
     const TOKEN = process.env.META_ACCESS_TOKEN;
     if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado' });
-    let url = META_TPL_API + '?fields=name,status,category,components&limit=200';
+    // Auto-descobre WABA ID via API (env WA_BUSINESS_ACCOUNT_ID é opcional)
+    let wabaId = process.env.WA_BUSINESS_ACCOUNT_ID || '';
+    if (!wabaId) {
+      const dr = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=5',
+        { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+      const dd = await dr.json();
+      if (dd.data?.[0]?.id) wabaId = dd.data[0].id;
+    }
+    if (!wabaId) return res.status(400).json({ error: 'WABA ID não encontrado. Configure WA_BUSINESS_ACCOUNT_ID no Easypanel com o ID da sua conta WhatsApp Business.' });
+    let url = `https://graph.facebook.com/v21.0/${wabaId}/message_templates?fields=name,status,category,components&limit=200`;
     const allMeta = [];
     let _pagina = 0;
     while (url && _pagina < 20) { _pagina++;

@@ -143,13 +143,12 @@ async function patchLead(id, status) {
 // ── COLUMN DEFINITIONS ────────────────────────────────────────────────────────
 const COLUNAS = [
   { slug:'lead',              label:'Lead',              cor:'var(--accent)', dropTarget:false, statusSet:null },
-  { slug:'nutrir_30',         label:'Nutrir 30–180d',    cor:'var(--yellow)', dropTarget:false, statusSet:null },
-  { slug:'nutrir_180',        label:'Nutrir 180–365d',   cor:'var(--orange)', dropTarget:false, statusSet:null },
-  { slug:'nutrir_365',        label:'Nutrir 365+',       cor:'var(--red)',    dropTarget:false, statusSet:null },
-  { slug:'aguardando',        label:'Aguardando',        cor:'var(--muted)',  dropTarget:true,  statusSet:'Aguardando' },
   { slug:'agendado',          label:'Agendado',          cor:'var(--yellow)', dropTarget:true,  statusSet:'Agendado' },
   { slug:'faltou',            label:'Faltou',            cor:'var(--orange)', dropTarget:true,  statusSet:'Faltou' },
   { slug:'nao_tem_interesse', label:'Não tem interesse', cor:'var(--muted)',  dropTarget:true,  statusSet:'Não tem Interesse' },
+  { slug:'nutrir_30',         label:'Nutrir 30–180d',    cor:'var(--yellow)', dropTarget:false, statusSet:null },
+  { slug:'nutrir_180',        label:'Nutrir 180–365d',   cor:'var(--orange)', dropTarget:false, statusSet:null },
+  { slug:'nutrir_365',        label:'Nutrir 365+',       cor:'var(--red)',    dropTarget:false, statusSet:null },
 ];
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
