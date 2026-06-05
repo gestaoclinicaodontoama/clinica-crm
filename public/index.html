@@ -865,7 +865,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
                 <button class="btn btn-ghost" id="btn-gravar" onclick="toggleGravacao()" style="height:34px;font-size:16px;padding:0 10px;transition:all .2s" title="Gravar áudio de voz">🎙️</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-audio').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo de áudio">🎵</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-doc').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo">📎</button>
-                <span id="chat-via-label" style="display:none;align-items:center;gap:3px;font-size:11px;font-weight:600;color:#10b981;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);border-radius:6px;padding:2px 8px;margin-left:auto;white-space:nowrap"></span>
+                <select id="chat-via-select" style="display:none;font-size:11px;font-weight:600;color:#10b981;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);border-radius:6px;padding:2px 8px;margin-left:auto;cursor:pointer;outline:none;height:26px" title="Número de envio"></select>
                 <span id="rec-indicator" style="display:none;align-items:center;gap:4px;font-size:12px;color:var(--red);font-weight:600">
                   <span style="width:8px;height:8px;background:var(--red);border-radius:50%;animation:blink 1s step-start infinite"></span>
                   <span id="rec-timer">0s</span>
@@ -3036,14 +3036,16 @@ async function abrirChat(leadId) {
   clearReply();
   if (chatPollInterval) clearInterval(chatPollInterval);
   _markRead(leadId);
-  const _viaEl = document.getElementById('chat-via-label');
-  if (_viaEl) {
-    // Tenta o wa_number_id do lead; fallback para o primeiro número disponível (SDR padrão)
-    const _waLabelVia = (_waNumbers[chatLeadAtual.wa_number_id]
-      || Object.values(_waNumbers)[0]
-      || '');
-    _viaEl.textContent = _waLabelVia ? '📱 via ' + _waLabelVia : '';
-    _viaEl.style.display = _waLabelVia ? 'inline-flex' : 'none';
+  const _viaEl = document.getElementById('chat-via-select');
+  if (_viaEl && Object.keys(_waNumbers).length > 0) {
+    _viaEl.innerHTML = Object.entries(_waNumbers).map(([id, label]) =>
+      `<option value="${escHtml(id)}">📱 via ${escHtml(label)}</option>`
+    ).join('');
+    // Padrão: número pelo qual o lead entrou → senão o SDR (2873) → senão o primeiro
+    const defaultId = chatLeadAtual.wa_number_id || _waDefaultId || Object.keys(_waNumbers)[0];
+    if (defaultId && _waNumbers[defaultId]) _viaEl.value = defaultId;
+    else _viaEl.selectedIndex = 0;
+    _viaEl.style.display = 'inline-block';
   }
   _initPainel(chatLeadAtual);
   const _bannerEl = document.getElementById('chat-anuncio-banner');
@@ -3221,6 +3223,8 @@ async function enviarMensagemChat() {
   const texto = input.value.trim();
   if (!texto) return;
   const replyWaId = _replyContext?.wa_id || null;
+  const viaSelect = document.getElementById('chat-via-select');
+  const phoneId = viaSelect?.value || '';
   input.value = '';
   input.style.height = 'auto';
   input.disabled = true;
@@ -3228,6 +3232,7 @@ async function enviarMensagemChat() {
   try {
     const body = { texto };
     if (replyWaId) body.reply_wa_id = replyWaId;
+    if (phoneId) body.phone_number_id = phoneId;
     const r = await api(`/api/leads/${chatLeadAtual.id}/whatsapp`, {
       method: 'POST', body: JSON.stringify(body),
     });
@@ -4917,7 +4922,8 @@ async function handleLogout() {
 
 document.getElementById('login-senha').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
 
-let _waNumbers = {}; // phone_number_id → últimos 4 dígitos do número
+let _waNumbers = {}; // phone_number_id → label do número
+let _waDefaultId = ''; // phone_number_id padrão (SDR, final 2873)
 
 function _formatPhone(p) {
   if (!p) return '';
@@ -4931,7 +4937,7 @@ function _formatPhone(p) {
 function iniciarApp() {
   loadCurrentUser();
   setInterval(captchaVerificar, 3000);
-  api('/api/config/wa').then(r => { if (r?.numbers) _waNumbers = r.numbers; }).catch(() => {});
+  api('/api/config/wa').then(r => { if (r?.numbers) _waNumbers = r.numbers; if (r?.defaultPhoneId) _waDefaultId = r.defaultPhoneId; }).catch(() => {});
   const btn = document.querySelector('.nav-btn[onclick*="dashboard"]');
   if (btn) setPage('dashboard', btn);
   else loadDash();

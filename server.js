@@ -150,7 +150,7 @@ app.get('/api/version', (req, res) => {
 app.get('/api/config/wa', requireAuth, async (req, res) => {
   try {
     const numbers = await whatsapp.getPhoneNumbers();
-    res.json({ numbers });
+    res.json({ numbers, defaultPhoneId: whatsapp.defaultPhoneId() });
   } catch (e) {
     res.json({ numbers: {} });
   }
@@ -1424,10 +1424,12 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
     if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
-    const { texto, templateName, variaveis, reply_wa_id } = req.body;
+    const { texto, templateName, variaveis, reply_wa_id, phone_number_id } = req.body;
     let resultado;
     if (!templateName && !texto) return res.status(400).json({ error: 'texto ou templateName obrigatorio' });
-    const replyPhoneId = lead.wa_number_id || whatsapp.defaultPhoneId() || '';
+    const replyPhoneId = (typeof phone_number_id === 'string' && /^\d+$/.test(phone_number_id) && phone_number_id)
+      ? phone_number_id
+      : (lead.wa_number_id || whatsapp.defaultPhoneId() || '');
     if (templateName) {
       resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis });
     } else {
