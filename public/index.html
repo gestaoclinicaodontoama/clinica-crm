@@ -3418,7 +3418,7 @@ async function apagarMensagem(msgId, waId) {
 
 async function fixarMensagem(msgId, leadId) {
   try {
-    const r = await api(`/api/mensagens/${msgId}/fixar`, { method: 'PATCH' });
+    const r = await api(`/api/leads/${leadId}/mensagens/${msgId}/fixar`, { method: 'PATCH' });
     toast(r.fixada ? '📌 Mensagem fixada' : '📌 Mensagem desafixada');
     await carregarMensagensChat(leadId, true);
   } catch(e) { toast('❌ ' + e.message, true); }

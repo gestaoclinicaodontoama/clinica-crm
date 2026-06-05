@@ -1595,14 +1595,15 @@ app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) 
   }
 });
 
-app.patch('/api/mensagens/:msgId/fixar', requireAuth, rateLimit, async (req, res) => {
+app.patch('/api/leads/:id/mensagens/:msgId/fixar', requireAuth, rateLimit, async (req, res) => {
   try {
-    const msgId = parseInt(req.params.msgId, 10);
-    if (Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
-    const { data: msg } = await supabase.from('mensagens').select('id,fixada').eq('id', msgId).maybeSingle();
-    if (!msg) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    const leadId = parseInt(req.params.id, 10);
+    const msgId  = parseInt(req.params.msgId, 10);
+    if (Number.isNaN(leadId) || Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: msg } = await supabase.from('mensagens').select('id,lead_id,fixada').eq('id', msgId).maybeSingle();
+    if (!msg || msg.lead_id !== leadId) return res.status(404).json({ error: 'Mensagem não encontrada' });
     const novaFixada = !msg.fixada;
-    await supabase.from('mensagens').update({ fixada: novaFixada }).eq('id', msgId);
+    await supabase.from('mensagens').update({ fixada: novaFixada }).eq('id', msgId).eq('lead_id', leadId);
     res.json({ fixada: novaFixada });
   } catch (e) {
     res.status(500).json({ error: e.message });
