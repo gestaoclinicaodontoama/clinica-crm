@@ -2476,6 +2476,7 @@ function _horaOuData(iso) {
 }
 
 function _isUnread(l) {
+  if (localStorage.getItem('chat_forced_unread_' + l.id)) return true;
   if (!l.ultima_mensagem_em || l.ultima_mensagem_direcao !== 'recebida') return false;
   const lastRead = localStorage.getItem('chat_lr_' + l.id);
   if (!lastRead) return true;
@@ -2483,6 +2484,7 @@ function _isUnread(l) {
 }
 
 function _markRead(leadId) {
+  localStorage.removeItem('chat_forced_unread_' + leadId);
   localStorage.setItem('chat_lr_' + leadId, new Date().toISOString());
 }
 
@@ -2934,8 +2936,10 @@ async function trazerParaMim() {
 
 function marcarNaoLida() {
   if (!chatLeadAtual) return;
-  localStorage.removeItem('chat_lr_' + chatLeadAtual.id);
+  localStorage.setItem('chat_forced_unread_' + chatLeadAtual.id, '1');
+  renderChatList(chatLeads);
   voltarListaChat();
+  toast('🔔 Marcado como não lida');
 }
 
 function painelDisc(letra) {

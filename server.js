@@ -2917,8 +2917,7 @@ app.get('/api/meta-agendamentos', requireAuth, async (req, res) => {
       supabase.from('leads')
         .select('id, crc_agendamento_id, crc_agendamento_nome, data_agendamento')
         .gte('data_agendamento', hoje + 'T00:00:00-03:00')
-        .lte('data_agendamento', hoje + 'T23:59:59-03:00')
-        .not('crc_agendamento_id', 'is', null),
+        .lte('data_agendamento', hoje + 'T23:59:59-03:00'),
     ]);
     const meta = configRes.data?.meta_agendamentos_diarios || 10;
     const agendamentos = leadsRes.data || [];
