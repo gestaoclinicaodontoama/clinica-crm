@@ -106,6 +106,7 @@ tr:hover td { background: var(--bg3); cursor: pointer; }
 .badge-Perdido           { background: rgba(107,114,128,.15); color: var(--b-perdido); }
 /* Status do vocabulário rico (CRC Lead + régua comercial D0-D5) */
 .badge-Aguardando        { background: rgba(148,163,184,.15); color: var(--muted); }
+.badge-DraIzabela        { background: rgba(236,72,153,.12);  color: #ec4899; }
 .badge-EmconversaQualificado { background: rgba(16,185,129,.15); color: #10b981; }
 .badge-Nutrir            { background: rgba(168,85,247,.12);  color: var(--b-compareceu); }
 .badge-NaotemInteresse   { background: rgba(107,114,128,.15); color: var(--b-perdido); }
@@ -744,7 +745,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
         <select class="filter-select" id="filter-status" onchange="loadLeads()">
           <option value="">Todos status</option>
           <optgroup label="CRC Lead">
-            <option>Lead</option><option>Em conversa - Qualificado</option><option>Agendado</option>
+            <option>Lead</option><option>Dra. Izabela</option><option>Em conversa - Qualificado</option><option>Agendado</option>
             <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
           </optgroup>
           <optgroup label="CRC Comercial">
@@ -1486,7 +1487,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label>Status</label>
         <select id="m-status">
           <optgroup label="CRC Lead">
-            <option>Lead</option><option>Em conversa - Qualificado</option><option>Agendado</option>
+            <option>Lead</option><option>Dra. Izabela</option><option>Em conversa - Qualificado</option><option>Agendado</option>
             <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
           </optgroup>
           <optgroup label="CRC Comercial">
@@ -1730,7 +1731,7 @@ let leadAtual = null;
 let etiquetasAtual = [];
 let discAtual = '';
 let scoreAtual = null;
-const FUNIL = ['Lead','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
+const FUNIL = ['Lead','Dra. Izabela','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
 const ORIGENS = ['Meta Ads','Facebook','Instagram','WhatsApp Direto','Indicação','Dra. Izabela','Google','TikTok','Evento','Outdoor','Rádio','Outros'];
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Facebook':'orig-meta','Instagram':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
@@ -2219,7 +2220,7 @@ async function criarLeadManual(btn) {
 function renderStepper(statusAtual) {
   // Vocabulário rico alinhado com servidor (FUNIL 15) e banco (constraint)
   const idx = FUNIL.indexOf(statusAtual);
-  const grupoLead      = ['Lead','Aguardando','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse'];
+  const grupoLead      = ['Lead','Dra. Izabela','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse'];
   const grupoComercial = ['D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
   function mkStep(f) {
     const i = FUNIL.indexOf(f);
@@ -2471,7 +2472,7 @@ let _chatViewMode = 'lista';
 let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
 let _kanbanDragging = false;
 
-const KANBAN_AGENDAMENTOS  = ['Lead','Aguardando','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse'];
+const KANBAN_AGENDAMENTOS  = ['Lead','Dra. Izabela','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse'];
 const KANBAN_AVALIACAO     = ['Compareceu','D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido'];
 const COMERCIAL_STATUSES   = new Set(['D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido']);
 

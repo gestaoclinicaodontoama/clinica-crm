@@ -43,7 +43,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Em conversa - Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Dra. Izabela', 'Em conversa - Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -2071,6 +2071,7 @@ function pageIdFallback(lead) {
 const EVENTOS_FUNIL = {
   'Lead':              'LeadSubmitted',
   'Aguardando':        null,
+  'Dra. Izabela':      null,
   'Em conversa - Qualificado': 'LeadQualified',
   'Agendado':          'Schedule',
   'Compareceu':        'Contact',
@@ -2785,7 +2786,7 @@ const normPhone = s => String(s || '').replace(/\D/g, '').slice(-11);
 async function syncComparecimentos() {
   if (!process.env.CLINICORP_TOKEN) return;
   // Inclui Nutrir/Reclassificar: leads históricos que podem ter comparecido sem passar pelo CRM
-  const PRE_COMPARECEU = ['Lead', 'Aguardando', 'Agendado', 'Nutrir', 'Reclassificar'];
+  const PRE_COMPARECEU = ['Lead', 'Aguardando', 'Dra. Izabela', 'Agendado', 'Nutrir', 'Reclassificar'];
   try {
     const d30ago  = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -2870,7 +2871,7 @@ setInterval(syncComparecimentos, 10 * 60 * 1000);
 // CLINICORP_WEBHOOK_SECRET (querystring ?secret= ou header x-webhook-secret).
 // v1: trata COMPARECIMENTO (check-in) → marca "Compareceu" + dispara CAPI Contact.
 // Loga o payload cru para mapearmos o formato exato do Clinicorp na 1ª chamada real.
-const _PODE_COMPARECER = new Set(['Lead','Aguardando','Em conversa - Qualificado','Agendado','Nutrir','Reclassificar']);
+const _PODE_COMPARECER = new Set(['Lead','Aguardando','Dra. Izabela','Em conversa - Qualificado','Agendado','Nutrir','Reclassificar']);
 
 async function _processarAptWebhook(apt) {
   if (!apt || typeof apt !== 'object') return;
