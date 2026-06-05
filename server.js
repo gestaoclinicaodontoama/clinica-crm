@@ -43,7 +43,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Aguardando', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Aguardando', 'Em conversa - Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -137,6 +137,16 @@ setInterval(() => {
 // ========== VERSION ==========
 app.get('/api/version', (req, res) => {
   res.json({ commit: _buildCommit, deployedAt: _buildDeployedAt });
+});
+
+// ========== CONFIG PÚBLICO ==========
+app.get('/api/config/wa', requireAuth, async (req, res) => {
+  try {
+    const numbers = await whatsapp.getPhoneNumbers();
+    res.json({ numbers });
+  } catch (e) {
+    res.json({ numbers: {} });
+  }
 });
 
 // ========== AUTH ==========

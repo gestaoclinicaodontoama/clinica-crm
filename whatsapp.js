@@ -165,6 +165,35 @@ function parseMensagemRecebida(body) {
   }
 }
 
+// --------- Info dos números configurados (cache 1h) ----------
+let _phoneCache = null;
+let _phoneCacheTime = 0;
+
+async function getPhoneNumbers() {
+  if (_phoneCache && Date.now() - _phoneCacheTime < 3_600_000) return _phoneCache;
+  const ids = [...new Set([WA_PHONE_ID, WA_BROADCAST_PHONE_ID].filter(Boolean))];
+  const result = {};
+  for (const id of ids) {
+    try {
+      const r = await fetch(
+        `https://graph.facebook.com/${WA_API_VERSION}/${id}?fields=display_phone_number&access_token=${WA_TOKEN}`
+      );
+      const data = await r.json();
+      if (data.display_phone_number) {
+        const digits = data.display_phone_number.replace(/\D/g, '');
+        result[id] = digits.slice(-4);
+      } else {
+        result[id] = id.slice(-4);
+      }
+    } catch {
+      result[id] = id.slice(-4);
+    }
+  }
+  _phoneCache = result;
+  _phoneCacheTime = Date.now();
+  return result;
+}
+
 module.exports = {
   enviarTexto,
   enviarTemplate,
@@ -177,4 +206,5 @@ module.exports = {
   verifyToken,
   parseMensagemRecebida,
   limparNumero,
+  getPhoneNumbers,
 };
