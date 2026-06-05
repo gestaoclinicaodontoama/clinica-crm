@@ -48,6 +48,7 @@
             <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted)">Fonte</th>
             <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted)">Anúncio / Campanha</th>
             <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Leads</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Qualificados</th>
             <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Agendados</th>
             <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Compareceu</th>
             <th style="padding:10px 14px;text-align:right;font-weight:600;color:var(--muted)">Fechados</th>
@@ -236,6 +237,7 @@ async function carregarInsights() {
 function renderCards(t) {
   document.getElementById('cards-resumo').innerHTML = [
     ['Leads via anúncio', t.leads || 0, ''],
+    ['Qualificados', t.qualificados || 0, ''],
     ['Agendados', t.agendados || 0, ''],
     ['Fechados', t.fechados || 0, ''],
     ['Receita atribuída', _brl(t.receita), '💰'],
@@ -265,13 +267,14 @@ function renderTabela(grupos, truncado) {
       <td style="padding:10px 14px;color:var(--muted)">${_esc(fl[g.fonte]||g.fonte)}</td>
       <td style="padding:10px 14px;font-weight:500">${_esc(g.nome)}</td>
       <td style="padding:10px 14px;text-align:right">${g.leads}</td>
+      <td style="padding:10px 14px;text-align:right">${g.qualificados || 0}</td>
       <td style="padding:10px 14px;text-align:right">${g.agendados}</td>
       <td style="padding:10px 14px;text-align:right">${g.compareceu}</td>
       <td style="padding:10px 14px;text-align:right">${g.fechados}</td>
       <td style="padding:10px 14px;text-align:right">${_esc(_brl(g.receita))}</td>
       <td style="padding:10px 14px;text-align:right;color:${cor}">${conv}%</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">Nenhum dado no período.</td></tr>';
+  }).join('') || '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">Nenhum dado no período.</td></tr>';
 }
 
 function renderCatalogo(catalog) {

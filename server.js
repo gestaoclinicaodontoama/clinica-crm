@@ -4434,7 +4434,7 @@ app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimi
 
     const grupos = {};
     const addGrupo = (chave, fonte) => {
-      if (!grupos[chave]) grupos[chave] = { chave, fonte, nome: catalogMap[chave.toLowerCase()]?.nome || chave, leads: 0, agendados: 0, compareceu: 0, fechados: 0, receita: 0 };
+      if (!grupos[chave]) grupos[chave] = { chave, fonte, nome: catalogMap[chave.toLowerCase()]?.nome || chave, leads: 0, qualificados: 0, agendados: 0, compareceu: 0, fechados: 0, receita: 0 };
     };
 
     for (const l of (leads || [])) {
@@ -4447,6 +4447,7 @@ app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimi
       addGrupo(chave, fonte);
       const g = grupos[chave];
       g.leads++;
+      if (l.status === 'Em conversa - Qualificado') g.qualificados++;
       if (l.data_agendamento) g.agendados++;
       if (l.data_comparecimento) g.compareceu++;
       if (l.status === 'Fechou') { g.fechados++; if (l.valor) g.receita += parseFloat(l.valor); }
@@ -4459,11 +4460,11 @@ app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimi
     const lista = Object.values(grupos).sort((a, b) => b.leads - a.leads);
     const totais = lista.reduce((acc, g) => {
       if (g.chave !== '__organico__') {
-        acc.leads += g.leads; acc.agendados += g.agendados;
+        acc.leads += g.leads; acc.qualificados += g.qualificados; acc.agendados += g.agendados;
         acc.fechados += g.fechados; acc.receita += g.receita;
       }
       return acc;
-    }, { leads: 0, agendados: 0, fechados: 0, receita: 0 });
+    }, { leads: 0, qualificados: 0, agendados: 0, fechados: 0, receita: 0 });
 
     res.json({ grupos: lista, totais, periodo, desde, ate, truncado: (leads || []).length >= 5000 });
   } catch(e) { res.status(e.status || 500).json({ error: e.message }); }
