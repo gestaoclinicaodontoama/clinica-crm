@@ -160,6 +160,8 @@ function getFiltroParams() {
 }
 
 let _isAdmin = null;
+let _gruposAtrib = [];
+let _gruposTruncado = false;
 async function _checkAdmin() {
   if (_isAdmin !== null) return _isAdmin;
   try {
@@ -177,8 +179,10 @@ async function aplicarFiltro() {
       _api('/api/atribuicao?' + getFiltroParams()),
       _checkAdmin()
     ]);
+    _gruposAtrib = dados.grupos || [];
+    _gruposTruncado = !!dados.truncado;
     renderCards(dados.totais || {});
-    renderTabela(dados.grupos || [], dados.truncado);
+    renderTabela(_gruposAtrib, _gruposTruncado);
     if (isAdmin) {
       document.getElementById('catalogo-wrap').style.display = '';
       _api('/api/anuncios').then(catalog => renderCatalogo(Array.isArray(catalog) ? catalog : [])).catch(() => {});
@@ -202,6 +206,12 @@ async function carregarInsights() {
     if (d.sem_token) { aviso.style.display=''; aviso.style.color='#92400e'; aviso.textContent='⚠️ META_ACCESS_TOKEN não configurado no servidor.'; cards.innerHTML=''; tbody.innerHTML=''; return; }
     if (d.erro_meta) { aviso.style.display=''; aviso.style.color='#b91c1c'; aviso.textContent='⚠️ Meta: ' + d.erro_meta + ' (o token do servidor precisa de permissão ads_read nesta conta de anúncios).'; cards.innerHTML=''; tbody.innerHTML=''; return; }
     const t = d.totais || {};
+    // Enriquece tabela de atribuição com nomes reais do Meta
+    const _nomeMap = {};
+    (d.anuncios || []).forEach(a => { if (a.ad_id && a.ad_name) _nomeMap[a.ad_id] = a.ad_name; });
+    if (_gruposAtrib.length > 0 && Object.keys(_nomeMap).length > 0) {
+      renderTabela(_gruposAtrib.map(g => _nomeMap[g.chave] && g.nome === g.chave ? { ...g, nome: _nomeMap[g.chave] } : g), _gruposTruncado);
+    }
     cards.innerHTML = [
       ['Gasto total', _brl2(t.spend), '💸'],
       ['Conversas (Meta)', t.meta_conversas||0, '💬'],
