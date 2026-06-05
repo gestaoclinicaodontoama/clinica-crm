@@ -1595,6 +1595,20 @@ app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) 
   }
 });
 
+app.patch('/api/leads/:id/fixar-conversa', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const leadId = parseInt(req.params.id, 10);
+    if (Number.isNaN(leadId)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: lead } = await supabase.from('leads').select('id,conversa_fixada').eq('id', leadId).maybeSingle();
+    if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
+    const nova = !lead.conversa_fixada;
+    await supabase.from('leads').update({ conversa_fixada: nova }).eq('id', leadId);
+    res.json({ conversa_fixada: nova });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.patch('/api/leads/:id/mensagens/:msgId/fixar', requireAuth, rateLimit, async (req, res) => {
   try {
     const leadId = parseInt(req.params.id, 10);

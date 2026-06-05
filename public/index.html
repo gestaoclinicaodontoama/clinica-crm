@@ -253,9 +253,13 @@ textarea { resize: vertical; min-height: 80px; }
 .chat-sidebar { width: 290px; min-width: 290px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .chat-sidebar-header { padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .chat-list { flex: 1; overflow-y: auto; }
-.chat-item { padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .12s; }
+.chat-item { padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .12s; position: relative; }
 .chat-item:hover { background: var(--bg3); }
 .chat-item.ativo { background: var(--bg3); border-left: 3px solid var(--accent); padding-left: 11px; }
+.chat-item-pinned { border-left: 3px solid var(--accent); padding-left: 11px; background: rgba(79,142,247,.04); }
+.chat-item-pinned.ativo { background: var(--bg3); }
+.pin-conv-btn { background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;line-height:1;transition:opacity .15s; }
+.chat-item:hover .pin-conv-btn { opacity:1 !important; }
 .chat-item-nome { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-item-preview { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -881,6 +885,11 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
                 <span style="color:var(--accent);font-weight:600;font-size:11px;flex-shrink:0">↩ Respondendo:</span>
                 <span id="reply-ctx-text" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)"></span>
                 <button onclick="clearReply()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:17px;padding:0;line-height:1">×</button>
+              </div>
+              <div id="audio-preview-bar" style="display:none;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:8px;border-left:3px solid var(--green)">
+                <audio id="audio-preview-player" controls style="flex:1;height:32px;min-width:0"></audio>
+                <button onclick="_confirmarEnvioAudio()" style="background:var(--green);color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Enviar ✓</button>
+                <button onclick="_descartarAudio()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px;padding:0 2px;line-height:1" title="Descartar">🗑</button>
               </div>
               <textarea class="chat-textarea" id="chat-input" placeholder="Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)" rows="1" onkeydown="chatKeyDown(event)" oninput="autoResizeChat(this)"></textarea>
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -2614,6 +2623,18 @@ function filtrarChats() {
   else renderChatList(base);
 }
 
+async function fixarConversa(leadId, ev) {
+  ev.stopPropagation();
+  try {
+    const r = await api(`/api/leads/${leadId}/fixar-conversa`, { method: 'PATCH' });
+    const lead = chatLeads?.find(l => l.id === leadId);
+    if (lead) lead.conversa_fixada = r.conversa_fixada;
+    chatLeads?.sort((a, b) => (b.conversa_fixada ? 1 : 0) - (a.conversa_fixada ? 1 : 0));
+    renderChatList(_filtrarParaModo(chatLeads));
+    toast(r.conversa_fixada ? '📌 Conversa fixada' : '📌 Conversa desafixada');
+  } catch(e) { toast('❌ ' + e.message, true); }
+}
+
 function renderChatList(leads) {
   const el = document.getElementById('chat-list');
   if (!leads.length) {
@@ -2626,12 +2647,13 @@ function renderChatList(leads) {
       ? (l.ultima_mensagem_direcao === 'enviada' ? '» ' : '') + l.ultima_mensagem
       : l.telefone || '';
     return `
-    <div class="chat-item ${chatLeadAtual?.id === l.id ? 'ativo' : ''}" onclick="abrirChat(${l.id})">
+    <div class="chat-item ${chatLeadAtual?.id === l.id ? 'ativo' : ''}${l.conversa_fixada ? ' chat-item-pinned' : ''}" onclick="abrirChat(${l.id})">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px">
         <span class="chat-item-nome" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${unread?'font-weight:700;color:var(--text)':''}">${escHtml(l.nome)}</span>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           ${unread ? '<span class="unread-dot"></span>' : ''}
           <span style="font-size:10.5px;color:var(--muted)">${_horaOuData(l.ultima_mensagem_em)}</span>
+          <button class="pin-conv-btn" onclick="fixarConversa(${l.id},event)" title="${l.conversa_fixada?'Desafixar':'Fixar conversa'}" style="opacity:${l.conversa_fixada?'1':'0'};color:${l.conversa_fixada?'var(--accent)':'var(--muted)'}">📌</button>
         </div>
       </div>
       <div class="chat-item-preview">${escHtml(preview.slice(0, 60))}</div>
@@ -3476,6 +3498,8 @@ let _mediaRecorder = null;
 let _audioChunks = [];
 let _recInterval = null;
 let _recSecs = 0;
+let _audioBlob = null;
+let _audioMimeType = '';
 
 async function toggleGravacao() {
   if (_mediaRecorder) { _pararGravacao(); return; }
@@ -3487,10 +3511,21 @@ async function toggleGravacao() {
       ? 'audio/ogg;codecs=opus'
       : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus' : 'audio/webm';
+    _audioMimeType = mimeType;
     _mediaRecorder = new MediaRecorder(stream, { mimeType });
     _audioChunks = [];
     _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _audioChunks.push(e.data); };
-    _mediaRecorder.onstop = () => _enviarGravacao(mimeType, stream);
+    _mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      if (!_audioChunks.length) return;
+      _audioBlob = new Blob(_audioChunks, { type: _audioMimeType });
+      _audioChunks = [];
+      if (_audioBlob.size < 100) { toast('⚠️ Gravação muito curta', true); _audioBlob = null; return; }
+      const url = URL.createObjectURL(_audioBlob);
+      const player = document.getElementById('audio-preview-player');
+      player.src = url;
+      document.getElementById('audio-preview-bar').style.display = 'flex';
+    };
     _mediaRecorder.start(200);
 
     const btn = document.getElementById('btn-gravar');
@@ -3520,14 +3555,20 @@ function _pararGravacao() {
   document.getElementById('rec-indicator').style.display = 'none';
 }
 
-async function _enviarGravacao(mimeType, stream) {
-  stream.getTracks().forEach(t => t.stop());
-  if (!_audioChunks.length || !chatLeadAtual) return;
+function _descartarAudio() {
+  _audioBlob = null;
+  const player = document.getElementById('audio-preview-player');
+  if (player.src) { URL.revokeObjectURL(player.src); player.src = ''; }
+  document.getElementById('audio-preview-bar').style.display = 'none';
+}
+
+async function _confirmarEnvioAudio() {
+  if (!_audioBlob || !chatLeadAtual) return;
+  const blob = _audioBlob;
+  const mimeType = _audioMimeType;
+  _descartarAudio();
   const isOgg = mimeType.includes('ogg');
   const ext = isOgg ? 'ogg' : 'webm';
-  const blob = new Blob(_audioChunks, { type: mimeType });
-  _audioChunks = [];
-  if (blob.size < 100) { toast('⚠️ Gravação muito curta', true); return; }
   const form = new FormData();
   form.append('arquivo', blob, `audio_${Date.now()}.${ext}`);
   try {
