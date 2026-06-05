@@ -809,6 +809,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <div id="meta-por-crc-top" style="display:none;align-items:center;gap:3px;flex-wrap:nowrap;overflow:hidden"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <button onclick="abrirNovaConversa()" title="Nova conversa" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--accent);font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
       <input class="search-input" style="width:150px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
         <option value="">Todas as CRCs</option>
@@ -816,6 +817,24 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <div class="chat-view-toggle">
         <button class="ativo" id="btn-view-lista" onclick="setChatView('lista')">💬 Lista</button>
         <button id="btn-view-kanban" onclick="setChatView('kanban')">📋 Kanban</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: nova conversa -->
+  <div id="nova-conv-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2000;align-items:center;justify-content:center" onclick="if(event.target===this)fecharNovaConversa()">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:360px;max-width:95vw;padding:22px;box-shadow:0 16px 48px rgba(0,0,0,.3)">
+      <div style="font-weight:700;font-size:15px;margin-bottom:14px">Nova Conversa</div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Número de telefone</label>
+        <input id="nc-tel" type="tel" placeholder="(31) 99999-0000" autocomplete="off"
+          style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit"
+          oninput="ncBuscarLead()" onkeydown="if(event.key==='Enter')ncAbrir()">
+      </div>
+      <div id="nc-resultado" style="font-size:12px;color:var(--muted);min-height:18px;margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="fecharNovaConversa()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
+        <button id="nc-btn-abrir" onclick="ncAbrir()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600" disabled>Abrir</button>
       </div>
     </div>
   </div>
@@ -1712,7 +1731,7 @@ let etiquetasAtual = [];
 let discAtual = '';
 let scoreAtual = null;
 const FUNIL = ['Lead','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
-const ORIGENS = ['Meta Ads','Facebook','Instagram','WhatsApp Direto','Indicação','Google','TikTok','Evento','Outdoor','Rádio','Outros'];
+const ORIGENS = ['Meta Ads','Facebook','Instagram','WhatsApp Direto','Indicação','Dra. Izabela','Google','TikTok','Evento','Outdoor','Rádio','Outros'];
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Facebook':'orig-meta','Instagram':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
 
@@ -2934,6 +2953,78 @@ async function trazerParaMim() {
     if (sel) sel.value = id;
     toast('✅ Lead atribuído a você');
   } catch(e) { toast('❌ ' + e.message, true); }
+}
+
+// ── Nova Conversa ──────────────────────────────────────────────────────────────
+let _ncTimer = null, _ncLeadId = null;
+
+function abrirNovaConversa() {
+  _ncLeadId = null;
+  document.getElementById('nc-tel').value = '';
+  document.getElementById('nc-resultado').textContent = '';
+  document.getElementById('nc-btn-abrir').disabled = true;
+  document.getElementById('nova-conv-bg').style.display = 'flex';
+  setTimeout(() => document.getElementById('nc-tel').focus(), 80);
+}
+
+function fecharNovaConversa() {
+  document.getElementById('nova-conv-bg').style.display = 'none';
+}
+
+function ncBuscarLead() {
+  clearTimeout(_ncTimer);
+  _ncLeadId = null;
+  document.getElementById('nc-btn-abrir').disabled = true;
+  const tel = document.getElementById('nc-tel').value.replace(/\D/g, '');
+  if (tel.length < 8) { document.getElementById('nc-resultado').textContent = ''; return; }
+  document.getElementById('nc-resultado').textContent = 'Buscando...';
+  _ncTimer = setTimeout(async () => {
+    try {
+      const leads = await api('/api/leads?q=' + encodeURIComponent(tel) + '&limit=5');
+      const match = (leads.leads || leads || []).find(l => (l.telefone || '').replace(/\D/g,'').endsWith(tel.slice(-8)));
+      if (match) {
+        _ncLeadId = match.id;
+        document.getElementById('nc-resultado').innerHTML = `✅ <b>${escHtml(match.nome)}</b> encontrado`;
+        document.getElementById('nc-btn-abrir').disabled = false;
+      } else {
+        document.getElementById('nc-resultado').textContent = 'Nenhum lead com este número';
+        document.getElementById('nc-btn-abrir').disabled = false;
+      }
+    } catch (_) { document.getElementById('nc-resultado').textContent = 'Erro ao buscar'; }
+  }, 400);
+}
+
+async function ncAbrir() {
+  const tel = document.getElementById('nc-tel').value.replace(/\D/g, '');
+  if (!tel || tel.length < 8) return;
+  fecharNovaConversa();
+  if (_ncLeadId) {
+    // Lead existente: busca na lista de conversas ou abre diretamente
+    const existing = chatLeads?.find(l => l.id === _ncLeadId);
+    if (existing) { abrirChat(_ncLeadId); return; }
+    // Não está na lista de conversas — navega pelo click normal
+    const btn = document.querySelector('[data-page="conv-agendamentos"]');
+    if (btn) btn.click();
+    const _try = setInterval(() => {
+      if (chatLeads?.find(l => l.id === _ncLeadId)) {
+        clearInterval(_try); abrirChat(_ncLeadId);
+      }
+    }, 200);
+    setTimeout(() => clearInterval(_try), 8000);
+  } else {
+    // Sem lead: cria um mínimo e abre conversa
+    try {
+      const r = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + _sbSession?.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: tel, telefone: tel, origem: 'WhatsApp Direto' }),
+      });
+      if (!r.ok) { toast('Erro ao criar lead'); return; }
+      const novo = await r.json();
+      await loadConversas();
+      if (novo.id) abrirChat(novo.id);
+    } catch (e) { toast('Erro: ' + e.message, true); }
+  }
 }
 
 function marcarNaoLida() {

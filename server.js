@@ -1804,15 +1804,25 @@ app.post('/api/templates/sync-meta', requireAuth, rateLimit, async (req, res) =>
   try {
     const TOKEN = process.env.META_ACCESS_TOKEN;
     if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado' });
-    // Auto-descobre WABA ID via API (env WA_BUSINESS_ACCOUNT_ID é opcional)
+    // Auto-descobre WABA ID — tenta vários tokens em ordem
     let wabaId = process.env.WA_BUSINESS_ACCOUNT_ID || '';
     if (!wabaId) {
-      const dr = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=5',
-        { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-      const dd = await dr.json();
-      if (dd.data?.[0]?.id) wabaId = dd.data[0].id;
+      const tokensToTry = [
+        TOKEN,
+        process.env.WHATSAPP_BROADCAST_TOKEN,
+        process.env.WHATSAPP_API_TOKEN,
+        process.env.WHATSAPP_CLOUD_TOKEN,
+      ].filter(Boolean);
+      for (const tok of tokensToTry) {
+        try {
+          const dr = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=5',
+            { headers: { 'Authorization': 'Bearer ' + tok } });
+          const dd = await dr.json();
+          if (dd.data?.[0]?.id) { wabaId = dd.data[0].id; break; }
+        } catch (_) {}
+      }
     }
-    if (!wabaId) return res.status(400).json({ error: 'WABA ID não encontrado. Configure WA_BUSINESS_ACCOUNT_ID no Easypanel com o ID da sua conta WhatsApp Business.' });
+    if (!wabaId) return res.status(400).json({ error: 'WABA ID não encontrado. Vá em Meta Business Suite → Configurações → Contas WhatsApp, copie o ID e configure WA_BUSINESS_ACCOUNT_ID no Easypanel.' });
     let url = `https://graph.facebook.com/v21.0/${wabaId}/message_templates?fields=name,status,category,components&limit=200`;
     const allMeta = [];
     let _pagina = 0;
