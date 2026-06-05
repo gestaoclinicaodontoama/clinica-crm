@@ -268,9 +268,11 @@ textarea { resize: vertical; min-height: 80px; }
 .msg-bubble.in { background: var(--bg3); border-bottom-left-radius: 3px; }
 .msg-bubble.out { background: var(--accent); color: white; border-bottom-right-radius: 3px; }
 .msg-time { font-size: 10.5px; color: var(--muted); margin-top: 3px; padding: 0 4px; }
-.msg-reply-btn { opacity: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; padding: 2px 5px; color: var(--muted); transition: opacity .15s; line-height: 1; margin-bottom: 2px; }
-.msg-wrap:hover .msg-reply-btn { opacity: 1; }
-.msg-reply-btn:hover { color: var(--accent); border-color: var(--accent); }
+.msg-actions { display:flex; gap:3px; margin-bottom:2px; opacity:0; transition:opacity .15s; }
+.msg-wrap:hover .msg-actions { opacity: 1; }
+.msg-action-btn { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; padding: 2px 5px; color: var(--muted); line-height: 1; }
+.msg-action-btn:hover { color: var(--accent); border-color: var(--accent); }
+.msg-action-btn.del:hover { color: var(--red); border-color: var(--red); }
 .chat-input-area { padding: 12px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; align-items: flex-end; }
 .chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 120px; min-height: 40px; line-height: 1.4; }
 .chat-textarea:focus { outline: none; border-color: var(--accent); }
@@ -3067,6 +3069,7 @@ async function _midiaUrlChat(leadId, msgId) {
 }
 
 function _bolhaMsgHtml(m) {
+  if (m.texto === '🚫 Mensagem apagada') return `<em style="opacity:.6;font-size:12px">🚫 Mensagem apagada</em>`;
   const caption = m.texto ? `<div style="margin-top:4px">${escHtml(m.texto).replace(/\n/g,'<br>')}</div>` : '';
   const t = m.tipo || 'text';
   // Use cached blob URL directly when available — prevents flash on re-renders
@@ -3099,19 +3102,28 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
     el.innerHTML = msgs.map((m, i) => {
       const waLabel = m.direcao === 'enviada' && m.wa_number_id && _waNumbers[m.wa_number_id]
         ? ` · <span style="opacity:.7">${escHtml(_waNumbers[m.wa_number_id])}</span>` : '';
-      const replyBtnHtml = m.wa_id
-        ? `<button class="msg-reply-btn" data-ri="${i}" title="Responder">↩</button>` : '';
+      const replyBtn = m.wa_id
+        ? `<button class="msg-action-btn" data-ri="${i}" title="Responder">↩</button>` : '';
+      const deleteBtn = m.direcao === 'enviada' && m.wa_id && m.texto !== '🚫 Mensagem apagada'
+        ? `<button class="msg-action-btn del" data-di="${i}" title="Apagar para todos">🗑</button>` : '';
+      const actionsHtml = (replyBtn || deleteBtn)
+        ? `<div class="msg-actions">${replyBtn}${deleteBtn}</div>` : '';
       return `
         <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}">
-          ${replyBtnHtml}
+          ${actionsHtml}
           <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${_bolhaMsgHtml(m)}</div>
           <div class="msg-time">${_brt(m.criada_em)}${waLabel}</div>
         </div>`;
     }).join('');
-    el.querySelectorAll('.msg-reply-btn').forEach(btn => {
+    el.querySelectorAll('[data-ri]').forEach(btn => {
       const idx = parseInt(btn.dataset.ri, 10);
       const m = msgs[idx];
       btn.addEventListener('click', () => setReply(m.wa_id, m.texto || '', m.direcao));
+    });
+    el.querySelectorAll('[data-di]').forEach(btn => {
+      const idx = parseInt(btn.dataset.di, 10);
+      const m = msgs[idx];
+      btn.addEventListener('click', () => apagarMensagem(m.id, m.wa_id));
     });
     el.querySelectorAll('[data-midia]').forEach(node => {
       const mid = node.getAttribute('data-midia');
@@ -3187,6 +3199,18 @@ function clearReply() {
   _replyContext = null;
   const bar = document.getElementById('reply-ctx-bar');
   if (bar) bar.style.display = 'none';
+}
+
+async function apagarMensagem(msgId, waId) {
+  if (!chatLeadAtual) return;
+  if (!confirm('Apagar esta mensagem para todos? Esta ação não pode ser desfeita.')) return;
+  try {
+    await api(`/api/leads/${chatLeadAtual.id}/mensagens/${msgId}`, { method: 'DELETE' });
+    await carregarMensagensChat(chatLeadAtual.id);
+    toast('🗑 Mensagem apagada para todos');
+  } catch(e) {
+    toast('❌ ' + e.message, true);
+  }
 }
 
 async function enviarMensagemChat() {

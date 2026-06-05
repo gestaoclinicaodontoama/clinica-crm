@@ -67,6 +67,20 @@ async function enviarBroadcast({ para, templateName, lang = 'pt_BR', variaveis =
 // Mantém compatibilidade — enviarTemplate usa o número 2 (broadcast)
 async function enviarTemplate(opts) { return enviarBroadcast(opts); }
 
+// Apaga mensagem para todos (dentro da janela permitida pela Meta)
+async function deletarMensagem({ phoneNumberId, waId }) {
+  if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
+  const pid = phoneNumberId || WA_PHONE_ID;
+  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${pid}/messages`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', message_id: waId }),
+  });
+  const data = await r.json();
+  if (data.error) throw new Error(data.error.message);
+  return data;
+}
+
 // Upload de mídia → retorna media_id
 async function uploadMidia({ buffer, mimetype, filename }) {
   if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
@@ -204,6 +218,7 @@ module.exports = {
   uploadMidia,
   enviarMidia,
   baixarMidia,
+  deletarMensagem,
   temToken,
   temBroadcast,
   verifyToken,

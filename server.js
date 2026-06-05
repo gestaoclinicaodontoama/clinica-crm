@@ -1544,6 +1544,25 @@ app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) 
   }
 });
 
+app.delete('/api/leads/:id/mensagens/:msgId', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const leadId = parseInt(req.params.id, 10);
+    const msgId  = parseInt(req.params.msgId, 10);
+    if (Number.isNaN(leadId) || Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: msg } = await supabase.from('mensagens')
+      .select('id,lead_id,wa_id,direcao,wa_number_id').eq('id', msgId).maybeSingle();
+    if (!msg || msg.lead_id !== leadId) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    if (msg.direcao !== 'enviada') return res.status(400).json({ error: 'Só é possível apagar mensagens enviadas' });
+    if (!msg.wa_id) return res.status(400).json({ error: 'Mensagem sem ID do WhatsApp — não pode ser apagada' });
+    await whatsapp.deletarMensagem({ phoneNumberId: msg.wa_number_id || undefined, waId: msg.wa_id });
+    await supabase.from('mensagens').update({ texto: '🚫 Mensagem apagada', wa_id: '', tipo: 'text', media_id: null }).eq('id', msgId);
+    logEvento(leadId, 'mensagem_apagada', 'Mensagem apagada para todos', {}, req.user?.id || null);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/leads/:id/agendar-mensagem', requireAuth, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
