@@ -186,24 +186,35 @@ function parseMensagemRecebida(body) {
 let _phoneCache = null;
 let _phoneCacheTime = 0;
 
+// Retorna phone_number_id padrão de conversas (Número 1 — SDR)
+function defaultPhoneId() { return WA_PHONE_ID; }
+
 async function getPhoneNumbers() {
   if (_phoneCache && Date.now() - _phoneCacheTime < 3_600_000) return _phoneCache;
-  const ids = [...new Set([WA_PHONE_ID, WA_BROADCAST_PHONE_ID].filter(Boolean))];
+  const pairs = [
+    { id: WA_PHONE_ID, token: WA_TOKEN },
+    { id: WA_BROADCAST_PHONE_ID, token: WA_BROADCAST_TOKEN },
+  ].filter(p => p.id);
+  const seen = new Set();
   const result = {};
-  for (const id of ids) {
+  for (const { id, token } of pairs) {
+    if (seen.has(id)) continue;
+    seen.add(id);
     try {
       const r = await fetch(
-        `https://graph.facebook.com/${WA_API_VERSION}/${id}?fields=display_phone_number&access_token=${WA_TOKEN}`
+        `https://graph.facebook.com/${WA_API_VERSION}/${id}?fields=display_phone_number&access_token=${token}`
       );
       const data = await r.json();
       if (data.display_phone_number) {
         const digits = data.display_phone_number.replace(/\D/g, '');
-        result[id] = digits.slice(-4);
+        // Retorna últimos 8 dígitos formatados como "9730-2393"
+        const last8 = digits.slice(-8);
+        result[id] = last8.length === 8 ? last8.slice(0, 4) + '-' + last8.slice(4) : digits.slice(-4);
       } else {
-        result[id] = id.slice(-4);
+        result[id] = '...' + id.slice(-4);
       }
     } catch {
-      result[id] = id.slice(-4);
+      result[id] = '...' + id.slice(-4);
     }
   }
   _phoneCache = result;
@@ -225,4 +236,5 @@ module.exports = {
   parseMensagemRecebida,
   limparNumero,
   getPhoneNumbers,
+  defaultPhoneId,
 };

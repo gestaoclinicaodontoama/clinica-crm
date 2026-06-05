@@ -1427,7 +1427,7 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
     const { texto, templateName, variaveis, reply_wa_id } = req.body;
     let resultado;
     if (!templateName && !texto) return res.status(400).json({ error: 'texto ou templateName obrigatorio' });
-    const replyPhoneId = lead.wa_number_id || undefined;
+    const replyPhoneId = lead.wa_number_id || whatsapp.defaultPhoneId() || '';
     if (templateName) {
       resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis });
     } else {
@@ -1438,7 +1438,7 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
       texto: sanitizeStr(texto || '[template:' + sanitizeStr(templateName, 100) + ']', 4000),
       wa_id: resultado.messages?.[0]?.id || '',
-      wa_number_id: replyPhoneId || '',
+      wa_number_id: replyPhoneId,
     });
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
