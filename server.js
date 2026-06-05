@@ -150,10 +150,48 @@ app.get('/api/version', (req, res) => {
 app.get('/api/config/wa', requireAuth, async (req, res) => {
   try {
     const numbers = await whatsapp.getPhoneNumbers();
-    res.json({ numbers, defaultPhoneId: whatsapp.defaultPhoneId() });
+    // Auto-descobre IDs de números não presentes nos env vars (ex.: SDR sem WHATSAPP_PHONE_NUMBER_ID)
+    try {
+      const tok = process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN || '';
+      if (tok) {
+        const { data: rows } = await supabase.from('mensagens').select('wa_number_id')
+          .not('wa_number_id', 'is', null).neq('wa_number_id', '').limit(200);
+        const extraIds = [...new Set((rows||[]).map(r=>r.wa_number_id))].filter(id=>id&&!numbers[id]);
+        for (const phoneId of extraIds.slice(0, 5)) {
+          try {
+            const r = await fetch(`https://graph.facebook.com/v21.0/${phoneId}?fields=display_phone_number&access_token=${tok}`);
+            const d = await r.json();
+            if (d.display_phone_number) {
+              const digits = d.display_phone_number.replace(/\D/g, '');
+              const last8 = digits.slice(-8);
+              numbers[phoneId] = last8.length === 8 ? last8.slice(0,4)+'-'+last8.slice(4) : digits.slice(-4);
+            } else { numbers[phoneId] = '...'+phoneId.slice(-4); }
+          } catch {}
+        }
+      }
+    } catch {}
+    let defaultPhoneId = whatsapp.defaultPhoneId();
+    if (!defaultPhoneId) {
+      try {
+        const { data: inc } = await supabase.from('mensagens').select('wa_number_id')
+          .eq('direcao', 'recebida').not('wa_number_id', 'is', null).neq('wa_number_id', '').limit(1);
+        defaultPhoneId = inc?.[0]?.wa_number_id || Object.keys(numbers)[0] || '';
+      } catch { defaultPhoneId = Object.keys(numbers)[0] || ''; }
+    }
+    res.json({ numbers, defaultPhoneId });
   } catch (e) {
-    res.json({ numbers: {} });
+    res.json({ numbers: {}, defaultPhoneId: '' });
   }
+});
+
+// Lista CRC Lead para atribuição de responsabilidade
+app.get('/api/crcs-lead', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('profiles')
+      .select('id,nome').contains('roles', ['crc_leads']).eq('ativo', true).order('nome');
+    if (error) throw error;
+    res.json(data || []);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ========== AUTH ==========

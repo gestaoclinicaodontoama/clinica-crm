@@ -901,9 +901,17 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Origem</div>
               <select id="painel-origem" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvar('origem',this.value)"></select>
             </div>
+            <div id="painel-crc-wrap" style="display:none">
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Responsável CRC</div>
+              <select id="painel-crc-select" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvarCrc(this.value,this)"></select>
+              <button onclick="trazerParaMim()" style="margin-top:5px;width:100%;padding:4px 0;font-size:11px;border-radius:6px;border:1px solid var(--accent);color:var(--accent);background:none;cursor:pointer">Trazer para mim</button>
+            </div>
             <div id="painel-anuncio-wrap" style="display:none">
-              <div style="font-weight:700;margin-bottom:4px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Anúncio / Campanha</div>
-              <div id="painel-anuncio" style="font-size:11.5px;background:var(--bg3);border-radius:6px;padding:6px 8px;word-break:break-all;color:var(--text)"></div>
+              <button type="button" onclick="togglePainelAnuncio()" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;cursor:pointer;padding:0;margin-bottom:4px">
+                <span style="font-weight:700;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Anúncio / Campanha</span>
+                <span id="painel-anuncio-caret" style="color:var(--muted);font-size:10px;transition:transform .2s">▾</span>
+              </button>
+              <div id="painel-anuncio" style="font-size:11.5px;background:var(--bg3);border-radius:6px;padding:6px 8px;word-break:break-all;color:var(--text);display:none"></div>
             </div>
             <div>
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Perfil DISC</div>
@@ -2527,7 +2535,8 @@ async function carregarFiltrosCrc() {
   const val = sel.value;
   if (_chatMode === 'agendamentos') {
     try {
-      const crcs = await api('/api/crcs-agendamentos');
+      const crcs = _crcsLead.length ? _crcsLead : await api('/api/crcs-lead');
+      if (!_crcsLead.length && crcs.length) _crcsLead = crcs;
       sel.innerHTML = '<option value="">Todas CRC Lead</option>' +
         crcs.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.nome)}</option>`).join('');
     } catch(_) {}
@@ -2834,6 +2843,7 @@ function _initPainel(lead) {
   }
 
   carregarAgendamentos(lead.id);
+  carregarPainelCrc(lead);
 }
 
 async function painelNotasSalvar(valor, campo) {
@@ -2855,6 +2865,66 @@ async function painelSalvar(campo, valor) {
       renderChatList(chatLeads);
     }
   } catch(e) { toast('❌ Erro ao salvar: ' + e.message, true); }
+}
+
+function togglePainelAnuncio() {
+  const el = document.getElementById('painel-anuncio');
+  const caret = document.getElementById('painel-anuncio-caret');
+  const abrir = el.style.display === 'none';
+  el.style.display = abrir ? '' : 'none';
+  if (caret) caret.style.transform = abrir ? 'rotate(180deg)' : '';
+}
+
+let _crcsLead = [];
+async function carregarPainelCrc(lead) {
+  const wrap = document.getElementById('painel-crc-wrap');
+  if (!wrap) return;
+  if (_chatMode !== 'agendamentos') { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  if (!_crcsLead.length) {
+    try { _crcsLead = await api('/api/crcs-lead'); } catch {}
+  }
+  const sel = document.getElementById('painel-crc-select');
+  sel.innerHTML = '<option value="">— sem responsável —</option>' +
+    _crcsLead.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.nome)}</option>`).join('');
+  sel.value = lead.crc_agendamento_id || '';
+}
+
+async function painelSalvarCrc(crcId, sel) {
+  if (!chatLeadAtual) return;
+  const nome = crcId && sel ? (sel.options[sel.selectedIndex]?.text || '') : '';
+  try {
+    await api('/api/leads/' + chatLeadAtual.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ crc_agendamento_id: crcId || null, crc_agendamento_nome: crcId ? nome : null }),
+    });
+    chatLeadAtual.crc_agendamento_id = crcId || null;
+    chatLeadAtual.crc_agendamento_nome = crcId ? nome : null;
+  } catch(e) { toast('❌ Erro ao atribuir: ' + e.message, true); }
+}
+
+async function trazerParaMim() {
+  if (!chatLeadAtual) return;
+  try {
+    const me = await api('/api/me');
+    const id = me.id || ''; const nome = me.nome || '';
+    if (!id) return toast('❌ Não foi possível identificar seu usuário', true);
+    await api('/api/leads/' + chatLeadAtual.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ crc_agendamento_id: id, crc_agendamento_nome: nome }),
+    });
+    chatLeadAtual.crc_agendamento_id = id;
+    chatLeadAtual.crc_agendamento_nome = nome;
+    const sel = document.getElementById('painel-crc-select');
+    if (sel) sel.value = id;
+    toast('✅ Lead atribuído a você');
+  } catch(e) { toast('❌ ' + e.message, true); }
+}
+
+function marcarNaoLida() {
+  if (!chatLeadAtual) return;
+  localStorage.removeItem('chat_lr_' + chatLeadAtual.id);
+  voltarListaChat();
 }
 
 function painelDisc(letra) {
@@ -3031,6 +3101,7 @@ async function abrirChat(leadId) {
     ${chatLeadAtual.telefone ? `<button class="btn btn-call" style="font-size:12px;flex-shrink:0" onclick="ligarChatLead()" title="Ligar via 3CPlus">📞 Ligar</button>` : ''}
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModalTemplate()">📢 Template</button>
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModal(${chatLeadAtual.id})">Ver perfil</button>
+    <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="marcarNaoLida()" title="Marcar como não lida">🔔</button>
   `;
 
   clearReply();
