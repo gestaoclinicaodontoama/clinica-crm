@@ -805,8 +805,9 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
 <div id="page-conversas" class="page">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
     <h1 style="margin:0" id="conv-titulo">Conversas</h1>
-    <div style="display:flex;align-items:center;gap:8px">
-      <input class="search-input" style="width:160px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div id="meta-por-crc-top" style="display:none;align-items:center;gap:5px;flex-wrap:wrap"></div>
+      <input class="search-input" style="width:150px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
         <option value="">Todas as CRCs</option>
       </select>
@@ -818,9 +819,8 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
   </div>
   <!-- Barra de meta (só aparece em Agendamentos) -->
   <div id="meta-agendamentos-bar" style="display:none;margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px">
       <span style="font-size:13px;font-weight:600">Meta do dia</span>
-      <div id="meta-por-crc" style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)"></div>
       <div style="display:flex;align-items:center;gap:6px">
         <span id="meta-contador" style="font-size:13px;font-weight:700"></span>
         <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="abrirEditarMeta()" title="Editar meta" id="btn-editar-meta" style="display:none">✏️</button>
@@ -2507,6 +2507,8 @@ async function loadConversas() {
     const isAg = _chatMode === 'agendamentos';
     document.getElementById('meta-agendamentos-bar').style.display = isAg ? '' : 'none';
     document.getElementById('filtro-crc').style.display = isAg ? '' : 'none';
+    const _topCrc = document.getElementById('meta-por-crc-top');
+    if (_topCrc && !isAg) _topCrc.style.display = 'none';
     if (isAg) { carregarMetaAgendamentos(); carregarFiltrosCrc(); }
 
     const f = _filtrarParaModo(convs);
@@ -2522,11 +2524,20 @@ async function carregarMetaAgendamentos() {
     document.getElementById('meta-contador').textContent = m.total + ' / ' + m.meta + ' agendamentos';
     document.getElementById('meta-barra').style.width = pct + '%';
     document.getElementById('meta-barra').style.background = pct >= 100 ? 'var(--green)' : 'var(--accent)';
-    const porCrcEl = document.getElementById('meta-por-crc');
-    porCrcEl.innerHTML = m.por_crc.map(c => `<span><b>${escHtml(c.nome)}</b>: ${c.total}</span>`).join('');
     const btnMeta = document.getElementById('btn-editar-meta');
     if (btnMeta) btnMeta.style.display = '';
     window._metaAtual = m.meta;
+    // Chips por CRC no topo (ao lado do buscar)
+    const topEl = document.getElementById('meta-por-crc-top');
+    if (topEl) {
+      topEl.innerHTML = (m.por_crc || []).map(c =>
+        `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:11.5px;white-space:nowrap">
+          <span style="color:var(--muted)">${escHtml(c.nome.split(' ')[0])}</span>
+          <span style="font-weight:700;color:var(--accent)">${c.total}</span>
+        </span>`
+      ).join('');
+      topEl.style.display = m.por_crc?.length ? 'flex' : 'none';
+    }
   } catch(_) {}
 }
 
