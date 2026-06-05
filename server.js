@@ -2439,9 +2439,10 @@ function clinicorpGet(apiPath, params = {}) {
       headers: { 'Authorization': 'Basic ' + auth, 'X-Api-Key': token, 'Accept': 'application/json' },
     };
     const req = https.request(opts, res => {
-      let body = '';
-      res.on('data', c => body += c);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
       res.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
         try { resolve({ status: res.statusCode, data: JSON.parse(body) }); }
         catch(e) { resolve({ status: res.statusCode, data: null }); }
       });
@@ -2475,9 +2476,10 @@ function clinicorpPost(apiPath, body) {
       },
     };
     const req = https.request(opts, res => {
-      let data = '';
-      res.on('data', c => data += c);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
       res.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf8');
         try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
         catch(e) { resolve({ status: res.statusCode, data: null }); }
       });
