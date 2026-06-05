@@ -1458,7 +1458,7 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
 app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single('arquivo'), async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { data: lead } = await supabase.from('leads').select('id,telefone').eq('id', id).maybeSingle();
+    const { data: lead } = await supabase.from('leads').select('id,telefone,wa_number_id').eq('id', id).maybeSingle();
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
     if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
