@@ -2754,6 +2754,59 @@ async function syncComparecimentos() {
 }
 setInterval(syncComparecimentos, 10 * 60 * 1000);
 
+// ── Webhook do Clinicorp (Clinicorp -> CRM, tempo real) ──────────────────────
+// Cadastrado em sistema.clinicorp.com → Acesso Externo → Gestão de Webhook,
+// apontando para https://<host>/api/clinicorp/webhook.
+// Endpoint PÚBLICO (o Clinicorp não envia nosso JWT). Proteção opcional via
+// CLINICORP_WEBHOOK_SECRET (querystring ?secret= ou header x-webhook-secret).
+// v1: trata COMPARECIMENTO (check-in) → marca "Compareceu" + dispara CAPI Contact.
+// Loga o payload cru para mapearmos o formato exato do Clinicorp na 1ª chamada real.
+const _PODE_COMPARECER = new Set(['Lead','Aguardando','Em conversa - Qualificado','Agendado','Nutrir','Reclassificar']);
+
+async function _processarAptWebhook(apt) {
+  if (!apt || typeof apt !== 'object') return;
+  const aptId = apt.id || apt.Id || apt.AppointmentId || null;
+  const phone11 = normPhone(apt.MobilePhone || apt.Phone || apt.PatientPhone || '');
+  const chegou = !!(apt.CheckinTime || apt.Status === 'Arrived' || apt.StatusId === CLINICORP_STATUS_ARRIVED);
+  if (!chegou) return; // outros eventos por enquanto só ficam no log acima
+
+  let lead = null;
+  if (aptId) {
+    const { data } = await supabase.from('leads').select('*').eq('clinicorp_appointment_id', aptId).maybeSingle();
+    lead = data || null;
+  }
+  if (!lead && phone11 && phone11.length >= 8) {
+    const { data } = await supabase.from('leads').select('*').ilike('telefone', '%' + phone11).limit(1);
+    lead = (data && data[0]) || null;
+  }
+  if (!lead) { console.log('[clinicorp-webhook] comparecimento sem lead (apt ' + aptId + ', fone ' + phone11 + ')'); return; }
+  if (!_PODE_COMPARECER.has(lead.status)) { console.log('[clinicorp-webhook] lead ' + lead.id + ' já em "' + lead.status + '"; ignora'); return; }
+
+  const dataComp = apt.CheckinTime ? new Date(apt.CheckinTime).toISOString() : new Date().toISOString();
+  await supabase.from('leads').update({ status: 'Compareceu', data_comparecimento: dataComp }).eq('id', lead.id);
+  logEvento(lead.id, 'status_mudou', 'Status: ' + lead.status + ' → Compareceu (webhook Clinicorp)',
+    { de: lead.status, para: 'Compareceu' }, null);
+  dispararConversaoMeta({ ...lead, status: 'Compareceu' }).catch(e => console.error('Meta CAPI:', e.message));
+  console.log('[clinicorp-webhook] lead ' + lead.id + ' → Compareceu (apt ' + aptId + ')');
+}
+
+app.post('/api/clinicorp/webhook', async (req, res) => {
+  console.log('[clinicorp-webhook] payload:', JSON.stringify(req.body || {}).slice(0, 3000));
+  const secret = process.env.CLINICORP_WEBHOOK_SECRET;
+  if (secret && req.query.secret !== secret && req.headers['x-webhook-secret'] !== secret) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  res.json({ ok: true }); // responde rápido; processa em seguida
+  try {
+    const body = req.body || {};
+    const cand = body.data || body.appointment || body.Appointment || body.appointments || body;
+    const apts = Array.isArray(cand) ? cand : [cand];
+    for (const apt of apts) await _processarAptWebhook(apt);
+  } catch (e) {
+    console.error('[clinicorp-webhook] processamento:', e.message);
+  }
+});
+
 async function syncTemplateSemResposta() {
   try {
     const h48ago = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
