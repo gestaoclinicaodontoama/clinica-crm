@@ -43,7 +43,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Dra. Izabela', 'Em conversa - Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Dra. Izabela', 'Em conversa - Lead Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -1595,6 +1595,20 @@ app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) 
   }
 });
 
+app.patch('/api/mensagens/:msgId/fixar', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const msgId = parseInt(req.params.msgId, 10);
+    if (Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: msg } = await supabase.from('mensagens').select('id,fixada').eq('id', msgId).maybeSingle();
+    if (!msg) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    const novaFixada = !msg.fixada;
+    await supabase.from('mensagens').update({ fixada: novaFixada }).eq('id', msgId);
+    res.json({ fixada: novaFixada });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/leads/:id/mensagens/:msgId', requireAuth, rateLimit, async (req, res) => {
   try {
     const leadId = parseInt(req.params.id, 10);
@@ -1671,7 +1685,14 @@ app.get('/api/conversas', requireAuth, rateLimit, async (req, res) => {
   try {
     const { data, error } = await supabase.rpc('conversas_com_preview');
     if (error) throw error;
-    res.json(data || []);
+    let rows = data || [];
+    const mode = req.query.mode || '';
+    const broadcastId = process.env.WHATSAPP_BROADCAST_PHONE_ID || '';
+    if (broadcastId) {
+      if (mode === 'oficial') rows = rows.filter(r => r.ultima_wa_number_id === broadcastId || r.wa_number_id === broadcastId);
+      else if (mode === 'lead') rows = rows.filter(r => r.ultima_wa_number_id !== broadcastId && r.wa_number_id !== broadcastId);
+    }
+    res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2072,7 +2093,8 @@ const EVENTOS_FUNIL = {
   'Lead':              'LeadSubmitted',
   'Aguardando':        null,
   'Dra. Izabela':      null,
-  'Em conversa - Qualificado': 'LeadQualified',
+  'Em conversa - Qualificado':       null,
+  'Em conversa - Lead Qualificado':  'LeadQualified',
   'Agendado':          'Schedule',
   'Compareceu':        'Contact',
   'Nutrir':            null,
@@ -2871,7 +2893,7 @@ setInterval(syncComparecimentos, 10 * 60 * 1000);
 // CLINICORP_WEBHOOK_SECRET (querystring ?secret= ou header x-webhook-secret).
 // v1: trata COMPARECIMENTO (check-in) → marca "Compareceu" + dispara CAPI Contact.
 // Loga o payload cru para mapearmos o formato exato do Clinicorp na 1ª chamada real.
-const _PODE_COMPARECER = new Set(['Lead','Aguardando','Dra. Izabela','Em conversa - Qualificado','Agendado','Nutrir','Reclassificar']);
+const _PODE_COMPARECER = new Set(['Lead','Aguardando','Dra. Izabela','Em conversa - Lead Qualificado','Agendado','Nutrir','Reclassificar']);
 
 async function _processarAptWebhook(apt) {
   if (!apt || typeof apt !== 'object') return;
