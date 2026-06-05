@@ -564,6 +564,7 @@ async function patchLead(req, res) {
       if (k === 'status') {
         if (!FUNIL.includes(v)) return res.status(400).json({ error: 'Status inválido. Use: ' + FUNIL.join(', ') });
         if (v === 'Agendado' && !lead.data_agendamento) patch.data_agendamento = agora;
+        if (v === 'Agendado') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.name || req.user?.email || null; }
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
         // D0 = entrada na régua comercial (avaliação realizada)
         if (v === 'D0' && !lead.data_avaliacao) patch.data_avaliacao = agora;
