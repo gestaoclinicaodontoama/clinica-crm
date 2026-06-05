@@ -106,6 +106,7 @@ tr:hover td { background: var(--bg3); cursor: pointer; }
 .badge-Perdido           { background: rgba(107,114,128,.15); color: var(--b-perdido); }
 /* Status do vocabulário rico (CRC Lead + régua comercial D0-D5) */
 .badge-Aguardando        { background: rgba(148,163,184,.15); color: var(--muted); }
+.badge-EmconversaQualificado { background: rgba(16,185,129,.15); color: #10b981; }
 .badge-Nutrir            { background: rgba(168,85,247,.12);  color: var(--b-compareceu); }
 .badge-NaotemInteresse   { background: rgba(107,114,128,.15); color: var(--b-perdido); }
 .badge-D0,.badge-D1,.badge-D2,.badge-D3,.badge-D4,.badge-D5 { background: rgba(6,182,212,.15); color: var(--b-aval); }
@@ -155,6 +156,7 @@ tr:hover td { background: var(--bg3); cursor: pointer; }
 .step.done    { border-color: var(--green); color: var(--green); }
 .step.current { border-color: currentColor; background: currentColor; color: white !important; }
 .step.s-Lead              { color: var(--b-lead); }
+.step.s-EmconversaQualificado { color: #10b981; }
 .step.s-Agendado          { color: var(--b-agendado); }
 .step.s-Compareceu        { color: var(--b-compareceu); }
 .step.s-EmAvaliacao       { color: var(--b-aval); }
@@ -737,7 +739,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
         <select class="filter-select" id="filter-status" onchange="loadLeads()">
           <option value="">Todos status</option>
           <optgroup label="CRC Lead">
-            <option>Lead</option><option>Aguardando</option><option>Agendado</option>
+            <option>Lead</option><option>Aguardando</option><option>Em conversa - Qualificado</option><option>Agendado</option>
             <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
           </optgroup>
           <optgroup label="CRC Comercial">
@@ -1444,7 +1446,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label>Status</label>
         <select id="m-status">
           <optgroup label="CRC Lead">
-            <option>Lead</option><option>Aguardando</option><option>Agendado</option>
+            <option>Lead</option><option>Aguardando</option><option>Em conversa - Qualificado</option><option>Agendado</option>
             <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
           </optgroup>
           <optgroup label="CRC Comercial">
@@ -1599,7 +1601,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Status inicial</label>
           <select id="nl-status" class="filter-select" style="width:100%">
             <optgroup label="CRC Lead">
-              <option>Lead</option><option>Aguardando</option><option>Agendado</option>
+              <option>Lead</option><option>Aguardando</option><option>Em conversa - Qualificado</option><option>Agendado</option>
               <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
             </optgroup>
             <optgroup label="CRC Comercial">
@@ -2177,7 +2179,7 @@ async function criarLeadManual(btn) {
 function renderStepper(statusAtual) {
   // Vocabulário rico alinhado com servidor (FUNIL 15) e banco (constraint)
   const idx = FUNIL.indexOf(statusAtual);
-  const grupoLead      = ['Lead','Aguardando','Agendado','Compareceu','Nutrir','Não tem Interesse'];
+  const grupoLead      = ['Lead','Aguardando','Em conversa - Qualificado','Agendado','Compareceu','Nutrir','Não tem Interesse'];
   const grupoComercial = ['D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
   function mkStep(f) {
     const i = FUNIL.indexOf(f);
