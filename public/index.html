@@ -2629,6 +2629,7 @@ function renderChatList(leads) {
       <div style="display:flex;align-items:center;gap:4px;margin-top:4px">
         <span class="badge ${classBadge(l.status)}" style="font-size:10px">${l.status}</span>
         ${l.ctwa_clid ? '<span class="ctwa-badge" style="font-size:9.5px">anúncio</span>' : ''}
+        ${l.crc_agendamento_nome ? `<span style="font-size:9.5px;color:var(--accent);background:rgba(79,142,247,.1);border-radius:4px;padding:1px 5px;white-space:nowrap">${escHtml(l.crc_agendamento_nome.split(' ')[0])}</span>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -2998,33 +2999,37 @@ async function ncAbrir() {
   const tel = document.getElementById('nc-tel').value.replace(/\D/g, '');
   if (!tel || tel.length < 8) return;
   fecharNovaConversa();
-  if (_ncLeadId) {
-    // Lead existente: busca na lista de conversas ou abre diretamente
-    const existing = chatLeads?.find(l => l.id === _ncLeadId);
-    if (existing) { abrirChat(_ncLeadId); return; }
-    // Não está na lista de conversas — navega pelo click normal
-    const btn = document.querySelector('[data-page="conv-agendamentos"]');
-    if (btn) btn.click();
-    const _try = setInterval(() => {
-      if (chatLeads?.find(l => l.id === _ncLeadId)) {
-        clearInterval(_try); abrirChat(_ncLeadId);
-      }
-    }, 200);
-    setTimeout(() => clearInterval(_try), 8000);
-  } else {
-    // Sem lead: cria um mínimo e abre conversa
+
+  let leadId = _ncLeadId;
+
+  if (!leadId) {
+    // Cria lead mínimo
     try {
-      const r = await fetch('/api/leads', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + _sbSession?.access_token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: tel, telefone: tel, origem: 'WhatsApp Direto' }),
-      });
-      if (!r.ok) { toast('Erro ao criar lead'); return; }
-      const novo = await r.json();
-      await loadConversas();
-      if (novo.id) abrirChat(novo.id);
-    } catch (e) { toast('Erro: ' + e.message, true); }
+      const r = await api('/api/leads', { method: 'POST', body: JSON.stringify({ nome: tel, telefone: tel, origem: 'WhatsApp Direto' }) });
+      leadId = r?.id || r?.lead?.id;
+    } catch (e) { toast('Erro ao criar lead: ' + e.message, true); return; }
+    if (!leadId) { toast('Erro ao criar lead', true); return; }
   }
+
+  // Garante que estamos na aba certa
+  const btn = document.querySelector('[data-page="conv-agendamentos"]');
+  if (btn && !document.getElementById('page-conversas')?.classList.contains('active')) btn.click();
+
+  // Tenta abrir o chat — se o lead não está em chatLeads (sem msgs), busca e injeta
+  const existing = chatLeads?.find(l => l.id === leadId);
+  if (existing) { abrirChat(leadId); return; }
+
+  try {
+    const leadData = await api('/api/leads/' + leadId);
+    if (leadData?.id) {
+      // Injeta lead na lista de conversas temporariamente
+      const stub = { ...leadData, ultima_mensagem: null, ultima_mensagem_em: null, ultima_mensagem_direcao: null };
+      if (!Array.isArray(chatLeads)) chatLeads = [];
+      chatLeads.unshift(stub);
+      renderChatList(_filtrarParaModo(chatLeads));
+      abrirChat(leadId);
+    }
+  } catch (e) { toast('Erro ao abrir conversa: ' + e.message, true); }
 }
 
 function marcarNaoLida() {

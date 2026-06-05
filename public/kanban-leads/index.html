@@ -96,6 +96,17 @@ body.crm-shell .crm-content{height:100vh;overflow:hidden;}
     <h1>Kanban Leads</h1>
     <input class="kb-search" id="kb-search" placeholder="Buscar nome ou telefone…" autocomplete="off">
     <select class="kb-crc" id="kb-crc"><option value="">Todos os CRCs</option></select>
+    <select class="kb-crc" id="kb-origem" onchange="_origemQ=this.value;reload()">
+      <option value="">Todas as origens</option>
+      <option value="Dra. Izabela">Dra. Izabela</option>
+      <option value="Meta Ads">Meta Ads</option>
+      <option value="Facebook">Facebook</option>
+      <option value="Instagram">Instagram</option>
+      <option value="WhatsApp Direto">WhatsApp Direto</option>
+      <option value="Indicação">Indicação</option>
+      <option value="Google">Google</option>
+      <option value="Outros">Outros</option>
+    </select>
   </div>
   <div class="kb-board" id="kb-board"></div>
 </div>
@@ -156,7 +167,7 @@ const state = {};
 const _leadMap = {};
 COLUNAS.forEach(c => { state[c.slug] = { leads:[], total:0, page:0, hasMore:false, loading:false }; });
 const collapsed = JSON.parse(localStorage.getItem('kb-leads-collapsed') || '{}');
-let _searchQ = '', _crcQ = '', _searchTimer = null, _draggingId = null, _draggingStatus = null;
+let _searchQ = '', _crcQ = '', _origemQ = '', _searchTimer = null, _draggingId = null, _draggingStatus = null;
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function timeAgo(iso) {
@@ -244,8 +255,9 @@ function buildBoard() {
 // ── DATA LOADING ──────────────────────────────────────────────────────────────
 function qs() {
   const p = new URLSearchParams();
-  if (_searchQ) p.set('q', _searchQ);
-  if (_crcQ)    p.set('crc', _crcQ);
+  if (_searchQ)  p.set('q', _searchQ);
+  if (_crcQ)     p.set('crc', _crcQ);
+  if (_origemQ)  p.set('origem', _origemQ);
   return p.toString() ? '?' + p : '';
 }
 

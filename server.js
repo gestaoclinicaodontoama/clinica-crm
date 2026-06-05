@@ -172,11 +172,19 @@ app.get('/api/config/wa', requireAuth, async (req, res) => {
     } catch {}
     let defaultPhoneId = whatsapp.defaultPhoneId();
     if (!defaultPhoneId) {
+      const broadcastId = process.env.WHATSAPP_BROADCAST_PHONE_ID || '';
       try {
+        // Prefere o número que recebe mensagens dos leads (não o de broadcast)
         const { data: inc } = await supabase.from('mensagens').select('wa_number_id')
-          .eq('direcao', 'recebida').not('wa_number_id', 'is', null).neq('wa_number_id', '').limit(1);
-        defaultPhoneId = inc?.[0]?.wa_number_id || Object.keys(numbers)[0] || '';
-      } catch { defaultPhoneId = Object.keys(numbers)[0] || ''; }
+          .eq('direcao', 'recebida').not('wa_number_id', 'is', null).neq('wa_number_id', '')
+          .neq('wa_number_id', broadcastId).order('id', { ascending: false }).limit(1);
+        defaultPhoneId = inc?.[0]?.wa_number_id
+          || Object.keys(numbers).find(k => k !== broadcastId)
+          || Object.keys(numbers)[0] || '';
+      } catch {
+        defaultPhoneId = Object.keys(numbers).find(k => k !== broadcastId)
+          || Object.keys(numbers)[0] || '';
+      }
     }
     res.json({ numbers, defaultPhoneId });
   } catch (e) {
@@ -670,7 +678,7 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
 // ========== KANBAN ==========
 const CARD_FIELDS = 'id,nome,telefone,origem,status,valor,criado_em,data_comparecimento,data_agendamento,data_fechamento,data_orcamento,data_avaliacao,crc_agendamento_nome,crc_comercial_nome,ultimo_contato';
 
-function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
+function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
   const now = Date.now();
   const d30  = new Date(now - 30  * 864e5).toISOString();
   const d180 = new Date(now - 180 * 864e5).toISOString();
@@ -697,7 +705,8 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false) {
     const safe = q.replace(/[%,()]/g, '');
     qb = qb.or(`nome.ilike.%${safe}%,telefone.ilike.%${safe}%`);
   }
-  if (crc) qb = qb.eq('crc_agendamento_nome', crc);
+  if (crc)    qb = qb.eq('crc_agendamento_nome', crc);
+  if (origem) qb = qb.eq('origem', origem);
   return qb;
 }
 
@@ -705,12 +714,13 @@ const LEADS_COLUNAS = ['lead','agendado','faltou','nao_tem_interesse','nutrir_30
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
 app.get('/api/kanban/leads/counts', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
-  const q   = req.query.q   || null;
-  const crc = req.query.crc || null;
+  const q      = req.query.q      || null;
+  const crc    = req.query.crc    || null;
+  const origem = req.query.origem || null;
   try {
     const results = await Promise.all(
       LEADS_COLUNAS.map(async col => {
-        const qb = buildLeadsColFilter(col, q, crc, true);
+        const qb = buildLeadsColFilter(col, q, crc, true, origem);
         if (!qb) return [col, 0];
         const { count, error } = await qb;
         if (error) console.error('[kanban/leads/counts]', col, error.message);
@@ -736,14 +746,15 @@ app.get('/api/kanban/leads/crcs', requireAuth, requireKanbanLeads, async (req, r
 app.get('/api/kanban/leads/:coluna', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
   const { coluna } = req.params;
   const page = Math.max(0, parseInt(req.query.page, 10) || 0);
-  const q   = req.query.q   || null;
-  const crc = req.query.crc || null;
+  const q      = req.query.q      || null;
+  const crc    = req.query.crc    || null;
+  const origem = req.query.origem || null;
   if (!LEADS_COLUNAS.includes(coluna)) return res.status(400).json({ error: 'Coluna inválida' });
   try {
     const orderField = coluna === 'agendado' ? 'data_agendamento' : 'criado_em';
     const ascending = coluna === 'agendado';
     const offset = page * 30;
-    const { data, count, error } = await buildLeadsColFilter(coluna, q, crc)
+    const { data, count, error } = await buildLeadsColFilter(coluna, q, crc, false, origem)
       .order(orderField, { ascending })
       .range(offset, offset + 29);
     if (error) throw error;
