@@ -1700,7 +1700,12 @@ app.get('/api/conversas', requireAuth, rateLimit, async (req, res) => {
   try {
     const { data, error } = await supabase.rpc('conversas_com_preview');
     if (error) throw error;
-    let rows = data || [];
+    let rows = (data || []).map(r => ({
+      ...r,
+      ultima_mensagem: r.texto,
+      ultima_mensagem_direcao: r.direcao,
+      ultima_mensagem_em: r.criada_em,
+    }));
     const mode = req.query.mode || '';
     const broadcastId = process.env.WHATSAPP_BROADCAST_PHONE_ID || '';
     if (broadcastId) {

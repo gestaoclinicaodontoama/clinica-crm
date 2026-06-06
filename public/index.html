@@ -1813,14 +1813,15 @@ function setPage(p, btn) {
   if (p === 'config') atualizarLinks();
   if (p === 'usuarios') loadUsuarios();
   if (p === 'tarefas-gestor') initTarefasGestor();
-  if (p === 'conv-agendamentos') { _chatMode = 'agendamentos'; loadConversas(); }
-  if (p === 'conv-avaliacao')    { _chatMode = 'avaliacao';    loadConversas(); }
-  if (p === 'conv-oficial')      { _chatMode = 'oficial';      loadConversas(); }
+  if (p === 'conv-agendamentos') { _chatMode = 'agendamentos'; loadConversas(); _iniciarConvListInterval(); }
+  if (p === 'conv-avaliacao')    { _chatMode = 'avaliacao';    loadConversas(); _iniciarConvListInterval(); }
+  if (p === 'conv-oficial')      { _chatMode = 'oficial';      loadConversas(); _iniciarConvListInterval(); }
   if (p === 'disparos') loadDisparos();
   if (p === 'notas-fiscais') { loadNotasFiscais(); agenteVerificar(); }
   if (p === 'inadimplentes') loadInadimplentes(false);
   const isConv = p === 'conv-agendamentos' || p === 'conv-avaliacao' || p === 'conv-oficial';
   if (!isConv && chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
+  if (!isConv && _convListInterval) { clearInterval(_convListInterval); _convListInterval = null; }
 }
 
 let _sbSession = null;
@@ -2482,6 +2483,7 @@ let _chatMsgsSig = '';
 const _midiaCache = new Map();
 let chatLeads = [];
 let chatPollInterval = null;
+let _convListInterval = null;
 let _chatGen = 0; // geração do abrirChat — previne double interval em cliques rápidos
 let _chatViewMode = 'lista';
 let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
@@ -2537,25 +2539,30 @@ function setChatView(mode) {
   else renderChatList(f);
 }
 
-async function loadConversas() {
+async function loadConversas(silencioso = false) {
   try {
     const modeParam = _chatMode === 'oficial' ? '?mode=oficial' : _chatMode === 'agendamentos' ? '?mode=lead' : '';
     const convs = await api('/api/conversas' + modeParam);
     chatLeads = convs;
-    const titulo = document.getElementById('conv-titulo');
-    if (titulo) titulo.textContent = _chatMode === 'avaliacao' ? 'WhatsApp CRC Comercial' : _chatMode === 'oficial' ? 'WhatsApp API Oficial' : 'WhatsApp CRC Lead';
-
-    const isAg = _chatMode === 'agendamentos';
-    document.getElementById('meta-agendamentos-bar').style.display = isAg ? '' : 'none';
-    document.getElementById('filtro-crc').style.display = isAg ? '' : 'none';
-    const _topCrc = document.getElementById('meta-por-crc-top');
-    if (_topCrc && !isAg) _topCrc.style.display = 'none';
-    if (isAg) { carregarMetaAgendamentos(); carregarFiltrosCrc(); }
-
+    if (!silencioso) {
+      const titulo = document.getElementById('conv-titulo');
+      if (titulo) titulo.textContent = _chatMode === 'avaliacao' ? 'WhatsApp CRC Comercial' : _chatMode === 'oficial' ? 'WhatsApp API Oficial' : 'WhatsApp CRC Lead';
+      const isAg = _chatMode === 'agendamentos';
+      document.getElementById('meta-agendamentos-bar').style.display = isAg ? '' : 'none';
+      document.getElementById('filtro-crc').style.display = isAg ? '' : 'none';
+      const _topCrc = document.getElementById('meta-por-crc-top');
+      if (_topCrc && !isAg) _topCrc.style.display = 'none';
+      if (isAg) { carregarMetaAgendamentos(); carregarFiltrosCrc(); }
+    }
     const f = _filtrarParaModo(convs);
     if (_chatViewMode === 'kanban') renderKanban(f);
     else renderChatList(f);
-  } catch(e) { console.error('loadConversas:', e); toast('⚠️ Erro ao carregar conversas', true); }
+  } catch(e) { if (!silencioso) { console.error('loadConversas:', e); toast('⚠️ Erro ao carregar conversas', true); } }
+}
+
+function _iniciarConvListInterval() {
+  if (_convListInterval) clearInterval(_convListInterval);
+  _convListInterval = setInterval(() => loadConversas(true), 30000);
 }
 
 async function carregarMetaAgendamentos() {
