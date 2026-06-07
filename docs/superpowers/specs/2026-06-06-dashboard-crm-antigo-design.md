@@ -46,7 +46,7 @@ O funil sai dos eventos `historico_*` em `lead_eventos` (datas reais) + atributo
 - **`historico_compareceu` usa a data do agendamento** como `criado_em` (`import-historico.js:228`) → o timing "compareceu" reflete a data do agendamento, não a do comparecimento real. Rotular como aproximação.
 - **Receita = `historico_fechou.metadata.valor`** = **Venda (valor de contrato)**, KPI de destaque. A **entrada** (`metadata.entrada`) é caixa, vai num card secundário. NÃO é o mesmo que valor que entrou.
 - **Cobertura desigual das etapas:** um lead pode ter `historico_fechou` sem `historico_orcamento` (faltou a data na planilha). Se uma etapa posterior tiver mais leads que a anterior, a conversão passaria de 100% — nesse caso **mostrar um flag de qualidade de dado** ("N fechamentos sem orçamento registrado"), nunca um % furado. Ligado ao inventário do passo 1.
-- **`origem` precisa de normalização** — reusar o mapa que já existe no `server.js` (whatsapp/indicação/referral → canônico), senão variações viram origens duplicadas no filtro.
+- **`origem` agrupa como está (só trim).** `leads.origem` já é um rótulo legível (ex.: "WhatsApp Direto", "Meta Ads"). NÃO aplicar o `normalizarOrigem()` do `server.js` — aquele converte UTM na criação e jogaria rótulos prontos em "Outros". O inventário (passo 1) lista as origens distintas; se houver variantes duplicadas de fato, decidir o merge ali.
 - **Teto de 1.000 linhas** do PostgREST é real → paginação por `.range()` obrigatória em todas as leituras de período largo.
 - **`data_lead`/`criado_em` da tabela `leads` não são confiáveis** como data histórica (foram backfillados recentemente). A linha do tempo vem SEMPRE de `lead_eventos.criado_em` dos eventos `historico_*`.
 
