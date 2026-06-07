@@ -6,7 +6,16 @@
 
 **Architecture:** Funções puras em `lib/funil/` (testadas com Vitest) fazem todo o cálculo; `lib/funil/eventos.js` isola a leitura paginada do Supabase; uma rota fina em `server.js` orquestra e devolve um payload canônico; o front em `public/comercial/` consome com Chart.js (JS puro). Fonte ÚNICA = eventos `historico_*` do nosso banco (nunca Clinicorp).
 
-**Tech Stack:** Node.js + Express, `@supabase/supabase-js`, Vitest, Chart.js (CDN). Spec de referência: `docs/superpowers/specs/2026-06-06-dashboard-crm-antigo-design.md`.
+**Tech Stack:** Node.js + Express, `@supabase/supabase-js`, **`node:test` + `node:assert`** (runner nativo — o projeto NÃO usa Vitest), Chart.js (vendorizado). Spec: `docs/superpowers/specs/2026-06-06-dashboard-crm-antigo-design.md`.
+
+> ⚠️ **Correção de convenção de testes:** os blocos de teste abaixo mostram sintaxe Vitest, mas o repo usa o runner nativo do Node (ver `lib/funil/agregar.test.js`). Em cada task, traduzir o teste para:
+> ```js
+> const { test } = require('node:test');
+> const assert = require('node:assert');
+> // assert.strictEqual(a, b) no lugar de expect(a).toBe(b)
+> // assert.ok(Math.abs(a-b) < 1e-4) no lugar de toBeCloseTo
+> ```
+> Rodar com `node --test lib/funil/<arquivo>.test.js` (NÃO `npx vitest`). Não há `npm run test` configurado.
 
 ---
 
