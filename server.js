@@ -17,6 +17,8 @@ const threec = require('./lib/3cplus');
 const threecCamp = require('./lib/3cplus-campanhas');
 const { agregarFunil } = require('./lib/funil/agregar');
 const { agregarFechamentos, temposPorFase } = require('./lib/funil/fechamentos');
+const { resolvePeriodo } = require('./lib/funil/periodo');
+const { montarDashboard } = require('./lib/funil/dashboard');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -3093,6 +3095,24 @@ app.get('/api/comercial/funil', requireAuth, requireDashboardAvaliacao, rateLimi
     res.json({ from, to, origem: origem || 'all', origens, ...resultado, fechamentos_mes, tempos_fase });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Dashboard comercial do CRM Antigo (eventos historico_* em lead_eventos).
+// Spec: docs/superpowers/specs/2026-06-06-dashboard-crm-antigo-design.md
+app.get('/api/comercial/dashboard', requireAuth, requireDashboardAvaliacao, rateLimit, async (req, res) => {
+  try {
+    const preset = req.query.preset || '30d';
+    const origem = (req.query.origem && req.query.origem !== 'all') ? req.query.origem : null;
+    if (preset === 'custom' && (!req.query.from || !req.query.to)) {
+      return res.status(400).json({ error: 'custom exige from e to (YYYY-MM-DD)' });
+    }
+    const periodo = resolvePeriodo(preset, req.query.from || null, req.query.to || null);
+    const payload = await montarDashboard(supabase, periodo, origem);
+    res.json(payload);
+  } catch (e) {
+    console.error('❌ /api/comercial/dashboard:', e.message);
+    res.status(500).json({ error: 'Falha ao montar o dashboard' });
   }
 });
 
