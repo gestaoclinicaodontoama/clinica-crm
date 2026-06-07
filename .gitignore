@@ -12,6 +12,12 @@ easypanel-setenv.js
 # Node modules
 node_modules/
 
+# Mockups do brainstorm (superpowers visual companion)
+.superpowers/
+
+# Scripts temporários de investigação
+_review_*.js
+
 # Logs
 *.log
 npm-debug.log*
