@@ -94,16 +94,16 @@ const { resolvePeriodo } = require('./periodo');
 describe('resolvePeriodo', () => {
   const now = new Date('2026-06-15T10:00:00-03:00');
 
-  it('preset 30d gera intervalo de 30 dias terminando hoje', () => {
+  it('preset 30d gera intervalo de 30 dias incluindo hoje (hoje − 29)', () => {
     const p = resolvePeriodo('30d', null, null, now);
-    expect(p.from).toBe('2026-05-16T00:00:00-03:00');
+    expect(p.from).toBe('2026-05-17T00:00:00-03:00');
     expect(p.to).toBe('2026-06-15T23:59:59-03:00');
   });
 
   it('preset 30d gera período anterior de mesma duração imediatamente antes', () => {
     const p = resolvePeriodo('30d', null, null, now);
-    expect(p.anterior.from).toBe('2026-04-16T00:00:00-03:00');
-    expect(p.anterior.to).toBe('2026-05-15T23:59:59-03:00');
+    expect(p.anterior.from).toBe('2026-04-17T00:00:00-03:00');
+    expect(p.anterior.to).toBe('2026-05-16T23:59:59-03:00');
   });
 
   it('preset mes gera o mês corrente e anterior = mês passado', () => {
