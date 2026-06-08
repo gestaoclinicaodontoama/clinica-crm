@@ -42,12 +42,15 @@ historico_orcamento   | (CRM Novo: sinal de orçamento — ver §7) → orcou
 historico_fechou      | status_mudou(para='Fechou')      → fechou
 ```
 
-### 4.2 ⚠️ Regra de era POR LEAD (o ponto mais importante)
-Um lead pode ter eventos das duas eras (ex.: importado em junho **e** mexido no CRM Novo em teste). Para **não contar duas vezes**:
+### 4.2 ✅ DECISÃO: UNIÃO de etapas (captura o dado mais real) + 4 regras de reconciliação
+Um lead pode ter eventos das duas eras (ex.: importado em junho **e** trabalhado no CRM Novo em julho). Em vez de descartar uma era (que perderia o progresso novo de leads históricos), contamos a **união das etapas** das duas eras, deduplicada — com 4 regras explícitas que evitam os efeitos colaterais:
 
-> **Cada lead pertence a UMA era.** Se o lead tem `historico_lead_criado` → é **CRM Antigo** (usa só os eventos `historico_*` dele). Senão → é **CRM Novo** (usa `lead_criado`/`status_mudou`).
+1. **Etapas = união, deduplicada por `Set` de (lead, etapa).** Não há dupla contagem de etapa: se o lead alcançou "compareceu" nas duas eras, conta **uma vez**.
+2. **Data da etapa = primeira ocorrência.** Quando a etapa aparece nas duas eras, vale a **data mais antiga** (a 1ª vez que o lead chegou ali). Vale pra coorte/período e tempos entre fases.
+3. **Funil = "chegou na etapa" (não "está na etapa hoje").** Reabertura/regressão de status no CRM Novo não desconta um fechamento já alcançado.
+4. **Venda = UMA fonte por lead (nunca soma as duas eras).** Se o lead tem `historico_fechou` → usa o valor da planilha; senão → `leads.valor`. Evita inflar receita quando a mesma venda foi registrada nas duas eras.
 
-Assim o funil de cada lead vem de **um único vocabulário**, e os totais somam sem sobreposição. A data de criação (pra coorte/período) é a do evento de criação da era escolhida.
+> ⚠️ **Magnitude:** quase todo o risco só existe para leads que aparecem **nas duas eras**. O passo 1 (§8) mede quantos são — se for um punhado (provável), a união é segura.
 
 ---
 
@@ -71,14 +74,19 @@ A tela e o payload canônico **não mudam de forma** — só passam a incluir as
 
 ---
 
-## 6. Pré-requisito (Etapa 2 valida isto antes)
-O monitor da Etapa 2 precisa mostrar **cobertura ✅ nos 5 sinais** do CRM Novo — em especial **resolver a lacuna do "Orçou"** (hoje o CRM Novo não tem status/evento de orçamento). Sem o sinal de orçamento, a etapa "Orçou" do funil unificado fica subcontada na parte CRM Novo. Decisão pendente: criar um status "Orçado" ou um evento `orcamento_criado` no CRM Novo.
+## 6. Requisito obrigatório: CRM Novo tem TODAS as etapas do Antigo
+**Decisão do Luiz:** o CRM Novo **precisa gerar as mesmas 5 etapas** do CRM Antigo. Hoje falta o **"Orçou"** (não há status/evento de orçamento na era nova). Sem ele, a etapa "Orçou" do funil unificado fica populada só pelos leads históricos.
+→ **Tarefa pré-Etapa 3:** criar no CRM Novo o sinal de orçamento — um status "Orçado" no funil **ou** um evento `orcamento_criado` em `lead_eventos` (a definir na implementação). O monitor da Etapa 2 (cobertura) confirma quando os 5 sinais aparecem ✅.
+
+## 6.1 Funcionalidades adicionais (pedidos do Luiz)
+- **Edição de valores (Venda):** a tela deve permitir **corrigir manualmente o valor de uma venda** (override), pros casos de divergência entre planilha e `leads.valor` ou erro de digitação. Sugestão: gravar o valor corrigido em `leads.valor` (com log do evento) e a Venda passa a usar esse valor como fonte da verdade.
+- **Seletor de data nas análises:** no dashboard, um controle pra **escolher qual data seguir** (ex.: data de criação do lead × data de fechamento) — muda a base do período e dos gráficos sem mudar o cálculo. Default = primeira ocorrência (§4.2 regra 2).
 
 ---
 
 ## 7. Riscos / decisões em aberto
 
-- **Regra de era: "1 era por lead" vs "união de etapas" (DECIDIR na fiação).** O `normalizar.js` hoje usa **1 vocabulário por lead** (tem `historico_*` → só era antiga). Evita dupla contagem, **mas** um lead histórico que avança no CRM Novo em julho não tem o avanço contado. **Alternativa:** contar a **união das etapas** (o `montarCoorte` deduplica por `Set` de lead/etapa → não dobra a contagem de etapa) e aplicar a regra de era **só para a Venda** (que é somada). Recomendação: união de etapas + era só na venda — capta progresso cross-era sem dobrar. Os testes do `normalizar` mudam conforme a escolha.
+- ✅ **Regra de era — DECIDIDO (Luiz): UNIÃO de etapas + 4 regras** (ver §4.2). O `normalizar.js` precisa ser refatorado de "1 era por lead" para a união (emite etapas das duas eras, dedup por primeira ocorrência; Venda de uma fonte só). Testes do `normalizar` mudam conforme.
 - **Integração `montarCoorte`:** hoje consome eventos crus `{tipo}`; na Etapa 3 passa a consumir os canônicos `{etapa}` do `normalizar`. A origem do lead deve vir do evento canônico de criação (`etapa='leads'`), não dos demais.
 - **Lacuna "Orçou" no CRM Novo** (§6) — bloqueia a etapa de orçamento na era nova. Resolver antes de julho.
 - **Transição de junho** — junho pode ter dado das duas eras; a regra de era por lead (§4.2) cobre, mas vale validar no monitor.
