@@ -66,8 +66,12 @@ function renderOrigens(origens, sel) {
   }
 }
 
+function semChart(ctx, msg) {
+  ctx.parentElement.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:24px;text-align:center">${msg}</div>`;
+}
 function renderTendencia(serie) {
   const ctx = document.getElementById('g-tendencia');
+  if (typeof Chart === 'undefined') { semChart(ctx, '📈 Gráfico indisponível (Chart.js não carregado — rodar o vendor em public/js/vendor/)'); return; }
   const labels = serie.pontos.map(p => p.data);
   if (chartTend) chartTend.destroy();
   chartTend = new Chart(ctx, {
@@ -86,6 +90,7 @@ function renderTendencia(serie) {
 
 function renderDow(dows) {
   const ctx = document.getElementById('g-dow');
+  if (typeof Chart === 'undefined') { semChart(ctx, '📊 Gráfico indisponível (Chart.js não carregado)'); return; }
   if (chartDow) chartDow.destroy();
   chartDow = new Chart(ctx, {
     type: 'bar',

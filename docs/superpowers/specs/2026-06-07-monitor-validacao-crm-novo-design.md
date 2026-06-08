@@ -53,10 +53,12 @@ Um quadro lado a lado: para cada um dos 5 sinais, "✅ presente / ⚠️ ausente
 
 Reusa o padrão e a infra da Etapa 1.
 
+⚠️ **Detecção de órfãs exige histórico completo:** para a "atividade por dia" basta os eventos do período, mas para as **transições órfãs** o `queries.js` deve buscar **todos os eventos dos leads que aparecem na janela** (não só os do período) — senão um lead que agendou antes da janela e compareceu dentro vira falso-órfão. Mesma ideia do coorte da Etapa 1: (1) achar os lead_ids ativos no período; (2) puxar o histórico completo desses leads. A "atividade por dia" então filtra por data; as "órfãs" usam o histórico todo.
+
 ```
 lib/monitor/
   queries.js     ★ lê lead_eventos da era nova (lead_criado, status_mudou) paginado + timeout
-                   (reusa withTimeout de lib/funil/eventos.js)
+                   (reusa withTimeout de lib/funil/eventos.js). Busca histórico completo dos leads do período (ver aviso acima).
   diario.js      ★ puro: agrega atividade por dia + saúde do dado + cobertura de etapas (testável)
 server.js
   GET /api/comercial/monitor?from=&to=   ★ rota fina (auth requireDashboardAvaliacao)
