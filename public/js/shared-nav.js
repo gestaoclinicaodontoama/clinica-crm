@@ -124,6 +124,8 @@
 
     ${section('crc-comercial','admin,gestor,crc_comercial',IC.comercial,'CRC Comercial',
       link('/comercial/','admin,gestor,crc_comercial','comercial',IC.comercial,'Comercial') +
+      link('/comercial/dashboard.html','admin,gestor,crc_comercial','comercial-dashboard',IC.comercial,'Dashboard') +
+      link('/comercial/monitor.html','admin,gestor,crc_comercial','comercial-monitor',IC.comercial,'Monitor CRM Novo') +
       link('/kanban-comercial/','admin,crc,crc_comercial,mod_kanban_comercial','kanban-comercial',IC.kanban,'Kanban Comercial') +
       link('/','admin,gestor,crc_comercial,crc_sucesso','conv-avaliacao',IC.whatsapp,'WhatsApp CRC Comercial') +
       link('/comercial/conferencia/','admin,gestor,crc_comercial','conferencia',IC.dentista,'Conferência')
