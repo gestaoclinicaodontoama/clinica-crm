@@ -19,6 +19,8 @@ const { agregarFunil } = require('./lib/funil/agregar');
 const { agregarFechamentos, temposPorFase } = require('./lib/funil/fechamentos');
 const { resolvePeriodo } = require('./lib/funil/periodo');
 const { montarDashboard } = require('./lib/funil/dashboard');
+const { buscarEventosNovos } = require('./lib/monitor/queries');
+const { montarMonitor } = require('./lib/monitor/diario');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -3113,6 +3115,24 @@ app.get('/api/comercial/dashboard', requireAuth, requireDashboardAvaliacao, rate
   } catch (e) {
     console.error('❌ /api/comercial/dashboard:', e.message);
     res.status(500).json({ error: 'Falha ao montar o dashboard' });
+  }
+});
+
+// Monitor de Validação Diária do CRM Novo (eventos lead_criado/status_mudou).
+// Spec: docs/superpowers/specs/2026-06-07-monitor-validacao-crm-novo-design.md
+app.get('/api/comercial/monitor', requireAuth, requireDashboardAvaliacao, rateLimit, async (req, res) => {
+  try {
+    const preset = req.query.preset || 'mes';
+    if (preset === 'custom' && (!req.query.from || !req.query.to)) {
+      return res.status(400).json({ error: 'custom exige from e to (YYYY-MM-DD)' });
+    }
+    const periodo = resolvePeriodo(preset, req.query.from || null, req.query.to || null);
+    const { eventos, leadValor } = await buscarEventosNovos(supabase, periodo.from, periodo.to);
+    const out = montarMonitor(eventos, leadValor, { from: periodo.from, to: periodo.to });
+    res.json({ periodo, ...out });
+  } catch (e) {
+    console.error('❌ /api/comercial/monitor:', e.message);
+    res.status(500).json({ error: 'Falha ao montar o monitor' });
   }
 });
 

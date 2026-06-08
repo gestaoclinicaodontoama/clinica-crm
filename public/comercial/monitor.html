@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Monitor do CRM Novo — CRM AMA</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+  :root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444;--orange:#f97316;}
+  :root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;--green:#16a34a;--yellow:#d97706;--red:#dc2626;--orange:#ea580c;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+  .filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:22px;}
+  .filtros label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:500;}
+  .filtros input,.filtros select{padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px;}
+  .filtros button{padding:8px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;}
+  .secao-tit{font-size:13px;font-weight:700;margin:22px 0 8px;}
+  .cobertura{display:flex;gap:8px;flex-wrap:wrap;}
+  .cob{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;}
+  .cob.ok{border-color:var(--green);} .cob.faltando{border-color:var(--red);color:var(--red);}
+  .saude{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0;}
+  .alerta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 18px;min-width:190px;}
+  .alerta .rotulo{font-size:11.5px;color:var(--muted);}
+  .alerta .valor{font-size:20px;font-weight:700;margin-top:4px;}
+  .alerta.ruim{border-color:var(--yellow);} .alerta.ruim .valor{color:var(--yellow);}
+  table{border-collapse:collapse;width:100%;max-width:760px;margin-top:6px;font-size:13px;}
+  th,td{border:1px solid var(--border);padding:7px 10px;text-align:right;}
+  th:first-child,td:first-child{text-align:left;}
+  th{background:var(--bg3);font-weight:600;color:var(--muted);}
+  </style>
+  <script src="/js/shared-nav.js" data-active="comercial" defer></script>
+</head>
+<body class="crm-shell">
+<main style="flex:1;padding:28px 32px;overflow-y:auto;max-width:1100px">
+  <h1 style="font-size:20px;font-weight:700;margin:0 0 6px">Monitor do CRM Novo</h1>
+  <p style="font-size:12.5px;color:var(--muted);margin:0 0 20px">Validação diária do dado que o CRM Novo gera — para alinhar ao padrão do CRM Antigo até julho</p>
+
+  <div class="filtros">
+    <label>Período
+      <select id="f-preset">
+        <option value="hoje">Hoje</option>
+        <option value="7d">7 dias</option>
+        <option value="30d">30 dias</option>
+        <option value="mes" selected>Este mês</option>
+        <option value="custom">Personalizado</option>
+      </select>
+    </label>
+    <label>De <input type="date" id="f-from" disabled></label>
+    <label>Até <input type="date" id="f-to" disabled></label>
+    <button id="f-aplicar">Aplicar</button>
+  </div>
+
+  <div class="secao-tit">Cobertura das etapas (o CRM Novo está gerando cada sinal?)</div>
+  <div id="cobertura" class="cobertura"></div>
+
+  <div class="secao-tit">Saúde do dado</div>
+  <div id="saude" class="saude"></div>
+
+  <div class="secao-tit">Atividade por dia</div>
+  <div id="tabela"></div>
+
+  <script src="/comercial/monitor.js"></script>
+</main>
+</body>
+</html>
