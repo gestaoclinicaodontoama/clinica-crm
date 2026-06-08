@@ -77,6 +77,9 @@ O monitor da Etapa 2 precisa mostrar **cobertura ✅ nos 5 sinais** do CRM Novo 
 ---
 
 ## 7. Riscos / decisões em aberto
+
+- **Regra de era: "1 era por lead" vs "união de etapas" (DECIDIR na fiação).** O `normalizar.js` hoje usa **1 vocabulário por lead** (tem `historico_*` → só era antiga). Evita dupla contagem, **mas** um lead histórico que avança no CRM Novo em julho não tem o avanço contado. **Alternativa:** contar a **união das etapas** (o `montarCoorte` deduplica por `Set` de lead/etapa → não dobra a contagem de etapa) e aplicar a regra de era **só para a Venda** (que é somada). Recomendação: união de etapas + era só na venda — capta progresso cross-era sem dobrar. Os testes do `normalizar` mudam conforme a escolha.
+- **Integração `montarCoorte`:** hoje consome eventos crus `{tipo}`; na Etapa 3 passa a consumir os canônicos `{etapa}` do `normalizar`. A origem do lead deve vir do evento canônico de criação (`etapa='leads'`), não dos demais.
 - **Lacuna "Orçou" no CRM Novo** (§6) — bloqueia a etapa de orçamento na era nova. Resolver antes de julho.
 - **Transição de junho** — junho pode ter dado das duas eras; a regra de era por lead (§4.2) cobre, mas vale validar no monitor.
 - **Venda mista** — CRM Antigo usa valor da planilha (contrato cheio); CRM Novo usa `leads.valor`. Confirmar que o CRM Novo preenche `leads.valor` com o mesmo conceito (valor de contrato), senão a série de Venda fica inconsistente na virada.
