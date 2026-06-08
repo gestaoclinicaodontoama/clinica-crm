@@ -1533,13 +1533,14 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
       mimetype = 'audio/ogg';
       originalname = originalname.replace(/\.webm$/, '.ogg');
     }
-    const mediaId = await whatsapp.uploadMidia({ buffer, mimetype, filename: originalname });
     let tipo = 'document';
     if (mimetype.startsWith('image/')) tipo = 'image';
     else if (mimetype.startsWith('audio/')) tipo = 'audio';
     else if (mimetype.startsWith('video/')) tipo = 'video';
     const caption = sanitizeStr(req.body.caption || '', 500);
     const mediaPid = lead.wa_number_id || undefined;
+    // upload e envio usam o MESMO phoneNumberId (media_id é vinculado ao número que fez o upload)
+    const mediaId = await whatsapp.uploadMidia({ buffer, mimetype, filename: originalname, phoneNumberId: mediaPid });
     const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption, phoneNumberId: mediaPid });
     await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
@@ -1687,13 +1688,19 @@ app.delete('/api/agendamentos/:id', requireAuth, rateLimit, async (req, res) => 
 setInterval(async () => {
   try {
     const { data } = await supabase.from('mensagens_agendadas')
-      .select('*').is('enviada_em', null).lte('agendado_para', new Date().toISOString()).limit(10);
+      .select('*, leads!inner(wa_number_id)')
+      .is('enviada_em', null).lte('agendado_para', new Date().toISOString()).limit(10);
     if (!data?.length) return;
     for (const ag of data) {
       try {
-        await whatsapp.enviarTexto({ para: ag.telefone, texto: ag.texto });
+        const phoneNumberId = ag.leads?.wa_number_id || undefined;
+        const resultado = await whatsapp.enviarTexto({ para: ag.telefone, texto: ag.texto, phoneNumberId });
         await supabase.from('mensagens_agendadas').update({ enviada_em: new Date().toISOString() }).eq('id', ag.id);
-        await supabase.from('mensagens').insert({ lead_id: ag.lead_id, direcao: 'enviada', canal: 'agendada', texto: ag.texto, wa_id: '' });
+        await supabase.from('mensagens').insert({
+          lead_id: ag.lead_id, direcao: 'enviada', canal: 'agendada', texto: ag.texto,
+          wa_id: resultado.messages?.[0]?.id || '',
+          wa_number_id: phoneNumberId || '',
+        });
         console.log('📅 Mensagem agendada enviada → lead #' + ag.lead_id);
       } catch (e) { console.error('❌ Agendamento #' + ag.id + ':', e.message); }
     }

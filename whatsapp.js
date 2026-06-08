@@ -82,12 +82,14 @@ async function deletarMensagem({ phoneNumberId, waId }) {
 }
 
 // Upload de mídia → retorna media_id
-async function uploadMidia({ buffer, mimetype, filename }) {
+// phoneNumberId: deve ser o MESMO número usado para enviar a mídia (media_id é vinculado ao phone)
+async function uploadMidia({ buffer, mimetype, filename, phoneNumberId }) {
   if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
+  const pid = phoneNumberId || WA_PHONE_ID;
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
   form.append('file', new Blob([buffer], { type: mimetype }), filename);
-  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${WA_PHONE_ID}/media`, {
+  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${pid}/media`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${WA_TOKEN}` },
     body: form,
