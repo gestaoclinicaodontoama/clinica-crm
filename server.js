@@ -47,7 +47,7 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Dra. Izabela', 'Em conversa - Lead Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Lead', 'Dra. Izabela', 'Em conversa - Lead Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Orçado', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -776,6 +776,7 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
   switch (coluna) {
     case 'compareceu':
       qb = qb.eq('status', 'Compareceu').gte('data_comparecimento', d30); break;
+    case 'orcado': qb = qb.eq('status', 'Orçado'); break;
     case 'd0': qb = qb.eq('status', 'D0'); break;
     case 'd1': qb = qb.eq('status', 'D1'); break;
     case 'd2': qb = qb.eq('status', 'D2'); break;
@@ -795,7 +796,7 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
   return qb;
 }
 
-const COMERCIAL_SIMPLES = ['compareceu','d0','d1','d2','d3','d4','d5','fechou','perdido'];
+const COMERCIAL_SIMPLES = ['compareceu','orcado','d0','d1','d2','d3','d4','d5','fechou','perdido'];
 const COMERCIAL_COLUNAS = [...COMERCIAL_SIMPLES, 'nutricao_30','nutricao_180','nutricao_365'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
@@ -2128,6 +2129,7 @@ const EVENTOS_FUNIL = {
   'Em conversa - Lead Qualificado':  'LeadQualified',
   'Agendado':          'Schedule',
   'Compareceu':        'Contact',
+  'Orçado':            null,
   'Nutrir':            null,
   'Não tem Interesse': null,
   'D0':                null,
