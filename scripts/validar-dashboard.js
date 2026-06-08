@@ -39,7 +39,8 @@ const fmtPct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
 
   console.log('\n━━━ 2) Dashboard real — período "tudo" (2023-01-01 → hoje) ━━━');
   const hoje = new Date().toISOString().slice(0, 10);
-  const periodo = resolvePeriodo('custom', '2023-01-01', hoje);
+  // piso antes de todos os dados (evita cortar o cluster das 00:00–03:00 UTC de 01/01/2023 pelo fuso -03:00)
+  const periodo = resolvePeriodo('custom', '2020-01-01', hoje);
   const t0 = Date.now();
   const d = await montarDashboard(sb, periodo, null);
   console.log(`  (montado em ${Date.now() - t0}ms)`);
