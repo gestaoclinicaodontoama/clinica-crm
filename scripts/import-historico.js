@@ -91,12 +91,13 @@ async function main() {
   console.log('📂 Lendo CSVs...');
   const leadsCSV    = readCSVDir(path.join(CSV_BASE, '01 - Leads'));
   const agendCSV    = readCSVDir(path.join(CSV_BASE, '02 - Agendamentos'));
+  const leadsAgendCSV = readCSVDir(path.join(CSV_BASE, '06 - Leads Agendados'));
   const compCSV     = readCSVDir(path.join(CSV_BASE, '03 - Comparecimentos'));
   const fechCSV     = readCSVDir(path.join(CSV_BASE, '04 - Fechamentos'));
   const orcCSV      = readCSVDir(path.join(CSV_BASE, '05 - Orçamentos'));
   const sheetsRows  = fs.existsSync(SHEETS_JSON) ? JSON.parse(fs.readFileSync(SHEETS_JSON, 'utf8')) : [];
 
-  console.log(`Leads:${leadsCSV.length} Agend:${agendCSV.length} Comp:${compCSV.length} Fech:${fechCSV.length} Orc:${orcCSV.length} Sheets:${sheetsRows.length}`);
+  console.log(`Leads:${leadsCSV.length} Agend:${agendCSV.length} LeadsAgend(06):${leadsAgendCSV.length} Comp:${compCSV.length} Fech:${fechCSV.length} Orc:${orcCSV.length} Sheets:${sheetsRows.length}`);
 
   const mapFech = new Map();
   for (const r of fechCSV) {
@@ -114,7 +115,13 @@ async function main() {
 
   const telsComp = new Set(compCSV.map(r => normalizeTel(r['Telefone'])).filter(Boolean));
 
+  // Agendamento por lead: pasta 06 (Leads Agendados, métrica do funil "agendou") tem PRECEDÊNCIA;
+  // pasta 02 (Agendamentos) complementa leads que só aparecem lá.
   const mapAgend = new Map();
+  for (const r of leadsAgendCSV) {
+    const t = normalizeTel(r['Telefone']);
+    if (t && !mapAgend.has(t)) mapAgend.set(t, r);
+  }
   for (const r of agendCSV) {
     const t = normalizeTel(r['Telefone']);
     if (t && !mapAgend.has(t)) mapAgend.set(t, r);
