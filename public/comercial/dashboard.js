@@ -40,8 +40,8 @@ function renderKpis(k, c) {
   document.getElementById('kpis').innerHTML = [
     card('Venda (contrato)', fmtBRL(k.venda), c.venda.delta_pct),
     card('Entrada (caixa)', fmtBRL(k.entrada), null),
-    card('Leads', k.leads, c.leads.delta_pct),
-    card('Fechamentos', k.fechamentos, c.fechamentos.delta_pct),
+    card('Leads', (Number(k.leads) || 0).toLocaleString('pt-BR'), c.leads.delta_pct),
+    card('Fechamentos', (Number(k.fechamentos) || 0).toLocaleString('pt-BR'), c.fechamentos.delta_pct),
     card('Ticket médio', fmtBRL(k.ticket_medio), null),
   ].join('');
 }
@@ -51,7 +51,7 @@ function renderFunil(f) {
     const garg = f.gargalo && f.gargalo.id === e.id ? ' gargalo' : '';
     const susp = e.cobertura_suspeita ? ' <span class="aviso" title="Cobertura de dado incompleta nesta etapa">⚠</span>' : '';
     const conv = e.conv_etapa_anterior == null ? '' : `<span class="conv">${fmtPct(e.conv_etapa_anterior)} da etapa anterior</span>`;
-    return `<div class="etapa${garg}"><b>${e.rotulo}</b><span class="n">${e.n}</span>${conv}${susp}</div>`;
+    return `<div class="etapa${garg}"><b>${e.rotulo}</b><span class="n">${(Number(e.n) || 0).toLocaleString('pt-BR')}</span>${conv}${susp}</div>`;
   }).join('');
 }
 

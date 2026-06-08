@@ -3106,8 +3106,11 @@ app.get('/api/comercial/dashboard', requireAuth, requireDashboardAvaliacao, rate
   try {
     const preset = req.query.preset || '30d';
     const origem = (req.query.origem && req.query.origem !== 'all') ? req.query.origem : null;
-    if (preset === 'custom' && (!req.query.from || !req.query.to)) {
-      return res.status(400).json({ error: 'custom exige from e to (YYYY-MM-DD)' });
+    if (preset === 'custom') {
+      const dre = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dre.test(req.query.from || '') || !dre.test(req.query.to || '') || req.query.from > req.query.to) {
+        return res.status(400).json({ error: 'custom exige from e to válidos (YYYY-MM-DD, com from <= to)' });
+      }
     }
     const periodo = resolvePeriodo(preset, req.query.from || null, req.query.to || null);
     const payload = await montarDashboard(supabase, periodo, origem);
@@ -3123,8 +3126,11 @@ app.get('/api/comercial/dashboard', requireAuth, requireDashboardAvaliacao, rate
 app.get('/api/comercial/monitor', requireAuth, requireDashboardAvaliacao, rateLimit, async (req, res) => {
   try {
     const preset = req.query.preset || 'mes';
-    if (preset === 'custom' && (!req.query.from || !req.query.to)) {
-      return res.status(400).json({ error: 'custom exige from e to (YYYY-MM-DD)' });
+    if (preset === 'custom') {
+      const dre = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dre.test(req.query.from || '') || !dre.test(req.query.to || '') || req.query.from > req.query.to) {
+        return res.status(400).json({ error: 'custom exige from e to válidos (YYYY-MM-DD, com from <= to)' });
+      }
     }
     const periodo = resolvePeriodo(preset, req.query.from || null, req.query.to || null);
     const { eventos, leadValor } = await buscarEventosNovos(supabase, periodo.from, periodo.to);
