@@ -71,6 +71,7 @@ function semChart(ctx, msg) {
 }
 function renderTendencia(serie) {
   const ctx = document.getElementById('g-tendencia');
+  if (!ctx) return; // canvas já foi substituído por placeholder num render anterior
   if (typeof Chart === 'undefined') { semChart(ctx, '📈 Gráfico indisponível (Chart.js não carregado — rodar o vendor em public/js/vendor/)'); return; }
   const labels = serie.pontos.map(p => p.data);
   if (chartTend) chartTend.destroy();
@@ -90,6 +91,7 @@ function renderTendencia(serie) {
 
 function renderDow(dows) {
   const ctx = document.getElementById('g-dow');
+  if (!ctx) return; // canvas já foi substituído por placeholder num render anterior
   if (typeof Chart === 'undefined') { semChart(ctx, '📊 Gráfico indisponível (Chart.js não carregado)'); return; }
   if (chartDow) chartDow.destroy();
   chartDow = new Chart(ctx, {
