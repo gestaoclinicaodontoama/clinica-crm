@@ -1,19 +1,45 @@
 const BASE = '/api';
 const RETRY_DELAY_MS = 5000;
+const _SB_URL = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
+const _SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
+
+function _sbKey() {
+  return Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+}
 
 function getToken() {
   try {
-    // Supabase JS v2 stores session under key "sb-{project-ref}-auth-token"
-    const supabaseKey = Object.keys(localStorage).find(
-      k => k.startsWith('sb-') && k.endsWith('-auth-token')
-    );
-    if (supabaseKey) {
-      const raw = localStorage.getItem(supabaseKey);
-      const parsed = JSON.parse(raw);
+    const key = _sbKey();
+    if (key) {
+      const parsed = JSON.parse(localStorage.getItem(key));
       return parsed?.access_token ?? parsed?.session?.access_token ?? null;
     }
   } catch (_) {}
   return null;
+}
+
+async function _refreshSession() {
+  try {
+    const key = _sbKey();
+    if (!key) return null;
+    const parsed = JSON.parse(localStorage.getItem(key));
+    const refreshToken = parsed?.refresh_token;
+    if (!refreshToken) return null;
+
+    const res = await fetch(`${_SB_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': _SB_ANON },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.access_token) return null;
+
+    localStorage.setItem(key, JSON.stringify({ ...parsed, access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at }));
+    return data.access_token;
+  } catch (_) {
+    return null;
+  }
 }
 
 async function request(method, path, body, attempt = 0) {
@@ -31,6 +57,10 @@ async function request(method, path, body, attempt = 0) {
     if (res.status === 503 && attempt === 0) {
       await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
       return request(method, path, body, 1);
+    }
+    if (res.status === 401 && attempt === 0) {
+      const newToken = await _refreshSession();
+      if (newToken) return request(method, path, body, 1);
     }
     let message = `HTTP ${res.status}`;
     try {
