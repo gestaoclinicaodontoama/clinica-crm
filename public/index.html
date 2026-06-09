@@ -848,41 +848,17 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       </div>
     </div>
   </div>
-  <!-- Modal: editar mensagem -->
-  <div id="edit-msg-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2100;align-items:center;justify-content:center" onclick="if(event.target===this)fecharEditarMsg()">
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:400px;max-width:95vw;padding:22px;box-shadow:0 16px 48px rgba(0,0,0,.3)">
-      <div style="font-weight:700;font-size:15px;margin-bottom:14px">✏️ Editar mensagem</div>
-      <textarea id="edit-msg-input" rows="4" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-bottom:14px">A edição altera o texto no CRM. A mensagem original já foi entregue ao destinatário.</div>
+  <!-- Modal: envio de imagem com legenda -->
+  <div id="img-caption-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:2100;align-items:center;justify-content:center" onclick="if(event.target===this)cancelarEnvioImagem()">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:400px;max-width:95vw;padding:20px;box-shadow:0 16px 48px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:12px">
+      <div style="font-weight:700;font-size:15px">🖼️ Enviar imagem</div>
+      <img id="img-caption-preview" src="" alt="preview" style="max-width:100%;max-height:260px;object-fit:contain;border-radius:8px;display:block;margin:0 auto;border:1px solid var(--border)">
+      <input id="img-caption-text" type="text" placeholder="Escreva uma legenda (opcional)..." autocomplete="off"
+        style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;box-sizing:border-box"
+        onkeydown="if(event.key==='Enter')confirmarEnvioImagem()">
       <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button onclick="fecharEditarMsg()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
-        <button onclick="confirmarEditarMsg()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Salvar</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: editor de texto em imagem -->
-  <div id="img-editor-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:2200;align-items:center;justify-content:center">
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:520px;max-width:96vw;padding:20px;box-shadow:0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px">
-      <div style="font-weight:700;font-size:15px">🖼️ Editar imagem antes de enviar</div>
-      <canvas id="img-editor-canvas" style="border-radius:8px;max-width:100%;max-height:320px;display:block;margin:0 auto;border:1px solid var(--border)"></canvas>
-      <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:center">
-        <input id="img-editor-text" type="text" placeholder="Texto sobre a imagem..." style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:inherit">
-        <input id="img-editor-color" type="color" value="#ffffff" title="Cor do texto" style="width:32px;height:32px;border:none;background:none;cursor:pointer;padding:0;border-radius:6px">
-        <select id="img-editor-size" style="font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);height:32px">
-          <option value="24">Pequeno</option>
-          <option value="36" selected>Médio</option>
-          <option value="52">Grande</option>
-        </select>
-        <select id="img-editor-pos" style="font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);height:32px">
-          <option value="top">Topo</option>
-          <option value="center">Centro</option>
-          <option value="bottom" selected>Rodapé</option>
-        </select>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button onclick="cancelarEditorImg()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
-        <button onclick="confirmarEditorImg()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Enviar imagem</button>
+        <button onclick="cancelarEnvioImagem()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
+        <button onclick="confirmarEnvioImagem()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Enviar</button>
       </div>
     </div>
   </div>
@@ -3373,16 +3349,13 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
         ? `<button class="msg-action-btn" data-ri="${i}" title="Responder">↩</button>` : '';
       const deleteBtn = m.direcao === 'enviada' && m.wa_id && m.texto !== '🚫 Mensagem apagada'
         ? `<button class="msg-action-btn del" data-di="${i}" title="Apagar para todos">🗑</button>` : '';
-      const editBtn = m.direcao === 'enviada' && (m.tipo||'text') === 'text' && m.texto !== '🚫 Mensagem apagada'
-        ? `<button class="msg-action-btn" data-ei="${i}" title="Editar mensagem">✏️</button>` : '';
       const pinBtn = `<button class="msg-action-btn${m.fixada ? ' pin-active' : ''}" data-pi="${i}" title="${m.fixada ? 'Desafixar' : 'Fixar mensagem'}">📌</button>`;
-      const editLabel = m.editada_em ? `<span style="font-size:9.5px;color:var(--muted);margin-left:4px;font-style:italic">editado</span>` : '';
-      const actionsHtml = `<div class="msg-actions">${replyBtn}${pinBtn}${editBtn}${deleteBtn}</div>`;
+      const actionsHtml = `<div class="msg-actions">${replyBtn}${pinBtn}${deleteBtn}</div>`;
       return `
         <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}${m.fixada ? ' msg-fixada' : ''}">
           ${actionsHtml}
           <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${_bolhaMsgHtml(m)}</div>
-          <div class="msg-time">${_brt(m.criada_em)}${editLabel}${waLabel}</div>
+          <div class="msg-time">${_brt(m.criada_em)}${waLabel}</div>
         </div>`;
     }).join('');
     el.querySelectorAll('[data-ri]').forEach(btn => {
@@ -3394,11 +3367,6 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
       const idx = parseInt(btn.dataset.di, 10);
       const m = msgs[idx];
       btn.addEventListener('click', () => apagarMensagem(m.id, m.wa_id));
-    });
-    el.querySelectorAll('[data-ei]').forEach(btn => {
-      const idx = parseInt(btn.dataset.ei, 10);
-      const m = msgs[idx];
-      btn.addEventListener('click', () => abrirEditarMsg(m.id, m.texto));
     });
     el.querySelectorAll('[data-pi]').forEach(btn => {
       const idx = parseInt(btn.dataset.pi, 10);
@@ -3502,36 +3470,6 @@ async function fixarMensagem(msgId, leadId) {
   } catch(e) { toast('❌ ' + e.message, true); }
 }
 
-// ============ EDITAR MENSAGEM ============
-let _editMsgId = null;
-
-function abrirEditarMsg(msgId, textoAtual) {
-  _editMsgId = msgId;
-  document.getElementById('edit-msg-input').value = textoAtual || '';
-  const bg = document.getElementById('edit-msg-bg');
-  bg.style.display = 'flex';
-  setTimeout(() => document.getElementById('edit-msg-input').focus(), 50);
-}
-
-function fecharEditarMsg() {
-  _editMsgId = null;
-  document.getElementById('edit-msg-bg').style.display = 'none';
-}
-
-async function confirmarEditarMsg() {
-  if (!_editMsgId || !chatLeadAtual) return;
-  const texto = document.getElementById('edit-msg-input').value.trim();
-  if (!texto) return;
-  try {
-    await api(`/api/leads/${chatLeadAtual.id}/mensagens/${_editMsgId}/editar`, {
-      method: 'PATCH', body: JSON.stringify({ texto }),
-    });
-    fecharEditarMsg();
-    await carregarMensagensChat(chatLeadAtual.id);
-    toast('✅ Mensagem editada');
-  } catch(e) { toast('❌ ' + e.message, true); }
-}
-
 // ============ FILTRO NÃO LIDAS ============
 let _filtroNaoLidas = false;
 
@@ -3546,77 +3484,35 @@ function toggleFiltroNaoLidas() {
   filtrarChats();
 }
 
-// ============ EDITOR DE IMAGEM ============
-let _imgEditorOrigFile = null;
-let _imgEditorImg = null;
+// ============ ENVIO DE IMAGEM COM LEGENDA ============
+let _imgCaptionFile = null;
 
 function abrirEditorImagem(file) {
-  _imgEditorOrigFile = file;
+  _imgCaptionFile = file;
   const reader = new FileReader();
   reader.onload = e => {
-    const img = new Image();
-    img.onload = () => {
-      _imgEditorImg = img;
-      const canvas = document.getElementById('img-editor-canvas');
-      const maxW = Math.min(480, window.innerWidth - 80);
-      const scale = Math.min(1, maxW / img.width, 320 / img.height);
-      canvas.width  = Math.round(img.width  * scale);
-      canvas.height = Math.round(img.height * scale);
-      _renderEditorCanvas();
-      document.getElementById('img-editor-bg').style.display = 'flex';
-    };
-    img.src = e.target.result;
+    document.getElementById('img-caption-preview').src = e.target.result;
+    document.getElementById('img-caption-text').value = '';
+    document.getElementById('img-caption-bg').style.display = 'flex';
+    setTimeout(() => document.getElementById('img-caption-text').focus(), 50);
   };
   reader.readAsDataURL(file);
 }
 
-function _renderEditorCanvas() {
-  if (!_imgEditorImg) return;
-  const canvas = document.getElementById('img-editor-canvas');
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(_imgEditorImg, 0, 0, canvas.width, canvas.height);
-  const text = document.getElementById('img-editor-text').value;
-  if (!text) return;
-  const fontSize = parseInt(document.getElementById('img-editor-size').value, 10);
-  const color    = document.getElementById('img-editor-color').value;
-  const pos      = document.getElementById('img-editor-pos').value;
-  const scaledSize = Math.round(fontSize * (canvas.width / 480));
-  ctx.font = `bold ${scaledSize}px Arial, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.lineWidth = Math.max(2, scaledSize / 10);
-  ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillStyle = color;
-  const x = canvas.width / 2;
-  const y = pos === 'top' ? scaledSize + 8 : pos === 'center' ? canvas.height / 2 : canvas.height - 14;
-  ctx.strokeText(text, x, y);
-  ctx.fillText(text, x, y);
+function cancelarEnvioImagem() {
+  _imgCaptionFile = null;
+  document.getElementById('img-caption-bg').style.display = 'none';
+  document.getElementById('img-caption-preview').src = '';
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  ['img-editor-text','img-editor-color','img-editor-size','img-editor-pos'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener('input', _renderEditorCanvas);
-  });
-});
-
-function cancelarEditorImg() {
-  _imgEditorOrigFile = null;
-  _imgEditorImg = null;
-  document.getElementById('img-editor-bg').style.display = 'none';
-  document.getElementById('img-editor-text').value = '';
-}
-
-async function confirmarEditorImg() {
-  if (!_imgEditorImg || !chatLeadAtual) return;
-  const canvas = document.getElementById('img-editor-canvas');
-  const text = document.getElementById('img-editor-text').value.trim();
-  cancelarEditorImg();
-  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
-  const finalFile = new File([blob], _imgEditorOrigFile?.name || 'imagem.jpg', { type: 'image/jpeg' });
+async function confirmarEnvioImagem() {
+  if (!_imgCaptionFile || !chatLeadAtual) return;
+  const caption = document.getElementById('img-caption-text').value.trim();
+  const file = _imgCaptionFile;
+  cancelarEnvioImagem();
   const form = new FormData();
-  form.append('arquivo', finalFile);
-  if (text) form.append('caption', text);
+  form.append('arquivo', file);
+  if (caption) form.append('caption', caption);
   try {
     toast('⏳ Enviando imagem...');
     const token = (() => {
