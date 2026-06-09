@@ -3122,7 +3122,8 @@ app.get('/api/comercial/dashboard', requireAuth, requireDashboardAvaliacao, rate
       }
     }
     const periodo = resolvePeriodo(preset, req.query.from || null, req.query.to || null);
-    const payload = await montarDashboard(supabase, periodo, origem);
+    // DASHBOARD_UNIFICADO=1 ativa a Etapa 3 (CRM Antigo + Novo). Default: só CRM Antigo (Etapa 1).
+    const payload = await montarDashboard(supabase, periodo, origem, { unificado: process.env.DASHBOARD_UNIFICADO === '1' });
     res.json(payload);
   } catch (e) {
     console.error('❌ /api/comercial/dashboard:', e.message);
