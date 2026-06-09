@@ -2531,6 +2531,12 @@ function _horaOuData(iso) {
   return d.toLocaleDateString('pt-BR', { timeZone: tz, day:'2-digit', month:'2-digit' });
 }
 
+// Retorna o primeiro nome da CRC; oculta se for email (dado legado incorreto)
+function _nomeCrc(str) {
+  if (!str || str.includes('@')) return '';
+  return str.split(' ')[0];
+}
+
 function _isUnread(l) {
   if (localStorage.getItem('chat_forced_unread_' + l.id)) return true;
   if (!l.ultima_mensagem_em || l.ultima_mensagem_direcao !== 'recebida') return false;
@@ -2594,9 +2600,9 @@ async function carregarMetaAgendamentos() {
     // Chips por CRC no topo (ao lado do buscar)
     const topEl = document.getElementById('meta-por-crc-top');
     if (topEl) {
-      topEl.innerHTML = (m.por_crc || []).map(c =>
+      topEl.innerHTML = (m.por_crc || []).filter(c => _nomeCrc(c.nome)).map(c =>
         `<span style="display:inline-flex;align-items:center;gap:2px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-size:10px;white-space:nowrap">
-          <span style="color:var(--muted)">${escHtml(c.nome.split(' ')[0])}</span>
+          <span style="color:var(--muted)">${escHtml(_nomeCrc(c.nome))}</span>
           <span style="font-weight:700;color:var(--accent)">${c.total}</span>
         </span>`
       ).join('');
@@ -2684,7 +2690,7 @@ function renderChatList(leads) {
       <div style="display:flex;align-items:center;gap:4px;margin-top:4px">
         <span class="badge ${classBadge(l.status)}" style="font-size:10px">${l.status}</span>
         ${l.ctwa_clid ? '<span class="ctwa-badge" style="font-size:9.5px">anúncio</span>' : ''}
-        ${l.crc_agendamento_nome ? `<span style="font-size:9.5px;color:var(--accent);background:rgba(79,142,247,.1);border-radius:4px;padding:1px 5px;white-space:nowrap">${escHtml(l.crc_agendamento_nome.split(' ')[0])}</span>` : ''}
+        ${_nomeCrc(l.crc_agendamento_nome) ? `<span style="font-size:9.5px;color:var(--accent);background:rgba(79,142,247,.1);border-radius:4px;padding:1px 5px;white-space:nowrap">${escHtml(_nomeCrc(l.crc_agendamento_nome))}</span>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -2720,7 +2726,7 @@ function renderKanban(leads) {
           ${unread ? '<span class="unread-dot"></span>' : ''}
         </div>
         ${isComercialMode ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
-          ${l.crc_comercial_nome ? `<span style="font-size:9.5px;background:var(--bg3);border-radius:4px;padding:1px 5px;color:var(--muted)">${escHtml(l.crc_comercial_nome.split(' ')[0])}</span>` : ''}
+          ${_nomeCrc(l.crc_comercial_nome) ? `<span style="font-size:9.5px;background:var(--bg3);border-radius:4px;padding:1px 5px;color:var(--muted)">${escHtml(_nomeCrc(l.crc_comercial_nome))}</span>` : ''}
           ${proximoContato ? `<span style="font-size:9.5px;background:${vencido?'rgba(239,68,68,.15)':'var(--bg3)'};border-radius:4px;padding:1px 5px;color:${vencido?'var(--red)':'var(--muted)'}">📅 ${proximoContato}</span>` : ''}
         </div>` : ''}
       </div>`;
@@ -2750,7 +2756,7 @@ async function kanbanDrop(event, novoStatus) {
     const patch = { status: novoStatus };
     if (COMERCIAL_STATUSES.has(novoStatus) && !lead.crc_comercial_id && _sbSession?.user?.id) {
       patch.crc_comercial_id = _sbSession.user.id;
-      patch.crc_comercial_nome = _sbSession.user.user_metadata?.name || _sbSession.user.email || null;
+      patch.crc_comercial_nome = _currentUser?.nome || _sbSession.user.user_metadata?.name || null;
       lead.crc_comercial_id = patch.crc_comercial_id;
       lead.crc_comercial_nome = patch.crc_comercial_nome;
     }

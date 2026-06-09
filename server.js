@@ -214,7 +214,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
     res.json({
       id: req.user.id,
       email: req.user.email,
-      nome: profile?.nome || req.user.user_metadata?.nome || req.user.email,
+      nome: profile?.nome || req.user.user_metadata?.nome || req.user.user_metadata?.name || req.user.email,
       roles: profile?.roles || metaRoles || ['crc_leads'],
       threec_agent_token: profile?.threec_agent_token || null,
       threec_agent_ramal: profile?.threec_agent_ramal || null,
@@ -576,7 +576,7 @@ async function patchLead(req, res) {
       if (k === 'status') {
         if (!FUNIL.includes(v)) return res.status(400).json({ error: 'Status inválido. Use: ' + FUNIL.join(', ') });
         if (v === 'Agendado' && !lead.data_agendamento) patch.data_agendamento = agora;
-        if (v === 'Agendado') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.nome || req.user?.email || null; }
+        if (v === 'Agendado') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.nome || null; }
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
         // D0 = entrada na régua comercial (avaliação realizada)
         if (v === 'D0' && !lead.data_avaliacao) patch.data_avaliacao = agora;
