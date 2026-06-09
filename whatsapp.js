@@ -19,7 +19,11 @@ function temToken()      { return !!(WA_TOKEN && WA_PHONE_ID); }
 function temBroadcast()  { return !!(WA_BROADCAST_TOKEN && WA_BROADCAST_PHONE_ID); }
 
 function limparNumero(num) {
-  return String(num || '').replace(/\D/g, '');
+  let n = String(num || '').replace(/\D/g, '');
+  // Números brasileiros sem DDI: 10 dígitos (DDD+8) ou 11 dígitos (DDD+9)
+  // WhatsApp Cloud API exige formato internacional: 553XXXXXXXXX ou 5531XXXXXXXXX
+  if ((n.length === 10 || n.length === 11) && !n.startsWith('55')) n = '55' + n;
+  return n;
 }
 
 async function _post(phoneId, token, payload) {

@@ -1630,6 +1630,28 @@ app.patch('/api/leads/:id/mensagens/:msgId/fixar', requireAuth, rateLimit, async
   }
 });
 
+app.patch('/api/leads/:id/mensagens/:msgId/editar', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const leadId = parseInt(req.params.id, 10);
+    const msgId  = parseInt(req.params.msgId, 10);
+    if (Number.isNaN(leadId) || Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
+    const texto = (req.body.texto || '').trim();
+    if (!texto) return res.status(400).json({ error: 'Texto obrigatório' });
+    const { data: msg } = await supabase.from('mensagens')
+      .select('id,lead_id,direcao,tipo').eq('id', msgId).maybeSingle();
+    if (!msg || msg.lead_id !== leadId) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    if (msg.direcao !== 'enviada') return res.status(400).json({ error: 'Só é possível editar mensagens enviadas' });
+    if (msg.tipo !== 'text') return res.status(400).json({ error: 'Só é possível editar mensagens de texto' });
+    await supabase.from('mensagens').update({
+      texto: sanitizeStr(texto, 4000),
+      editada_em: new Date().toISOString(),
+    }).eq('id', msgId);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/leads/:id/mensagens/:msgId', requireAuth, rateLimit, async (req, res) => {
   try {
     const leadId = parseInt(req.params.id, 10);
