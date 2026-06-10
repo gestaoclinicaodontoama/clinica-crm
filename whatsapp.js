@@ -194,6 +194,27 @@ function parseMensagemRecebida(body) {
   }
 }
 
+// --------- PARSE de status de entrega via webhook ----------
+// A Meta envia statuses (sent/delivered/read/failed) no mesmo webhook de messages.
+// "failed" é a ÚNICA forma de saber que uma mensagem aceita pela API foi descartada
+// (ex.: erro 131047 — fora da janela de 24h; 131026 — número sem WhatsApp).
+function parseStatuses(body) {
+  try {
+    const change = body?.entry?.[0]?.changes?.[0];
+    if (change?.field !== 'messages') return [];
+    const sts = change.value?.statuses;
+    if (!Array.isArray(sts)) return [];
+    return sts.map(s => {
+      const e = s.errors?.[0];
+      const erro = e ? [(e.code ? String(e.code) : ''), (e.title || e.message || ''), (e.error_data?.details || '')]
+        .filter(Boolean).join(' — ') : '';
+      return { wa_id: s.id || '', status: s.status || '', erro };
+    }).filter(s => s.wa_id && ['sent', 'delivered', 'read', 'failed'].includes(s.status));
+  } catch {
+    return [];
+  }
+}
+
 // --------- Info dos números configurados (cache 1h) ----------
 let _phoneCache = null;
 let _phoneCacheTime = 0;
@@ -249,6 +270,7 @@ module.exports = {
   temBroadcast,
   verifyToken,
   parseMensagemRecebida,
+  parseStatuses,
   limparNumero,
   getPhoneNumbers,
   defaultPhoneId,

@@ -1481,6 +1481,18 @@ app.get('/api/ia-uso-log', requireAuth, requireGestor, async (req, res) => {
 });
 
 // ========== WHATSAPP ==========
+// Janela de atendimento da Meta: mensagem LIVRE (texto/mídia) só pode ser enviada
+// até 24h após a última mensagem recebida do lead. Fora da janela a API aceita o
+// envio e DESCARTA em silêncio (erro 131047 só chega via webhook de status) — por
+// isso bloqueamos aqui com aviso claro em vez de deixar a mensagem sumir.
+const MSG_JANELA_FECHADA = 'Janela de 24h fechada — o lead precisa responder para receber mensagem livre. Use o botão 📢 Template para reabrir a conversa.';
+async function janela24hAberta(leadId) {
+  const { data } = await supabase.from('mensagens').select('criada_em')
+    .eq('lead_id', leadId).eq('direcao', 'recebida')
+    .order('id', { ascending: false }).limit(1);
+  return !!(data?.[0] && Date.now() - new Date(data[0].criada_em).getTime() < 24 * 3600 * 1000);
+}
+
 app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1499,6 +1511,7 @@ app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, as
     if (templateName) {
       resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis });
     } else {
+      if (!(await janela24hAberta(lead.id))) return res.status(400).json({ error: MSG_JANELA_FECHADA });
       const contextWaId = reply_wa_id ? sanitizeStr(reply_wa_id, 500) : null;
       resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: replyPhoneId, contextWaId });
     }
@@ -1543,6 +1556,7 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLim
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
     if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
     if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
+    if (!(await janela24hAberta(lead.id))) return res.status(400).json({ error: MSG_JANELA_FECHADA });
     let { buffer, mimetype, originalname } = req.file;
     // Chrome grava como audio/webm — converter para audio/ogg (opus) que o WhatsApp aceita
     if (mimetype.startsWith('audio/webm')) {
@@ -1715,10 +1729,20 @@ setInterval(async () => {
   try {
     const { data } = await supabase.from('mensagens_agendadas')
       .select('*, leads!inner(wa_number_id)')
-      .is('enviada_em', null).lte('agendado_para', new Date().toISOString()).limit(10);
+      .is('enviada_em', null).is('erro', null)
+      .lte('agendado_para', new Date().toISOString()).limit(10);
     if (!data?.length) return;
     for (const ag of data) {
       try {
+        // Janela de 24h: fora dela a Meta descartaria a mensagem em silêncio
+        if (!(await janela24hAberta(ag.lead_id))) {
+          await supabase.from('mensagens_agendadas')
+            .update({ erro: 'Janela de 24h fechada no horário do envio — mensagem não enviada' }).eq('id', ag.id);
+          logEvento(ag.lead_id, 'mensagem_agendada_falhou',
+            'Mensagem agendada NÃO enviada: janela de 24h fechada (lead não respondeu desde o agendamento)',
+            { agendamento_id: ag.id });
+          continue;
+        }
         // Claim ANTES de enviar: se enviasse primeiro e o update falhasse, o lead
         // receberia a mesma mensagem a cada 30s. Update condicional também evita
         // envio duplo se houver mais de uma instância do servidor.
@@ -2036,6 +2060,27 @@ app.post('/webhooks/whatsapp', async (req, res) => {
     }
   }
   try {
+    // Status de entrega (sent/delivered/read/failed) — "failed" é como descobrimos
+    // que a Meta DESCARTOU uma mensagem aceita pela API (ex.: janela de 24h fechada)
+    const statuses = whatsapp.parseStatuses(req.body);
+    for (const st of statuses) {
+      const upd = { wa_status: st.status };
+      if (st.status === 'failed') upd.wa_erro = sanitizeStr(st.erro || 'falha não especificada', 300);
+      // só "promove" o status (sent → delivered → read); failed sobrescreve qualquer um
+      const podeSobrescrever = { sent: [], delivered: ['sent'], read: ['sent', 'delivered'], failed: ['sent', 'delivered', 'read'] }[st.status] || [];
+      let q = supabase.from('mensagens').update(upd).eq('wa_id', st.wa_id);
+      q = podeSobrescrever.length
+        ? q.or('wa_status.is.null,wa_status.in.(' + podeSobrescrever.join(',') + ')')
+        : q.is('wa_status', null);
+      const { data: updRows, error: stErr } = await q.select('id, lead_id');
+      if (stErr) console.error('❌ webhook wa status:', stErr.message);
+      if (st.status === 'failed' && updRows?.length) {
+        console.warn('⚠️  WA mensagem NÃO entregue (wa_id ' + st.wa_id.slice(-12) + '): ' + (st.erro || 'sem detalhe'));
+        logEvento(updRows[0].lead_id, 'mensagem_falhou',
+          'Mensagem NÃO entregue pelo WhatsApp: ' + sanitizeStr(st.erro || 'falha não especificada', 200),
+          { wa_id: st.wa_id, erro: st.erro || '' });
+      }
+    }
     const m = whatsapp.parseMensagemRecebida(req.body);
     if (!m) return res.status(200).send('ok');
     // Match exato primeiro (caminho comum: lead criado pelo próprio webhook).

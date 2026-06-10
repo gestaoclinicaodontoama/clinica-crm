@@ -3340,10 +3340,11 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
   try {
     const msgs = await api(`/api/leads/${leadId}/mensagens`);
     const el = document.getElementById('chat-msgs');
-    // A assinatura precisa incluir as fixadas: fixar/desafixar não muda qtd nem último id,
-    // e sem isso o reload silencioso pós-pin caía no early-return e a UI não atualizava
+    // A assinatura precisa incluir fixadas e status de entrega: nada disso muda
+    // qtd nem último id, e sem isso o reload silencioso cai no early-return
     const sig = leadId + ':' + msgs.length + ':' + (msgs[msgs.length-1]?.id || 0)
-      + ':' + msgs.filter(m => m.fixada).map(m => m.id).join(',');
+      + ':' + msgs.filter(m => m.fixada).map(m => m.id).join(',')
+      + ':' + msgs.map(m => (m.wa_status || '')[0] || '-').join('');
     if (silencioso && sig === _chatMsgsSig) return;
     _chatMsgsSig = sig;
     const atFundo = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
@@ -3354,6 +3355,11 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
     el.innerHTML = msgs.map((m, i) => {
       const waLabel = m.direcao === 'enviada' && m.wa_number_id && _waNumbers[m.wa_number_id]
         ? ` · <span style="opacity:.7">${escHtml(_waNumbers[m.wa_number_id])}</span>` : '';
+      const stIcon = m.direcao !== 'enviada' ? '' :
+        m.wa_status === 'failed' ? ` <span style="color:var(--red);font-weight:700;cursor:help" title="${escHtml('Não entregue: ' + (m.wa_erro || 'sem detalhe'))}">⚠️ não entregue</span>` :
+        m.wa_status === 'read' ? ' <span style="color:#4fc3f7">✓✓</span>' :
+        m.wa_status === 'delivered' ? ' <span style="opacity:.8">✓✓</span>' :
+        m.wa_status === 'sent' ? ' <span style="opacity:.6">✓</span>' : '';
       const replyBtn = m.wa_id
         ? `<button class="msg-action-btn" data-ri="${i}" title="Responder">↩</button>` : '';
       const deleteBtn = m.direcao === 'enviada' && m.wa_id && m.texto !== '🚫 Mensagem apagada'
@@ -3364,7 +3370,7 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
         <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}${m.fixada ? ' msg-fixada' : ''}">
           ${actionsHtml}
           <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${_bolhaMsgHtml(m)}</div>
-          <div class="msg-time">${_brt(m.criada_em)}${waLabel}</div>
+          <div class="msg-time">${_brt(m.criada_em)}${waLabel}${stIcon}</div>
         </div>`;
     }).join('');
     el.querySelectorAll('[data-ri]').forEach(btn => {

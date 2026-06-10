@@ -67,3 +67,38 @@ test('reaction armazena tipo sem texto e sem media_id', () => {
   assert.strictEqual(r.texto, '');
   assert.strictEqual(r.media_id, '');
 });
+
+// ---------- parseStatuses ----------
+const { parseStatuses } = require('./whatsapp');
+
+function bodyStatus(statuses) {
+  return { entry: [{ changes: [{ field: 'messages', value: { statuses } }] }] };
+}
+
+test('parseStatuses extrai delivered e read', () => {
+  const r = parseStatuses(bodyStatus([
+    { id: 'wamid.A', status: 'delivered', timestamp: '1' },
+    { id: 'wamid.B', status: 'read', timestamp: '2' },
+  ]));
+  assert.strictEqual(r.length, 2);
+  assert.deepStrictEqual(r[0], { wa_id: 'wamid.A', status: 'delivered', erro: '' });
+  assert.strictEqual(r[1].status, 'read');
+});
+
+test('parseStatuses failed monta erro com code, title e details', () => {
+  const r = parseStatuses(bodyStatus([{
+    id: 'wamid.C', status: 'failed', timestamp: '3',
+    errors: [{ code: 131047, title: 'Re-engagement message', error_data: { details: 'Message failed to send because more than 24 hours have passed' } }],
+  }]));
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].status, 'failed');
+  assert.match(r[0].erro, /131047/);
+  assert.match(r[0].erro, /24 hours/);
+});
+
+test('parseStatuses ignora payloads sem statuses e status desconhecidos', () => {
+  assert.deepStrictEqual(parseStatuses({}), []);
+  assert.deepStrictEqual(parseStatuses(bodyStatus([{ id: 'wamid.D', status: 'whatever' }])), []);
+  const msgBody = { entry: [{ changes: [{ field: 'messages', value: { messages: [{ from: 'x', id: 'y', type: 'text', text: { body: 'oi' } }] } }] }] };
+  assert.deepStrictEqual(parseStatuses(msgBody), []);
+});
