@@ -1486,11 +1486,16 @@ app.get('/api/ia-uso-log', requireAuth, requireGestor, async (req, res) => {
 // envio e DESCARTA em silêncio (erro 131047 só chega via webhook de status) — por
 // isso bloqueamos aqui com aviso claro em vez de deixar a mensagem sumir.
 const MSG_JANELA_FECHADA = 'Janela de 24h fechada — o lead precisa responder para receber mensagem livre. Use o botão 📢 Template para reabrir a conversa.';
+// A janela é POR PAR (número da clínica ↔ lead): mensagem do lead no 8700 não
+// abre janela para o 2873. Como toda conversa livre sai pelo número SDR (2873),
+// a checagem considera só mensagens recebidas nele (vazio = legado, conta como SDR).
 async function janela24hAberta(leadId) {
-  const { data } = await supabase.from('mensagens').select('criada_em')
+  const pid = whatsapp.defaultPhoneId() || '';
+  const { data } = await supabase.from('mensagens').select('criada_em, wa_number_id')
     .eq('lead_id', leadId).eq('direcao', 'recebida')
-    .order('id', { ascending: false }).limit(1);
-  return !!(data?.[0] && Date.now() - new Date(data[0].criada_em).getTime() < 24 * 3600 * 1000);
+    .order('id', { ascending: false }).limit(10);
+  const ult = (data || []).find(m => !m.wa_number_id || m.wa_number_id === pid);
+  return !!(ult && Date.now() - new Date(ult.criada_em).getTime() < 24 * 3600 * 1000);
 }
 
 app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, async (req, res) => {
@@ -1502,21 +1507,20 @@ app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, as
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
     if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
-    const { texto, templateName, variaveis, reply_wa_id, phone_number_id } = req.body;
+    const { texto, templateName, variaveis, reply_wa_id } = req.body;
     let resultado;
     if (!templateName && !texto) return res.status(400).json({ error: 'texto ou templateName obrigatorio' });
-    const replyPhoneId = (typeof phone_number_id === 'string' && /^\d+$/.test(phone_number_id) && phone_number_id)
-      ? phone_number_id
-      : (lead.wa_number_id || whatsapp.defaultPhoneId() || '');
+    // Política fixa (decisão do gestor): conversa livre SEMPRE pelo número SDR
+    // (2873); template SEMPRE pelo número de disparos (8700). O cliente não escolhe.
+    const sdrPhoneId = whatsapp.defaultPhoneId() || '';
     if (templateName) {
       resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis });
     } else {
       if (!(await janela24hAberta(lead.id))) return res.status(400).json({ error: MSG_JANELA_FECHADA });
       const contextWaId = reply_wa_id ? sanitizeStr(reply_wa_id, 500) : null;
-      resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: replyPhoneId, contextWaId });
+      resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: sdrPhoneId, contextWaId });
     }
-    // Template sai pelo número de broadcast — gravar o número real do envio
-    const sentPhoneId = templateName ? (whatsapp.broadcastPhoneId() || '') : replyPhoneId;
+    const sentPhoneId = templateName ? (whatsapp.broadcastPhoneId() || '') : sdrPhoneId;
     const { error: insErr } = await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
       texto: sanitizeStr(texto || '[template:' + sanitizeStr(templateName, 100) + ']', 4000),
@@ -1569,7 +1573,8 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLim
     else if (mimetype.startsWith('audio/')) tipo = 'audio';
     else if (mimetype.startsWith('video/')) tipo = 'video';
     const caption = sanitizeStr(req.body.caption || '', 500);
-    const mediaPid = lead.wa_number_id || undefined;
+    // Mídia livre segue a mesma política do texto: sempre pelo número SDR (2873)
+    const mediaPid = whatsapp.defaultPhoneId() || undefined;
     // upload e envio usam o MESMO phoneNumberId (media_id é vinculado ao número que fez o upload)
     const mediaId = await whatsapp.uploadMidia({ buffer, mimetype, filename: originalname, phoneNumberId: mediaPid });
     const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption, phoneNumberId: mediaPid });
@@ -1750,7 +1755,8 @@ setInterval(async () => {
           .update({ enviada_em: new Date().toISOString() })
           .eq('id', ag.id).is('enviada_em', null).select('id');
         if (claimErr || !claimed?.length) continue;
-        const phoneNumberId = ag.leads?.wa_number_id || undefined;
+        // Mesma política do chat: mensagem livre sempre pelo número SDR (2873)
+        const phoneNumberId = whatsapp.defaultPhoneId() || undefined;
         const resultado = await whatsapp.enviarTexto({ para: ag.telefone, texto: ag.texto, phoneNumberId });
         const { error: insErr } = await supabase.from('mensagens').insert({
           lead_id: ag.lead_id, direcao: 'enviada', canal: 'agendada', texto: ag.texto,

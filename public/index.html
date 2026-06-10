@@ -3281,17 +3281,10 @@ async function abrirChat(leadId) {
   clearReply();
   if (chatPollInterval) clearInterval(chatPollInterval);
   _markRead(leadId);
+  // Política fixa: conversa livre sempre sai pelo número SDR (2873) e template
+  // pelo 8700 — o servidor decide; o seletor de número foi removido.
   const _viaEl = document.getElementById('chat-via-select');
-  if (_viaEl && Object.keys(_waNumbers).length > 0) {
-    _viaEl.innerHTML = Object.entries(_waNumbers).map(([id, label]) =>
-      `<option value="${escHtml(id)}">📱 via ${escHtml(label)}</option>`
-    ).join('');
-    // Padrão: número pelo qual o lead entrou → senão o SDR (2873) → senão o primeiro
-    const defaultId = chatLeadAtual.wa_number_id || _waDefaultId || Object.keys(_waNumbers)[0];
-    if (defaultId && _waNumbers[defaultId]) _viaEl.value = defaultId;
-    else _viaEl.selectedIndex = 0;
-    _viaEl.style.display = 'inline-block';
-  }
+  if (_viaEl) _viaEl.style.display = 'none';
   _initPainel(chatLeadAtual);
   const _bannerEl = document.getElementById('chat-anuncio-banner');
   if (_bannerEl) {
@@ -3568,8 +3561,6 @@ async function enviarMensagemChat() {
   const texto = input.value.trim();
   if (!texto) return;
   const replyWaId = _replyContext?.wa_id || null;
-  const viaSelect = document.getElementById('chat-via-select');
-  const phoneId = viaSelect?.value || '';
   input.value = '';
   input.style.height = 'auto';
   input.disabled = true;
@@ -3577,7 +3568,6 @@ async function enviarMensagemChat() {
   try {
     const body = { texto };
     if (replyWaId) body.reply_wa_id = replyWaId;
-    if (phoneId) body.phone_number_id = phoneId;
     const r = await api(`/api/leads/${chatLeadAtual.id}/whatsapp`, {
       method: 'POST', body: JSON.stringify(body),
     });
