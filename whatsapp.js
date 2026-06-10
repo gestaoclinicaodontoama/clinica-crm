@@ -18,6 +18,11 @@ const WA_API_VERSION  = 'v21.0';
 function temToken()      { return !!(WA_TOKEN && WA_PHONE_ID); }
 function temBroadcast()  { return !!(WA_BROADCAST_TOKEN && WA_BROADCAST_PHONE_ID); }
 
+// Token correto para cada número: o número de broadcast pode ter token próprio
+function _tokenForPhone(phoneId) {
+  return phoneId === WA_BROADCAST_PHONE_ID ? WA_BROADCAST_TOKEN : WA_TOKEN;
+}
+
 function limparNumero(num) {
   let n = String(num || '').replace(/\D/g, '');
   // Números brasileiros sem DDI: 10 dígitos (DDD+8) ou 11 dígitos (DDD+9)
@@ -48,7 +53,7 @@ async function enviarTexto({ para, texto, phoneNumberId, contextWaId }) {
     type: 'text', text: { body: texto },
   };
   if (contextWaId) payload.context = { message_id: contextWaId };
-  return _post(pid, WA_TOKEN, payload);
+  return _post(pid, _tokenForPhone(pid), payload);
 }
 
 // Número 2 — template aprovado (broadcast, fora da janela)
@@ -77,7 +82,7 @@ async function deletarMensagem({ phoneNumberId, waId }) {
   const pid = phoneNumberId || WA_PHONE_ID;
   const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${pid}/messages`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Bearer ${_tokenForPhone(pid)}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', message_id: waId }),
   });
   const data = await r.json();
@@ -95,7 +100,7 @@ async function uploadMidia({ buffer, mimetype, filename, phoneNumberId }) {
   form.append('file', new Blob([buffer], { type: mimetype }), filename);
   const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${pid}/media`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${WA_TOKEN}` },
+    headers: { 'Authorization': `Bearer ${_tokenForPhone(pid)}` },
     body: form,
   });
   const data = await r.json();
@@ -105,12 +110,13 @@ async function uploadMidia({ buffer, mimetype, filename, phoneNumberId }) {
 
 // Envio de mensagem com mídia já carregada (media_id)
 async function enviarMidia({ para, mediaId, tipo, caption, phoneNumberId }) {
+  const pid = phoneNumberId || WA_PHONE_ID;
   const payload = {
     messaging_product: 'whatsapp', to: limparNumero(para),
     type: tipo,
     [tipo]: { id: mediaId, ...(caption ? { caption } : {}) },
   };
-  return _post(phoneNumberId || WA_PHONE_ID, WA_TOKEN, payload);
+  return _post(pid, _tokenForPhone(pid), payload);
 }
 
 // Baixa mídia recebida/enviada pelo media_id (proxy sob demanda).
@@ -195,6 +201,9 @@ let _phoneCacheTime = 0;
 // Retorna phone_number_id padrão de conversas (Número 1 — SDR)
 function defaultPhoneId() { return WA_PHONE_ID; }
 
+// Retorna phone_number_id do número de broadcast/templates (Número 2)
+function broadcastPhoneId() { return WA_BROADCAST_PHONE_ID; }
+
 async function getPhoneNumbers() {
   if (_phoneCache && Date.now() - _phoneCacheTime < 3_600_000) return _phoneCache;
   const pairs = [
@@ -243,4 +252,5 @@ module.exports = {
   limparNumero,
   getPhoneNumbers,
   defaultPhoneId,
+  broadcastPhoneId,
 };

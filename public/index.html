@@ -3340,7 +3340,10 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
   try {
     const msgs = await api(`/api/leads/${leadId}/mensagens`);
     const el = document.getElementById('chat-msgs');
-    const sig = leadId + ':' + msgs.length + ':' + (msgs[msgs.length-1]?.id || 0);
+    // A assinatura precisa incluir as fixadas: fixar/desafixar não muda qtd nem último id,
+    // e sem isso o reload silencioso pós-pin caía no early-return e a UI não atualizava
+    const sig = leadId + ':' + msgs.length + ':' + (msgs[msgs.length-1]?.id || 0)
+      + ':' + msgs.filter(m => m.fixada).map(m => m.id).join(',');
     if (silencioso && sig === _chatMsgsSig) return;
     _chatMsgsSig = sig;
     const atFundo = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;

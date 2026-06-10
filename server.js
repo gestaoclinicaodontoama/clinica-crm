@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 const totalvoice = require('./totalvoice');
@@ -32,13 +32,21 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
+// Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
 function _webmToOgg(buffer) {
-  const r = spawnSync('ffmpeg', ['-i','pipe:0','-c:a','libopus','-f','ogg','pipe:1'], {
-    input: buffer, maxBuffer: 20 * 1024 * 1024,
+  return new Promise((resolve, reject) => {
+    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-f', 'ogg', 'pipe:1']);
+    const out = [];
+    p.stdout.on('data', c => out.push(c));
+    p.stderr.resume(); // descarta stderr para o processo não travar com o pipe cheio
+    p.on('error', reject);
+    p.on('close', code => {
+      if (code !== 0) return reject(new Error('Conversão de áudio falhou'));
+      resolve(Buffer.concat(out));
+    });
+    p.stdin.on('error', () => {}); // EPIPE se o ffmpeg morrer antes de ler tudo
+    p.stdin.end(buffer);
   });
-  if (r.error) throw r.error;
-  if (r.status !== 0) throw new Error('Conversão de áudio falhou');
-  return r.stdout;
 }
 
 let _buildCommit = 'unknown';
@@ -112,6 +120,7 @@ function sanitizeStr(v, max = 200) {
   return String(v).slice(0, max);
 }
 const sha256 = v => v ? crypto.createHash('sha256').update(String(v).toLowerCase().trim()).digest('hex') : null;
+const { chaveTelefone } = require('./lib/funil/telefone');
 
 // --------- APP ---------
 const app = express();
@@ -317,6 +326,8 @@ const requireCrcLead  = requireRole('crc_leads', 'crc_comercial', 'admin', 'gest
 const requireKanbanLeads    = requireRole('admin', 'gestor', 'crc', 'crc_leads', 'crc_comercial', 'mod_kanban_leads');
 const requireKanbanComercial = requireRole('admin', 'gestor', 'crc', 'crc_comercial', 'mod_kanban_comercial');
 const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial');
+// Conversas WhatsApp: mesmas roles do item de menu + 'crc' legado
+const requireConversas = requireRole('admin', 'gestor', 'crc', 'crc_leads', 'crc_comercial', 'crc_sucesso');
 
 // ========== ADMIN MIDDLEWARE ==========
 // TODO(remover-em-2026-06-23): fallback de role em user_metadata
@@ -1470,9 +1481,10 @@ app.get('/api/ia-uso-log', requireAuth, requireGestor, async (req, res) => {
 });
 
 // ========== WHATSAPP ==========
-app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => {
+app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { data: lead, error } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
     if (error) throw error;
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
@@ -1490,12 +1502,15 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
       const contextWaId = reply_wa_id ? sanitizeStr(reply_wa_id, 500) : null;
       resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: replyPhoneId, contextWaId });
     }
-    await supabase.from('mensagens').insert({
+    // Template sai pelo número de broadcast — gravar o número real do envio
+    const sentPhoneId = templateName ? (whatsapp.broadcastPhoneId() || '') : replyPhoneId;
+    const { error: insErr } = await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
       texto: sanitizeStr(texto || '[template:' + sanitizeStr(templateName, 100) + ']', 4000),
       wa_id: resultado.messages?.[0]?.id || '',
-      wa_number_id: replyPhoneId,
+      wa_number_id: sentPhoneId,
     });
+    if (insErr) console.error('❌ wa send (registro da mensagem):', insErr.message);
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
     if (templateName) {
@@ -1519,9 +1534,10 @@ app.post('/api/leads/:id/whatsapp', requireAuth, rateLimit, async (req, res) => 
   }
 });
 
-app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single('arquivo'), async (req, res) => {
+app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLimit, _upload.single('arquivo'), async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { data: lead } = await supabase.from('leads').select('id,telefone,wa_number_id').eq('id', id).maybeSingle();
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
@@ -1530,7 +1546,7 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
     let { buffer, mimetype, originalname } = req.file;
     // Chrome grava como audio/webm — converter para audio/ogg (opus) que o WhatsApp aceita
     if (mimetype.startsWith('audio/webm')) {
-      buffer = _webmToOgg(buffer);
+      buffer = await _webmToOgg(buffer);
       mimetype = 'audio/ogg';
       originalname = originalname.replace(/\.webm$/, '.ogg');
     }
@@ -1543,13 +1559,14 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
     // upload e envio usam o MESMO phoneNumberId (media_id é vinculado ao número que fez o upload)
     const mediaId = await whatsapp.uploadMidia({ buffer, mimetype, filename: originalname, phoneNumberId: mediaPid });
     const resultado = await whatsapp.enviarMidia({ para: lead.telefone, mediaId, tipo, caption, phoneNumberId: mediaPid });
-    await supabase.from('mensagens').insert({
+    const { error: insErr } = await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
       texto: caption || `[${tipo}: ${sanitizeStr(originalname, 60)}]`, wa_id: resultado.messages?.[0]?.id || '',
       tipo, media_id: mediaId, mime: sanitizeStr(mimetype, 120),
       media_filename: tipo === 'document' ? sanitizeStr(originalname, 200) : null,
       wa_number_id: mediaPid || '',
     });
+    if (insErr) console.error('❌ wa midia (registro da mensagem):', insErr.message);
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
     logEvento(id, 'mensagem_enviada', 'Mídia enviada: ' + (req.file?.originalname || 'arquivo'),
@@ -1560,11 +1577,12 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, rateLimit, _upload.single
   }
 });
 
-app.get('/api/leads/:id/mensagens', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/leads/:id/mensagens', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
     const { data, error } = await supabase.from('mensagens').select('*').eq('lead_id', id).order('id', { ascending: true });
+    if (error) throw error;
     res.json(data || []);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1578,7 +1596,7 @@ const _WA_MIME_ALLOWLIST = new Set([
   'application/pdf',
 ]);
 
-app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/leads/:id/midia/:msgId', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const msgId = parseInt(req.params.msgId, 10);
@@ -1601,7 +1619,7 @@ app.get('/api/leads/:id/midia/:msgId', requireAuth, rateLimit, async (req, res) 
   }
 });
 
-app.patch('/api/leads/:id/fixar-conversa', requireAuth, rateLimit, async (req, res) => {
+app.patch('/api/leads/:id/fixar-conversa', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const leadId = parseInt(req.params.id, 10);
     if (Number.isNaN(leadId)) return res.status(400).json({ error: 'ID inválido' });
@@ -1615,7 +1633,7 @@ app.patch('/api/leads/:id/fixar-conversa', requireAuth, rateLimit, async (req, r
   }
 });
 
-app.patch('/api/leads/:id/mensagens/:msgId/fixar', requireAuth, rateLimit, async (req, res) => {
+app.patch('/api/leads/:id/mensagens/:msgId/fixar', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const leadId = parseInt(req.params.id, 10);
     const msgId  = parseInt(req.params.msgId, 10);
@@ -1630,29 +1648,11 @@ app.patch('/api/leads/:id/mensagens/:msgId/fixar', requireAuth, rateLimit, async
   }
 });
 
-app.patch('/api/leads/:id/mensagens/:msgId/editar', requireAuth, rateLimit, async (req, res) => {
-  try {
-    const leadId = parseInt(req.params.id, 10);
-    const msgId  = parseInt(req.params.msgId, 10);
-    if (Number.isNaN(leadId) || Number.isNaN(msgId)) return res.status(400).json({ error: 'ID inválido' });
-    const texto = (req.body.texto || '').trim();
-    if (!texto) return res.status(400).json({ error: 'Texto obrigatório' });
-    const { data: msg } = await supabase.from('mensagens')
-      .select('id,lead_id,direcao,tipo').eq('id', msgId).maybeSingle();
-    if (!msg || msg.lead_id !== leadId) return res.status(404).json({ error: 'Mensagem não encontrada' });
-    if (msg.direcao !== 'enviada') return res.status(400).json({ error: 'Só é possível editar mensagens enviadas' });
-    if (msg.tipo !== 'text') return res.status(400).json({ error: 'Só é possível editar mensagens de texto' });
-    await supabase.from('mensagens').update({
-      texto: sanitizeStr(texto, 4000),
-      editada_em: new Date().toISOString(),
-    }).eq('id', msgId);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+// Rota de editar mensagem removida: a Cloud API da Meta não suporta edição —
+// o frontend já havia sido removido (a425ecd) e manter só o registro local
+// faria o CRM divergir do que o lead realmente recebeu.
 
-app.delete('/api/leads/:id/mensagens/:msgId', requireAuth, rateLimit, async (req, res) => {
+app.delete('/api/leads/:id/mensagens/:msgId', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const leadId = parseInt(req.params.id, 10);
     const msgId  = parseInt(req.params.msgId, 10);
@@ -1671,9 +1671,10 @@ app.delete('/api/leads/:id/mensagens/:msgId', requireAuth, rateLimit, async (req
   }
 });
 
-app.post('/api/leads/:id/agendar-mensagem', requireAuth, rateLimit, async (req, res) => {
+app.post('/api/leads/:id/agendar-mensagem', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { texto, agendado_para } = req.body;
     if (!texto || !agendado_para) return res.status(400).json({ error: 'texto e agendado_para são obrigatórios' });
     const { data: lead, error: le } = await supabase.from('leads').select('id,telefone,nome').eq('id', id).maybeSingle();
@@ -1688,9 +1689,10 @@ app.post('/api/leads/:id/agendar-mensagem', requireAuth, rateLimit, async (req, 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/leads/:id/agendamentos', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/leads/:id/agendamentos', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { data, error } = await supabase.from('mensagens_agendadas')
       .select('*').eq('lead_id', id).order('agendado_para');
     if (error) throw error;
@@ -1698,9 +1700,10 @@ app.get('/api/leads/:id/agendamentos', requireAuth, rateLimit, async (req, res) 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/agendamentos/:id', requireAuth, rateLimit, async (req, res) => {
+app.delete('/api/agendamentos/:id', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { error } = await supabase.from('mensagens_agendadas').delete().eq('id', id).is('enviada_em', null);
     if (error) throw error;
     res.json({ ok: true });
@@ -1716,21 +1719,35 @@ setInterval(async () => {
     if (!data?.length) return;
     for (const ag of data) {
       try {
+        // Claim ANTES de enviar: se enviasse primeiro e o update falhasse, o lead
+        // receberia a mesma mensagem a cada 30s. Update condicional também evita
+        // envio duplo se houver mais de uma instância do servidor.
+        const { data: claimed, error: claimErr } = await supabase.from('mensagens_agendadas')
+          .update({ enviada_em: new Date().toISOString() })
+          .eq('id', ag.id).is('enviada_em', null).select('id');
+        if (claimErr || !claimed?.length) continue;
         const phoneNumberId = ag.leads?.wa_number_id || undefined;
         const resultado = await whatsapp.enviarTexto({ para: ag.telefone, texto: ag.texto, phoneNumberId });
-        await supabase.from('mensagens_agendadas').update({ enviada_em: new Date().toISOString() }).eq('id', ag.id);
-        await supabase.from('mensagens').insert({
+        const { error: insErr } = await supabase.from('mensagens').insert({
           lead_id: ag.lead_id, direcao: 'enviada', canal: 'agendada', texto: ag.texto,
           wa_id: resultado.messages?.[0]?.id || '',
           wa_number_id: phoneNumberId || '',
         });
+        if (insErr) console.error('❌ Agendamento #' + ag.id + ' (registro):', insErr.message);
         console.log('📅 Mensagem agendada enviada → lead #' + ag.lead_id);
-      } catch (e) { console.error('❌ Agendamento #' + ag.id + ':', e.message); }
+      } catch (e) {
+        console.error('❌ Agendamento #' + ag.id + ':', e.message);
+        // Falhou após o claim: não reenvia (evita spam); registra no trajeto do lead
+        supabase.from('mensagens_agendadas').update({ erro: sanitizeStr(e.message, 300) }).eq('id', ag.id)
+          .then(() => {}, () => {});
+        logEvento(ag.lead_id, 'mensagem_agendada_falhou',
+          'Mensagem agendada NÃO foi enviada: ' + sanitizeStr(e.message, 200), { agendamento_id: ag.id });
+      }
     }
   } catch (_) {}
 }, 30000);
 
-app.get('/api/conversas', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/conversas', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const { data, error } = await supabase.rpc('conversas_com_preview');
     if (error) throw error;
@@ -1753,9 +1770,10 @@ app.get('/api/conversas', requireAuth, rateLimit, async (req, res) => {
 });
 
 
-app.post('/api/leads/:id/broadcast', requireAuth, rateLimit, async (req, res) => {
+app.post('/api/leads/:id/broadcast', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { data: lead, error } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
     if (error) throw error;
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
@@ -1765,11 +1783,13 @@ app.post('/api/leads/:id/broadcast', requireAuth, rateLimit, async (req, res) =>
     if (!templateName) return res.status(400).json({ error: 'templateName obrigatório' });
     const resultado = await whatsapp.enviarBroadcast({ para: lead.telefone, templateName, variaveis, lang });
     const vars = variaveis.length ? ' | ' + variaveis.slice(0, 10).map(v => sanitizeStr(String(v), 100)).join(', ') : '';
-    await supabase.from('mensagens').insert({
+    const { error: insErr } = await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'broadcast',
       texto: sanitizeStr('[template: ' + sanitizeStr(templateName, 100) + vars + ']', 4000),
       wa_id: resultado.messages?.[0]?.id || '',
+      wa_number_id: whatsapp.broadcastPhoneId() || '',
     });
+    if (insErr) console.error('❌ broadcast (registro da mensagem):', insErr.message);
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
   } catch (e) {
@@ -2018,7 +2038,23 @@ app.post('/webhooks/whatsapp', async (req, res) => {
   try {
     const m = whatsapp.parseMensagemRecebida(req.body);
     if (!m) return res.status(200).send('ok');
-    let { data: lead } = await supabase.from('leads').select('*').eq('telefone', m.from).maybeSingle();
+    // Match exato primeiro (caminho comum: lead criado pelo próprio webhook).
+    // limit(1) em vez de maybeSingle puro: com telefone duplicado, maybeSingle
+    // retornaria erro → 500 → Meta reenviaria e poderia desativar o webhook.
+    let { data: leadRows } = await supabase.from('leads').select('*')
+      .eq('telefone', m.from).order('id').limit(1);
+    let lead = leadRows?.[0] || null;
+    if (!lead) {
+      // Fallback: a base tem milhares de leads sem DDI 55, e a Meta pode entregar
+      // m.from sem o 9º dígito — sem isso, cada resposta criaria um lead duplicado.
+      const suf = String(m.from).slice(-8);
+      const alvo = chaveTelefone(m.from);
+      if (suf.length === 8 && alvo) {
+        const { data: cands } = await supabase.from('leads').select('*')
+          .like('telefone', '%' + suf).order('id').limit(20);
+        lead = (cands || []).find(c => chaveTelefone(c.telefone) === alvo) || null;
+      }
+    }
     if (!lead) {
       const { data: inserted, error: insertErr } = await supabase.from('leads').insert({
         nome: sanitizeStr(m.nome || 'Lead WhatsApp'),
@@ -2060,7 +2096,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       }
     }
     if (lead) {
-      await supabase.from('mensagens').insert({
+      const { error: insErr } = await supabase.from('mensagens').insert({
         lead_id: lead.id, direcao: 'recebida', canal: 'sdr',
         texto: sanitizeStr(m.texto, 4000), wa_id: m.id || '',
         tipo: m.tipo || 'text',
@@ -2069,6 +2105,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         media_filename: m.media_filename ? sanitizeStr(m.media_filename, 200) : null,
         wa_number_id: sanitizeStr(m.phone_number_id || '', 50),
       });
+      if (insErr) console.error('❌ webhook wa (registro da mensagem recebida):', insErr.message);
       logEvento(lead.id, 'mensagem_recebida',
         'Mensagem recebida: "' + (m.texto || '').slice(0, 80) + (m.texto?.length > 80 ? '…' : '') + '"',
         { wa_id: m.id || '', tipo: m.tipo }
