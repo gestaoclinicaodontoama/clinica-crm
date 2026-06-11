@@ -7,6 +7,7 @@ const JANELA_AVISO_MS = 6 * 3600 * 1000; // 'fechando' quando restar menos que i
 function _fmtRestante(ms) {
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
+  // >= 10h: granularidade de horas basta para o aviso de janela
   if (h >= 10) return h + 'h';
   if (h >= 1) return m > 0 ? h + 'h ' + m + 'min' : h + 'h';
   return m + 'min';
@@ -15,9 +16,11 @@ function _fmtRestante(ms) {
 // ultimaRecebidaEm: ISO string da última mensagem recebida (já filtrada pelo
 // número SDR) ou null. agora: epoch ms (injetável p/ teste; default Date.now()).
 function estadoJanela(ultimaRecebidaEm, agora) {
-  const now = agora || Date.now();
+  const now = typeof agora === 'number' ? agora : Date.now();
   if (!ultimaRecebidaEm) return { estado: 'fechada', restanteMs: 0, label: 'Janela de 24h fechada' };
-  const restanteMs = new Date(ultimaRecebidaEm).getTime() + JANELA_TOTAL_MS - now;
+  const ts = new Date(ultimaRecebidaEm).getTime();
+  if (isNaN(ts)) return { estado: 'fechada', restanteMs: 0, label: 'Janela de 24h fechada' };
+  const restanteMs = ts + JANELA_TOTAL_MS - now;
   if (restanteMs <= 0) return { estado: 'fechada', restanteMs: 0, label: 'Janela de 24h fechada' };
   if (restanteMs <= JANELA_AVISO_MS) {
     return { estado: 'fechando', restanteMs, label: '⏳ Janela fecha em ' + _fmtRestante(restanteMs) + ' — responda logo' };
