@@ -1779,7 +1779,8 @@ setInterval(async () => {
 
 app.get('/api/conversas', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
-    const { data, error } = await supabase.rpc('conversas_com_preview');
+    const { data, error } = await supabase.rpc('conversas_com_preview',
+      { sdr_phone: whatsapp.defaultPhoneId() || null });
     if (error) throw error;
     let rows = (data || []).map(r => ({
       ...r,
