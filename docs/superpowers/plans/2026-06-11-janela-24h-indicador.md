@@ -63,10 +63,11 @@ test('recebida há 25h = fechada', () => {
   assert.strictEqual(j.estado, 'fechada');
 });
 
-test('_fmtRestante: 23h / 5h 32min / 47min', () => {
+test('_fmtRestante: 23h / 5h 32min / 47min / 4h em ponto sem "0min"', () => {
   assert.strictEqual(_fmtRestante(23 * H + 10 * 60000), '23h');
   assert.strictEqual(_fmtRestante(5 * H + 32 * 60000), '5h 32min');
   assert.strictEqual(_fmtRestante(47 * 60000), '47min');
+  assert.strictEqual(_fmtRestante(4 * H), '4h');
 });
 ```
 
@@ -90,7 +91,7 @@ function _fmtRestante(ms) {
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
   if (h >= 10) return h + 'h';
-  if (h >= 1) return h + 'h ' + m + 'min';
+  if (h >= 1) return m > 0 ? h + 'h ' + m + 'min' : h + 'h';
   return m + 'min';
 }
 
