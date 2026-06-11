@@ -569,7 +569,7 @@ async function patchLead(req, res) {
     const { data: lead, error: fetchErr } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
     if (fetchErr) throw fetchErr;
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
-    const leadAntes = { status: lead.status };
+    const leadAntes = { status: lead.status, notas_sdr: lead.notas_sdr };
     const ALLOWED = [
       'nome','telefone','email','origem','status','valor','tipo_trat',
       'notas_sdr','notas_avaliacao','notas_comercial',
@@ -647,6 +647,10 @@ async function patchLead(req, res) {
       if (updated.status === 'Fechou' && updated.gclid && !updated.enviado_google) {
         dispararConversaoGoogle(updated).catch(e => console.error('Google:', e.message));
       }
+    }
+    if (patch.notas_sdr !== undefined && (patch.notas_sdr || '') !== (leadAntes.notas_sdr || '')) {
+      logEvento(updated.id, 'nota_sdr_editada', 'Anotação SDR atualizada',
+        { tamanho: (patch.notas_sdr || '').length }, req.user?.id || null);
     }
     res.json({ ok: true, lead: updated });
   } catch (e) {
