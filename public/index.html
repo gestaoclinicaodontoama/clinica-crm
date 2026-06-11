@@ -2675,6 +2675,13 @@ function renderChatList(leads) {
   }
   el.innerHTML = leads.map(l => {
     const unread = _isUnread(l);
+    // guard: se /js/janela24h.js falhar ao carregar, a lista não pode quebrar
+    const jan = typeof estadoJanela === 'function' ? estadoJanela(l.ultima_recebida_em) : { estado: 'aberta', restanteMs: 0 };
+    const janChip = jan.estado === 'fechando'
+      ? `<span style="font-size:9.5px;font-weight:700;color:#b45309;background:rgba(245,158,11,.15);border-radius:4px;padding:1px 5px;white-space:nowrap" title="Janela de 24h fecha em ${_fmtRestante(jan.restanteMs)}">⏳ ${_fmtRestante(jan.restanteMs)}</span>`
+      : jan.estado === 'fechada'
+      ? `<span style="font-size:9.5px;color:var(--muted);background:rgba(239,68,68,.10);border-radius:4px;padding:1px 5px;white-space:nowrap" title="Janela de 24h fechada — só template">fechada</span>`
+      : '';
     const preview = l.ultima_mensagem
       ? (l.ultima_mensagem_direcao === 'enviada' ? '» ' : '') + l.ultima_mensagem
       : l.telefone || '';
@@ -2684,6 +2691,7 @@ function renderChatList(leads) {
         <span class="chat-item-nome" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${unread?'font-weight:700;color:var(--text)':''}">${escHtml(l.nome)}</span>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           ${unread ? '<span class="unread-dot"></span>' : ''}
+          ${janChip}
           <span style="font-size:10.5px;color:var(--muted)">${_horaOuData(l.ultima_mensagem_em)}</span>
           <button class="pin-conv-btn" onclick="fixarConversa(${l.id},event)" title="${l.conversa_fixada?'Desafixar':'Fixar conversa'}" style="opacity:${l.conversa_fixada?'1':'0'};color:${l.conversa_fixada?'var(--accent)':'var(--muted)'}">📌</button>
         </div>
@@ -2708,6 +2716,13 @@ function renderKanban(leads) {
     const cols = byStatus[status] || [];
     const cards = cols.map(l => {
       const unread = _isUnread(l);
+      // guard: se /js/janela24h.js falhar ao carregar, o kanban não pode quebrar
+      const jan = typeof estadoJanela === 'function' ? estadoJanela(l.ultima_recebida_em) : { estado: 'aberta', restanteMs: 0 };
+      const janChip = jan.estado === 'fechando'
+        ? `<span style="font-size:9.5px;font-weight:700;color:#b45309;background:rgba(245,158,11,.15);border-radius:4px;padding:1px 5px;white-space:nowrap" title="Janela de 24h fecha em ${_fmtRestante(jan.restanteMs)}">⏳ ${_fmtRestante(jan.restanteMs)}</span>`
+        : jan.estado === 'fechada'
+        ? `<span style="font-size:9.5px;color:var(--muted);background:rgba(239,68,68,.10);border-radius:4px;padding:1px 5px;white-space:nowrap" title="Janela de 24h fechada — só template">fechada</span>`
+        : '';
       const preview = l.ultima_mensagem
         ? (l.ultima_mensagem_direcao === 'enviada' ? '» ' : '') + l.ultima_mensagem
         : l.telefone || '';
@@ -2725,6 +2740,7 @@ function renderKanban(leads) {
         <div class="kconv-preview">${escHtml(preview.slice(0,50))}</div>
         <div class="kconv-foot">
           <span style="font-size:10px;color:var(--muted)">${_horaOuData(l.ultima_mensagem_em)}</span>
+          ${janChip}
           ${unread ? '<span class="unread-dot"></span>' : ''}
         </div>
         ${isComercialMode ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
