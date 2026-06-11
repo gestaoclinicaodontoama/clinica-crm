@@ -821,6 +821,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
       <button onclick="abrirNovaConversa()" title="Nova conversa" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--accent);font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
       <button id="btn-filtro-nao-lidas" title="Mostrar apenas não lidas" onclick="toggleFiltroNaoLidas()" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">🔔</button>
+      <button id="btn-filtro-vencendo" onclick="toggleFiltroVencendo()" title="Mostrar apenas janelas vencendo" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">⏳</button>
       <input class="search-input" style="width:150px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
         <option value="">Todas as CRCs</option>
@@ -2651,6 +2652,7 @@ function filtrarChats() {
   if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q));
   if (crcFiltro) base = base.filter(l => _chatMode === 'avaliacao' ? l.crc_comercial_id === crcFiltro : l.crc_agendamento_id === crcFiltro);
   if (_filtroNaoLidas) base = base.filter(l => _isUnread(l));
+  if (_filtroVencendo && typeof estadoJanela === 'function') base = base.filter(l => estadoJanela(l.ultima_recebida_em).estado === 'fechando');
   if (_chatViewMode === 'kanban') renderKanban(base);
   else renderChatList(base);
 }
@@ -3512,6 +3514,20 @@ function toggleFiltroNaoLidas() {
     btn.style.background = _filtroNaoLidas ? 'var(--accent)' : 'var(--bg2)';
     btn.style.color = _filtroNaoLidas ? '#fff' : 'var(--muted)';
     btn.title = _filtroNaoLidas ? 'Mostrar todas' : 'Mostrar apenas não lidas';
+  }
+  filtrarChats();
+}
+
+// ============ FILTRO VENCENDO ============
+let _filtroVencendo = false;
+
+function toggleFiltroVencendo() {
+  _filtroVencendo = !_filtroVencendo;
+  const btn = document.getElementById('btn-filtro-vencendo');
+  if (btn) {
+    btn.style.background = _filtroVencendo ? '#b45309' : 'var(--bg2)';
+    btn.style.color = _filtroVencendo ? '#fff' : 'var(--muted)';
+    btn.title = _filtroVencendo ? 'Mostrar todas' : 'Mostrar apenas janelas vencendo';
   }
   filtrarChats();
 }
