@@ -15,12 +15,12 @@
 
 | Métrica | Fonte | Definição |
 |---|---|---|
-| Conversas atendidas | `lead_eventos` tipo `mensagem_enviada` | Leads DISTINTOS com ≥1 mensagem da CRC no dia |
+| Conversas atendidas | `lead_eventos` tipos `mensagem_enviada` E `template_enviado` | Leads DISTINTOS com ≥1 mensagem OU template da CRC no dia (template também é atendimento) |
 | Mensagens enviadas | idem | Total de eventos no dia |
 | Templates | tipo `template_enviado` | Total no dia |
 | Agendamentos | tipo `status_mudou` com `metadata.para='Agendado'` | Total no dia |
 | Movimentações de funil | tipo `status_mudou` (qualquer destino) | Total + breakdown por destino (`metadata.para`) |
-| Ligações | tabela `ligacoes` (`usuario_id`, `status`, `criada_em`) | atendidas / total no dia. Quais valores de `status` contam como "atendida" será confirmado na implementação consultando os valores reais da tabela (`select distinct status from ligacoes`) |
+| Ligações | tabela `ligacoes` (`usuario_id`, `status`, `modulo`, `criada_em`) | atendidas / total no dia, FILTRADO pelo módulo do discador CRC (a tabela também guarda ligações do Copiloto SPIN dos dentistas — excluir). Valores reais de `status` (o que conta como "atendida") e de `modulo` serão confirmados na implementação (`select distinct status, modulo from ligacoes`) |
 | Anotações SDR | **NOVO** tipo `nota_sdr_editada` | Total no dia (só a partir do deploy — sem retroativo) |
 | Tempo de 1ª resposta | `mensagens` (recebidas) × eventos `mensagem_enviada` | Média do dia, atribuída à CRC que respondeu |
 | ⚠️ Leads sem resposta | idem | Leads que escreveram no dia e seguem sem resposta (métrica do TIME, não por CRC) |
@@ -33,7 +33,8 @@ Tempo de 1ª resposta — definição precisa:
 - Uma "espera" começa na primeira mensagem `recebida` sem resposta posterior pendente e termina no próximo evento `mensagem_enviada` (de qualquer CRC) do mesmo lead. Mensagens recebidas em rajada não abrem novas esperas.
 - A espera concluída entra na média da CRC que respondeu (e na média do time).
 - Espera ainda aberta ao consultar → lead entra em "sem resposta" e NÃO entra na média.
-- Esperas iniciadas no dia consultado contam para aquele dia (mesmo que respondidas no dia seguinte — atribuição pela data de início da espera).
+- Esperas RESPONDIDAS contam para o dia em que começaram (mesmo que respondidas no dia seguinte).
+- Card "⚠️ Leads sem resposta": mostra TODAS as esperas iniciadas ATÉ o fim do dia consultado e ainda abertas no momento da consulta — consultando hoje, é a fila acumulada completa (inclui leads de dias anteriores nunca respondidos); consultando um dia passado, são as esperas daquele dia (ou anteriores) que seguem sem resposta.
 
 ## Novo evento `nota_sdr_editada`
 
