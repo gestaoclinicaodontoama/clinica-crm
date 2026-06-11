@@ -897,7 +897,8 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
             <div id="chat-anuncio-banner" style="display:none"></div>
             <div id="chat-fixadas" style="display:none"></div>
             <div class="chat-msgs" id="chat-msgs"></div>
-            <div class="chat-input-area" style="flex-direction:column;gap:6px">
+            <div id="chat-janela-bar" style="display:none;padding:5px 12px;font-size:11.5px;font-weight:600;border-top:1px solid var(--border)"></div>
+            <div id="chat-composer" class="chat-input-area" style="flex-direction:column;gap:6px">
               <div id="reply-ctx-bar" style="display:none;align-items:center;gap:8px;padding:6px 10px;background:var(--bg3);border-radius:8px;border-left:3px solid var(--accent);font-size:12px">
                 <span style="color:var(--accent);font-weight:600;font-size:11px;flex-shrink:0">↩ Respondendo:</span>
                 <span id="reply-ctx-text" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)"></span>
@@ -3247,6 +3248,11 @@ async function abrirChat(leadId) {
   _midiaCache.forEach(url => URL.revokeObjectURL(url));
   _midiaCache.clear();
   _chatMsgsSig = '';
+  _chatUltimaRecebida = null;
+  const _jb = document.getElementById('chat-janela-bar');
+  if (_jb) _jb.style.display = 'none';
+  const _jc = document.getElementById('chat-composer');
+  if (_jc) _jc.style.display = '';
   switchPainelTab('perfil');
   renderChatList(chatLeads);
 
@@ -3341,6 +3347,7 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
       + ':' + msgs.map(m => (m.wa_status || '')[0] || '-').join('');
     if (silencioso && sig === _chatMsgsSig) return;
     _chatMsgsSig = sig;
+    atualizarJanelaBar(msgs);
     const atFundo = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
     if (!msgs.length) {
       el.innerHTML = '<div class="empty-small" style="text-align:center;padding:30px">Nenhuma mensagem ainda.<br>Digite abaixo para iniciar a conversa.</div>';
@@ -3555,6 +3562,46 @@ function renderMensagensFixadas(msgs) {
     </div>`).join('')}
   </div>`;
 }
+
+// ============ JANELA DE 24H (faixa no chat) ============
+let _chatUltimaRecebida = null;
+
+function atualizarJanelaBar(msgs) {
+  // última recebida no número SDR (vazio/null = legado, conta como SDR)
+  const ultIn = [...(msgs || [])].reverse().find(m =>
+    m.direcao === 'recebida' && (!m.wa_number_id || !_waDefaultId || m.wa_number_id === _waDefaultId));
+  _chatUltimaRecebida = ultIn ? ultIn.criada_em : null;
+  _renderJanelaBar();
+}
+
+function _renderJanelaBar() {
+  const bar = document.getElementById('chat-janela-bar');
+  const composer = document.getElementById('chat-composer');
+  if (!bar || !composer) return;
+  if (!chatLeadAtual) { bar.style.display = 'none'; composer.style.display = ''; return; }
+  const j = estadoJanela(_chatUltimaRecebida);
+  bar.style.display = '';
+  if (j.estado === 'fechada') {
+    composer.style.display = 'none';
+    bar.style.background = 'rgba(239,68,68,.12)';
+    bar.style.color = 'var(--red)';
+    bar.innerHTML = '🔒 Janela de 24h fechada — este número não recebe mensagem livre. ' +
+      '<button class="btn" onclick="abrirModalTemplate()" style="margin-left:8px;font-size:12px;background:var(--red);color:#fff;border:none">📢 Enviar template</button>';
+  } else {
+    composer.style.display = '';
+    if (j.estado === 'fechando') {
+      bar.style.background = 'rgba(245,158,11,.12)';
+      bar.style.color = '#b45309';
+    } else {
+      bar.style.background = 'rgba(16,185,129,.08)';
+      bar.style.color = '#10b981';
+    }
+    bar.textContent = j.label;
+  }
+}
+
+// contador anda sozinho (o texto muda mesmo sem mensagens novas)
+setInterval(_renderJanelaBar, 60000);
 
 async function enviarMensagemChat() {
   if (!chatLeadAtual) return;
