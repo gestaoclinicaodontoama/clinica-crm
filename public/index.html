@@ -2314,7 +2314,7 @@ async function salvarLead(btn) {
         Object.assign(chatLeads[_ci], body);
         if (chatLeadAtual && chatLeadAtual.id === leadAtual.id) {
           Object.assign(chatLeadAtual, body);
-          if (typeof renderChatList === 'function') renderChatList(chatLeads);
+          if (typeof filtrarChats === 'function') filtrarChats();
         }
       }
     }
@@ -2559,9 +2559,7 @@ function setChatView(mode) {
   document.getElementById('chat-kanban-view').style.display = mode === 'kanban' ? 'flex' : 'none';
   document.getElementById('btn-view-lista').classList.toggle('ativo', mode === 'lista');
   document.getElementById('btn-view-kanban').classList.toggle('ativo', mode === 'kanban');
-  const f = _filtrarParaModo(chatLeads);
-  if (mode === 'kanban') renderKanban(f);
-  else renderChatList(f);
+  filtrarChats();
 }
 
 async function loadConversas(silencioso = false) {
@@ -2579,9 +2577,9 @@ async function loadConversas(silencioso = false) {
       if (_topCrc && !isAg) _topCrc.style.display = 'none';
       if (isAg) { carregarMetaAgendamentos(); carregarFiltrosCrc(); }
     }
-    const f = _filtrarParaModo(convs);
-    if (_chatViewMode === 'kanban') renderKanban(f);
-    else renderChatList(f);
+    // filtrarChats aplica TODOS os filtros ativos (busca/CRC/não-lidas/vencendo)
+    // — render direto aqui fazia os filtros "desligarem" a cada refresh de 30s
+    filtrarChats();
   } catch(e) { if (!silencioso) { console.error('loadConversas:', e); toast('⚠️ Erro ao carregar conversas', true); } }
 }
 
@@ -2664,7 +2662,7 @@ async function fixarConversa(leadId, ev) {
     const lead = chatLeads?.find(l => l.id === leadId);
     if (lead) lead.conversa_fixada = r.conversa_fixada;
     chatLeads?.sort((a, b) => (b.conversa_fixada ? 1 : 0) - (a.conversa_fixada ? 1 : 0));
-    renderChatList(_filtrarParaModo(chatLeads));
+    filtrarChats();
     toast(r.conversa_fixada ? '📌 Conversa fixada' : '📌 Conversa desafixada');
   } catch(e) { toast('❌ ' + e.message, true); }
 }
@@ -2782,7 +2780,7 @@ async function kanbanDrop(event, novoStatus) {
     }
     await api(`/api/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify(patch) });
     lead.status = novoStatus;
-    renderKanban(_filtrarParaModo(chatLeads));
+    filtrarChats();
     toast('✅ ' + escHtml(lead.nome || 'Lead') + ' → ' + novoStatus);
   } catch(e) { toast('❌ Erro ao mover: ' + e.message, true); }
 }
@@ -2978,7 +2976,7 @@ async function painelSalvar(campo, valor) {
     if (campo === 'status') {
       const idx = chatLeads.findIndex(l => l.id === chatLeadAtual.id);
       if (idx >= 0) chatLeads[idx].status = valor;
-      renderChatList(chatLeads);
+      filtrarChats();
     }
   } catch(e) { toast('❌ Erro ao salvar: ' + e.message, true); }
 }
@@ -3107,7 +3105,7 @@ async function ncAbrir() {
       const stub = { ...leadData, ultima_mensagem: null, ultima_mensagem_em: null, ultima_mensagem_direcao: null };
       if (!Array.isArray(chatLeads)) chatLeads = [];
       chatLeads.unshift(stub);
-      renderChatList(_filtrarParaModo(chatLeads));
+      filtrarChats();
       abrirChat(leadId);
     }
   } catch (e) { toast('Erro ao abrir conversa: ' + e.message, true); }
@@ -3116,7 +3114,7 @@ async function ncAbrir() {
 function marcarNaoLida() {
   if (!chatLeadAtual) return;
   localStorage.setItem('chat_forced_unread_' + chatLeadAtual.id, '1');
-  renderChatList(chatLeads);
+  filtrarChats();
   voltarListaChat();
   toast('🔔 Marcado como não lida');
 }
@@ -3194,7 +3192,7 @@ async function agendarNoClinicorp() {
     agInfo.style.display = '';
     agInfo.innerHTML = `<b>Agendado</b><br>${r.dentista} — ${data.split('-').reverse().join('/')} ${r.hora}`;
     btn.textContent = 'Reagendar'; btn.disabled = false;
-    renderChatList(chatLeads);
+    filtrarChats();
     toast('✅ Agendado: ' + r.dentista + ' ' + r.hora);
   } catch(e) {
     btn.disabled = false; btn.textContent = 'Agendar no Clinicorp';
@@ -3272,7 +3270,7 @@ async function abrirChat(leadId) {
   const _jc = document.getElementById('chat-composer');
   if (_jc) _jc.style.display = '';
   switchPainelTab('perfil');
-  renderChatList(chatLeads);
+  filtrarChats();
 
   document.getElementById('chat-vazio').style.display = 'none';
   document.getElementById('chat-window').style.display = 'flex';
