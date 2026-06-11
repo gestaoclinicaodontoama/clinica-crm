@@ -21,6 +21,7 @@ const { resolvePeriodo } = require('./lib/funil/periodo');
 const { montarDashboard } = require('./lib/funil/dashboard');
 const { buscarEventosNovos } = require('./lib/monitor/queries');
 const { montarMonitor } = require('./lib/monitor/diario');
+const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -2192,6 +2193,66 @@ app.post('/webhooks/whatsapp', async (req, res) => {
   } catch (e) {
     console.error('❌ webhook wa:', e);
     res.status(500).send('erro');
+  }
+});
+
+// ========== MONITOR DIÁRIO DAS CRCS ==========
+// IO compartilhado entre o endpoint e o push diário. `data` = YYYY-MM-DD (BRT).
+async function montarMonitorCrcDoDia(data) {
+  const from = data + 'T00:00:00-03:00';
+  const to = data + 'T23:59:59.999-03:00';
+  // respostas até 72h após o dia fecham esperas iniciadas no dia (consulta retroativa)
+  const fimRespostas = new Date(new Date(to).getTime() + 72 * 3600 * 1000).toISOString();
+  const [evRes, recRes, ligRes, abertasRes] = await Promise.all([
+    supabase.from('lead_eventos')
+      .select('lead_id, tipo, metadata, usuario_id, criado_em')
+      .in('tipo', ['mensagem_enviada', 'template_enviado', 'status_mudou', 'nota_sdr_editada'])
+      .gte('criado_em', from).lte('criado_em', fimRespostas).limit(20000),
+    supabase.from('mensagens').select('lead_id, criada_em')
+      .eq('direcao', 'recebida').gte('criada_em', from).lte('criada_em', to).limit(20000),
+    supabase.from('ligacoes').select('usuario_id, duracao_segundos')
+      .eq('modulo', 'leads').gte('criada_em', from).lte('criada_em', to).limit(5000),
+    supabase.rpc('esperas_abertas', { fim: to }),
+  ]);
+  for (const r of [evRes, recRes, ligRes, abertasRes]) if (r.error) throw r.error;
+  const periodo = { from, to };
+  const monitor = montarMonitorCrc({
+    periodo,
+    eventos: evRes.data || [],
+    recebidas: recRes.data || [],
+    ligacoes: ligRes.data || [],
+    esperasAbertas: abertasRes.data || [],
+  });
+  // nomes das CRCs
+  const ids = monitor.porCrc.map(c => c.usuario_id);
+  let nomes = {};
+  if (ids.length) {
+    const { data: perfis } = await supabase.from('profiles').select('id, nome').in('id', ids);
+    for (const p of perfis || []) nomes[p.id] = p.nome || '';
+  }
+  return { monitor, nomes };
+}
+
+app.get('/api/monitor-crc', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    const roles = p.roles || [];
+    const gestor = roles.includes('admin') || roles.includes('gestor');
+    if (!gestor && !roles.includes('crc_leads')) return res.status(403).json({ error: 'Acesso negado' });
+    const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const data = String(req.query.data || hoje);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ error: 'Data inválida (YYYY-MM-DD)' });
+    if (data > hoje) return res.status(400).json({ error: 'Data futura' });
+    const { monitor, nomes } = await montarMonitorCrcDoDia(data);
+    if (!gestor) {
+      // CRC vê só os próprios números — filtro NO SERVIDOR
+      const meu = monitor.porCrc.find(c => c.usuario_id === req.user.id) || null;
+      return res.json({ escopo: 'proprio', data, porCrc: meu ? [meu] : [], nomes: { [req.user.id]: nomes[req.user.id] || p.nome || '' } });
+    }
+    res.json({ escopo: 'time', data, ...monitor, nomes });
+  } catch (e) {
+    console.error('❌ monitor-crc:', e);
+    res.status(500).json({ error: e.message });
   }
 });
 
