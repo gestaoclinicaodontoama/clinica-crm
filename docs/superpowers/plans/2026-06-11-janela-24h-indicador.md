@@ -119,7 +119,7 @@ Expected: 5 PASS. Depois `npm test` — todos os existentes continuam passando (
 
 - [ ] **Step 5: Incluir o script no index.html**
 
-Em `public/index.html`, localizar a linha que carrega `/js/mobile-nav.js` (grep `mobile-nav.js`) e adicionar na linha seguinte:
+Em `public/index.html`, localizar a linha que carrega o supabase (grep `supabase.min.js`, ~linha 546) e adicionar na linha seguinte, **SEM `defer`** (o mobile-nav.js usa defer; este não pode — precisa estar definido antes dos scripts inline):
 
 ```html
 <script src="/js/janela24h.js"></script>
@@ -290,16 +290,20 @@ setInterval(_renderJanelaBar, 60000);
 
 - [ ] **Step 3: Ligar nos pontos de atualização**
 
-a) Em `carregarMensagensChat`, logo após a linha `renderMensagensFixadas(msgs);`, adicionar:
+a) Em `carregarMensagensChat`, logo após a linha `_chatMsgsSig = sig;` (ANTES do early-return `if (!msgs.length)` — senão conversa sem mensagens nunca atualiza a faixa), adicionar:
 
 ```js
     atualizarJanelaBar(msgs);
 ```
 
-b) Em `abrirChat`, logo após a linha `_chatMsgsSig = '';`, adicionar (zera o estado da conversa anterior enquanto as mensagens carregam):
+b) Em `abrirChat`, logo após a linha `_chatMsgsSig = '';`, adicionar (reset visual: evita mostrar o estado — inclusive composer bloqueado — da conversa anterior enquanto as mensagens da nova carregam):
 
 ```js
   _chatUltimaRecebida = null;
+  const _jb = document.getElementById('chat-janela-bar');
+  if (_jb) _jb.style.display = 'none';
+  const _jc = document.getElementById('chat-composer');
+  if (_jc) _jc.style.display = '';
 ```
 
 - [ ] **Step 4: Verificação local**
@@ -331,7 +335,8 @@ Em `renderChatList`, dentro do template do item, localizar:
 Adicionar imediatamente ANTES dessa linha (dentro do mesmo `<div>` de hora/pin), o cálculo + chip. No início do `leads.map(l => {`, junto de `const unread = _isUnread(l);`, adicionar:
 
 ```js
-    const jan = estadoJanela(l.ultima_recebida_em);
+    // guard: se /js/janela24h.js falhar ao carregar, a lista não pode quebrar
+    const jan = typeof estadoJanela === 'function' ? estadoJanela(l.ultima_recebida_em) : { estado: 'aberta', restanteMs: 0 };
     const janChip = jan.estado === 'fechando'
       ? `<span style="font-size:9.5px;font-weight:700;color:#b45309;background:rgba(245,158,11,.15);border-radius:4px;padding:1px 5px;white-space:nowrap" title="Janela de 24h fecha em ${_fmtRestante(jan.restanteMs)}">⏳ ${_fmtRestante(jan.restanteMs)}</span>`
       : jan.estado === 'fechada'
@@ -413,7 +418,7 @@ function toggleFiltroVencendo() {
 Em `filtrarChats`, após a linha `if (_filtroNaoLidas) base = base.filter(l => _isUnread(l));`, adicionar:
 
 ```js
-  if (_filtroVencendo) base = base.filter(l => estadoJanela(l.ultima_recebida_em).estado === 'fechando');
+  if (_filtroVencendo && typeof estadoJanela === 'function') base = base.filter(l => estadoJanela(l.ultima_recebida_em).estado === 'fechando');
 ```
 
 - [ ] **Step 3: Commit**
