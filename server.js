@@ -3990,6 +3990,53 @@ app.get('/api/avaliacoes/dentistas', requireAuth, requireGestor, async (req, res
   }
 });
 
+// ── Mapeamento dentista CRM ↔ Dentist_PersonId Clinicorp ───────────────────
+app.get('/api/avaliacoes/dentista-map', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const [{ data: maps }, { data: dentistas }] = await Promise.all([
+      supabase.from('dentista_clinicorp_map').select('dentista_id, clinicorp_person_id, nome, updated_at'),
+      supabase.from('profiles').select('id, nome').filter('roles', 'cs', '{dentista}').order('nome'),
+    ]);
+    res.json({
+      maps: maps || [],
+      dentistas: dentistas || [],
+      avaliadores_conhecidos: DENTISTAS_AVALIACAO, // ajuda o admin a escolher o id certo
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/avaliacoes/dentista-map/:dentista_id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { dentista_id } = req.params;
+    if (!UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
+    const personId = parseInt(req.body?.clinicorp_person_id, 10);
+    if (isNaN(personId) || personId <= 0) return res.status(400).json({ error: 'clinicorp_person_id deve ser um inteiro positivo' });
+    const nome = req.body?.nome ? String(req.body.nome).slice(0, 120) : null;
+    const { error } = await supabase.from('dentista_clinicorp_map').upsert({
+      dentista_id, clinicorp_person_id: personId, nome,
+      updated_at: new Date().toISOString(), updated_by: req.user.id,
+    }, { onConflict: 'dentista_id' });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/avaliacoes/dentista-map/:dentista_id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { dentista_id } = req.params;
+    if (!UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
+    const { error } = await supabase.from('dentista_clinicorp_map').delete().eq('dentista_id', dentista_id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Benchmark ─────────────────────────────────────────────────────────────
 
 app.post('/api/avaliacoes/benchmark', requireAuth, requireGestor, requireModuloAtivo, async (req, res) => {
