@@ -884,64 +884,6 @@ app.get('/api/kanban/comercial/:coluna', requireAuth, requireKanbanComercial, ra
 });
 
 // ========== TELEFONIA ==========
-// DEBUG TEMPORÁRIO — remover após diagnóstico
-app.get('/api/debug/3cplus', requireAuth, async (req, res) => {
-  try {
-    const p = await loadProfile(req);
-    const token = p.threec_agent_token;
-    const base = process.env.THREEC_BASE_URL || 'https://clinicaama.3c.plus';
-    const altBase = 'https://app.3c.fluxoti.com.br';
-    if (!token) return res.json({ erro: 'sem token no perfil', base });
-    const https = require('https'); const http = require('http');
-
-    function makeProbe(baseUrl) {
-      return function probeToken(method, apiPath, body, tok) {
-        const url = new URL(apiPath, baseUrl);
-        url.searchParams.set('api_token', tok || token);
-        const mod = url.protocol === 'https:' ? https : http;
-        const data = body ? JSON.stringify(body) : null;
-        return new Promise((resolve) => {
-          const opts = { hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, method, headers: { 'Content-Type': 'application/json', ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}) }, timeout: 8000 };
-          const req2 = mod.request(opts, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => resolve({ status: r.statusCode, body: b.slice(0, 500) })); });
-          req2.on('timeout', () => { req2.destroy(); resolve({ status: 'timeout' }); });
-          req2.on('error', e => resolve({ status: 'err', body: e.message }));
-          if (data) req2.write(data); req2.end();
-        });
-      };
-    }
-    const probe = makeProbe(base);
-    const gestorToken = process.env.THREEC_TOKEN || '';
-
-    // Datas para sonda do /calls (hoje, últimas 24h)
-    const now = new Date();
-    const ontem = new Date(now - 24 * 3600 * 1000);
-    const fmt = d => d.toISOString().slice(0, 19).replace('T', ' ');
-    const callsUrl = `/api/v1/calls?start_date=${encodeURIComponent(fmt(ontem))}&end_date=${encodeURIComponent(fmt(now))}`;
-
-    const steps = await Promise.all([
-      // Login sequencial + manual_call_enter (testados em série via then)
-      probe('POST', '/api/v1/agent/login', { campaign: 247859 }).then(async loginRes => {
-        const enterRes = await probe('POST', '/api/v1/agent/manual_call_enter', null);
-        const logoutRes = await probe('POST', '/api/v1/agent/logout', null);
-        return [
-          { path: 'POST /api/v1/agent/login {campaign:247859}', ...loginRes },
-          { path: 'POST /api/v1/agent/manual_call_enter (após login)', ...enterRes },
-          { path: 'POST /api/v1/agent/logout (cleanup)', ...logoutRes },
-        ];
-      }),
-      // Listar chamadas com datas reais (gestor token)
-      probe('GET', callsUrl, null, gestorToken).then(r => [{ path: `GET ${callsUrl} GESTOR`, ...r }]),
-      // Outros endpoints de agente
-      probe('GET',  '/api/v1/agent/me', null).then(r => [{ path: 'GET /api/v1/agent/me', ...r }]),
-      probe('GET',  '/api/v1/me', null).then(r => [{ path: 'GET /api/v1/me AGENT', ...r }]),
-      probe('GET',  '/api/v1/me', null, gestorToken).then(r => [{ path: 'GET /api/v1/me GESTOR', ...r }]),
-    ]);
-
-    res.json({ base, tokenPreview: token.slice(0,8)+'...', gestorTokenPresent: Boolean(gestorToken), steps: steps.flat() });
-  } catch (e) {
-    res.json({ erro: e.message });
-  }
-});
 
 app.post('/api/leads/:id/ligar', requireAuth, requireCrcLead, rateLimit, async (req, res) => {
   try {
@@ -988,7 +930,7 @@ app.get('/api/leads/:id/chamadas', requireAuth, rateLimit, async (req, res) => {
   }
 });
 
-app.get('/api/leads/:id/ligacoes', requireAuth, rateLimit, async (req, res) => {
+app.get('/api/leads/:id/ligacoes', requireAuth, requireCrcLead, rateLimit, async (req, res) => {
   try {
     const leadId = req.params.id;
     if (!leadId || !/^\d+$/.test(leadId)) return res.status(400).json({ error: 'ID inválido' });
@@ -1309,7 +1251,7 @@ app.post('/api/webhooks/3cplus', async (req, res) => {
 });
 
 // ========== ANÁLISE MANUAL DE LIGAÇÕES ==========
-app.post('/api/ligacoes/:id/analisar', requireAuth, rateLimit, async (req, res) => {
+app.post('/api/ligacoes/:id/analisar', requireAuth, requireCrcLead, rateLimit, async (req, res) => {
   try {
     const ligacaoId = req.params.id;
     if (!UUID_V4_RE.test(ligacaoId)) return res.status(400).json({ error: 'ID inválido' });
@@ -4708,7 +4650,7 @@ setInterval(async () => {
   try {
     const duasHoras = new Date(Date.now() - 2 * 3600 * 1000);
     const { data: pendentes } = await supabase.from('ligacoes')
-      .select('id, lead_id, usuario_id, criada_em, profiles:usuario_id(threec_agent_id)')
+      .select('id, lead_id, usuario_id, modulo, criada_em, tentativas_gravacao, profiles:usuario_id(threec_agent_id)')
       .is('threec_call_id', null)
       .eq('status', 'iniciada')
       .gt('criada_em', duasHoras.toISOString())
@@ -4745,7 +4687,7 @@ setInterval(async () => {
       // Busca chamada: número bate nos últimos 8 dígitos + agent_id (se disponível) + janela ±15min
       const match = chamadas.find(c => {
         const dest = (c.number || '').replace(/\D/g, '');
-        const agentOk = !agentId || c.agent_id === agentId;
+        const agentOk = !agentId || String(c.agent_id) === String(agentId);
         const ts = c.call_date_rfc3339 || c.call_date;
         const diff = ts ? Math.abs(new Date(ts).getTime() - criada) : Infinity;
         return dest.endsWith(destNorm.slice(-8)) && agentOk && diff < 900000; // 15min
@@ -4762,7 +4704,7 @@ setInterval(async () => {
       };
       await supabase.from('ligacoes').update(novoPatch).eq('id', lig.id);
       console.log(`✅ cron 3cplus poll: ligação ${lig.id} → call ${match.id} status=${novoPatch.status} dur=${duracao}s`);
-      if (novoPatch.gravacao_url && novoPatch.status === 'atendida' && duracao >= 60) {
+      if (novoPatch.gravacao_url && novoPatch.status === 'atendida') {
         processarGravacao({ ...lig, ...novoPatch }).catch(() => {});
       }
     }
