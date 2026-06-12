@@ -145,6 +145,10 @@ async function boot() {
 
   setupTabs();
 
+  if ((AvaliacaoApp.user?.roles ?? []).includes('admin')) {
+    import('./dentista-map.js').then(m => m.initDentistaMap()).catch(() => {});
+  }
+
   const initialTab = resolveInitialTab(roles);
   if (initialTab) {
     navigateTo(initialTab);
