@@ -119,7 +119,8 @@
     ${section('crc-leads','admin,gestor,crc_leads,crc_comercial',IC.kanban,'CRC de Leads',
       link('/kanban-leads/','admin,crc,crc_leads,crc_comercial,mod_kanban_leads','kanban-leads',IC.kanban,'Kanban Leads') +
       link('/','admin,gestor,crc_leads,crc_comercial,crc_sucesso','conv-agendamentos',IC.whatsapp,'WhatsApp CRC Lead') +
-      link('/','admin,gestor','conv-oficial',IC.whatsapp,'WhatsApp API Oficial')
+      link('/','admin,gestor','conv-oficial',IC.whatsapp,'WhatsApp API Oficial') +
+      link('/monitor-crc/','admin,gestor,crc_leads','monitor-crc',IC.dashboard,'Monitor Diario')
     )}
 
     ${section('crc-comercial','admin,gestor,crc_comercial',IC.comercial,'CRC Comercial',

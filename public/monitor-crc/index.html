@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor Diario CRC -- CRM AMA</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root { --bg:#0f1115; --bg2:#171a21; --bg3:#1f2330; --border:#2a2f3d; --text:#e8eaf0; --muted:#8b93a7; --accent:#4f8ef7; --green:#22c55e; --red:#ef4444; --yellow:#f59e0b; }
+  [data-theme="light"] { --bg:#f5f6f8; --bg2:#fff; --bg3:#eef0f4; --border:#dde1e8; --text:#1a1d26; --muted:#6b7280; --accent:#2563eb; --green:#16a34a; --red:#dc2626; --yellow:#d97706; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); display:flex; min-height:100vh; }
+  main { flex:1; padding:24px; max-width:1200px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  .data-nav { display:flex; align-items:center; gap:8px; margin-bottom:18px; flex-wrap:wrap; }
+  .data-nav button, .data-nav input { background:var(--bg2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:18px; }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  .card .num { font-size:22px; font-weight:700; }
+  .card .lbl { font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .card.alerta { border-color:rgba(239,68,68,.5); background:rgba(239,68,68,.07); cursor:pointer; }
+  .card.alerta .num { color:var(--red); }
+  table { width:100%; border-collapse:collapse; background:var(--bg2); border:1px solid var(--border); border-radius:10px; overflow:hidden; font-size:13px; }
+  th, td { padding:9px 10px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { background:var(--bg3); color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+  tr:last-child td { border-bottom:none; }
+  #sem-resposta-lista { display:none; background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:18px; font-size:13px; }
+  #sem-resposta-lista div { padding:4px 0; border-bottom:1px solid var(--border); }
+  #sem-resposta-lista div:last-child { border-bottom:none; }
+  .vazio { color:var(--muted); padding:30px; text-align:center; }
+  @media (max-width:760px){ main{padding:14px} table{font-size:11.5px} th,td{padding:6px 6px} }
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="monitor-crc"></script>
+<main>
+  <h1>Monitor Diario das CRCs</h1>
+  <div class="sub">Conversas, agendamentos e atendimento por CRC -- fuso de Brasilia</div>
+  <div class="data-nav">
+    <button onclick="mudarDia(-1)">&#9664;</button>
+    <input type="date" id="dia" onchange="carregar()">
+    <button onclick="mudarDia(1)">&#9654;</button>
+    <button onclick="hoje()">Hoje</button>
+    <button onclick="carregar()">Atualizar</button>
+  </div>
+  <div class="cards" id="cards"></div>
+  <div id="sem-resposta-lista"></div>
+  <div id="tabela"></div>
+</main>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function token() {
+  const k = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+  try { return k ? JSON.parse(localStorage.getItem(k))?.access_token : null; } catch { return null; }
+}
+async function api(url) {
+  const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token() } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Erro ' + r.status));
+  return j;
+}
+const hojeStr = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+function hoje() { document.getElementById('dia').value = hojeStr(); carregar(); }
+function mudarDia(delta) {
+  const el = document.getElementById('dia');
+  const d = new Date((el.value || hojeStr()) + 'T12:00:00');
+  d.setDate(d.getDate() + delta);
+  const novo = d.toISOString().slice(0, 10);
+  if (novo > hojeStr()) return;
+  el.value = novo; carregar();
+}
+const fmtMin = m => m == null ? '--' : (m >= 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'min' : m + 'min');
+const brt = iso => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+async function carregar() {
+  const data = document.getElementById('dia').value || hojeStr();
+  const cards = document.getElementById('cards');
+  const tabela = document.getElementById('tabela');
+  const srl = document.getElementById('sem-resposta-lista');
+  cards.innerHTML = '<div class="card"><div class="num">...</div><div class="lbl">carregando</div></div>';
+  tabela.innerHTML = ''; srl.style.display = 'none';
+  try {
+    const r = await api('/api/monitor-crc?data=' + data);
+    const nomes = r.nomes || {};
+    const nome = id => esc((nomes[id] || 'CRC').split(' ').slice(0, 2).join(' '));
+    if (r.escopo === 'proprio') {
+      const c = r.porCrc[0];
+      cards.innerHTML = c ? cardsCrc(c) : '<div class="vazio">Sem atividade registrada neste dia.</div>';
+      return;
+    }
+    const t = r.time;
+    cards.innerHTML = [
+      card(t.conversas, 'Conversas atendidas'), card(t.mensagens, 'Mensagens'),
+      card(t.templates, 'Templates'), card(t.agendamentos, 'Agendamentos'),
+      card(t.movimentacoes, 'Movimentacoes'), card(t.ligacoes.atendidas + '/' + t.ligacoes.total, 'Ligacoes (atend/total)'),
+      card(t.anotacoes, 'Anotacoes SDR'), card(fmtMin(t.primeiraRespostaMediaMin), 'Media 1a resposta'),
+      '<div class="card alerta" onclick="toggleSemResposta()"><div class="num">&#9888; ' + t.semResposta.length + '</div><div class="lbl">Leads sem resposta - clique p/ ver</div></div>',
+    ].join('');
+    srl.innerHTML = t.semResposta.length
+      ? t.semResposta.map(s => '<div>&#9203; <b>' + esc(s.nome) + '</b> - esperando desde ' + brt(s.desde) + '</div>').join('')
+      : '<div class="vazio">Nenhum lead esperando resposta</div>';
+    if (!r.porCrc.length) { tabela.innerHTML = '<div class="vazio">Sem atividade de CRC neste dia.</div>'; return; }
+    tabela.innerHTML = '<table><thead><tr>' +
+      '<th>CRC</th><th>Conversas</th><th>Msgs</th><th>Templates</th><th>Agendados</th>' +
+      '<th>Movimentacoes</th><th>Ligacoes</th><th>Anotacoes</th><th>1a resposta</th>' +
+      '</tr></thead><tbody>' + r.porCrc.map(function(c) {
+      const mov = Object.entries(c.movimentacoes.porDestino).map(function(e) { return e[0] + ': ' + e[1]; }).join('\n');
+      return '<tr>' +
+        '<td>' + nome(c.usuario_id) + '</td><td>' + c.conversas + '</td><td>' + c.mensagens + '</td>' +
+        '<td>' + c.templates + '</td><td><b>' + c.agendamentos + '</b></td>' +
+        '<td title="' + esc(mov) + '">' + c.movimentacoes.total + '</td>' +
+        '<td>' + c.ligacoes.atendidas + '/' + c.ligacoes.total + '</td><td>' + c.anotacoes + '</td>' +
+        '<td>' + fmtMin(c.primeiraRespostaMediaMin) + '</td>' +
+        '</tr>';
+    }).join('') + '</tbody></table>';
+  } catch (e) {
+    cards.innerHTML = ''; tabela.innerHTML = '<div class="vazio">Erro: ' + esc(e.message) + '</div>';
+  }
+}
+function card(num, lbl) { return '<div class="card"><div class="num">' + num + '</div><div class="lbl">' + lbl + '</div></div>'; }
+function cardsCrc(c) {
+  return [
+    card(c.conversas, 'Conversas atendidas'), card(c.mensagens, 'Mensagens'),
+    card(c.templates, 'Templates'), card(c.agendamentos, 'Agendamentos'),
+    card(c.movimentacoes.total, 'Movimentacoes'), card(c.ligacoes.atendidas + '/' + c.ligacoes.total, 'Ligacoes'),
+    card(c.anotacoes, 'Anotacoes SDR'), card(fmtMin(c.primeiraRespostaMediaMin), 'Media 1a resposta'),
+  ].join('');
+}
+function toggleSemResposta() {
+  const el = document.getElementById('sem-resposta-lista');
+  el.style.display = el.style.display === 'none' || !el.style.display ? 'block' : 'none';
+}
+hoje();
+</script>
+</body>
+</html>
