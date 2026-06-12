@@ -32,8 +32,8 @@ Gravar ao vivo como padrão + upload arrumado como plano B.
 
 ### 2. Identificação do dentista (mapeamento login ↔ Clinicorp)
 
-- Criar mapeamento **usuário do CRM ↔ `Dentist_PersonId` do Clinicorp** (ex.: usuário Marcos → Marcos-Avaliação `5757301300985856`; Matheus G. → `6576596377468928`).
-- Configurável pelo admin (tela/config simples).
+- Criar mapeamento **usuário do CRM ↔ `Dentist_PersonId` do Clinicorp**. Hoje são **dois avaliadores**: Marcos-Avaliação `5757301300985856` e Matheus G.-Avaliação `6576596377468928`.
+- Configurável pelo admin (tela/config simples), para suportar novos dentistas no futuro.
 - Toda avaliação passa a gravar **dentista, paciente e data da consulta** — inclusive quando o **gestor** sobe o áudio: a tela de upload pede dentista, paciente (da agenda daquele dia) e data. Acaba a avaliação órfã.
 
 ### 3. Upload consertado (plano B)
@@ -48,6 +48,7 @@ Gravar ao vivo como padrão + upload arrumado como plano B.
 
 - Com as avaliações amarradas, o Histórico ganha colunas **Dentista / Paciente / Data** e filtros por **dentista** e **período**.
 - Avaliações antigas órfãs continuam visíveis, marcadas como **"sem vínculo"**.
+- **Atribuição manual das antigas:** no Histórico, uma avaliação órfã pode ser atribuída — o gestor/admin escolhe dentista, paciente e data e a avaliação deixa de ser órfã. Permite limpar o histórico legado aos poucos.
 
 ## Fora do escopo
 
@@ -69,3 +70,4 @@ Gravar ao vivo como padrão + upload arrumado como plano B.
 3. Upload de `.m4a` grande funciona; em caso de falha, erro claro na tela.
 4. Histórico filtra por dentista e período e mostra Dentista/Paciente/Data.
 5. Nenhuma avaliação nova fica órfã.
+6. Avaliações antigas órfãs podem ser atribuídas manualmente (dentista + paciente + data) pelo gestor/admin.
