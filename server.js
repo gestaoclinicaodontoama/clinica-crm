@@ -4569,6 +4569,44 @@ app.patch('/api/avaliacoes/:id/nome', requireAuth, async (req, res) => {
   }
 });
 
+// Atribuição manual de avaliação órfã: dentista + paciente (nome) + data, num passo só.
+app.patch('/api/avaliacoes/:id/atribuir', requireAuth, async (req, res) => {
+  try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
+    const p = await loadProfile(req);
+    const isGestor = (p.roles || []).some(r => ['gestor', 'admin'].includes(r));
+    if (!isGestor) return res.status(403).json({ error: 'Apenas gestor/admin pode atribuir' });
+
+    const { data: consulta } = await supabase.from('consultas_spin').select('id').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+
+    const patch = {};
+    const { dentista_id, paciente_nome, data_consulta, clinicorp_patient_id, clinicorp_appointment_id } = req.body;
+    if (dentista_id !== undefined) {
+      if (!UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id inválido' });
+      patch.dentista_id = dentista_id;
+    }
+    if (paciente_nome !== undefined) {
+      const nome = String(paciente_nome || '').trim().slice(0, 120);
+      if (!nome) return res.status(400).json({ error: 'paciente_nome não pode ser vazio' });
+      patch.paciente_nome = nome;
+    }
+    if (data_consulta !== undefined) {
+      if (data_consulta && !/^\d{4}-\d{2}-\d{2}$/.test(data_consulta)) return res.status(400).json({ error: 'data_consulta deve ser YYYY-MM-DD' });
+      patch.data_consulta = data_consulta || null;
+    }
+    if (clinicorp_patient_id !== undefined) patch.clinicorp_patient_id = clinicorp_patient_id ? String(clinicorp_patient_id).slice(0, 64) : null;
+    if (clinicorp_appointment_id !== undefined) patch.clinicorp_appointment_id = clinicorp_appointment_id ? String(clinicorp_appointment_id).slice(0, 64) : null;
+
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
+    const { data, error } = await supabase.from('consultas_spin').update(patch).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ ok: true, consulta: data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/avaliacoes/:id/reanalisar', requireAuth, requireRole('dentista', 'admin', 'gestor', 'mod_avaliacao_dentista'), requireModuloAtivo, async (req, res) => {
   try {
     if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
