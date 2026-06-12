@@ -12,11 +12,18 @@ self.addEventListener('push', e => {
   }));
 });
 
-self.addEventListener('notificationclick', e => {
+self.addEventListener('notificationclick', function(e) {
   e.notification.close();
-  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
-    const crm = cs.find(c => c.url.includes(self.registration.scope));
-    if (crm) return crm.focus();
-    return clients.openWindow(self.registration.scope);
+  var url = e.notification.data && e.notification.data.url
+    ? new URL(e.notification.data.url, self.registration.scope).href
+    : self.registration.scope;
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
+    var crm = cs.find(function(c) { return c.url.includes(self.registration.scope); });
+    if (crm) {
+      crm.focus();
+      if (e.notification.data && e.notification.data.url && crm.navigate) return crm.navigate(url).catch(function() {});
+      return;
+    }
+    return clients.openWindow(url);
   }));
 });

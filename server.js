@@ -2256,6 +2256,41 @@ app.get('/api/monitor-crc', requireAuth, rateLimit, async (req, res) => {
   }
 });
 
+async function enviarResumoCrcDiario(force) {
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  if (!force) {
+    const { data: claimed, error } = await supabase.from('app_config')
+      .update({ resumo_crc_ultimo_envio: hoje }).eq('id', 1)
+      .or('resumo_crc_ultimo_envio.is.null,resumo_crc_ultimo_envio.neq.' + hoje)
+      .select('id');
+    if (error || !claimed || !claimed.length) return false;
+  } else {
+    await supabase.from('app_config').update({ resumo_crc_ultimo_envio: hoje }).eq('id', 1);
+  }
+  const { monitor, nomes } = await montarMonitorCrcDoDia(hoje);
+  const dataBR = hoje.split('-').reverse().slice(0, 2).join('/');
+  const texto = resumoCrcTexto(monitor, nomes, dataBR);
+  const { data: gestores } = await supabase.from('profiles').select('id')
+    .or('roles.cs.{admin},roles.cs.{gestor}');
+  for (const g of gestores || []) {
+    await criarNotificacao(g.id, 'resumo_crc', 'Resumo diario das CRCs', texto, { url: '/monitor-crc/' });
+  }
+  console.log('Resumo CRC enviado (' + (gestores && gestores.length || 0) + ' gestores): ' + texto.slice(0, 120));
+  return true;
+}
+
+setInterval(function() {
+  const hhmm = new Date().toLocaleTimeString('sv-SE', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  if (hhmm >= '18:30') enviarResumoCrcDiario(false).catch(function(e) { console.error('[resumo-crc]', e.message); });
+}, 60000);
+
+app.post('/api/internal/cron/resumo-crc', requireCronSecret, async (req, res) => {
+  try {
+    const ok = await enviarResumoCrcDiario(req.query.force === '1');
+    res.json({ ok: true, enviado: ok });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ========== META CAPI ==========
 const META_PAGE_ID = process.env.META_PAGE_ID || '';
 const META_API_VERSION = 'v21.0';
