@@ -4243,15 +4243,25 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
       return res.status(400).json({ error: 'Campos obrigatórios: id, paciente_nome, modo, started_at, analysis' });
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
       return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
-    // Gestor/admin pode salvar avaliação em nome de outro dentista (upload retroativo)
+    // Gestor/admin pode salvar avaliação em nome de outro dentista (upload retroativo).
+    // CRM single-tenant (sem clinic_id): o escopo é "ser um avaliador real do CRM".
     let dentistaIdFinal = req.user.id;
     if (req.body.dentista_id && req.body.dentista_id !== req.user.id) {
       const pp = await loadProfile(req);
       const isGestor = (pp.roles || []).some(r => ['gestor', 'admin'].includes(r));
-      if (isGestor) {
-        if (!UUID_V4_RE.test(req.body.dentista_id)) return res.status(400).json({ error: 'dentista_id inválido' });
-        dentistaIdFinal = req.body.dentista_id;
-      }
+      if (!isGestor)
+        return res.status(403).json({ error: 'Sem permissão para salvar avaliação em nome de outro dentista' });
+      if (!UUID_V4_RE.test(req.body.dentista_id))
+        return res.status(400).json({ error: 'dentista_id inválido' });
+      // Alvo precisa ser um avaliador real: perfil com role dentista OU vínculo Clinicorp.
+      const [{ data: alvoProf }, { data: alvoMap }] = await Promise.all([
+        supabase.from('profiles').select('roles').eq('id', req.body.dentista_id).maybeSingle(),
+        supabase.from('dentista_clinicorp_map').select('dentista_id').eq('dentista_id', req.body.dentista_id).maybeSingle(),
+      ]);
+      const ehAvaliador = !!alvoMap || (alvoProf && (alvoProf.roles || []).some(r => ['dentista', 'admin', 'mod_avaliacao_dentista'].includes(r)));
+      if (!ehAvaliador)
+        return res.status(403).json({ error: 'dentista_id não é um avaliador válido' });
+      dentistaIdFinal = req.body.dentista_id;
     }
     const analysisCheck = AnalysisV1.safeParse(analysis);
     if (!analysisCheck.success)
