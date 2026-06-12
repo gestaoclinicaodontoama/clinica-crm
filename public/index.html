@@ -2442,8 +2442,23 @@ async function analisarLigacao(id) {
   }
 }
 
+// Garante que o softfone esteja aberto e retorna false se não estava (para avisar CRC).
+function _garantirSoftfoneAberto() {
+  const body = document.getElementById('softphone-body');
+  if (!body) return true; // sem softfone (sem token) — servidor vai rejeitar mesmo
+  if (body.style.display === 'none') {
+    // Abre o softfone para o ramal WebRTC registrar
+    body.style.display = 'block';
+    document.getElementById('softphone-toggle-icon').textContent = '▼';
+    toast('📞 Softfone aberto. Aguarde aparecer "Softphone ativo" e tente Ligar novamente.', true);
+    return false;
+  }
+  return true;
+}
+
 async function ligarLead3c() {
   if (!leadAtual) return;
+  if (!_garantirSoftfoneAberto()) return;
   try {
     toast('📞 Iniciando ligação...');
     const r = await api(`/api/leads/${leadAtual.id}/ligar`, { method: 'POST' });
@@ -2458,6 +2473,7 @@ async function ligarLead3c() {
 // Ligação a partir do chat (WhatsApp CRC Lead). Usa o lead do chat, não o do modal.
 async function ligarChatLead() {
   if (!chatLeadAtual || !chatLeadAtual.telefone) return;
+  if (!_garantirSoftfoneAberto()) return;
   try {
     toast('📞 Iniciando ligação...');
     const r = await api(`/api/leads/${chatLeadAtual.id}/ligar`, { method: 'POST' });
