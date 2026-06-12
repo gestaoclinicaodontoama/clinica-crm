@@ -3889,28 +3889,65 @@ app.post('/api/avaliacoes/deepgram-token', requireAuth, requireDentista, require
 
 const _transcribeJobs = new Map(); // jobId → { status, result, error, userId }
 
+function converterParaWav16k(buffer, inputFmt) {
+  const { ffmpegArgsTo16kWav } = require('./lib/avaliacao/audio-format');
+  return new Promise((resolve, reject) => {
+    const ff = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegArgsTo16kWav(inputFmt));
+    const out = []; let err = '';
+    ff.stdout.on('data', d => out.push(d));
+    ff.stderr.on('data', d => { err += d.toString(); });
+    ff.on('error', e => reject(new Error('ffmpeg indisponível: ' + e.message)));
+    ff.on('close', code => code === 0
+      ? resolve(Buffer.concat(out))
+      : reject(new Error('ffmpeg falhou (' + code + '): ' + err.slice(0, 300))));
+    ff.stdin.on('error', () => {}); // evita EPIPE se ffmpeg fechar cedo
+    ff.stdin.write(buffer); ff.stdin.end();
+  });
+}
+
 app.post('/api/avaliacoes/transcrever',
   requireAuth, requireDentista, requireModuloAtivo,
   express.raw({ type: '*/*', limit: '300mb' }),
   (req, res) => {
     const jobId = crypto.randomUUID();
-    const contentType = (req.headers['x-audio-content-type'] || req.headers['content-type'] || 'audio/mpeg')
-      .split(';')[0].trim();
-    const buffer = req.body; // Buffer from express.raw()
+    const { detectFormat, needsConversion } = require('./lib/avaliacao/audio-format');
+    const buffer = req.body;
+    const filename = req.headers['x-audio-filename'] || '';
+    const rawCt = (req.headers['x-audio-content-type'] || req.headers['content-type'] || '').split(';')[0].trim();
+    const fmt = detectFormat(rawCt, filename);
+
+    console.log('[transcrever] upload recebido', JSON.stringify({ jobId, userId: req.user.id, rawCt, filename, fmt, bytes: buffer?.length ?? 0 }));
+
+    if (!buffer || buffer.length === 0) {
+      _transcribeJobs.set(jobId, { status: 'error', result: null, error: 'Arquivo vazio ou não recebido.', userId: req.user.id });
+      return res.json({ jobId });
+    }
 
     _transcribeJobs.set(jobId, { status: 'pending', result: null, error: null, userId: req.user.id });
-    res.json({ jobId }); // respond immediately — no proxy timeout
+    res.json({ jobId });
 
-    deepgramLib().transcribeBuffer(buffer, contentType)
-      .then(dgResult => {
+    (async () => {
+      try {
+        let bufFinal = buffer;
+        let ctFinal = rawCt || 'audio/mpeg';
+        if (needsConversion(fmt)) {
+          console.log('[transcrever] convertendo', JSON.stringify({ jobId, fmt }));
+          bufFinal = await converterParaWav16k(buffer, fmt);
+          ctFinal = 'audio/wav';
+        }
+        const dgResult = await deepgramLib().transcribeBuffer(bufFinal, ctFinal);
         const words = dgResult?.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
         _transcribeJobs.set(jobId, { status: 'done', result: { words }, error: null, userId: req.user.id });
-      })
-      .catch(e => {
-        _transcribeJobs.set(jobId, { status: 'error', result: null, error: e.message, userId: req.user.id });
-      });
+      } catch (e) {
+        console.error('[transcrever] FALHA', JSON.stringify({ jobId, fmt, bytes: buffer?.length ?? 0, erro: e.message }));
+        const amigavel = /ffmpeg/.test(e.message)
+          ? 'Não consegui converter este áudio. Tente enviar em MP3 ou WAV.'
+          : 'Falha ao transcrever o áudio: ' + e.message;
+        _transcribeJobs.set(jobId, { status: 'error', result: null, error: amigavel, userId: req.user.id });
+      }
+    })();
 
-    setTimeout(() => _transcribeJobs.delete(jobId), 15 * 60 * 1000); // cleanup after 15min
+    setTimeout(() => _transcribeJobs.delete(jobId), 15 * 60 * 1000);
   }
 );
 
