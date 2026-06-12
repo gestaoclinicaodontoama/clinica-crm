@@ -15,6 +15,8 @@
   .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
   .data-nav { display:flex; align-items:center; gap:8px; margin-bottom:18px; flex-wrap:wrap; }
   .data-nav button, .data-nav input { background:var(--bg2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  .data-nav .nav-dia { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .data-nav input[type=date] { width:145px; flex-shrink:0; }
   .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:18px; }
   .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:12px; }
   .card .num { font-size:22px; font-weight:700; }
@@ -30,7 +32,14 @@
   #sem-resposta-lista div { padding:4px 0; border-bottom:1px solid var(--border); }
   #sem-resposta-lista div:last-child { border-bottom:none; }
   .vazio { color:var(--muted); padding:30px; text-align:center; }
-  @media (max-width:760px){ main{padding:14px} table{font-size:11.5px} th,td{padding:6px 6px} }
+  .tabela-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  @media (max-width:760px){
+    main { padding:12px; padding-bottom:80px; }
+    .cards { grid-template-columns:repeat(2,1fr); gap:8px; }
+    .card .num { font-size:20px; }
+    table { font-size:11px; }
+    th, td { padding:6px 5px; }
+  }
 </style>
 </head>
 <body>
@@ -39,15 +48,17 @@
   <h1>Monitor Diario das CRCs</h1>
   <div class="sub">Conversas, agendamentos e atendimento por CRC -- fuso de Brasilia</div>
   <div class="data-nav">
-    <button onclick="mudarDia(-1)">&#9664;</button>
-    <input type="date" id="dia" onchange="carregar()">
-    <button onclick="mudarDia(1)">&#9654;</button>
+    <div class="nav-dia">
+      <button onclick="mudarDia(-1)">&#9664;</button>
+      <input type="date" id="dia" onchange="carregar()">
+      <button onclick="mudarDia(1)">&#9654;</button>
+    </div>
     <button onclick="hoje()">Hoje</button>
     <button onclick="carregar()">Atualizar</button>
   </div>
   <div class="cards" id="cards"></div>
   <div id="sem-resposta-lista"></div>
-  <div id="tabela"></div>
+  <div class="tabela-wrap" id="tabela"></div>
 </main>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
