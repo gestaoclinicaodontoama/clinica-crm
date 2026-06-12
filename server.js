@@ -3889,28 +3889,65 @@ app.post('/api/avaliacoes/deepgram-token', requireAuth, requireDentista, require
 
 const _transcribeJobs = new Map(); // jobId → { status, result, error, userId }
 
+function converterParaWav16k(buffer, inputFmt) {
+  const { ffmpegArgsTo16kWav } = require('./lib/avaliacao/audio-format');
+  return new Promise((resolve, reject) => {
+    const ff = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegArgsTo16kWav(inputFmt));
+    const out = []; let err = '';
+    ff.stdout.on('data', d => out.push(d));
+    ff.stderr.on('data', d => { err += d.toString(); });
+    ff.on('error', e => reject(new Error('ffmpeg indisponível: ' + e.message)));
+    ff.on('close', code => code === 0
+      ? resolve(Buffer.concat(out))
+      : reject(new Error('ffmpeg falhou (' + code + '): ' + err.slice(0, 300))));
+    ff.stdin.on('error', () => {}); // evita EPIPE se ffmpeg fechar cedo
+    ff.stdin.write(buffer); ff.stdin.end();
+  });
+}
+
 app.post('/api/avaliacoes/transcrever',
   requireAuth, requireDentista, requireModuloAtivo,
   express.raw({ type: '*/*', limit: '300mb' }),
   (req, res) => {
     const jobId = crypto.randomUUID();
-    const contentType = (req.headers['x-audio-content-type'] || req.headers['content-type'] || 'audio/mpeg')
-      .split(';')[0].trim();
-    const buffer = req.body; // Buffer from express.raw()
+    const { detectFormat, needsConversion } = require('./lib/avaliacao/audio-format');
+    const buffer = req.body;
+    const filename = req.headers['x-audio-filename'] || '';
+    const rawCt = (req.headers['x-audio-content-type'] || req.headers['content-type'] || '').split(';')[0].trim();
+    const fmt = detectFormat(rawCt, filename);
+
+    console.log('[transcrever] upload recebido', JSON.stringify({ jobId, userId: req.user.id, rawCt, filename, fmt, bytes: buffer?.length ?? 0 }));
+
+    if (!buffer || buffer.length === 0) {
+      _transcribeJobs.set(jobId, { status: 'error', result: null, error: 'Arquivo vazio ou não recebido.', userId: req.user.id });
+      return res.json({ jobId });
+    }
 
     _transcribeJobs.set(jobId, { status: 'pending', result: null, error: null, userId: req.user.id });
-    res.json({ jobId }); // respond immediately — no proxy timeout
+    res.json({ jobId });
 
-    deepgramLib().transcribeBuffer(buffer, contentType)
-      .then(dgResult => {
+    (async () => {
+      try {
+        let bufFinal = buffer;
+        let ctFinal = rawCt || 'audio/mpeg';
+        if (needsConversion(fmt)) {
+          console.log('[transcrever] convertendo', JSON.stringify({ jobId, fmt }));
+          bufFinal = await converterParaWav16k(buffer, fmt);
+          ctFinal = 'audio/wav';
+        }
+        const dgResult = await deepgramLib().transcribeBuffer(bufFinal, ctFinal);
         const words = dgResult?.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
         _transcribeJobs.set(jobId, { status: 'done', result: { words }, error: null, userId: req.user.id });
-      })
-      .catch(e => {
-        _transcribeJobs.set(jobId, { status: 'error', result: null, error: e.message, userId: req.user.id });
-      });
+      } catch (e) {
+        console.error('[transcrever] FALHA', JSON.stringify({ jobId, fmt, bytes: buffer?.length ?? 0, erro: e.message }));
+        const amigavel = /ffmpeg/.test(e.message)
+          ? 'Não consegui converter este áudio. Tente enviar em MP3 ou WAV.'
+          : 'Falha ao transcrever o áudio: ' + e.message;
+        _transcribeJobs.set(jobId, { status: 'error', result: null, error: amigavel, userId: req.user.id });
+      }
+    })();
 
-    setTimeout(() => _transcribeJobs.delete(jobId), 15 * 60 * 1000); // cleanup after 15min
+    setTimeout(() => _transcribeJobs.delete(jobId), 15 * 60 * 1000);
   }
 );
 
@@ -3986,6 +4023,91 @@ app.get('/api/avaliacoes/dentistas', requireAuth, requireGestor, async (req, res
     if (error) throw error;
     res.json(data || []);
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Mapeamento dentista CRM ↔ Dentist_PersonId Clinicorp ───────────────────
+app.get('/api/avaliacoes/dentista-map', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const [{ data: maps }, { data: dentistas }] = await Promise.all([
+      supabase.from('dentista_clinicorp_map').select('dentista_id, clinicorp_person_id, nome, updated_at'),
+      supabase.from('profiles').select('id, nome').filter('roles', 'cs', '{dentista}').order('nome'),
+    ]);
+    res.json({
+      maps: maps || [],
+      dentistas: dentistas || [],
+      avaliadores_conhecidos: DENTISTAS_AVALIACAO, // ajuda o admin a escolher o id certo
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/avaliacoes/dentista-map/:dentista_id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { dentista_id } = req.params;
+    if (!UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
+    const personId = parseInt(req.body?.clinicorp_person_id, 10);
+    if (isNaN(personId) || personId <= 0) return res.status(400).json({ error: 'clinicorp_person_id deve ser um inteiro positivo' });
+    const nome = req.body?.nome ? String(req.body.nome).slice(0, 120) : null;
+    const { error } = await supabase.from('dentista_clinicorp_map').upsert({
+      dentista_id, clinicorp_person_id: personId, nome,
+      updated_at: new Date().toISOString(), updated_by: req.user.id,
+    }, { onConflict: 'dentista_id' });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/avaliacoes/dentista-map/:dentista_id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { dentista_id } = req.params;
+    if (!UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
+    const { error } = await supabase.from('dentista_clinicorp_map').delete().eq('dentista_id', dentista_id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Agenda do dia do dentista (paciente presente) ──────────────────────────
+app.get('/api/avaliacoes/agenda-hoje', requireAuth, requireDentista, requireModuloAtivo, rateLimit, async (req, res) => {
+  try {
+    const { parseAgendaDia } = require('./lib/avaliacao/agenda');
+    const p = await loadProfile(req);
+    const isGestor = (p.roles || []).some(r => ['gestor', 'admin'].includes(r));
+
+    // dentista alvo: o próprio, ou ?dentista_id= quando gestor/admin sobe áudio por outro
+    let alvoDentistaId = req.user.id;
+    if (isGestor && req.query.dentista_id) {
+      if (!UUID_V4_RE.test(req.query.dentista_id)) return res.status(400).json({ error: 'dentista_id inválido' });
+      alvoDentistaId = req.query.dentista_id;
+    }
+
+    const { data: map } = await supabase.from('dentista_clinicorp_map')
+      .select('clinicorp_person_id').eq('dentista_id', alvoDentistaId).maybeSingle();
+    if (!map) return res.status(409).json({ error: 'sem_vinculo', mensagem: 'Dentista sem vínculo com o Clinicorp. Peça ao admin para configurar.' });
+
+    // data: hoje em America/Sao_Paulo, ou ?data=YYYY-MM-DD (gestor sobe retroativo)
+    let dia = req.query.data;
+    if (dia) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return res.status(400).json({ error: 'data deve ser YYYY-MM-DD' });
+    } else {
+      dia = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10); // UTC-3
+    }
+    const to = new Date(dia + 'T00:00:00Z'); to.setUTCDate(to.getUTCDate() + 1);
+    const toStr = to.toISOString().slice(0, 10);
+
+    const r = await clinicorpGet('/appointment/list', { from: dia, to: toStr });
+    const appts = Array.isArray(r.data) ? r.data : (Array.isArray(r) ? r : []);
+    const agenda = parseAgendaDia(appts, map.clinicorp_person_id, dia);
+    res.json({ data: dia, agenda });
+  } catch (e) {
+    console.error('[agenda-hoje]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -4151,12 +4273,33 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
       modo, started_at, ended_at, transcript, analysis, analysis_schema_version = 1,
       feedback_ia, uso, transcript_stats, tipo_tratamento_id, tipo_tratamento_outro,
       tratamento_valor_cents, tratamento_valor_label, planejamento_em,
-      consentimento_manual_versao, consentimento_manual_em } = req.body;
+      consentimento_manual_versao, consentimento_manual_em,
+      clinicorp_appointment_id, clinicorp_patient_id, data_consulta } = req.body;
 
     if (!id || !paciente_nome || !modo || !started_at || !analysis)
       return res.status(400).json({ error: 'Campos obrigatórios: id, paciente_nome, modo, started_at, analysis' });
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
       return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
+    // Gestor/admin pode salvar avaliação em nome de outro dentista (upload retroativo).
+    // CRM single-tenant (sem clinic_id): o escopo é "ser um avaliador real do CRM".
+    let dentistaIdFinal = req.user.id;
+    if (req.body.dentista_id && req.body.dentista_id !== req.user.id) {
+      const pp = await loadProfile(req);
+      const isGestor = (pp.roles || []).some(r => ['gestor', 'admin'].includes(r));
+      if (!isGestor)
+        return res.status(403).json({ error: 'Sem permissão para salvar avaliação em nome de outro dentista' });
+      if (!UUID_V4_RE.test(req.body.dentista_id))
+        return res.status(400).json({ error: 'dentista_id inválido' });
+      // Alvo precisa ser um avaliador real: perfil com role dentista OU vínculo Clinicorp.
+      const [{ data: alvoProf }, { data: alvoMap }] = await Promise.all([
+        supabase.from('profiles').select('roles').eq('id', req.body.dentista_id).maybeSingle(),
+        supabase.from('dentista_clinicorp_map').select('dentista_id').eq('dentista_id', req.body.dentista_id).maybeSingle(),
+      ]);
+      const ehAvaliador = !!alvoMap || (alvoProf && (alvoProf.roles || []).some(r => ['dentista', 'admin', 'mod_avaliacao_dentista'].includes(r)));
+      if (!ehAvaliador)
+        return res.status(403).json({ error: 'dentista_id não é um avaliador válido' });
+      dentistaIdFinal = req.body.dentista_id;
+    }
     const analysisCheck = AnalysisV1.safeParse(analysis);
     if (!analysisCheck.success)
       return res.status(400).json({ error: 'analysis inválido', issues: analysisCheck.error.issues.slice(0, 3) });
@@ -4182,10 +4325,13 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
     }
 
     const row = {
-      id, dentista_id: req.user.id,
+      id, dentista_id: dentistaIdFinal,
       paciente_id: paciente_id || null,
       paciente_nome: String(paciente_nome).slice(0, 200),
       paciente_vinculado: !!paciente_vinculado,
+      clinicorp_appointment_id: clinicorp_appointment_id ? String(clinicorp_appointment_id).slice(0, 64) : null,
+      clinicorp_patient_id:     clinicorp_patient_id ? String(clinicorp_patient_id).slice(0, 64) : null,
+      data_consulta:            (data_consulta && /^\d{4}-\d{2}-\d{2}$/.test(data_consulta)) ? data_consulta : null,
       lead_id: lead_id != null ? (() => { const n = parseInt(lead_id, 10); if (isNaN(n)) throw Object.assign(new Error('lead_id deve ser um inteiro'), { status: 400 }); return n; })() : null,
       modo, started_at, ended_at: ended_at || null,
       transcript: transcript || null, analysis, analysis_schema_version,
@@ -4207,7 +4353,7 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
 
     if (!consulta) {
       const { data: existente } = await supabase.from('consultas_spin')
-        .select('*').eq('id', id).eq('dentista_id', req.user.id).maybeSingle();
+        .select('*').eq('id', id).eq('dentista_id', dentistaIdFinal).maybeSingle();
       if (!existente) return res.status(409).json({ error: 'Conflito de ID: consulta pertence a outro dentista' });
       return res.json({ ok: true, consulta: existente, duplicate: true });
     }
@@ -4237,7 +4383,7 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
     if (dentista_id && !UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
 
     let query = supabase.from('consultas_spin')
-      .select('id, dentista_id, paciente_id, paciente_nome, nota_final, modo, created_at, feedback_ia', { count: 'exact' })
+      .select('id, dentista_id, paciente_id, paciente_nome, paciente_vinculado, clinicorp_appointment_id, data_consulta, nota_final, modo, created_at, feedback_ia', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -4256,7 +4402,18 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
 
     const { data, count, error } = await query;
     if (error) throw error;
-    res.json({ data: data || [], total: count || 0, limit, offset });
+    let rows = data || [];
+    const dentistaIds = [...new Set(rows.map(r => r.dentista_id).filter(Boolean))];
+    if (dentistaIds.length) {
+      const { data: profs } = await supabase.from('profiles').select('id, nome').in('id', dentistaIds);
+      const nomeBy = Object.fromEntries((profs || []).map(p => [p.id, p.nome]));
+      rows = rows.map(r => ({
+        ...r,
+        dentista_nome: nomeBy[r.dentista_id] || null,
+        orfa: !r.paciente_vinculado && !r.clinicorp_appointment_id && !r.data_consulta,
+      }));
+    }
+    res.json({ data: rows, total: count || 0, limit, offset });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -4407,6 +4564,44 @@ app.patch('/api/avaliacoes/:id/nome', requireAuth, async (req, res) => {
       .update({ paciente_nome: nome }).eq('id', req.params.id).select('id, paciente_nome').single();
     if (error) throw error;
     res.json({ ok: true, paciente_nome: data.paciente_nome });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Atribuição manual de avaliação órfã: dentista + paciente (nome) + data, num passo só.
+app.patch('/api/avaliacoes/:id/atribuir', requireAuth, async (req, res) => {
+  try {
+    if (!UUID_V4_RE.test(req.params.id)) return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
+    const p = await loadProfile(req);
+    const isGestor = (p.roles || []).some(r => ['gestor', 'admin'].includes(r));
+    if (!isGestor) return res.status(403).json({ error: 'Apenas gestor/admin pode atribuir' });
+
+    const { data: consulta } = await supabase.from('consultas_spin').select('id').eq('id', req.params.id).maybeSingle();
+    if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
+
+    const patch = {};
+    const { dentista_id, paciente_nome, data_consulta, clinicorp_patient_id, clinicorp_appointment_id } = req.body;
+    if (dentista_id !== undefined) {
+      if (!UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id inválido' });
+      patch.dentista_id = dentista_id;
+    }
+    if (paciente_nome !== undefined) {
+      const nome = String(paciente_nome || '').trim().slice(0, 120);
+      if (!nome) return res.status(400).json({ error: 'paciente_nome não pode ser vazio' });
+      patch.paciente_nome = nome;
+    }
+    if (data_consulta !== undefined) {
+      if (data_consulta && !/^\d{4}-\d{2}-\d{2}$/.test(data_consulta)) return res.status(400).json({ error: 'data_consulta deve ser YYYY-MM-DD' });
+      patch.data_consulta = data_consulta || null;
+    }
+    if (clinicorp_patient_id !== undefined) patch.clinicorp_patient_id = clinicorp_patient_id ? String(clinicorp_patient_id).slice(0, 64) : null;
+    if (clinicorp_appointment_id !== undefined) patch.clinicorp_appointment_id = clinicorp_appointment_id ? String(clinicorp_appointment_id).slice(0, 64) : null;
+
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
+    const { data, error } = await supabase.from('consultas_spin').update(patch).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ ok: true, consulta: data });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

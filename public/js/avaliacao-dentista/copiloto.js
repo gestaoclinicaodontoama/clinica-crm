@@ -684,6 +684,10 @@ async function handleSalvar() {
     feedback_ia: feedbacks,
     paciente_nome: document.getElementById('avd-paciente-nome')?.value?.trim() || 'Paciente sem nome',
     paciente_vinculado: false,
+    clinicorp_appointment_id: AvaliacaoApp.currentPaciente?.clinicorp_appointment_id || null,
+    clinicorp_patient_id:     AvaliacaoApp.currentPaciente?.clinicorp_patient_id || null,
+    data_consulta:            AvaliacaoApp.currentPaciente?.data_consulta || new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10),
+    dentista_id: AvaliacaoApp.currentUploadDentistaId || undefined,
     // Required by DB constraint for deepgram/audio modes: user accepted LGPD consent modal
     consentimento_manual_versao: (_mode !== 'texto')
       ? (AvaliacaoApp.config?.termo_lgpd_versao_atual ?? '1.0')
@@ -795,6 +799,109 @@ function switchMode(mode) {
       btn.setAttribute('aria-selected', m === mode ? 'true' : 'false');
     }
   });
+  if (mode === 'audio') setupUploadAmarra();
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function carregarAgendaHoje() {
+  const box = document.getElementById('avd-agenda');
+  if (!box) return;
+  box.innerHTML = '<div style="font-size:12px;color:var(--muted)">Carregando agenda do dia…</div>';
+  try {
+    const r = await get('/api/avaliacoes/agenda-hoje');
+    renderAgenda(r.agenda || []);
+  } catch (e) {
+    if (e.status === 409 || /sem_vinculo/.test(e.message)) {
+      box.innerHTML = '<div style="font-size:12px;color:var(--muted)">Agenda indisponível (dentista sem vínculo com o Clinicorp). Você pode digitar o nome do paciente abaixo.</div>';
+    } else {
+      box.innerHTML = `<div style="font-size:12px;color:var(--muted)">Não foi possível carregar a agenda. <button onclick="window._avdAgendaReload()" style="background:none;border:none;color:var(--accent);cursor:pointer;text-decoration:underline">tentar de novo</button></div>`;
+    }
+  }
+}
+
+function renderAgenda(itens) {
+  const box = document.getElementById('avd-agenda');
+  if (!box) return;
+  const header = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <span style="font-size:12px;color:var(--muted)">Agenda de hoje</span>
+    <button onclick="window._avdAgendaReload()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:4px 10px;color:var(--muted);font-size:11px;cursor:pointer">↻ Atualizar</button>
+  </div>`;
+  if (!itens.length) {
+    box.innerHTML = header + '<div style="font-size:12px;color:var(--muted)">Nenhum paciente na agenda de hoje.</div>';
+    return;
+  }
+  const cards = itens.map((it, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;border:1px solid ${it.presente ? 'rgba(34,197,94,.4)' : 'var(--border)'};background:${it.presente ? 'rgba(34,197,94,.08)' : 'var(--bg3)'};margin-bottom:6px">
+      <div>
+        <div style="font-size:13.5px;font-weight:600">${it.presente ? '🟢 ' : ''}${escapeHtml(it.paciente_nome)}</div>
+        <div style="font-size:11px;color:var(--muted)">${escapeHtml(it.from_time || '')}${it.to_time ? '–' + escapeHtml(it.to_time) : ''}${it.presente ? ' · Presente' : ''}</div>
+      </div>
+      <button onclick="window._avdIniciarPaciente(${i})" style="padding:7px 14px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Iniciar consulta</button>
+    </div>`).join('');
+  box.innerHTML = header + cards;
+  window.__avdAgenda = itens;
+}
+
+function iniciarComPaciente(idx) {
+  const it = (window.__avdAgenda || [])[idx];
+  if (!it) return;
+  AvaliacaoApp.currentPaciente = {
+    nome: it.paciente_nome,
+    clinicorp_patient_id: it.clinicorp_patient_id,
+    clinicorp_appointment_id: it.appointment_id,
+    data_consulta: new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10),
+  };
+  const input = document.getElementById('avd-paciente-nome');
+  if (input) input.value = it.paciente_nome;
+  handleIniciar();
+}
+
+async function setupUploadAmarra() {
+  const roles = AvaliacaoApp.user?.roles ?? [];
+  const isGestor = roles.some(r => ['gestor', 'admin'].includes(r));
+  const box = document.getElementById('avd-upload-amarra');
+  if (!box || !isGestor) return;
+  box.style.display = 'block';
+  const sel = document.getElementById('avd-upload-dentista');
+  const dt = document.getElementById('avd-upload-data');
+  if (dt && !dt.value) dt.value = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  try {
+    const r = await get('/api/avaliacoes/dentistas'); // [{id, nome}]
+    sel.innerHTML = '<option value="">— escolha o dentista —</option>' +
+      (r || []).map(d => `<option value="${d.id}">${escapeHtml(d.nome || d.id)}</option>`).join('');
+  } catch { /* silencioso */ }
+  window._avdUploadCarregarAgenda = uploadCarregarAgenda;
+}
+
+async function uploadCarregarAgenda() {
+  const dentistaId = document.getElementById('avd-upload-dentista')?.value;
+  const data = document.getElementById('avd-upload-data')?.value;
+  const selPac = document.getElementById('avd-upload-paciente');
+  if (!dentistaId || !data) { showToast('Escolha dentista e data.', 'warning'); return; }
+  try {
+    const r = await get(`/api/avaliacoes/agenda-hoje?dentista_id=${dentistaId}&data=${data}`);
+    const itens = r.agenda || [];
+    selPac.style.display = 'block';
+    selPac.innerHTML = '<option value="">— paciente (ou deixe em branco p/ nome manual) —</option>' +
+      itens.map((it, i) => `<option value="${i}">${it.presente ? '🟢 ' : ''}${escapeHtml(it.paciente_nome)} ${escapeHtml(it.from_time || '')}</option>`).join('');
+    window.__avdUploadAgenda = itens;
+    AvaliacaoApp.currentUploadDentistaId = dentistaId;
+    selPac.onchange = () => {
+      const it = (window.__avdUploadAgenda || [])[selPac.value];
+      AvaliacaoApp.currentPaciente = it ? {
+        nome: it.paciente_nome, clinicorp_patient_id: it.clinicorp_patient_id,
+        clinicorp_appointment_id: it.appointment_id, data_consulta: data,
+      } : { data_consulta: data };
+      const input = document.getElementById('avd-paciente-nome');
+      if (input && it) input.value = it.paciente_nome;
+    };
+  } catch (e) {
+    if (e.status === 409) showToast('Esse dentista não tem vínculo com o Clinicorp.', 'warning');
+    else showToast('Erro ao carregar agenda: ' + e.message, 'error');
+  }
 }
 
 function renderRoot() {
@@ -812,6 +919,7 @@ function renderRoot() {
 .avd-mode-tab { padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;font-size:12.5px;font-weight:500;font-family:inherit;transition:all .15s }
 .avd-mode-tab.active { background:var(--accent);color:white;border-color:var(--accent) }
 </style>
+<div id="avd-agenda" style="margin-bottom:16px"></div>
 <div style="margin-bottom:16px">
   <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Modo de entrada:</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap" role="tablist" aria-label="Modo de entrada">
@@ -846,6 +954,15 @@ function renderRoot() {
   <style>@keyframes avd-pulse{0%,100%{opacity:1}50%{opacity:.4}}</style>
   <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Formatos aceitos: MP3, WAV, M4A, FLAC, OGG, MP4, WebM — até 500MB</div>
   <input type="file" id="avd-audio-file" accept="audio/*,video/mp4,video/webm" style="margin-bottom:12px">
+  <div id="avd-upload-amarra" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Esta avaliação é de qual dentista / dia?</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="avd-upload-dentista" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:13px"></select>
+      <input type="date" id="avd-upload-data" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:13px">
+      <button onclick="window._avdUploadCarregarAgenda()" style="padding:7px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--muted);font-size:12px;cursor:pointer">Ver agenda</button>
+    </div>
+    <select id="avd-upload-paciente" style="margin-top:8px;display:none;width:100%;max-width:360px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:13px"></select>
+  </div>
 </div>
 
 <div id="avd-pane-texto" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;display:none">
@@ -869,6 +986,8 @@ function renderRoot() {
   window._avdMode = switchMode;
   window._avdIniciar = handleIniciar;
   window._avdFinalizar = handleFinalizar;
+  window._avdIniciarPaciente = iniciarComPaciente;
+  window._avdAgendaReload = carregarAgendaHoje;
   window._avdLimpar = () => {
     _sessionActive = false;
     _saving = false;
@@ -879,6 +998,8 @@ function renderRoot() {
     _sessionId = null;
     _reconnectCount = 0;
     AvaliacaoApp.currentSession = null;
+    AvaliacaoApp.currentPaciente = null;
+    AvaliacaoApp.currentUploadDentistaId = null;
     AvaliacaoApp._consentimentoGravacaoAceito = false;
     _feedbackState = {};
     idbDel(IDB_STORE, 'current').catch(() => {});
@@ -896,6 +1017,7 @@ function renderRoot() {
 
 export async function init() {
   renderRoot();
+  carregarAgendaHoje();
 
   const saved = await idbGet(IDB_STORE, 'current').catch(() => null);
   if (saved && saved.consultaId) {

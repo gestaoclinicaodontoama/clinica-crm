@@ -85,6 +85,7 @@ async function request(method, path, body, attempt = 0) {
 export const get  = (path)        => request('GET',    path);
 export const post = (path, body)  => request('POST',   path, body);
 export const patch = (path, body) => request('PATCH',  path, body);
+export const put  = (path, body)  => request('PUT',    path, body);
 export const del  = (path)        => request('DELETE', path);
 
 export async function postFile(path, file) {
@@ -93,6 +94,8 @@ export async function postFile(path, file) {
     'Content-Type': 'application/octet-stream', // express.raw() needs a generic type
     'X-Audio-Content-Type': file.type || 'audio/mpeg', // real type forwarded to Deepgram
     'X-Filename': encodeURIComponent(file.name || 'audio'),
+    'x-audio-filename': (file?.name || '').slice(0, 120),
+    'x-audio-content-type': file?.type || 'application/octet-stream',
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 

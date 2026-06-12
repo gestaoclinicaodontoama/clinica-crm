@@ -8,6 +8,45 @@ let _offset = 0;
 let _total = 0;
 let _items = [];
 
+// Filter state
+let _filterDentistaId = '';
+let _filterDesde = '';
+let _filterAte = '';
+
+// Dentistas cache (gestor/admin only)
+let _dentistas = null;
+
+function formatDateOnly(iso) {
+  if (!iso) return '—';
+  // iso may be YYYY-MM-DD or a full ISO string
+  const part = iso.slice(0, 10);
+  const [y, m, d] = part.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function buildQueryUrl(limit, offset) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (_filterDentistaId) params.set('dentista_id', _filterDentistaId);
+  if (_filterDesde) params.set('desde', _filterDesde);
+  if (_filterAte) params.set('ate', _filterAte);
+  return `/avaliacoes?${params.toString()}`;
+}
+
+function isGestorUser() {
+  const roles = AvaliacaoApp.user?.roles ?? [];
+  return roles.includes('gestor') || roles.includes('admin');
+}
+
+async function loadDentistas() {
+  if (_dentistas) return _dentistas;
+  try {
+    _dentistas = await get('/avaliacoes/dentistas');
+  } catch (_) {
+    _dentistas = [];
+  }
+  return _dentistas;
+}
+
 function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -360,16 +399,23 @@ function renderList() {
     return;
   }
 
+  const isGestor = isGestorUser();
   root.innerHTML = _items.map((c, idx) => {
     const nota = c.nota_final;
     const cor = notaCor(nota);
+    const seloOrfa = c.orfa ? ' <span style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:1px 6px;color:var(--muted)">sem vínculo</span>' : '';
+    const btnAtribuir = (isGestor && c.orfa)
+      ? `<button onclick="event.stopPropagation();window._avdAtribuir('${escHtml(c.id)}')" style="padding:4px 10px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:11px;cursor:pointer;flex-shrink:0">Atribuir</button>`
+      : '';
+    const dataExib = c.data_consulta ? formatDateOnly(c.data_consulta) : formatDate(c.created_at);
+    const dentistaNome = escHtml(c.dentista_nome ?? '—');
     return `
       <div
         class="hist-row"
         data-idx="${idx}"
         tabindex="0"
         role="button"
-        aria-label="Ver detalhe da consulta de ${escHtml(c.paciente_nome ?? '—')} em ${formatDate(c.created_at)}"
+        aria-label="Ver detalhe da consulta de ${escHtml(c.paciente_nome ?? '—')} em ${dataExib}"
         style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s"
         onmouseenter="this.style.background='var(--bg3)'"
         onmouseleave="this.style.background=''"
@@ -380,9 +426,15 @@ function renderList() {
           ${nota != null ? nota.toFixed(1) : '—'}
         </div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(c.paciente_nome ?? '—')}</div>
-          <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${formatDate(c.created_at)} · ${modoBadge(c.modo)}</div>
+          <div style="font-size:13.5px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+            ${escHtml(c.paciente_nome ?? '—')}${seloOrfa}
+          </div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap">
+            <span>${dataExib} · ${modoBadge(c.modo)}</span>
+            ${c.dentista_nome ? `<span style="color:var(--text)">· ${dentistaNome}</span>` : ''}
+          </div>
         </div>
+        ${btnAtribuir}
       </div>`;
   }).join('');
 
@@ -395,7 +447,7 @@ async function loadMore() {
   if (btn) btn.disabled = true;
 
   try {
-    const data = await get(`/avaliacoes?limit=${PAGE_SIZE}&offset=${_offset}`);
+    const data = await get(buildQueryUrl(PAGE_SIZE, _offset));
     _items = [..._items, ...(data.data ?? [])];
     _total = data.total ?? _items.length;
     _offset += (data.data ?? []).length;
@@ -864,6 +916,16 @@ function renderRoot() {
         <div style="font-size:13.5px;font-weight:600">Consultas</div>
         <div id="hist-count" style="font-size:12px;color:var(--muted)"></div>
       </div>
+      <div id="hist-filters" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;gap:10px">
+        <select id="hist-filter-dentista" aria-label="Filtrar por dentista"
+          style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12.5px;font-family:inherit;cursor:pointer">
+          <option value="">Todos os dentistas</option>
+        </select>
+        <input id="hist-filter-desde" type="date" aria-label="Data inicial"
+          style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12.5px;font-family:inherit">
+        <input id="hist-filter-ate" type="date" aria-label="Data final"
+          style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12.5px;font-family:inherit">
+      </div>
       <div id="hist-list"></div>
       <div id="hist-load-more" style="display:none;padding:14px;text-align:center">
         <button id="hist-load-more-btn" onclick="window._histLoadMore()" style="padding:8px 22px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit" aria-label="Carregar mais consultas">Carregar mais</button>
@@ -883,9 +945,7 @@ function renderRoot() {
   window._histLoadMore = loadMore;
 }
 
-export async function init() {
-  renderRoot();
-
+async function reloadList() {
   _offset = 0;
   _total = 0;
   _items = [];
@@ -894,7 +954,7 @@ export async function init() {
   if (listEl) listEl.innerHTML = `<div style="padding:24px;text-align:center;font-size:13px;color:var(--muted)">Carregando...</div>`;
 
   try {
-    const data = await get(`/avaliacoes?limit=${PAGE_SIZE}&offset=0`);
+    const data = await get(buildQueryUrl(PAGE_SIZE, 0));
     _items = data.data ?? [];
     _total = data.total ?? _items.length;
     _offset = _items.length;
@@ -907,4 +967,109 @@ export async function init() {
     showToast('Erro ao carregar histórico: ' + e.message, 'error');
     if (listEl) listEl.innerHTML = `<div style="padding:24px;text-align:center;font-size:13px;color:var(--red)">Erro ao carregar. Tente novamente.</div>`;
   }
+}
+
+export async function init() {
+  _filterDentistaId = '';
+  _filterDesde = '';
+  _filterAte = '';
+  _dentistas = null;
+
+  renderRoot();
+
+  // Wire filters for gestor/admin
+  if (isGestorUser()) {
+    const filtersEl = document.getElementById('hist-filters');
+    if (filtersEl) filtersEl.style.display = 'flex';
+
+    // Load dentistas and populate select
+    const dentistas = await loadDentistas();
+    const sel = document.getElementById('hist-filter-dentista');
+    if (sel && dentistas.length) {
+      dentistas.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.nome;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', () => {
+        _filterDentistaId = sel.value;
+        reloadList();
+      });
+    }
+
+    const desdeEl = document.getElementById('hist-filter-desde');
+    const ateEl = document.getElementById('hist-filter-ate');
+    if (desdeEl) desdeEl.addEventListener('change', () => { _filterDesde = desdeEl.value; reloadList(); });
+    if (ateEl) ateEl.addEventListener('change', () => { _filterAte = ateEl.value; reloadList(); });
+  }
+
+  // Attribution modal (gestor/admin only)
+  window._avdAtribuir = async (id) => {
+    const dentistas = isGestorUser() ? await loadDentistas() : [];
+    const optsHtml = dentistas.map(d =>
+      `<option value="${escHtml(d.id)}">${escHtml(d.nome)}</option>`
+    ).join('');
+
+    const html = `
+      <div>
+        <h2 id="avaliacao-modal-title" style="font-size:16px;font-weight:700;margin-bottom:14px">Atribuir avaliação</h2>
+        <div style="margin-bottom:12px">
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Dentista</label>
+          <select id="avd-attr-dentista" aria-label="Selecionar dentista"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit">
+            <option value="">— selecione —</option>
+            ${optsHtml}
+          </select>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Nome do paciente</label>
+          <input id="avd-attr-paciente" type="text" maxlength="120" placeholder="Nome do paciente" aria-label="Nome do paciente"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:18px">
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Data da consulta</label>
+          <input id="avd-attr-data" type="date" aria-label="Data da consulta"
+            style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:13px;font-family:inherit">
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="avd-attr-confirmar" style="padding:9px 20px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit" aria-label="Confirmar atribuição">Confirmar</button>
+          <button onclick="document.getElementById('avaliacao-modal-bg').classList.remove('open')"
+            style="padding:9px 16px;border-radius:8px;background:var(--bg3);color:var(--text);border:1px solid var(--border);font-size:13px;cursor:pointer;font-family:inherit" aria-label="Cancelar">Cancelar</button>
+        </div>
+      </div>`;
+
+    showModal(html);
+
+    document.getElementById('avd-attr-confirmar')?.addEventListener('click', async () => {
+      const btn = document.getElementById('avd-attr-confirmar');
+      const dentistaId = document.getElementById('avd-attr-dentista')?.value || undefined;
+      const pacienteNome = document.getElementById('avd-attr-paciente')?.value.trim() || undefined;
+      const dataConsulta = document.getElementById('avd-attr-data')?.value || undefined;
+
+      // Build body with only filled fields
+      const body = {};
+      if (dentistaId) body.dentista_id = dentistaId;
+      if (pacienteNome) body.paciente_nome = pacienteNome;
+      if (dataConsulta) body.data_consulta = dataConsulta;
+
+      if (Object.keys(body).length === 0) {
+        showToast('Preencha ao menos um campo.', 'warning');
+        return;
+      }
+
+      try {
+        if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
+        await patch(`/avaliacoes/${id}/atribuir`, body);
+        showToast('Avaliação atribuída.', 'success');
+        document.getElementById('avaliacao-modal-bg')?.classList.remove('open');
+        await reloadList();
+      } catch (e) {
+        showToast('Erro ao atribuir: ' + (e.message || 'tente novamente.'), 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Confirmar'; }
+      }
+    });
+  };
+
+  await reloadList();
 }
