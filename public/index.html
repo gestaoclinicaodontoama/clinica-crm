@@ -2442,16 +2442,15 @@ async function analisarLigacao(id) {
   }
 }
 
-// Se o widget 3cplus existe (tem token), abre o painel de instrução e retorna false.
-// A CRC precisa estar idle no 3cplus para Ligar funcionar.
+// Garante que o softfone esteja aberto (expandido). Se estava colapsado,
+// expande e avisa CRC para aguardar conectar antes de tentar Ligar.
 function _garantirSoftfoneAberto() {
-  const widget = document.getElementById('softphone-widget');
-  if (!widget || widget.style.display === 'none') return true; // sem token — servidor explica
   const body = document.getElementById('softphone-body');
-  if (body && body.style.display === 'none') {
+  if (!body) return true; // sem softfone (sem token) — servidor explica
+  if (body.style.display === 'none') {
     body.style.display = 'block';
     document.getElementById('softphone-toggle-icon').textContent = '▼';
-    toast('📞 Faça login no 3cplus (clique em "Abrir 3cplus") e fique disponível. Depois tente Ligar novamente.', true);
+    toast('📞 Softfone aberto. Aguarde aparecer "Softphone ativo" e permita o microfone. Depois tente Ligar novamente.', true);
     return false;
   }
   return true;
@@ -5709,22 +5708,17 @@ async function submitNewPassword() {
   </div>
 </div>
 </div>
-<!-- Widget 3cplus — aparece para CRCs com token. Abre o 3cplus numa aba separada
-     (o embedded WebRTC exige licença webphone que a clínica não tem).
-     Quando a CRC estiver idle no 3cplus, o botão Ligar do CRM funciona. -->
+<!-- Softphone 3cplus — widget flutuante para CRCs com token.
+     Carrega o softphone WebRTC em iframe (clnicaama.3c.plus/extension).
+     Quando conectado, o agente fica "ocioso" no 3cplus e o botão Ligar funciona. -->
 <div id="softphone-widget" style="display:none;position:fixed;bottom:16px;right:16px;z-index:9000;flex-direction:column;align-items:flex-end;gap:0">
   <div id="softphone-bar" style="background:#1a1a2e;color:#fff;padding:6px 12px;border-radius:8px 8px 0 0;display:flex;align-items:center;gap:8px;cursor:move;user-select:none;touch-action:none;font-size:13px;min-width:180px" onclick="toggleSoftphone()" title="Clique para abrir/fechar · Segure e arraste para mover">
     <span style="font-size:16px">📞</span>
-    <span id="softphone-status" style="flex:1">3cplus</span>
+    <span id="softphone-status" style="flex:1">Softphone</span>
     <span id="softphone-toggle-icon" style="font-size:11px;opacity:.7">▲</span>
   </div>
-  <div id="softphone-body" style="background:#1a1a2e;border:1px solid #333;border-top:none;border-radius:0 0 8px 8px;padding:16px 14px;width:260px;display:none">
-    <p style="color:#ccc;font-size:12px;margin:0 0 12px;line-height:1.5">Para usar <strong style="color:#fff">📞 Ligar</strong>, faça login no 3cplus e fique disponível (ocioso) lá.</p>
-    <a href="https://clnicaama.3c.plus/" target="_blank" rel="noopener"
-       style="display:block;background:#4f46e5;color:#fff;text-align:center;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none">
-      Abrir 3cplus ↗
-    </a>
-    <p style="color:#666;font-size:11px;margin:10px 0 0;line-height:1.4">Use o e-mail e senha do 3cplus (não do CRM). Após login, clique em Ligar normalmente.</p>
+  <div id="softphone-body" style="background:#fff;border:1px solid #1a1a2e;border-top:none;border-radius:0 0 8px 8px;overflow:hidden;width:320px;height:500px;display:none">
+    <iframe id="softphone-iframe" src="" allow="microphone; camera" style="width:100%;height:100%;border:none"></iframe>
   </div>
 </div>
 
@@ -5736,7 +5730,16 @@ async function initSoftphone() {
     const me = await api('/api/me');
     if (!me?.threec_agent_token) return;
     _softphoneInited = true;
-    document.getElementById('softphone-widget').style.display = 'flex';
+    const widget = document.getElementById('softphone-widget');
+    const iframe  = document.getElementById('softphone-iframe');
+    // URL correta do domínio da clínica: clnicaama (sem 'i')
+    iframe.src = 'https://clnicaama.3c.plus/extension?api_token=' + encodeURIComponent(me.threec_agent_token);
+    widget.style.display = 'flex';
+    document.getElementById('softphone-body').style.display = 'none';
+    document.getElementById('softphone-toggle-icon').textContent = '▲';
+    iframe.addEventListener('load', () => {
+      document.getElementById('softphone-status').textContent = 'Softphone ativo';
+    });
   } catch {}
 }
 
