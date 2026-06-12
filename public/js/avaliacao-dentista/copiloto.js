@@ -684,6 +684,9 @@ async function handleSalvar() {
     feedback_ia: feedbacks,
     paciente_nome: document.getElementById('avd-paciente-nome')?.value?.trim() || 'Paciente sem nome',
     paciente_vinculado: false,
+    clinicorp_appointment_id: AvaliacaoApp.currentPaciente?.clinicorp_appointment_id || null,
+    clinicorp_patient_id:     AvaliacaoApp.currentPaciente?.clinicorp_patient_id || null,
+    data_consulta:            AvaliacaoApp.currentPaciente?.data_consulta || new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10),
     // Required by DB constraint for deepgram/audio modes: user accepted LGPD consent modal
     consentimento_manual_versao: (_mode !== 'texto')
       ? (AvaliacaoApp.config?.termo_lgpd_versao_atual ?? '1.0')

@@ -4236,12 +4236,23 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
       modo, started_at, ended_at, transcript, analysis, analysis_schema_version = 1,
       feedback_ia, uso, transcript_stats, tipo_tratamento_id, tipo_tratamento_outro,
       tratamento_valor_cents, tratamento_valor_label, planejamento_em,
-      consentimento_manual_versao, consentimento_manual_em } = req.body;
+      consentimento_manual_versao, consentimento_manual_em,
+      clinicorp_appointment_id, clinicorp_patient_id, data_consulta } = req.body;
 
     if (!id || !paciente_nome || !modo || !started_at || !analysis)
       return res.status(400).json({ error: 'Campos obrigatórios: id, paciente_nome, modo, started_at, analysis' });
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
       return res.status(400).json({ error: 'id deve ser um UUID v4 válido' });
+    // Gestor/admin pode salvar avaliação em nome de outro dentista (upload retroativo)
+    let dentistaIdFinal = req.user.id;
+    if (req.body.dentista_id && req.body.dentista_id !== req.user.id) {
+      const pp = await loadProfile(req);
+      const isGestor = (pp.roles || []).some(r => ['gestor', 'admin'].includes(r));
+      if (isGestor) {
+        if (!UUID_V4_RE.test(req.body.dentista_id)) return res.status(400).json({ error: 'dentista_id inválido' });
+        dentistaIdFinal = req.body.dentista_id;
+      }
+    }
     const analysisCheck = AnalysisV1.safeParse(analysis);
     if (!analysisCheck.success)
       return res.status(400).json({ error: 'analysis inválido', issues: analysisCheck.error.issues.slice(0, 3) });
@@ -4267,10 +4278,13 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
     }
 
     const row = {
-      id, dentista_id: req.user.id,
+      id, dentista_id: dentistaIdFinal,
       paciente_id: paciente_id || null,
       paciente_nome: String(paciente_nome).slice(0, 200),
       paciente_vinculado: !!paciente_vinculado,
+      clinicorp_appointment_id: clinicorp_appointment_id ? String(clinicorp_appointment_id).slice(0, 64) : null,
+      clinicorp_patient_id:     clinicorp_patient_id ? String(clinicorp_patient_id).slice(0, 64) : null,
+      data_consulta:            (data_consulta && /^\d{4}-\d{2}-\d{2}$/.test(data_consulta)) ? data_consulta : null,
       lead_id: lead_id != null ? (() => { const n = parseInt(lead_id, 10); if (isNaN(n)) throw Object.assign(new Error('lead_id deve ser um inteiro'), { status: 400 }); return n; })() : null,
       modo, started_at, ended_at: ended_at || null,
       transcript: transcript || null, analysis, analysis_schema_version,
@@ -4292,7 +4306,7 @@ app.post('/api/avaliacoes', requireAuth, requireDentista, requireModuloAtivo, as
 
     if (!consulta) {
       const { data: existente } = await supabase.from('consultas_spin')
-        .select('*').eq('id', id).eq('dentista_id', req.user.id).maybeSingle();
+        .select('*').eq('id', id).eq('dentista_id', dentistaIdFinal).maybeSingle();
       if (!existente) return res.status(409).json({ error: 'Conflito de ID: consulta pertence a outro dentista' });
       return res.json({ ok: true, consulta: existente, duplicate: true });
     }
