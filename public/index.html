@@ -5332,9 +5332,10 @@ function _showLogin() {
 function _showApp() {
   document.getElementById('login-screen').classList.remove('active');
   document.getElementById('app-shell').style.display = '';
-  // Inicia push e carrega badge de notificações
+  // Inicia push, softfone e carrega badge de notificações
   setTimeout(() => {
     initPush().catch(() => {});
+    initSoftphone().catch(() => {});
     api('/api/notificacoes').then(r => atualizarBadge(r.nao_lidas)).catch(() => {});
   }, 1000);
 }
@@ -5704,10 +5705,16 @@ async function submitNewPassword() {
 </div>
 
 <script>
-(async function initSoftphone() {
+// Chamado por iniciarApp() — precisa rodar DEPOIS da sessão estar pronta. Como IIFE no
+// parse, rodava antes do login: /api/me ia sem Authorization, dava 401 e o widget nunca
+// aparecia (nem em sessão restaurada nem após login fresco).
+let _softphoneInited = false;
+async function initSoftphone() {
+  if (_softphoneInited) return;
   try {
     const me = await api('/api/me');
     if (!me?.threec_agent_token) return;
+    _softphoneInited = true;
     const widget = document.getElementById('softphone-widget');
     const iframe = document.getElementById('softphone-iframe');
     iframe.src = 'https://clinicaama.3c.plus/extension?api_token=' + encodeURIComponent(me.threec_agent_token);
@@ -5719,7 +5726,7 @@ async function submitNewPassword() {
       document.getElementById('softphone-status').textContent = 'Softphone ativo';
     });
   } catch {}
-})();
+}
 
 let _softphoneArrastou = false;
 function toggleSoftphone() {
