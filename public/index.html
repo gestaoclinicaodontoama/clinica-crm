@@ -2442,18 +2442,21 @@ async function analisarLigacao(id) {
   }
 }
 
-// Garante que o softfone esteja aberto (expandido). Se estava colapsado,
-// expande e avisa CRC para aguardar conectar antes de tentar Ligar.
+// Verifica se o softfone está conectado antes de ligar.
+// Checa o STATUS (texto), não a visibilidade do corpo — a conexão WebRTC
+// existe mesmo com o painel colapsado, desde que "Softphone ativo" apareça na barra.
 function _garantirSoftfoneAberto() {
-  const body = document.getElementById('softphone-body');
-  if (!body) return true; // sem softfone (sem token) — servidor explica
-  if (body.style.display === 'none') {
-    body.style.display = 'block';
-    document.getElementById('softphone-toggle-icon').textContent = '▼';
-    toast('📞 Softfone aberto. Aguarde aparecer "Softphone ativo" e permita o microfone. Depois tente Ligar novamente.', true);
+  const widget = document.getElementById('softphone-widget');
+  if (!widget || widget.style.display === 'none') return true; // sem token — servidor explica
+  const status = document.getElementById('softphone-status')?.textContent || '';
+  if (status !== 'Softphone ativo') {
+    // Ainda conectando — expande para o usuário ver o progresso e permita o microfone
+    const body = document.getElementById('softphone-body');
+    if (body) { body.style.display = 'block'; document.getElementById('softphone-toggle-icon').textContent = '▼'; }
+    toast('📞 Softfone ainda conectando. Aguarde aparecer "Softphone ativo" na barra e permita o microfone. Depois tente Ligar.', true);
     return false;
   }
-  return true;
+  return true; // "Softphone ativo" = WebRTC conectado, pode ligar
 }
 
 async function ligarLead3c() {
