@@ -4037,6 +4037,44 @@ app.delete('/api/avaliacoes/dentista-map/:dentista_id', requireAuth, requireAdmi
   }
 });
 
+// ── Agenda do dia do dentista (paciente presente) ──────────────────────────
+app.get('/api/avaliacoes/agenda-hoje', requireAuth, requireDentista, requireModuloAtivo, rateLimit, async (req, res) => {
+  try {
+    const { parseAgendaDia } = require('./lib/avaliacao/agenda');
+    const p = await loadProfile(req);
+    const isGestor = (p.roles || []).some(r => ['gestor', 'admin'].includes(r));
+
+    // dentista alvo: o próprio, ou ?dentista_id= quando gestor/admin sobe áudio por outro
+    let alvoDentistaId = req.user.id;
+    if (isGestor && req.query.dentista_id) {
+      if (!UUID_V4_RE.test(req.query.dentista_id)) return res.status(400).json({ error: 'dentista_id inválido' });
+      alvoDentistaId = req.query.dentista_id;
+    }
+
+    const { data: map } = await supabase.from('dentista_clinicorp_map')
+      .select('clinicorp_person_id').eq('dentista_id', alvoDentistaId).maybeSingle();
+    if (!map) return res.status(409).json({ error: 'sem_vinculo', mensagem: 'Dentista sem vínculo com o Clinicorp. Peça ao admin para configurar.' });
+
+    // data: hoje em America/Sao_Paulo, ou ?data=YYYY-MM-DD (gestor sobe retroativo)
+    let dia = req.query.data;
+    if (dia) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return res.status(400).json({ error: 'data deve ser YYYY-MM-DD' });
+    } else {
+      dia = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10); // UTC-3
+    }
+    const to = new Date(dia + 'T00:00:00Z'); to.setUTCDate(to.getUTCDate() + 1);
+    const toStr = to.toISOString().slice(0, 10);
+
+    const r = await clinicorpGet('/appointment/list', { from: dia, to: toStr });
+    const appts = Array.isArray(r.data) ? r.data : (Array.isArray(r) ? r : []);
+    const agenda = parseAgendaDia(appts, map.clinicorp_person_id, dia);
+    res.json({ data: dia, agenda });
+  } catch (e) {
+    console.error('[agenda-hoje]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Benchmark ─────────────────────────────────────────────────────────────
 
 app.post('/api/avaliacoes/benchmark', requireAuth, requireGestor, requireModuloAtivo, async (req, res) => {
