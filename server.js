@@ -4383,7 +4383,7 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
     if (dentista_id && !UUID_V4_RE.test(dentista_id)) return res.status(400).json({ error: 'dentista_id deve ser um UUID v4 válido' });
 
     let query = supabase.from('consultas_spin')
-      .select('id, dentista_id, paciente_id, paciente_nome, nota_final, modo, created_at, feedback_ia', { count: 'exact' })
+      .select('id, dentista_id, paciente_id, paciente_nome, paciente_vinculado, clinicorp_appointment_id, data_consulta, nota_final, modo, created_at, feedback_ia', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -4402,7 +4402,18 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
 
     const { data, count, error } = await query;
     if (error) throw error;
-    res.json({ data: data || [], total: count || 0, limit, offset });
+    let rows = data || [];
+    const dentistaIds = [...new Set(rows.map(r => r.dentista_id).filter(Boolean))];
+    if (dentistaIds.length) {
+      const { data: profs } = await supabase.from('profiles').select('id, nome').in('id', dentistaIds);
+      const nomeBy = Object.fromEntries((profs || []).map(p => [p.id, p.nome]));
+      rows = rows.map(r => ({
+        ...r,
+        dentista_nome: nomeBy[r.dentista_id] || null,
+        orfa: !r.paciente_vinculado && !r.clinicorp_appointment_id && !r.data_consulta,
+      }));
+    }
+    res.json({ data: rows, total: count || 0, limit, offset });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
