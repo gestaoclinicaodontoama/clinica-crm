@@ -31,15 +31,45 @@ function limparNumero(num) {
   return n;
 }
 
+// Erros transitórios da Meta: code 1 (unknown), 2 (service temporarily unavailable),
+// 130429 (throughput) e HTTP 5xx. Ex.: "An unexpected error has occurred. Please retry
+// your request later." (code 2) — falha do lado da Meta, reenviar resolve.
+const _TRANSIENT_CODES = new Set([1, 2, 130429]);
+const _RETRY_DELAYS_MS = [1000, 3000];
+const MSG_META_INSTAVEL = 'Instabilidade temporária no WhatsApp (Meta) — tente novamente em instantes.';
+
+function _erroMeta(error, httpStatus) {
+  const transient = _TRANSIENT_CODES.has(error.code) || httpStatus >= 500;
+  const e = new Error(transient ? MSG_META_INSTAVEL : error.message);
+  e.code = error.code;
+  e.transient = transient;
+  e.metaMessage = error.message;
+  return e;
+}
+
+async function _comRetry(fn) {
+  for (let tentativa = 0; ; tentativa++) {
+    try { return await fn(); }
+    catch (e) {
+      if (!e.transient || tentativa >= _RETRY_DELAYS_MS.length) throw e;
+      console.warn(`⚠️ Meta transitório (code ${e.code}), retry ${tentativa + 1}/${_RETRY_DELAYS_MS.length}: ${e.metaMessage}`);
+      await new Promise(r => setTimeout(r, _RETRY_DELAYS_MS[tentativa]));
+    }
+  }
+}
+
 async function _post(phoneId, token, payload) {
-  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${phoneId}/messages`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+  return _comRetry(async () => {
+    const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${phoneId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.error) throw _erroMeta(data.error, r.status);
+    if (!r.ok) throw _erroMeta({ message: 'HTTP ' + r.status }, r.status);
+    return data;
   });
-  const data = await r.json();
-  if (data.error) throw new Error(data.error.message);
-  return data;
 }
 
 // Número 1 — texto livre (SDR, janela de 24h)
@@ -95,17 +125,20 @@ async function deletarMensagem({ phoneNumberId, waId }) {
 async function uploadMidia({ buffer, mimetype, filename, phoneNumberId }) {
   if (!temToken()) throw new Error('WhatsApp Cloud API não configurada');
   const pid = phoneNumberId || WA_PHONE_ID;
-  const form = new FormData();
-  form.append('messaging_product', 'whatsapp');
-  form.append('file', new Blob([buffer], { type: mimetype }), filename);
-  const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${pid}/media`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${_tokenForPhone(pid)}` },
-    body: form,
+  return _comRetry(async () => {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('file', new Blob([buffer], { type: mimetype }), filename);
+    const r = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${pid}/media`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${_tokenForPhone(pid)}` },
+      body: form,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.error) throw _erroMeta(data.error, r.status);
+    if (!r.ok) throw _erroMeta({ message: 'HTTP ' + r.status }, r.status);
+    return data.id;
   });
-  const data = await r.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.id;
 }
 
 // Envio de mensagem com mídia já carregada (media_id)
@@ -275,4 +308,5 @@ module.exports = {
   getPhoneNumbers,
   defaultPhoneId,
   broadcastPhoneId,
+  _RETRY_DELAYS_MS, // exposto p/ testes acelerarem o backoff
 };
