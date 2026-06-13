@@ -5498,7 +5498,7 @@ app.post('/api/admin/criar-templates-invisalign', async (req, res) => {
       name: 'ama_invisalign_sorriso_jun',
       components: [
         { type:'HEADER', format:'TEXT', text:'Seu sorriso pode mudar este mes' },
-        { type:'BODY', text:'{{1}}, tudo bem?\n\nO Invisalign que voce orcou na AMA ainda esta disponivel — sem aparelho fixo, sem restricao de alimentos, com resultado previsivel desde o primeiro mes.\n\nTemos uma *condicao especial ate 20/06* para quem ja tem orcamento conosco. Quer aproveitar?', example:{ body_text:[['Ana']] } },
+        { type:'BODY', text:'Oi, {{1}}! Tudo bem?\n\nO Invisalign que voce orcou na AMA ainda esta disponivel — sem aparelho fixo, sem restricao de alimentos, com resultado previsivel desde o primeiro mes.\n\nTemos uma *condicao especial ate 20/06* para quem ja tem orcamento conosco. Quer aproveitar?', example:{ body_text:[['Ana']] } },
         { type:'FOOTER', text:rodape },
         { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
       ],
@@ -5507,7 +5507,7 @@ app.post('/api/admin/criar-templates-invisalign', async (req, res) => {
       name: 'ama_invisalign_pergunta_jun',
       components: [
         { type:'HEADER', format:'TEXT', text:'Uma pergunta rapida' },
-        { type:'BODY', text:'{{1}}, o seu sorriso ainda esta nos seus planos?\n\nVoce ja deu o primeiro passo — fez o orcamento do Invisalign na AMA. Agora temos uma *oferta valida so ate 20/06* para voce finalmente comecar.\n\nMe chama aqui que a gente encontra a melhor forma de encaixar no seu bolso!', example:{ body_text:[['Carlos']] } },
+        { type:'BODY', text:'Oi, {{1}}! O seu sorriso ainda esta nos seus planos?\n\nVoce ja deu o primeiro passo — fez o orcamento do Invisalign na AMA. Agora temos uma *oferta valida so ate 20/06* para voce finalmente comecar.\n\nMe chama aqui que a gente encontra a melhor forma de encaixar no seu bolso!', example:{ body_text:[['Carlos']] } },
         { type:'FOOTER', text:rodape },
         { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
       ],
@@ -5525,7 +5525,7 @@ app.post('/api/admin/criar-templates-invisalign', async (req, res) => {
       name: 'ama_invisalign_investimento_jun',
       components: [
         { type:'HEADER', format:'TEXT', text:'Seu Invisalign pode comecar agora' },
-        { type:'BODY', text:'{{1}}, um sorriso alinhado e um investimento pra vida toda — e o Invisalign e o caminho mais confortavel pra chegar la.\n\nNa Clinica AMA voce ja tem o orcamento pronto. Ate *20/06* estamos com *condicoes de parcelamento facilitadas* para quem ja passou pela avaliacao.\n\nPosso te apresentar as opcoes?', example:{ body_text:[['Pedro']] } },
+        { type:'BODY', text:'Oi, {{1}}! Um sorriso alinhado e um investimento pra vida toda — e o Invisalign e o caminho mais confortavel pra chegar la.\n\nNa Clinica AMA voce ja tem o orcamento pronto. Ate *20/06* estamos com *condicoes de parcelamento facilitadas* para quem ja passou pela avaliacao.\n\nPosso te apresentar as opcoes?', example:{ body_text:[['Pedro']] } },
         { type:'FOOTER', text:rodape },
         { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
       ],
@@ -5534,7 +5534,7 @@ app.post('/api/admin/criar-templates-invisalign', async (req, res) => {
       name: 'ama_invisalign_ultimos_dias',
       components: [
         { type:'HEADER', format:'TEXT', text:'Ultimos dias desta condicao especial!' },
-        { type:'BODY', text:'{{1}}, ATENCAO!\n\nA condicao especial do Invisalign na Clinica AMA *encerra no dia 20/06* — faltam poucos dias!\n\nVoce ja tem orcamento conosco. Basta dar o ok e garantir sua condicao antes que expire.\n\nNao perde essa!', example:{ body_text:[['Lucia']] } },
+        { type:'BODY', text:'Oi, {{1}}! ATENCAO!\n\nA condicao especial do Invisalign na Clinica AMA *encerra no dia 20/06* — faltam poucos dias!\n\nVoce ja tem orcamento conosco. Basta dar o ok e garantir sua condicao antes que expire.\n\nNao perde essa!', example:{ body_text:[['Lucia']] } },
         { type:'FOOTER', text:rodape },
         { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
       ],
