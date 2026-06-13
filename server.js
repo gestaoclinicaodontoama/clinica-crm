@@ -5541,22 +5541,39 @@ app.post('/api/admin/criar-templates-invisalign', async (req, res) => {
     },
   ];
 
+  // Resolver WABA ID a partir do phone ID
+  let wabaId;
+  try {
+    const infoR = await fetch(`https://graph.facebook.com/v20.0/${phoneId}?fields=id,display_phone_number,name_status`, { headers: { Authorization: `Bearer ${token}` } });
+    const info  = await infoR.json();
+    console.log('[templates] phone info:', JSON.stringify(info));
+    // Tenta obter WABA via endpoint owned_whatsapp_business_accounts ou via parent
+    const wabaR = await fetch(`https://graph.facebook.com/v20.0/${phoneId}?fields=id&access_token=${token}`, { method: 'GET' });
+    const wabaD = await wabaR.json();
+    console.log('[templates] wabaD:', JSON.stringify(wabaD));
+    // Se não conseguir WABA, tenta usar phone ID diretamente (alguns tokens aceitam)
+    wabaId = wabaD.whatsapp_business_account?.id || phoneId;
+  } catch(e) {
+    wabaId = phoneId;
+  }
+  console.log('[templates] usando WABA/PhoneId:', wabaId);
+
   const results = [];
   for (const tmpl of templates) {
     try {
-      const r = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/message_templates`, {
+      const r = await fetch(`https://graph.facebook.com/v20.0/${wabaId}/message_templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ ...tmpl, language: 'pt_BR', category: 'MARKETING' }),
       });
       const data = await r.json();
       results.push({ name: tmpl.name, status: r.status, data });
-      console.log(`[templates] ${tmpl.name}: ${r.status}`, data);
+      console.log(`[templates] ${tmpl.name}: ${r.status}`, JSON.stringify(data));
     } catch (e) {
       results.push({ name: tmpl.name, error: e.message });
     }
   }
-  res.json({ total: templates.length, results });
+  res.json({ total: templates.length, wabaId, phoneId, results });
 });
 // ── FIM TEMPORÁRIO ────────────────────────────────────────────────────────────
 
