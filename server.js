@@ -5472,6 +5472,92 @@ app.options('/t', (req, res) => {
   res.status(204).send('');
 });
 
+// ── TEMPORÁRIO: Criar templates Invisalign no Meta (remover após uso) ─────────
+app.post('/api/admin/criar-templates-invisalign', requireAuth, requireAdmin, async (req, res) => {
+  const token   = process.env.WHATSAPP_BROADCAST_TOKEN || process.env.WHATSAPP_API_TOKEN;
+  const phoneId = process.env.WHATSAPP_BROADCAST_PHONE_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) return res.status(503).json({ error: 'Token/PhoneId WA não configurados' });
+
+  const rodape = 'Clinica AMA | Responda PARAR para cancelar';
+  const btn_interesse = { type: 'QUICK_REPLY', text: 'Quero saber mais' };
+  const btn_parar     = { type: 'QUICK_REPLY', text: 'Nao tenho interesse' };
+
+  const templates = [
+    {
+      name: 'ama_invisalign_condicao_jun',
+      components: [
+        { type:'HEADER', format:'TEXT', text:'Condicao especial Invisalign' },
+        { type:'BODY', text:'Oi, {{1}}!\n\nVoce fez um orcamento de Invisalign aqui na Clinica AMA e ainda nao comecou o tratamento.\n\nAte o dia *20/06* temos condicoes facilitadas para voce iniciar. Depois dessa data, nao conseguimos garantir os mesmos valores.\n\nPosso te contar os detalhes?', example:{ body_text:[['Maria']] } },
+        { type:'FOOTER', text:rodape },
+        { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
+      ],
+    },
+    {
+      name: 'ama_invisalign_sorriso_jun',
+      components: [
+        { type:'HEADER', format:'TEXT', text:'Seu sorriso pode mudar este mes' },
+        { type:'BODY', text:'{{1}}, tudo bem?\n\nO Invisalign que voce orcou na AMA ainda esta disponivel — sem aparelho fixo, sem restricao de alimentos, com resultado previsivel desde o primeiro mes.\n\nTemos uma *condicao especial ate 20/06* para quem ja tem orcamento conosco. Quer aproveitar?', example:{ body_text:[['Ana']] } },
+        { type:'FOOTER', text:rodape },
+        { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
+      ],
+    },
+    {
+      name: 'ama_invisalign_pergunta_jun',
+      components: [
+        { type:'HEADER', format:'TEXT', text:'Uma pergunta rapida' },
+        { type:'BODY', text:'{{1}}, o seu sorriso ainda esta nos seus planos?\n\nVoce ja deu o primeiro passo — fez o orcamento do Invisalign na AMA. Agora temos uma *oferta valida so ate 20/06* para voce finalmente comecar.\n\nMe chama aqui que a gente encontra a melhor forma de encaixar no seu bolso!', example:{ body_text:[['Carlos']] } },
+        { type:'FOOTER', text:rodape },
+        { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
+      ],
+    },
+    {
+      name: 'ama_invisalign_prova_jun',
+      components: [
+        { type:'HEADER', format:'TEXT', text:'Invisalign na AMA — ultimas vagas' },
+        { type:'BODY', text:'Oi, {{1}}!\n\nEsse mes tivemos muita procura pelo Invisalign aqui na AMA e as vagas com *condicao especial estao acabando*.\n\nComo voce ja tem orcamento conosco, voce tem prioridade ate *20/06*. Depois disso as vagas seguem, mas nao podemos garantir as mesmas condicoes.\n\nQuer garantir a sua?', example:{ body_text:[['Julia']] } },
+        { type:'FOOTER', text:rodape },
+        { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
+      ],
+    },
+    {
+      name: 'ama_invisalign_investimento_jun',
+      components: [
+        { type:'HEADER', format:'TEXT', text:'Seu Invisalign pode comecar agora' },
+        { type:'BODY', text:'{{1}}, um sorriso alinhado e um investimento pra vida toda — e o Invisalign e o caminho mais confortavel pra chegar la.\n\nNa Clinica AMA voce ja tem o orcamento pronto. Ate *20/06* estamos com *condicoes de parcelamento facilitadas* para quem ja passou pela avaliacao.\n\nPosso te apresentar as opcoes?', example:{ body_text:[['Pedro']] } },
+        { type:'FOOTER', text:rodape },
+        { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
+      ],
+    },
+    {
+      name: 'ama_invisalign_ultimos_dias',
+      components: [
+        { type:'HEADER', format:'TEXT', text:'Ultimos dias desta condicao especial!' },
+        { type:'BODY', text:'{{1}}, ATENCAO!\n\nA condicao especial do Invisalign na Clinica AMA *encerra no dia 20/06* — faltam poucos dias!\n\nVoce ja tem orcamento conosco. Basta dar o ok e garantir sua condicao antes que expire.\n\nNao perde essa!', example:{ body_text:[['Lucia']] } },
+        { type:'FOOTER', text:rodape },
+        { type:'BUTTONS', buttons:[btn_interesse, btn_parar] },
+      ],
+    },
+  ];
+
+  const results = [];
+  for (const tmpl of templates) {
+    try {
+      const r = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/message_templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ...tmpl, language: 'pt_BR', category: 'MARKETING' }),
+      });
+      const data = await r.json();
+      results.push({ name: tmpl.name, status: r.status, data });
+      console.log(`[templates] ${tmpl.name}: ${r.status}`, data);
+    } catch (e) {
+      results.push({ name: tmpl.name, error: e.message });
+    }
+  }
+  res.json({ total: templates.length, results });
+});
+// ── FIM TEMPORÁRIO ────────────────────────────────────────────────────────────
+
 app.use((err, req, res, next) => {
   console.error('💥', err);
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro interno' });
