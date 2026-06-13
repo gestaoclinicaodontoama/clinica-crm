@@ -5541,22 +5541,24 @@ app.post('/api/admin/criar-templates-invisalign', async (req, res) => {
     },
   ];
 
-  // Resolver WABA ID a partir do phone ID
-  let wabaId;
-  try {
-    const infoR = await fetch(`https://graph.facebook.com/v20.0/${phoneId}?fields=id,display_phone_number,name_status`, { headers: { Authorization: `Bearer ${token}` } });
-    const info  = await infoR.json();
-    console.log('[templates] phone info:', JSON.stringify(info));
-    // Tenta obter WABA via endpoint owned_whatsapp_business_accounts ou via parent
-    const wabaR = await fetch(`https://graph.facebook.com/v20.0/${phoneId}?fields=id&access_token=${token}`, { method: 'GET' });
-    const wabaD = await wabaR.json();
-    console.log('[templates] wabaD:', JSON.stringify(wabaD));
-    // Se não conseguir WABA, tenta usar phone ID diretamente (alguns tokens aceitam)
-    wabaId = wabaD.whatsapp_business_account?.id || phoneId;
-  } catch(e) {
-    wabaId = phoneId;
+  // Resolver WABA ID — tenta /me/whatsapp_business_accounts com cada token disponível
+  let wabaId = process.env.WA_BUSINESS_ACCOUNT_ID || '';
+  if (!wabaId) {
+    const tokensToTry = [token, process.env.META_ACCESS_TOKEN, process.env.WHATSAPP_CLOUD_TOKEN].filter(Boolean);
+    for (const tok of tokensToTry) {
+      try {
+        const r = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=5',
+          { headers: { 'Authorization': 'Bearer ' + tok } });
+        const d = await r.json();
+        console.log('[templates] waba discovery tok=***:', JSON.stringify(d));
+        if (d.data?.[0]?.id) { wabaId = d.data[0].id; break; }
+      } catch (_) {}
+    }
   }
-  console.log('[templates] usando WABA/PhoneId:', wabaId);
+  if (!wabaId) {
+    return res.status(400).json({ error: 'WABA ID não encontrado. Configure WA_BUSINESS_ACCOUNT_ID no Easypanel com o ID da conta WhatsApp Business (Meta Business Suite → Configurações → Contas WhatsApp).' });
+  }
+  console.log('[templates] usando WABA ID:', wabaId);
 
   const results = [];
   for (const tmpl of templates) {
