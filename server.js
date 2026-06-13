@@ -5541,18 +5541,34 @@ app.post('/api/admin/criar-templates-invisalign', async (req, res) => {
     },
   ];
 
-  // Resolver WABA ID — tenta /me/whatsapp_business_accounts com cada token disponível
+  // Resolver WABA ID — tentativas em ordem de preferência
   let wabaId = process.env.WA_BUSINESS_ACCOUNT_ID || '';
+  const tokensToTry = [token, process.env.META_ACCESS_TOKEN, process.env.WHATSAPP_CLOUD_TOKEN].filter(Boolean);
+  // 1. /me/whatsapp_business_accounts (requer whatsapp_business_management)
   if (!wabaId) {
-    const tokensToTry = [token, process.env.META_ACCESS_TOKEN, process.env.WHATSAPP_CLOUD_TOKEN].filter(Boolean);
     for (const tok of tokensToTry) {
       try {
         const r = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=5',
           { headers: { 'Authorization': 'Bearer ' + tok } });
         const d = await r.json();
-        console.log('[templates] waba discovery tok=***:', JSON.stringify(d));
+        console.log('[templates] /me/wba:', JSON.stringify(d));
         if (d.data?.[0]?.id) { wabaId = d.data[0].id; break; }
       } catch (_) {}
+    }
+  }
+  // 2. owned_whatsapp_business_accounts via business IDs conhecidos
+  if (!wabaId) {
+    const bizIds = ['1144825089017519', '606620656374889', '1201978317726500'];
+    outer: for (const biz of bizIds) {
+      for (const tok of tokensToTry) {
+        try {
+          const r = await fetch(`https://graph.facebook.com/v21.0/${biz}/owned_whatsapp_business_accounts?fields=id&limit=5`,
+            { headers: { 'Authorization': 'Bearer ' + tok } });
+          const d = await r.json();
+          console.log(`[templates] biz ${biz} wba:`, JSON.stringify(d));
+          if (d.data?.[0]?.id) { wabaId = d.data[0].id; break outer; }
+        } catch (_) {}
+      }
     }
   }
   if (!wabaId) {
