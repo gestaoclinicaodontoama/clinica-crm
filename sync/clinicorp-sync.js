@@ -70,7 +70,7 @@ async function fetchAppointments() {
   const byId = {}; // clinicorp_id → dados
 
   for (const a of pastArr) {
-    const id   = a.PatientId || a.patientId;
+    const id   = a.PatientId || a.patientId || a.Patient_PersonId;
     if (!id) continue;
     const date = toDate(a.Date || a.date || a.AppointmentDate || a.ScheduleDate);
     if (!byId[id]) byId[id] = {};
@@ -80,7 +80,7 @@ async function fetchAppointments() {
   }
 
   for (const a of futureArr) {
-    const id   = a.PatientId || a.patientId;
+    const id   = a.PatientId || a.patientId || a.Patient_PersonId;
     if (!id) continue;
     const date = toDate(a.Date || a.date || a.AppointmentDate || a.ScheduleDate);
     const doc  = a.ProfessionalName || a.professionalName || a.DoctorName || '';
@@ -132,7 +132,11 @@ async function fetchPayments() {
  */
 async function fetchEstimates() {
   log('Buscando orçamentos em aberto...');
-  const estimates = await api.get('/patient/list_estimates');
+  // A Clinicorp passou a exigir data inicial (from). Janela ampla (180d) pois
+  // este número é só métrica de "orçamentos em aberto" — não alimenta a Conferência.
+  const today  = new Date();
+  const past180 = new Date(today); past180.setDate(past180.getDate() - FUNIL_DIAS);
+  const estimates = await api.get('/patient/list_estimates', { from: dateStr(past180), to: dateStr(today) });
   const arr = Array.isArray(estimates) ? estimates : [];
   log(`Orçamentos em aberto: ${arr.length}`);
 
