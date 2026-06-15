@@ -1889,7 +1889,7 @@ app.post('/api/templates/sync-meta', requireAuth, rateLimit, async (req, res) =>
     const TOKEN = process.env.META_ACCESS_TOKEN;
     if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado' });
     // Auto-descobre WABA ID — tenta vários tokens em ordem
-    let wabaId = process.env.WA_BUSINESS_ACCOUNT_ID || '';
+    let wabaId = process.env.WA_BUSINESS_ACCOUNT_ID || WA_BUSINESS_ACCOUNT_ID || '';
     if (!wabaId) {
       const tokensToTry = [
         TOKEN,
