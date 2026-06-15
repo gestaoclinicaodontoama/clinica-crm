@@ -21,10 +21,10 @@ const supabase = createClient(
 );
 
 const api = new ClinicorpApi({
-  user:         'clinicaama',
-  token:        '48d8b02a-c51c-4a71-9041-2c5effdf377c',
-  subscriberId: 'clinicaama',
-  businessId:   'clinicaama',
+  user:         process.env.CLINICORP_USER,
+  token:        process.env.CLINICORP_TOKEN,
+  subscriberId: process.env.CLINICORP_SUBSCRIBER_ID,
+  businessId:   process.env.CLINICORP_BUSINESS_ID,
 });
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -565,11 +565,20 @@ async function notificarPendentes() {
 
 // ─── entrada principal ───────────────────────────────────────────────────────
 
-async function runSync() {
+async function runSync(trigger = 'agendado') {
   const start = Date.now();
-  log('══════════ SYNC CLINICORP INICIADO ══════════');
+  log(`══════════ SYNC CLINICORP INICIADO (${trigger}) ══════════`);
 
   const result = { ok: false, steps: {}, duration_s: 0 };
+
+  // Registra o início (observabilidade + base do scheduler self-healing).
+  let logId = null;
+  try {
+    const { data } = await supabase.from('sync_log')
+      .insert({ trigger, started_at: new Date().toISOString() })
+      .select('id').single();
+    logId = data?.id ?? null;
+  } catch (e) { log(`sync_log insert falhou: ${e.message}`); }
 
   try {
     // Fase 1: agendamentos (2 requisições)
@@ -621,6 +630,19 @@ async function runSync() {
 
   result.duration_s = parseFloat(((Date.now() - start) / 1000).toFixed(1));
   log(`══════════ SYNC ${result.ok ? 'CONCLUÍDO' : 'FALHOU'} em ${result.duration_s}s ══════════`);
+
+  if (logId != null) {
+    try {
+      await supabase.from('sync_log').update({
+        finished_at: new Date().toISOString(),
+        ok: result.ok,
+        duration_s: result.duration_s,
+        steps: result.steps,
+        error: result.error || null,
+      }).eq('id', logId);
+    } catch (e) { log(`sync_log update falhou: ${e.message}`); }
+  }
+
   return result;
 }
 

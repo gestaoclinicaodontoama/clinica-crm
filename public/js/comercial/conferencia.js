@@ -2,21 +2,60 @@ const BRL = v => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style:
 const fmtData = d => (d ? d.split('-').reverse().join('/') : '—');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
+function toast(msg, tipo = 'success') {
+  const wrap = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = `toast toast--${tipo}`;
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+let _itens = [];        // itens carregados do banco (filtro de status atual)
+let _carregando = false;
+
+function valorDe(f)   { return f.revisao_status === 'aprovado' ? f.valor_aprovado   : f.valor_particular; }
+function entradaDe(f) { return f.revisao_status === 'aprovado' ? f.entrada_aprovada : f.entrada_valor; }
+
 async function carregar() {
+  if (_carregando) return;
+  _carregando = true;
   const status = document.getElementById('f-status').value;
   const lista = document.getElementById('lista');
   lista.innerHTML = '<div class="vazio">Carregando...</div>';
-  let data;
-  try { data = await ComercialApi.listarConferencia(status); }
-  catch (e) { lista.innerHTML = `<div class="vazio">Erro: ${esc(e.message)}</div>`; return; }
+  try {
+    const data = await ComercialApi.listarConferencia(status);
+    _itens = data.fechamentos || [];
+  } catch (e) {
+    lista.innerHTML = `<div class="vazio">Erro: ${esc(e.message)}</div>`;
+    _itens = [];
+    return;
+  } finally {
+    _carregando = false;
+  }
+  render();
+}
 
-  const itens = data.fechamentos || [];
-  document.getElementById('conta').textContent = `${itens.length} ${status}(s)`;
-  if (!itens.length) { lista.innerHTML = '<div class="vazio">Nada por aqui.</div>'; return; }
+function render() {
+  const status = document.getElementById('f-status').value;
+  const lista = document.getElementById('lista');
+  const termo = (document.getElementById('f-busca').value || '').trim().toLowerCase();
+
+  const itens = termo
+    ? _itens.filter(f => (`${f.paciente_nome || ''} ${f.profissional_nome || ''}`).toLowerCase().includes(termo))
+    : _itens;
+
+  const total = itens.reduce((s, f) => s + Number(valorDe(f) || 0), 0);
+  document.getElementById('conta').innerHTML =
+    `<strong>${itens.length}</strong> ${status}(s) · total <strong>${BRL(total)}</strong>`;
+
+  if (!itens.length) {
+    lista.innerHTML = `<div class="vazio">${termo ? 'Nenhum resultado para a busca.' : 'Nada por aqui.'}</div>`;
+    return;
+  }
 
   lista.innerHTML = itens.map(f => {
-    const valor   = f.revisao_status === 'aprovado' ? f.valor_aprovado   : f.valor_particular;
-    const entrada = f.revisao_status === 'aprovado' ? f.entrada_aprovada : f.entrada_valor;
+    const valor = valorDe(f), entrada = entradaDe(f);
     const acoes = status === 'pendente'
       ? `<div class="acoes">
            <button class="btn btn-ok" data-id="${f.clinicorp_estimate_id}" data-acao="aprovar">Aprovar</button>
@@ -34,25 +73,71 @@ async function carregar() {
   }).join('');
 
   lista.querySelectorAll('button[data-acao]').forEach(btn => {
-    btn.addEventListener('click', () => acao(btn.dataset.id, btn.dataset.acao));
+    btn.addEventListener('click', () => acao(btn, btn.dataset.id, btn.dataset.acao));
   });
 }
 
-async function acao(id, tipo) {
+async function acao(btn, id, tipo) {
+  const row = document.querySelector(`.linha[data-row="${id}"]`);
+  const botoes = row ? row.querySelectorAll('button[data-acao]') : [btn];
+  botoes.forEach(b => { b.disabled = true; });
   try {
     if (tipo === 'aprovar') {
       const valor = parseFloat(document.getElementById('v-' + id).value);
       const entrada = parseFloat(document.getElementById('e-' + id).value);
       await ComercialApi.revisarConferencia(id, { acao: 'aprovar', valor, entrada });
+      toast('Fechamento aprovado');
     } else {
       const motivo = (prompt('Motivo da rejeição:') || '').trim();
-      if (!motivo) { alert('Motivo é obrigatório.'); return; }
+      if (!motivo) { botoes.forEach(b => { b.disabled = false; }); return; }
       await ComercialApi.revisarConferencia(id, { acao: 'rejeitar', motivo });
+      toast('Fechamento rejeitado');
     }
-    const row = document.querySelector(`.linha[data-row="${id}"]`);
-    if (row) row.remove();
-  } catch (e) { alert('Erro: ' + e.message); }
+    _itens = _itens.filter(f => String(f.clinicorp_estimate_id) !== String(id));
+    render();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+    botoes.forEach(b => { b.disabled = false; });
+  }
+}
+
+async function sincronizar() {
+  const btn = document.getElementById('btn-sync');
+  const label = document.getElementById('btn-sync-label');
+  btn.disabled = true; btn.classList.add('loading');
+  label.textContent = 'Sincronizando...';
+  try {
+    await ComercialApi.sincronizarClinicorp();
+    toast('Sincronização iniciada — pode levar alguns minutos. A lista será atualizada ao concluir.');
+    await aguardarSync();
+  } catch (e) {
+    toast('Erro ao sincronizar: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.classList.remove('loading');
+    label.textContent = 'Atualizar dados';
+  }
+}
+
+// Faz polling do status do sync por até ~6min; recarrega a lista ao concluir.
+async function aguardarSync() {
+  const inicio = Date.now();
+  while (Date.now() - inicio < 6 * 60 * 1000) {
+    await new Promise(r => setTimeout(r, 6000));
+    let st;
+    try { st = await ComercialApi.syncStatus(); } catch (_) { continue; }
+    if (st && st.running === false && st.last) {
+      await carregar();
+      if (st.last.ok) toast('Dados atualizados');
+      else toast('Sync terminou com erro: ' + (st.last.error || 'desconhecido'), 'error');
+      return;
+    }
+  }
+  // fallback: recarrega mesmo sem confirmação de término
+  await carregar();
 }
 
 document.getElementById('f-status').addEventListener('change', carregar);
+document.getElementById('f-busca').addEventListener('input', render);
+document.getElementById('btn-reload').addEventListener('click', carregar);
+document.getElementById('btn-sync').addEventListener('click', sincronizar);
 carregar();

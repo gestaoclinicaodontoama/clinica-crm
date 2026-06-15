@@ -31,4 +31,19 @@ async function revisarConferencia(id, body) {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   return r.json();
 }
-window.ComercialApi = { getFunil, listarConferencia, revisarConferencia };
+async function sincronizarClinicorp() {
+  const r = await fetch('/api/admin/sync-clinicorp', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${_token()}` },
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+async function syncStatus() {
+  const r = await fetch('/api/admin/sync-status', {
+    headers: { Authorization: `Bearer ${_token()}` },
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+window.ComercialApi = { getFunil, listarConferencia, revisarConferencia, sincronizarClinicorp, syncStatus };

@@ -3684,40 +3684,64 @@ const { runSync: runClinicorpSync } = require('./sync/clinicorp-sync');
 const { AnalysisV1 } = require('./lib/schemas/analysis.v1');
 const { FeedbackV1 } = require('./lib/schemas/feedback.v1');
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Estado global do sync neste processo (evita execuções simultâneas).
+let _syncRunning = false;
+async function runGuardedSync(trigger) {
+  if (_syncRunning) { console.log('[sync] já em execução — gatilho ignorado:', trigger); return null; }
+  _syncRunning = true;
+  try { return await runClinicorpSync(trigger); }
+  finally { _syncRunning = false; }
+}
+
+// ── Sync diário Clinicorp: self-healing (sobrevive a restart do container) ──
+// O estado fica no banco (sync_log), não em memória: a cada tick, se já passou
+// das 02:00 BRT de hoje e nenhuma execução foi registrada desde então, dispara.
+// Assim, se o container estava fora do ar às 02:00, ele recupera ao voltar.
 (function agendarSyncDiario() {
-  let lastSyncDay = '';
-
-  async function executarSync() {
-    const today = new Date().toISOString().slice(0, 10);
-    if (lastSyncDay === today) return;
-    lastSyncDay = today;
-    const result = await runClinicorpSync();
-    if (!result.ok) console.error('[sync-diario] falhou:', result.error);
+  // Instante de hoje às 02:00 no horário de Brasília (UTC-3, sem horário de verão).
+  function janelaHoje() {
+    const hojeBRT = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD
+    return new Date(`${hojeBRT}T02:00:00-03:00`);
   }
 
-  // Calcula delay até a próxima 2h
-  function msAteProximas2h() {
-    const now  = new Date();
-    const next = new Date(now);
-    next.setHours(2, 0, 0, 0);
-    if (now >= next) next.setDate(next.getDate() + 1);
-    return next - now;
+  async function verificarEExecutar() {
+    if (_syncRunning) return;
+    const janela = janelaHoje();
+    if (Date.now() < janela.getTime()) return; // ainda não deu 02:00 hoje
+    try {
+      const { data, error } = await supabase.from('sync_log')
+        .select('id').gte('started_at', janela.toISOString()).limit(1);
+      if (error) throw error;
+      if (data && data.length) return; // já houve uma execução desde as 02:00 de hoje
+    } catch (e) {
+      console.error('[sync-diario] checagem sync_log falhou:', e.message);
+      return; // sem confirmação do DB, não dispara (evita loop)
+    }
+    console.log('[sync-diario] disparando sync agendado');
+    runGuardedSync('agendado').catch(e => console.error('[sync-diario] erro:', e.message));
   }
 
-  // Agenda a primeira execução e depois repete a cada 24h
-  setTimeout(function tick() {
-    executarSync().catch(e => console.error('[sync-diario] erro:', e.message));
-    setTimeout(tick, 24 * 60 * 60_000);
-  }, msAteProximas2h());
-
-  const h = Math.round(msAteProximas2h() / 60_000);
-  console.log(`[sync-diario] Próximo sync em ~${h} min (às 2h00)`);
+  setTimeout(() => verificarEExecutar().catch(() => {}), 30_000);       // logo após o boot
+  setInterval(() => verificarEExecutar().catch(() => {}), 10 * 60_000); // a cada 10 min
+  console.log('[sync-diario] scheduler self-healing ativo (verifica a cada 10 min, janela 02:00 BRT)');
 })();
 // ========== SYNC MANUAL ==========
 // POST /api/admin/sync-clinicorp  — dispara sync imediatamente (sem esperar as 2h)
 app.post('/api/admin/sync-clinicorp', requireAuth, async (req, res) => {
-  res.json({ ok: true, msg: 'Sync iniciado em background — acompanhe os logs do servidor' });
-  runClinicorpSync().catch(e => console.error('[sync-manual] erro:', e.message));
+  if (_syncRunning) return res.json({ ok: true, running: true, msg: 'Sync já em andamento' });
+  res.json({ ok: true, msg: 'Sync iniciado em background — acompanhe o status' });
+  runGuardedSync('manual').catch(e => console.error('[sync-manual] erro:', e.message));
+});
+
+// GET /api/admin/sync-status — última execução registrada + se há sync rodando agora
+app.get('/api/admin/sync-status', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('sync_log')
+      .select('started_at, finished_at, ok, trigger, duration_s, steps, error')
+      .order('started_at', { ascending: false }).limit(1);
+    if (error) throw error;
+    res.json({ running: _syncRunning, last: data?.[0] || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========

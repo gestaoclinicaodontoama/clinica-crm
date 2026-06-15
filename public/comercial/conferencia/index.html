@@ -10,27 +10,55 @@
   :root[data-theme="light"] { --bg:#f7f8fa; --bg2:#fff; --bg3:#f1f3f7; --border:#e3e6ed; --text:#1a1d29; --muted:#6b7280; --accent:#3b82f6; --accent-hover:#2563eb; --green:#16a34a; --red:#dc2626; }
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
-  .topo { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
-  .topo select { padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:13px; }
+  .cab { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
+  .cab-acoes { display:flex; gap:8px; flex-wrap:wrap; }
+  .topo { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:14px 0 18px; }
+  .topo select, .topo input[type="search"] { padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:13px; }
+  .topo input[type="search"] { min-width:200px; }
   .conta { font-size:12.5px; color:var(--muted); }
+  .conta strong { color:var(--text); }
   .linha { display:grid; grid-template-columns:1.4fr 1fr 90px 130px 130px auto; gap:10px; align-items:center;
            background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
-  @media (max-width:820px){ .linha{ grid-template-columns:1fr 1fr; } }
+  @media (max-width:820px){ .linha{ grid-template-columns:1fr 1fr; } .cab-acoes{ width:100%; } }
   .linha .nome { font-weight:600; font-size:13.5px; }
   .linha .sub { font-size:11.5px; color:var(--muted); }
   .linha input { width:100%; padding:6px 8px; border-radius:7px; border:1px solid var(--border); background:var(--bg3); color:var(--text); font-size:13px; }
   .linha .lbl { font-size:10.5px; color:var(--muted); display:block; margin-bottom:2px; }
   .acoes { display:flex; gap:6px; }
-  .btn { padding:7px 12px; border-radius:8px; border:none; font-size:12.5px; font-weight:600; cursor:pointer; color:#fff; }
+  .btn { padding:7px 12px; border-radius:8px; border:none; font-size:12.5px; font-weight:600; cursor:pointer; color:#fff; display:inline-flex; align-items:center; gap:6px; }
+  .btn:disabled { opacity:.55; cursor:not-allowed; }
   .btn-ok { background:var(--green); } .btn-no { background:var(--red); }
+  .btn-ghost { background:var(--bg2); color:var(--text); border:1px solid var(--border); }
+  .btn-ghost:hover { background:var(--bg3); }
+  .btn svg { width:14px; height:14px; }
+  .btn.loading svg { animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
   .vazio { color:var(--muted); font-size:14px; padding:30px 0; text-align:center; }
+  #toasts { position:fixed; bottom:20px; right:20px; display:flex; flex-direction:column; gap:8px; z-index:9999; }
+  .toast { padding:10px 16px; border-radius:8px; font-size:13px; font-weight:600; color:#fff; box-shadow:0 4px 16px rgba(0,0,0,.25); animation:slideup .25s ease; }
+  .toast--success { background:var(--green); } .toast--error { background:var(--red); }
+  @keyframes slideup { from { transform:translateY(10px); opacity:0; } }
   </style>
   <script src="/js/shared-nav.js" data-active="conferencia" defer></script>
 </head>
 <body class="crm-shell">
 <main style="flex:1;padding:28px 32px;overflow-y:auto;max-width:1100px">
-  <h1 style="font-size:20px;font-weight:700;margin:0 0 6px">Conferência de Fechamentos</h1>
-  <p style="font-size:12.5px;color:var(--muted);margin:0 0 18px">Confira valor e entrada de cada fechamento antes de contar no dashboard.</p>
+  <div class="cab">
+    <div>
+      <h1 style="font-size:20px;font-weight:700;margin:0 0 6px">Conferência de Fechamentos</h1>
+      <p style="font-size:12.5px;color:var(--muted);margin:0">Confira valor e entrada de cada fechamento antes de contar no dashboard.</p>
+    </div>
+    <div class="cab-acoes">
+      <button class="btn btn-ghost" id="btn-reload" title="Recarregar a lista do banco">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        <span>Recarregar</span>
+      </button>
+      <button class="btn btn-ghost" id="btn-sync" title="Buscar dados novos no Clinicorp (pode levar alguns minutos)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        <span id="btn-sync-label">Atualizar dados</span>
+      </button>
+    </div>
+  </div>
   <div class="topo">
     <label>Status
       <select id="f-status">
@@ -39,9 +67,11 @@
         <option value="rejeitado">Rejeitados</option>
       </select>
     </label>
+    <input type="search" id="f-busca" placeholder="Buscar paciente ou profissional...">
     <span class="conta" id="conta"></span>
   </div>
   <div id="lista"></div>
+  <div id="toasts"></div>
   <script src="/js/comercial/api.js"></script>
   <script src="/js/comercial/conferencia.js"></script>
 </main>
