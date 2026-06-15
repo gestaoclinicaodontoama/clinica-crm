@@ -580,53 +580,72 @@ async function runSync(trigger = 'agendado') {
     logId = data?.id ?? null;
   } catch (e) { log(`sync_log insert falhou: ${e.message}`); }
 
-  try {
-    // Fase 1: agendamentos (2 requisições)
-    const apptMap = await fetchAppointments();
-    result.steps.agendamentos = Object.keys(apptMap).length;
-
-    // Fase 2: pagamentos (1 requisição)
-    const payMap = await fetchPayments();
-    result.steps.pagamentos = Object.keys(payMap).length;
-
-    // Fase 3: orçamentos (1 requisição)
-    const estimateIds = await fetchEstimates();
-    result.steps.orcamentos_abertos = estimateIds.size;
-
-    // Fase 4: inserir novos pacientes detectados
-    await insertNewPatients(payMap);
-
-    // Fase 5: upsert em pacientes_abc
-    await upsertAbcData(apptMap, payMap);
-
-    // Fase 6: funil comercial (avaliações)
-    const funilCfg = await loadFunilConfig();
-    result.steps.avaliacoes_funil = await syncAvaliacoes(funilCfg);
-
-    // Fase 7: funil comercial (orçamentos)
-    result.steps.orcamentos_funil = await syncOrcamentos();
-
-    // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
-    result.steps.leads_vinculados = await vincularLeads();
-
-    // Fase 9: entradas (1º pagamento)
-    result.steps.entradas = await syncEntradas();
-
-    // Fase 10: marcar avaliações válidas (com orçamento particular em 60d)
-    result.steps.avaliacoes_validas = await marcarAvaliacoesComOrcamento();
-
-    // Fase 11: reabrir aprovados cujo tratamento mudou
-    result.steps.fechamentos_reabertos = await reavaliarFechamentos();
-
-    // Fase 12: notificar CRC dos pendentes novos
-    result.steps.pendentes_notificados = await notificarPendentes();
-
-    result.ok        = true;
-    result.req_count = api.reqCount; // requisições feitas nesta hora
-  } catch (err) {
-    log(`ERRO FATAL: ${err.message}`);
-    result.error = err.message;
+  // Cada fase é isolada: uma falha (ex.: um endpoint da Clinicorp fora do ar)
+  // NÃO derruba as demais. Antes, um erro na 1ª fase abortava o sync inteiro e
+  // travava orçamentos/avaliações/entradas — que usam outros endpoints.
+  const erros = [];
+  async function step(nome, fn, fallback) {
+    try { return await fn(); }
+    catch (err) {
+      log(`ERRO na fase "${nome}": ${err.message}`);
+      erros.push(`${nome}: ${err.message}`);
+      result.steps[nome] = `erro: ${err.message.slice(0, 160)}`;
+      return fallback;
+    }
   }
+
+  // Fase 1: agendamentos (2 requisições)
+  const apptMap = await step('agendamentos', async () => {
+    const m = await fetchAppointments();
+    result.steps.agendamentos = Object.keys(m).length;
+    return m;
+  }, {});
+
+  // Fase 2: pagamentos (1 requisição)
+  const payMap = await step('pagamentos', async () => {
+    const m = await fetchPayments();
+    result.steps.pagamentos = Object.keys(m).length;
+    return m;
+  }, {});
+
+  // Fase 3: orçamentos em aberto (1 requisição)
+  await step('orcamentos_abertos', async () => {
+    const ids = await fetchEstimates();
+    result.steps.orcamentos_abertos = ids.size;
+  });
+
+  // Fase 4: inserir novos pacientes detectados
+  await step('novos_pacientes', () => insertNewPatients(payMap));
+
+  // Fase 5: upsert em pacientes_abc
+  await step('pacientes_abc', () => upsertAbcData(apptMap, payMap));
+
+  // Fase 6: funil comercial (avaliações)
+  const funilCfg = await step('funil_config', () => loadFunilConfig(),
+    { ids: new Set(), nomeById: new Map(), statusCompareceu: new Set() });
+  await step('avaliacoes_funil', async () => { result.steps.avaliacoes_funil = await syncAvaliacoes(funilCfg); });
+
+  // Fase 7: funil comercial (orçamentos) — alimenta a Conferência
+  await step('orcamentos_funil', async () => { result.steps.orcamentos_funil = await syncOrcamentos(); });
+
+  // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
+  await step('leads_vinculados', async () => { result.steps.leads_vinculados = await vincularLeads(); });
+
+  // Fase 9: entradas (1º pagamento)
+  await step('entradas', async () => { result.steps.entradas = await syncEntradas(); });
+
+  // Fase 10: marcar avaliações válidas (com orçamento particular em 60d)
+  await step('avaliacoes_validas', async () => { result.steps.avaliacoes_validas = await marcarAvaliacoesComOrcamento(); });
+
+  // Fase 11: reabrir aprovados cujo tratamento mudou
+  await step('fechamentos_reabertos', async () => { result.steps.fechamentos_reabertos = await reavaliarFechamentos(); });
+
+  // Fase 12: notificar CRC dos pendentes novos
+  await step('pendentes_notificados', async () => { result.steps.pendentes_notificados = await notificarPendentes(); });
+
+  result.ok        = erros.length === 0;
+  result.req_count = api.reqCount; // requisições feitas nesta hora
+  if (erros.length) result.error = erros.join(' | ');
 
   result.duration_s = parseFloat(((Date.now() - start) / 1000).toFixed(1));
   log(`══════════ SYNC ${result.ok ? 'CONCLUÍDO' : 'FALHOU'} em ${result.duration_s}s ══════════`);

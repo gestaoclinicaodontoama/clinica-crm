@@ -84,12 +84,18 @@ class ClinicorpApi {
       this._reqs = [];
       await this._throttle();
       const retry = await this._raw(path, params);
-      if (retry.status !== 200) throw new Error(`Clinicorp ${retry.status}: ${retry.body.slice(0, 200)}`);
+      if (retry.status !== 200) throw new Error(this._errMsg(path, params, retry.status, retry.body));
       return JSON.parse(retry.body);
     }
 
-    if (status !== 200) throw new Error(`Clinicorp ${status}: ${body.slice(0, 200)}`);
+    if (status !== 200) throw new Error(this._errMsg(path, params, status, body));
     return JSON.parse(body);
+  }
+
+  // Erro com contexto da requisição (sem expor token) para facilitar diagnóstico nos logs.
+  _errMsg(path, params, status, body) {
+    const ctx = JSON.stringify({ sub: this.sub, biz: this.biz, ...params });
+    return `Clinicorp ${status} em ${path} [${ctx}]: ${String(body).slice(0, 200)}`;
   }
 
   // Helpers de data
