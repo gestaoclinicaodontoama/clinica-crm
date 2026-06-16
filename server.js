@@ -25,6 +25,7 @@ const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
 const { montarDRE } = require('./lib/financeiro/dre');
 const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
 const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
+const { syncPeriodo: syncFinanceiro } = require('./sync/financeiro-sync');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -3723,6 +3724,14 @@ async function runGuardedSync(trigger) {
     }
     console.log('[sync-diario] disparando sync agendado');
     runGuardedSync('agendado').catch(e => console.error('[sync-diario] erro:', e.message));
+    // sync financeiro do mês corrente — mesma janela diária, sem derrubar o processo
+    try {
+      const hoje = new Date();
+      const from = hoje.toISOString().slice(0, 8) + '01';
+      const to = hoje.toISOString().slice(0, 10);
+      await syncFinanceiro(from, to);
+      console.log('[financeiro-sync] mês corrente sincronizado');
+    } catch (e) { console.error('[financeiro-sync] erro:', e.message); }
   }
 
   setTimeout(() => verificarEExecutar().catch(() => {}), 30_000);       // logo após o boot
@@ -5601,6 +5610,15 @@ for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
     res.json(data);
   });
 }
+
+// Sync manual do financeiro — mês corrente (botão "Atualizar dados" da DRE)
+app.post('/api/financeiro/sync', requireAuth, requireFinanceiro, async (req, res) => {
+  const hoje = new Date();
+  const from = hoje.toISOString().slice(0, 8) + '01';   // 1º dia do mês corrente
+  const to = hoje.toISOString().slice(0, 10);            // hoje
+  try { res.json(await syncFinanceiro(from, to)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.use((err, req, res, next) => {
   console.error('💥', err);
