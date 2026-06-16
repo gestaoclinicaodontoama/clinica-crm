@@ -1013,6 +1013,53 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
 <!-- DISPAROS -->
 <div id="page-disparos" class="page">
   <h1>Disparos</h1>
+
+  <!-- DISPARO EM MASSA -->
+  <div class="disparos-panel" style="margin-bottom:24px">
+    <div class="disparos-panel-titulo">📢 Disparo em Massa</div>
+    <div class="disparos-panel-sub">Suba um CSV (nome, telefone) e envie um template aprovado para todos. Quem não for lead vira um lead novo automaticamente.</div>
+
+    <div id="disp-banner-interrompida" style="display:none;background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.4);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px"></div>
+
+    <div class="form-row" style="margin-bottom:10px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Nome da campanha</label>
+        <input id="disp-nome" placeholder="ex: Invisalign Condição Junho">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Template (aprovado)</label>
+        <select id="disp-template"><option value="">Carregando...</option></select>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <label class="btn btn-ghost" style="font-size:12.5px;cursor:pointer">
+        📎 Escolher CSV
+        <input type="file" id="disp-file" accept=".csv,.txt" style="display:none" onchange="dispArquivoEscolhido(event)">
+      </label>
+      <span id="disp-file-nome" style="font-size:12px;color:var(--muted);align-self:center"></span>
+      <button class="btn btn-ghost" style="font-size:12.5px" onclick="dispPreview()">👁 Visualizar</button>
+    </div>
+
+    <div id="disp-preview" style="display:none;font-size:13px;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:12px"></div>
+    <button id="disp-btn-iniciar" class="btn btn-success" style="width:100%;display:none" onclick="dispCriarEIniciar(this)">🚀 Iniciar disparo</button>
+
+    <div id="disp-progresso" style="display:none;margin-top:14px">
+      <div style="height:10px;background:var(--bg3);border-radius:6px;overflow:hidden;margin-bottom:8px">
+        <div id="disp-progresso-bar" style="height:100%;width:0;background:var(--green);transition:width .3s"></div>
+      </div>
+      <div id="disp-progresso-txt" style="font-size:12.5px;color:var(--muted)"></div>
+      <button class="btn btn-ghost" style="font-size:12px;margin-top:8px" onclick="dispPausar()">⏸ Pausar</button>
+    </div>
+  </div>
+
+  <!-- HISTORICO DE CAMPANHAS -->
+  <div class="disparos-panel" style="margin-bottom:24px">
+    <div class="disparos-panel-titulo">📋 Campanhas</div>
+    <div class="disparos-panel-sub">Histórico dos disparos feitos.</div>
+    <div id="disp-campanhas"><div class="empty-small">Carregando...</div></div>
+  </div>
+
   <div class="disparos-grid">
 
     <!-- PAINEL TEMPLATES -->
@@ -3884,8 +3931,150 @@ async function enviarTemplate() {
 // ============ DISPAROS ============
 let _importParsed = [];
 
+let _dispFileTexto = '';
+let _dispCampanhaAtual = null;
+let _dispPollTimer = null;
+
 async function loadDisparos() {
-  await syncMeta(null, true); // sync silencioso ao abrir a aba
+  await syncMeta(null, true);          // sync silencioso de templates
+  await dispCarregarTemplates();
+  await dispCarregarCampanhas();
+  await dispCarregarAviso();
+  await atualizarBadgeDisparos();
+}
+
+async function dispCarregarTemplates() {
+  const sel = document.getElementById('disp-template');
+  if (!sel) return;
+  try {
+    const tpls = await api('/api/templates');
+    const aprovados = tpls.filter(t => t.status === 'aprovado');
+    sel.innerHTML = aprovados.length
+      ? aprovados.map(t => `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}</option>`).join('')
+      : '<option value="">Nenhum template aprovado</option>';
+  } catch (e) { sel.innerHTML = '<option value="">Erro ao carregar</option>'; }
+}
+
+function dispArquivoEscolhido(ev) {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    _dispFileTexto = reader.result;
+    document.getElementById('disp-file-nome').textContent = f.name;
+  };
+  reader.readAsText(f);
+}
+
+async function dispPreview() {
+  if (!_dispFileTexto) { toast('Escolha um CSV primeiro', true); return; }
+  const box = document.getElementById('disp-preview');
+  box.style.display = 'block'; box.textContent = 'Analisando...';
+  try {
+    const r = await api('/api/disparos/preview', { method: 'POST', body: JSON.stringify({ texto: _dispFileTexto }) });
+    if (r.error) { box.textContent = '❌ ' + r.error; return; }
+    box.innerHTML = `<strong>${r.total}</strong> contatos válidos · <strong>${r.casam}</strong> já são leads · <strong>${r.novos}</strong> serão criados`
+      + (r.invalidos ? ` · <span style="color:var(--red)">${r.invalidos} sem telefone válido (ignorados)</span>` : '');
+    document.getElementById('disp-btn-iniciar').style.display = r.total ? 'block' : 'none';
+  } catch (e) { box.textContent = '❌ ' + e.message; }
+}
+
+async function dispCriarEIniciar(btn) {
+  const nome = document.getElementById('disp-nome').value.trim();
+  const template_nome = document.getElementById('disp-template').value;
+  if (!nome) { toast('Dê um nome à campanha', true); return; }
+  if (!template_nome) { toast('Escolha um template aprovado', true); return; }
+  if (!_dispFileTexto) { toast('Escolha um CSV', true); return; }
+  if (!confirm(`Disparar "${template_nome}" para esta lista? Os envios começam agora.`)) return;
+  btn.disabled = true; btn.textContent = 'Criando...';
+  try {
+    const r = await api('/api/disparos/criar', { method: 'POST', body: JSON.stringify({ nome, template_nome, texto: _dispFileTexto }) });
+    if (r.error) { toast('❌ ' + r.error, true); return; }
+    const ini = await api(`/api/disparos/${r.campanha_id}/iniciar`, { method: 'POST', body: '{}' });
+    if (ini.error) { toast('❌ ' + ini.error, true); return; }
+    _dispCampanhaAtual = r.campanha_id;
+    toast('🚀 Disparo iniciado!');
+    document.getElementById('disp-progresso').style.display = 'block';
+    dispPoll();
+    dispCarregarCampanhas();
+  } catch (e) { toast('❌ ' + e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '🚀 Iniciar disparo'; }
+}
+
+async function dispPoll() {
+  if (!_dispCampanhaAtual) return;
+  try {
+    const p = await api(`/api/disparos/${_dispCampanhaAtual}/progresso`);
+    if (!p.error) {
+      const feito = p.enviados + p.falhas;
+      const pct = p.total ? Math.round(feito / p.total * 100) : 0;
+      document.getElementById('disp-progresso-bar').style.width = pct + '%';
+      document.getElementById('disp-progresso-txt').textContent =
+        `${p.enviados} enviados · ${p.falhas} falhas · ${p.restantes} restantes (${p.status})`;
+      if (p.status === 'enviando') { _dispPollTimer = setTimeout(dispPoll, 2500); return; }
+      if (p.status === 'concluida') toast('✅ Disparo concluído!');
+      dispCarregarCampanhas();
+    }
+  } catch (e) { _dispPollTimer = setTimeout(dispPoll, 4000); }
+}
+
+async function dispPausar() {
+  if (!_dispCampanhaAtual) return;
+  await api(`/api/disparos/${_dispCampanhaAtual}/pausar`, { method: 'POST', body: '{}' });
+  if (_dispPollTimer) clearTimeout(_dispPollTimer);
+  toast('⏸ Pausado'); dispCarregarCampanhas();
+}
+
+async function dispRetomar(id) {
+  const r = await api(`/api/disparos/${id}/retomar`, { method: 'POST', body: '{}' });
+  if (r.error) { toast('❌ ' + r.error, true); return; }
+  _dispCampanhaAtual = id;
+  document.getElementById('disp-progresso').style.display = 'block';
+  toast('▶ Retomado'); dispPoll(); dispCarregarAviso(); atualizarBadgeDisparos();
+}
+
+async function dispCarregarCampanhas() {
+  const el = document.getElementById('disp-campanhas');
+  if (!el) return;
+  try {
+    const camps = await api('/api/disparos');
+    if (!camps.length) { el.innerHTML = '<div class="empty-small">Nenhuma campanha ainda.</div>'; return; }
+    const STAT = { rascunho: '📝 Rascunho', enviando: '📤 Enviando', pausada: '⏸ Pausada', concluida: '✅ Concluída' };
+    el.innerHTML = camps.map(c => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <strong>${escHtml(c.nome)}</strong>
+          <span style="font-size:12px;color:var(--muted)">${STAT[c.status] || c.status}${c.auto_pausada ? ' ⚠️ interrompida' : ''}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">
+          ${escHtml(c.template_nome)} · ${c.enviados}/${c.total} enviados${c.falhas ? ` · ${c.falhas} falhas` : ''}
+        </div>
+        ${c.status === 'pausada' ? `<button class="btn btn-primary" style="font-size:11px;padding:4px 10px;margin-top:6px" onclick="dispRetomar(${c.id})">▶ Retomar</button>` : ''}
+      </div>`).join('');
+  } catch (e) { el.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar campanhas</div>'; }
+}
+
+async function dispCarregarAviso() {
+  const box = document.getElementById('disp-banner-interrompida');
+  if (!box) return;
+  try {
+    const r = await api('/api/disparos/pendentes-aviso');
+    const camps = r.campanhas || [];
+    if (!camps.length) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.innerHTML = camps.map(c =>
+      `⚠️ A campanha <strong>${escHtml(c.nome)}</strong> foi interrompida em ${c.enviados}/${c.total}. `
+      + `<button class="btn btn-primary" style="font-size:11px;padding:3px 8px" onclick="dispRetomar(${c.id})">Retomar</button>`
+    ).join('<br>');
+  } catch (e) { box.style.display = 'none'; }
+}
+
+async function atualizarBadgeDisparos() {
+  try {
+    const r = await api('/api/disparos/pendentes-aviso');
+    const b = document.getElementById('nav-disp-badge');
+    if (b) b.style.display = (r.campanhas && r.campanhas.length) ? 'inline' : 'none';
+  } catch (e) { /* silencioso (403 p/ quem nao tem acesso) */ }
 }
 
 async function syncMeta(btn, silencioso = false) {
