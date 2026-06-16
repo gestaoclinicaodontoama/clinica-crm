@@ -641,7 +641,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
   </button>
   <button class="nav-btn" data-page="disparos" data-roles="admin,gestor,crc_comercial" onclick="setPage('disparos',this)">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
-    Disparos
+    Disparos <span id="nav-disp-badge" style="display:none;color:var(--red);font-weight:700">•</span>
   </button>
 
   <!-- Administrativo -->
@@ -1541,6 +1541,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <button class="tab" data-tab="sdr" onclick="setTab('sdr',this)">Notas SDR</button>
     <button class="tab" data-tab="comercial" onclick="setTab('comercial',this)">Notas Comercial</button>
     <button class="tab" data-tab="chamadas" onclick="setTab('chamadas',this)">📞 Chamadas</button>
+    <button class="tab" data-tab="disparos-lead" onclick="setTab('disparos-lead',this)">📢 Disparos</button>
   </div>
 
   <!-- TAB: DADOS -->
@@ -1637,6 +1638,11 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
   <!-- TAB: CHAMADAS -->
   <div class="tab-content" id="tab-chamadas">
     <div id="ligacoes-lista"><div class="empty-small">Carregando...</div></div>
+  </div>
+
+  <!-- TAB: DISPAROS DO LEAD -->
+  <div class="tab-content" id="tab-disparos-lead">
+    <div id="disparos-lead-lista"><div class="empty-small">Carregando...</div></div>
   </div>
 
   <hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
@@ -2218,6 +2224,7 @@ async function abrirModal(id) {
     document.getElementById('modal-bg').classList.add('open');
     setTab('dados', document.querySelector('.tab[data-tab="dados"]'));
     carregarLigacoes(id);
+    carregarDisparosLead(id);
   } catch(e) { toast('❌ Erro ao abrir lead: ' + e.message, true); }
 }
 
@@ -2427,6 +2434,26 @@ async function carregarLigacoes(leadId) {
     }).join('');
   } catch (e) {
     div.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar chamadas</div>';
+  }
+}
+
+async function carregarDisparosLead(leadId) {
+  const div = document.getElementById('disparos-lead-lista');
+  if (!div) return;
+  try {
+    const lista = await api(`/api/leads/${leadId}/disparos`);
+    if (!lista.length) { div.innerHTML = '<div class="empty-small">Nenhum disparo recebido.</div>'; return; }
+    const ENTREGA = { sent: '✓ enviado', delivered: '✓✓ entregue', read: '✓✓ lido', failed: '⚠️ não entregue' };
+    div.innerHTML = lista.map(d => {
+      const ent = d.entrega?.wa_status ? (ENTREGA[d.entrega.wa_status] || d.entrega.wa_status) : (d.status_envio === 'falha' ? '⚠️ falhou' : '—');
+      const cor = (d.entrega?.wa_status === 'failed' || d.status_envio === 'falha') ? 'var(--red)' : 'var(--muted)';
+      return `<div style="border-bottom:1px solid var(--border);padding:8px 0">
+        <div style="font-size:13px"><strong>${escHtml(d.campanha || d.template)}</strong></div>
+        <div style="font-size:11.5px;color:${cor}">${d.enviado_em ? _fmtDateFull(d.enviado_em) : ''} · ${ent}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    div.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar disparos</div>';
   }
 }
 
@@ -5672,6 +5699,8 @@ async function loadCurrentUser() {
         getToken: () => (_sbSession && _sbSession.access_token) || null,
       });
     }
+    // Badge de campanha de disparo interrompida (só visível p/ quem tem acesso).
+    if (_canSee('admin,gestor,crc_comercial')) atualizarBadgeDisparos();
   } catch(e) {}
 }
 
