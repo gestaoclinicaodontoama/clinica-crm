@@ -23,6 +23,8 @@ const { buscarEventosNovos } = require('./lib/monitor/queries');
 const { montarMonitor } = require('./lib/monitor/diario');
 const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
 const { montarDRE } = require('./lib/financeiro/dre');
+const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
+const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -5534,6 +5536,71 @@ app.get('/api/financeiro/a-categorizar', requireAuth, requireFinanceiro, async (
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
+
+// Classificar 1 lançamento. body: { conta_id, alcance: 'so_esta'|'todas', metodo, padrao }
+app.post('/api/financeiro/lancamentos/:id/classificar', requireAuth, requireFinanceiro, async (req, res) => {
+  const { conta_id, alcance, metodo, padrao } = req.body || {};
+  if (!conta_id) return res.status(400).json({ error: 'conta_id obrigatório' });
+
+  // busca a descrição da linha (para derivar padrão se vier vazio)
+  const { data: lanc, error: eL } = await supabase.from('fin_lancamentos').select('descricao').eq('id', req.params.id).maybeSingle();
+  if (eL) return res.status(500).json({ error: eL.message });
+
+  await supabase.from('fin_lancamentos').update({
+    conta_id, classificacao_metodo: 'manual', override_manual: alcance === 'so_esta',
+  }).eq('id', req.params.id);
+
+  if (alcance === 'todas') {
+    const met = metodo || 'exato';
+    const pad = padrao || (lanc ? _finNucleo(lanc.descricao) : null);
+    if (pad) {
+      await supabase.from('fin_regras').upsert(
+        { metodo: met, padrao: pad, conta_id, origem: 'manual', criado_por: req.user?.id },
+        { onConflict: 'metodo,padrao' });
+
+      // busca candidatos em páginas de 1000 (evita o limite do supabase-js) e reclassifica
+      const cands = [];
+      let from = 0;
+      while (true) {
+        const { data: page } = await supabase.from('fin_lancamentos')
+          .select('id,descricao,override_manual').eq('fluxo', 'sai').eq('override_manual', false)
+          .range(from, from + 999);
+        if (!page || !page.length) break;
+        cands.push(...page);
+        if (page.length < 1000) break;
+        from += 1000;
+      }
+      const alvos = alvosDaRegra(cands, { metodo: met, padrao: pad });
+      for (let i = 0; i < alvos.length; i += 500) {
+        const ids = alvos.slice(i, i + 500).map(a => a.id);
+        await supabase.from('fin_lancamentos')
+          .update({ conta_id, classificacao_metodo: met === 'pessoa' ? 'pessoa' : 'regra' })
+          .in('id', ids).eq('override_manual', false);
+      }
+    }
+  }
+  res.json({ ok: true });
+});
+
+// CRUD simples de cadastros (contas, regras, pessoas)
+for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
+  const slug = tabela.replace('fin_', '');
+  app.get(`/api/financeiro/${slug}`, requireAuth, requireFinanceiro, async (req, res) => {
+    const { data, error } = await supabase.from(tabela).select('*').order('id').limit(5000);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+  app.post(`/api/financeiro/${slug}`, requireAuth, requireFinanceiro, async (req, res) => {
+    const { data, error } = await supabase.from(tabela).insert(req.body).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.patch(`/api/financeiro/${slug}/:id`, requireAuth, requireFinanceiro, async (req, res) => {
+    const { data, error } = await supabase.from(tabela).update(req.body).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+}
 
 app.use((err, req, res, next) => {
   console.error('💥', err);
