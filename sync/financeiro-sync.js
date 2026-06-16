@@ -30,6 +30,7 @@ async function carregarCategorizador() {
 // Sincroniza um período [from,to] (YYYY-MM-DD). Idempotente + reconciliação.
 async function syncPeriodo(from, to) {
   const inicio = new Date().toISOString();
+  try {
   const r = await api.get('/financial/list_summary', { from, to });
   const itens = (r.values || []);
   const { cat, idByCod } = await carregarCategorizador();
@@ -66,6 +67,11 @@ async function syncPeriodo(from, to) {
     inativados: inativados?.length || 0, status: 'ok',
   });
   return { total: itens.length, novos, inativados: inativados?.length || 0 };
+  } catch (e) {
+    // A1: registra a falha no log de auditoria sem engolir o erro.
+    await supabase.from('fin_sync_log').insert({ periodo: `${from}~${to}`, status: 'erro', erro: String(e.message).slice(0, 500) });
+    throw e;
+  }
 }
 
 module.exports = { syncPeriodo };

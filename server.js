@@ -26,6 +26,12 @@ const { montarDRE } = require('./lib/financeiro/dre');
 const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
 const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
 const { syncPeriodo: syncFinanceiro } = require('./sync/financeiro-sync');
+const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
+// Período do mês corrente em America/Sao_Paulo (evita virada de dia/mês por UTC).
+function _finMesCorrente() {
+  const hojeBR = _finDataLocal(new Date().toISOString());  // 'YYYY-MM-DD' no fuso BR
+  return { from: hojeBR.slice(0, 8) + '01', to: hojeBR };
+}
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -3726,9 +3732,7 @@ async function runGuardedSync(trigger) {
     runGuardedSync('agendado').catch(e => console.error('[sync-diario] erro:', e.message));
     // sync financeiro do mês corrente — mesma janela diária, sem derrubar o processo
     try {
-      const hoje = new Date();
-      const from = hoje.toISOString().slice(0, 8) + '01';
-      const to = hoje.toISOString().slice(0, 10);
+      const { from, to } = _finMesCorrente();
       await syncFinanceiro(from, to);
       console.log('[financeiro-sync] mês corrente sincronizado');
     } catch (e) { console.error('[financeiro-sync] erro:', e.message); }
@@ -5592,6 +5596,18 @@ app.post('/api/financeiro/lancamentos/:id/classificar', requireAuth, requireFina
 });
 
 // CRUD simples de cadastros (contas, regras, pessoas)
+// allow-list de campos por tabela (evita mass-assignment via req.body)
+const FIN_CRUD_CAMPOS = {
+  fin_contas:  ['codigo', 'nome', 'grupo', 'tipo', 'ordem', 'ativo'],
+  fin_regras:  ['metodo', 'padrao', 'conta_id', 'prioridade'],
+  fin_pessoas: ['nome', 'papel', 'conta_id', 'empresa', 'ativo'],
+};
+function _finPick(tabela, body) {
+  const campos = FIN_CRUD_CAMPOS[tabela] || [];
+  const out = {};
+  for (const k of campos) if (body && body[k] !== undefined) out[k] = body[k];
+  return out;
+}
 for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
   const slug = tabela.replace('fin_', '');
   app.get(`/api/financeiro/${slug}`, requireAuth, requireFinanceiro, async (req, res) => {
@@ -5600,12 +5616,12 @@ for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
     res.json(data || []);
   });
   app.post(`/api/financeiro/${slug}`, requireAuth, requireFinanceiro, async (req, res) => {
-    const { data, error } = await supabase.from(tabela).insert(req.body).select().single();
+    const { data, error } = await supabase.from(tabela).insert(_finPick(tabela, req.body)).select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
   });
   app.patch(`/api/financeiro/${slug}/:id`, requireAuth, requireFinanceiro, async (req, res) => {
-    const { data, error } = await supabase.from(tabela).update(req.body).eq('id', req.params.id).select().single();
+    const { data, error } = await supabase.from(tabela).update(_finPick(tabela, req.body)).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
   });
@@ -5613,9 +5629,7 @@ for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
 
 // Sync manual do financeiro — mês corrente (botão "Atualizar dados" da DRE)
 app.post('/api/financeiro/sync', requireAuth, requireFinanceiro, async (req, res) => {
-  const hoje = new Date();
-  const from = hoje.toISOString().slice(0, 8) + '01';   // 1º dia do mês corrente
-  const to = hoje.toISOString().slice(0, 10);            // hoje
+  const { from, to } = _finMesCorrente();
   try { res.json(await syncFinanceiro(from, to)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
