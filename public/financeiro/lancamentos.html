@@ -249,6 +249,11 @@ let _contas = [];
 let _modalId = null;
 let _lancamentos = [];
 
+// ── XSS PROTECTION ────────────────────────────────────────────────────────────
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function fmt(v) {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -385,8 +390,8 @@ function renderTabela(rows) {
     const desc = (l.descricao || '');
     tr.innerHTML = `
       <td>${data}</td>
-      <td title="${desc}">${desc.substring(0, 50)}${desc.length > 50 ? '…' : ''}</td>
-      <td><span class="empresa-badge">${l.empresa || '—'}</span></td>
+      <td title="${esc(desc)}">${esc(desc.substring(0, 50))}${desc.length > 50 ? '…' : ''}</td>
+      <td><span class="empresa-badge">${l.empresa ? esc(l.empresa) : '—'}</span></td>
       <td><span class="fluxo-badge ${fluxoClass}">${fluxoLabel}</span></td>
       <td style="text-align:right" class="${valorClass}">${fmt(l.valor || 0)}</td>
       <td class="categoria-cell">${catNome}</td>

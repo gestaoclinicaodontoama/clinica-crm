@@ -154,6 +154,11 @@ select.conta-sel:focus { border-color: var(--accent); }
 let _contas = [];
 let _lancamentos = [];
 
+// ── XSS PROTECTION ────────────────────────────────────────────────────────────
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function fmt(v) {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -192,10 +197,11 @@ function renderLinha(l) {
   tr.dataset.id = l.id;
   const data = l.data ? l.data.substring(0, 10) : '—';
   const val = fmt(l.valor || 0);
+  const descRaw = (l.descricao || '');
   tr.innerHTML = `
     <td>${data}</td>
-    <td title="${l.descricao || ''}">${(l.descricao || '').substring(0, 50)}${(l.descricao || '').length > 50 ? '…' : ''}</td>
-    <td><span class="empresa-badge">${l.empresa || '—'}</span></td>
+    <td title="${esc(descRaw)}">${esc(descRaw.substring(0, 50))}${descRaw.length > 50 ? '…' : ''}</td>
+    <td><span class="empresa-badge">${l.empresa ? esc(l.empresa) : '—'}</span></td>
     <td style="text-align:right" class="valor-negativo">${val}</td>
     <td>
       <select class="conta-sel" id="sel-${l.id}">

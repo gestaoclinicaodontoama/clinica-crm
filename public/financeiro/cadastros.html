@@ -270,6 +270,11 @@ table.tbl tr:last-child td { border-bottom: none; }
 <script>
 let _contas = [];
 
+// ── XSS PROTECTION ────────────────────────────────────────────────────────────
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 const PAPEL_LABEL = {
   dentista_socio: 'Dentista Sócio',
   dentista_cnpj: 'Dentista CNPJ',
@@ -392,8 +397,8 @@ async function carregarRegras() {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="badge metodo">${r.metodo || '—'}</span></td>
-        <td><code style="font-size:12px;color:var(--accent)">${r.padrao || '—'}</code></td>
-        <td>${contaLabel}</td>
+        <td><code style="font-size:12px;color:var(--accent)">${esc(r.padrao) || '—'}</code></td>
+        <td>${esc(contaLabel)}</td>
       `;
       tbody.appendChild(tr);
     }
@@ -430,10 +435,10 @@ async function carregarPessoas() {
         : '—';
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><strong>${p.nome}</strong></td>
+        <td><strong>${esc(p.nome)}</strong></td>
         <td><span class="badge">${PAPEL_LABEL[p.papel] || p.papel || '—'}</span></td>
-        <td>${contaLabel}</td>
-        <td>${p.empresa || '—'}</td>
+        <td>${esc(contaLabel)}</td>
+        <td>${p.empresa ? esc(p.empresa) : '—'}</td>
       `;
       tbody.appendChild(tr);
     }
