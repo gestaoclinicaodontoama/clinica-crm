@@ -684,6 +684,12 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
     </div>
   </div>
 
+  <!-- Financeiro -->
+  <a class="nav-btn" href="/financeiro/" data-roles="financeiro,mod_financeiro">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+    Financeiro
+  </a>
+
   <!-- Configurações Gerais -->
   <div class="nav-section" id="nav-section-config-geral" data-roles="admin,gestor">
     <button class="nav-btn nav-btn--section" onclick="toggleNavSection('config-geral')">
@@ -1186,6 +1192,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-avaliacao_dentista"> Avalia&#231;&#227;o Dentista</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-kanban_leads"> Kanban Leads</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-kanban_comercial"> Kanban Comercial</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-financeiro"> Financeiro</label>
       </div></div>
       <button class="btn btn-primary" onclick="criarUsuario()" id="nu-btn" style="width:100%">Criar Usu&#225;rio</button>
       <div id="nu-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
@@ -1465,6 +1472,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-notas_fiscais"> Notas Fiscais</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-inadimplentes"> Inadimplentes</label>
         <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-avaliacao_dentista"> Avaliação Dentista</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-financeiro"> Financeiro</label>
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:4px">
@@ -5494,7 +5502,8 @@ const _ROLE_LABELS = {
   mod_notas_fiscais:'Notas Fiscais', mod_inadimplentes:'Inadimplentes',
   mod_avaliacao_dentista:'Avaliação Dentista',
   mod_kanban_leads:    'Kanban Leads',
-  mod_kanban_comercial: 'Kanban Comercial'
+  mod_kanban_comercial: 'Kanban Comercial',
+  mod_financeiro: 'Financeiro'
 };
 function _renderRoles(roles) {
   const base = [], mods = [];
@@ -5553,6 +5562,7 @@ async function criarUsuario() {
   if (document.getElementById('nu-mod-avaliacao_dentista').checked) roles.push('mod_avaliacao_dentista');
   if (document.getElementById('nu-mod-kanban_leads').checked) roles.push('mod_kanban_leads');
   if (document.getElementById('nu-mod-kanban_comercial').checked) roles.push('mod_kanban_comercial');
+  if (document.getElementById('nu-mod-financeiro').checked) roles.push('mod_financeiro');
   if (!roles.length) roles.push('crc_leads');
   btn.disabled = true; btn.textContent = 'Criando...'; msg.textContent = '';
   try {
@@ -5584,7 +5594,7 @@ async function excluirUsuario(id) {
 }
 
 const _EU_ROLES = ['admin','gestor','auxiliar_adm','crc_leads','crc_comercial','crc_sucesso','crc_pos_tratamento','dentista'];
-const _EU_MODS  = ['notas_fiscais','inadimplentes','avaliacao_dentista'];
+const _EU_MODS  = ['notas_fiscais','inadimplentes','avaliacao_dentista','financeiro'];
 let _usuariosCache = [];
 
 function abrirEdicaoUsuario(id) {
