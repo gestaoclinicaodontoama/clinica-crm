@@ -5608,10 +5608,15 @@ function _finPick(tabela, body) {
   for (const k of campos) if (body && body[k] !== undefined) out[k] = body[k];
   return out;
 }
+const FIN_GET_SELECT = {
+  fin_contas:  '*',
+  fin_regras:  '*, fin_contas(codigo,nome)',
+  fin_pessoas: '*, fin_contas(codigo,nome)',
+};
 for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
   const slug = tabela.replace('fin_', '');
   app.get(`/api/financeiro/${slug}`, requireAuth, requireFinanceiro, async (req, res) => {
-    const { data, error } = await supabase.from(tabela).select('*').order('id').limit(5000);
+    const { data, error } = await supabase.from(tabela).select(FIN_GET_SELECT[tabela] || '*').order('id').limit(5000);
     if (error) return res.status(500).json({ error: error.message });
     res.json(data || []);
   });
