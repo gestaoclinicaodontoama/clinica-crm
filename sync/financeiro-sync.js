@@ -42,7 +42,10 @@ async function syncPeriodo(from, to) {
       .select('id,override_manual').eq('clinicorp_id', m.clinicorp_id).maybeSingle();
     let conta_id = null, metodo = null;
     if (m.fluxo === 'sai') { const c = cat(m.descricao); conta_id = c.conta_codigo ? idByCod.get(c.conta_codigo) : null; metodo = c.metodo; }
-    else { conta_id = idByCod.get(m.forma_pgto === 'convenio' ? '1.1' : '1.2'); metodo = 'auto'; }
+    // Receita: SÓ RECEIVED (regime de caixa) entra na DRE. REVENUE (competência/faturamento) e
+    // demais 'entra' ficam guardados com conta_id=null — fora da DRE de caixa (uso na Fase 2).
+    else if (m.post_type === 'RECEIVED') { conta_id = idByCod.get(m.forma_pgto === 'convenio' ? '1.1' : '1.2'); metodo = 'auto'; }
+    else { conta_id = null; metodo = null; }
 
     const row = {
       clinicorp_id: m.clinicorp_id, data: m.data, descricao: m.descricao, valor: m.valor,
