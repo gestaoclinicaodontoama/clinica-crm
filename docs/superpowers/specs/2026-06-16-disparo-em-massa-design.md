@@ -44,7 +44,7 @@ uma database). A reorganização do lado dos leads também é Fase 2.
 
 ```
 Página Disparos → aba "Disparar"
-  1. Upload CSV  → parser lê cabeçalho e normaliza
+  1. Upload CSV (ou colar texto) → enviado cru ao servidor, que parseia e normaliza
   2. Preview     → "X casam com lead existente · Y serão criados como lead novo · Z sem telefone válido (ignorados)"
   3. Escolher template (apenas APROVADOS na Meta) + nome da campanha
   4. Confirmar   → cria campanha + grava contatos como `pendente` (NÃO envia ainda)
@@ -88,21 +88,25 @@ Página Disparos → aba "Disparar"
 | enviado_em | timestamptz | |
 
 O **status de entrega/leitura (✓ / ✓✓ / lido)** NÃO é duplicado aqui: sai da
-tabela `mensagens` existente (já atualizada pelo webhook de status), casando por
-`wa_id`. Sem alterar o webhook.
+tabela `mensagens` existente — coluna **`wa_status`** (`sent`/`delivered`/`read`/
+`failed`) + `wa_erro`, já atualizada pelo webhook —, casando por `wa_id`. Sem
+alterar o webhook.
 
 ## Backend (novos endpoints em `server.js`)
 
 Todos protegidos por `requireAuth` + role (admin/gestor/crc_comercial — mesmo
 `data-roles` do link Disparos) + `rateLimit`.
 
-- `POST /api/disparos/preview` — body: `{ contatos: [...] }` (CSV já parseado no
-  front). Para cada um normaliza telefone e marca se casa com lead existente
-  (via `chaveTelefone`). Retorna contagens `{ casam, novos, invalidos }` +
-  amostra. **Não grava nada.**
-- `POST /api/disparos/criar` — body: `{ nome, template_nome, lang, contatos }`.
-  Cria `disparos_campanhas` (status `rascunho`) + grava todos os contatos válidos
-  como `pendente`. Retorna `{ campanha_id, total }`.
+- `POST /api/disparos/preview` — recebe o CSV **cru** (arquivo via multer `_upload`,
+  campo `file`, OU `{ texto }` com o conteúdo colado). **Parseia no servidor** (ver
+  Parser), normaliza telefone e marca se casa com lead existente (via matching).
+  Retorna `{ casam, novos, invalidos }` + amostra. **Não grava nada.**
+  ⚠️ NÃO recebe os contatos já explodidos em JSON: `express.json` está limitado a
+  200kb e uma lista grande (ex.: 2000 contatos) estouraria. Por isso o CSV sobe como
+  arquivo/texto cru e o parser roda no backend.
+- `POST /api/disparos/criar` — recebe o CSV cru (igual ao preview) + `{ nome,
+  template_nome, lang }`. Cria `disparos_campanhas` (status `rascunho`) + grava todos
+  os contatos válidos como `pendente`. Retorna `{ campanha_id, total }`.
 - `POST /api/disparos/:id/iniciar` — marca `enviando`, dispara o **runner em
   background** (in-process). Retorna imediatamente `{ ok: true }`. **Recusa (409) se
   já houver outra campanha `enviando`** — uma campanha ativa por vez (mesma proteção
@@ -177,8 +181,10 @@ Reorganizar em 3 áreas (abas internas ou seções):
 - **Templates** (existente): inalterado.
 - **Importar Pacientes** (existente): **mantido** (cria leads, fluxo separado).
 
-### Parser de CSV (`public/` JS)
-Lê o cabeçalho e mapeia colunas conhecidas:
+### Parser de CSV (`lib/disparos/parser.js` — servidor)
+Roda no **backend** (não no front), recebendo o texto cru do CSV. Fica
+unit-testável em Node (padrão de `whatsapp.test.js`). Lê o cabeçalho e mapeia
+colunas conhecidas:
 - `primeiro_nome` → `{{1}}` (fallback: 1º token de `nome`/`nome_completo`; se ainda
   vazio, usa um genérico tipo "tudo bem" para o template não sair "Olá ,").
 - `nome_completo`/`nome` → nome do lead, removendo sufixo `(12345)`.
@@ -189,7 +195,7 @@ Lê o cabeçalho e mapeia colunas conhecidas:
 ### Perfil do lead (`public/index.html` — modal)
 - Nova aba **"📢 Disparos"** ao lado de "📞 Chamadas": lista os
   `disparos_contatos` daquele `lead_id` (join na campanha p/ template + data; join
-  em `mensagens` por `wa_id` p/ status de entrega). Endpoint
+  em `mensagens` por `wa_id` lendo `wa_status`/`wa_erro` p/ status de entrega). Endpoint
   `GET /api/leads/:id/disparos`. **Esta é a fonte principal do registro no perfil.**
 - Timeline do **Trajeto** (`lead_eventos`): cada disparo grava um evento
   `disparo_massa`, então aparece lá junto de `template_enviado` e demais. ⚠️ A
