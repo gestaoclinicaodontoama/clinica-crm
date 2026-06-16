@@ -33,3 +33,6 @@ nf-automation/*.txt
 nf-automation/*.err
 nf-automation/captcha_*
 nf-automation/diag_*
+
+# Seed intermediário (contém nomes de fornecedores/pessoas)
+scripts/_seed_regras.json
