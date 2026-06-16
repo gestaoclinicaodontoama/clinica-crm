@@ -22,6 +22,7 @@ const { montarDashboard } = require('./lib/funil/dashboard');
 const { buscarEventosNovos } = require('./lib/monitor/queries');
 const { montarMonitor } = require('./lib/monitor/diario');
 const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
+const { montarDRE } = require('./lib/financeiro/dre');
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -329,6 +330,7 @@ const requireKanbanComercial = requireRole('admin', 'gestor', 'crc', 'crc_comerc
 const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial');
 // Conversas WhatsApp: mesmas roles do item de menu + 'crc' legado
 const requireConversas = requireRole('admin', 'gestor', 'crc', 'crc_leads', 'crc_comercial', 'crc_sucesso');
+const requireFinanceiro = requireRole('financeiro', 'admin', 'mod_financeiro');
 
 // ========== ADMIN MIDDLEWARE ==========
 // TODO(remover-em-2026-06-23): fallback de role em user_metadata
@@ -5496,6 +5498,42 @@ app.options('/t', (req, res) => {
   res.status(204).send('');
 });
 
+
+// ========== FINANCEIRO / DRE ==========
+
+// DRE do período (agregada no Postgres — evita o limite de 1000 linhas do supabase-js)
+app.get('/api/financeiro/dre', requireAuth, requireFinanceiro, async (req, res) => {
+  const { from, to } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
+  const { data, error } = await supabase.rpc('fin_dre_agg', { p_from: from, p_to: to });
+  if (error) return res.status(500).json({ error: error.message });
+  const lancs = (data || []).map(r => ({ fluxo: r.fluxo, valor: Number(r.total), conta_codigo: r.conta_codigo }));
+  res.json(montarDRE(lancs));
+});
+
+// Lançamentos filtráveis (página de até 2000)
+app.get('/api/financeiro/lancamentos', requireAuth, requireFinanceiro, async (req, res) => {
+  const { from, to, empresa, conta_id, fluxo, incluir_inativos } = req.query;
+  let q = supabase.from('fin_lancamentos').select('*, fin_contas(codigo,nome)').order('data', { ascending: false }).limit(2000);
+  if (from) q = q.gte('data', from);
+  if (to) q = q.lte('data', to);
+  if (empresa) q = q.eq('empresa', empresa);
+  if (conta_id) q = q.eq('conta_id', conta_id);
+  if (fluxo) q = q.eq('fluxo', fluxo);
+  if (incluir_inativos !== '1') q = q.eq('ativo', true);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// Fila "A categorizar" (despesas sem conta)
+app.get('/api/financeiro/a-categorizar', requireAuth, requireFinanceiro, async (req, res) => {
+  const { data, error } = await supabase.from('fin_lancamentos')
+    .select('*').eq('ativo', true).eq('fluxo', 'sai').is('conta_id', null).order('valor', { ascending: false }).limit(500);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
 
 app.use((err, req, res, next) => {
   console.error('💥', err);
