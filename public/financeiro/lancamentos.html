@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lançamentos — Financeiro AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] {
+  --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+  --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6; --purple: #a855f7;
+}
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+  --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488; --purple: #9333ea;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+.fin-wrap { padding: 20px 24px; }
+
+.fin-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.fin-header h1 { font-size: 20px; font-weight: 700; flex: 1; min-width: 160px; }
+
+.fin-links {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;
+}
+.fin-link {
+  padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+  text-decoration: none; color: var(--muted); background: var(--bg2);
+  border: 1px solid var(--border); transition: all .15s;
+}
+.fin-link:hover { border-color: var(--accent); color: var(--accent); }
+.fin-link.active { border-color: var(--accent); color: var(--accent); background: var(--bg3); }
+
+.btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: .6; cursor: default; }
+.btn-ghost { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--bg3); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+
+/* ── Filtros ── */
+.filtros {
+  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px;
+}
+.filtros label { font-size: 12px; color: var(--muted); font-weight: 500; display: flex; flex-direction: column; gap: 4px; }
+.filtros input[type="date"],
+.filtros select {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--bg2); color: var(--text);
+  font-family: inherit; outline: none; min-width: 130px;
+}
+.filtros input:focus, .filtros select:focus { border-color: var(--accent); }
+.filtros .check-label {
+  flex-direction: row; align-items: center; gap: 6px; font-size: 13px; cursor: pointer;
+}
+.filtros .check-label input { width: 14px; height: 14px; accent-color: var(--accent); }
+
+/* ── Summary ── */
+.summary-bar {
+  display: flex; align-items: center; gap: 16px; padding: 10px 14px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  margin-bottom: 12px; flex-wrap: wrap; font-size: 13px;
+}
+.summary-bar .item { display: flex; flex-direction: column; gap: 2px; }
+.summary-bar .item span { font-size: 11px; color: var(--muted); font-weight: 500; }
+.summary-bar .item strong { font-size: 14px; }
+.summary-bar .item.green strong { color: var(--green); }
+.summary-bar .item.red strong { color: var(--red); }
+
+/* ── Mensagem central ── */
+#msg { padding: 40px; color: var(--muted); text-align: center; }
+
+/* ── Tabela ── */
+.tbl-wrap {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  overflow-x: auto;
+}
+table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 800px; }
+table.tbl th {
+  padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); border-bottom: 1px solid var(--border);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+table.tbl th.right { text-align: right; }
+table.tbl td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.tbl tr:last-child td { border-bottom: none; }
+
+.valor-positivo { color: var(--green); }
+.valor-negativo { color: var(--red); }
+.empresa-badge {
+  display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600;
+  background: var(--bg3); color: var(--muted);
+}
+.fluxo-badge {
+  display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600;
+}
+.fluxo-badge.entra { background: rgba(34,197,94,.12); color: var(--green); }
+.fluxo-badge.sai { background: rgba(239,68,68,.12); color: var(--red); }
+
+.categoria-cell { color: var(--muted); font-size: 12px; max-width: 160px; }
+
+/* ── Modal trocar categoria ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  z-index: 1000; align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px; min-width: 340px; max-width: 480px; width: 90%;
+  box-shadow: 0 8px 40px rgba(0,0,0,.4);
+}
+.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 16px; }
+.modal .field { margin-bottom: 14px; }
+.modal .field label { font-size: 12px; color: var(--muted); font-weight: 500; display: block; margin-bottom: 4px; }
+.modal select, .modal .field select {
+  width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--bg2); color: var(--text); font-family: inherit; outline: none;
+}
+.modal select:focus { border-color: var(--accent); }
+.modal .row { display: flex; gap: 8px; margin-top: 6px; }
+.modal .alcance-btn {
+  flex: 1; padding: 8px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit; border: 1px solid var(--border);
+  background: var(--bg3); color: var(--text); transition: all .15s;
+}
+.modal .alcance-btn:hover { border-color: var(--accent); color: var(--accent); }
+.modal .alcance-btn:disabled { opacity: .6; cursor: default; }
+.modal .modal-footer { display: flex; justify-content: flex-end; margin-top: 18px; }
+.modal-desc { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+  padding: 10px 18px; border-radius: 10px; font-size: 13px; font-weight: 500;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  box-shadow: 0 4px 20px rgba(0,0,0,.3); display: none;
+}
+#toast.ok { border-color: var(--green); color: var(--green); }
+#toast.err { border-color: var(--red); color: var(--red); }
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="financeiro"></script>
+<div class="main-content">
+<div class="fin-wrap">
+
+  <div class="fin-header">
+    <h1>Financeiro — Lançamentos</h1>
+  </div>
+
+  <div class="fin-links">
+    <a class="fin-link" href="/financeiro/">DRE</a>
+    <a class="fin-link" href="/financeiro/a-categorizar.html">A categorizar</a>
+    <a class="fin-link active" href="/financeiro/lancamentos.html">Lançamentos</a>
+    <a class="fin-link" href="/financeiro/cadastros.html">Cadastros</a>
+  </div>
+
+  <!-- Filtros -->
+  <div class="filtros">
+    <label>De <input type="date" id="fDe"></label>
+    <label>Até <input type="date" id="fAte"></label>
+    <label>Empresa
+      <select id="fEmpresa">
+        <option value="">Todas</option>
+        <option value="AMA">AMA</option>
+        <option value="MAR">MAR</option>
+        <option value="PF">PF</option>
+      </select>
+    </label>
+    <label>Conta
+      <select id="fConta"><option value="">Todas</option></select>
+    </label>
+    <label>Fluxo
+      <select id="fFluxo">
+        <option value="">Todos</option>
+        <option value="entra">Entra</option>
+        <option value="sai">Sai</option>
+      </select>
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="fInativos"> Incluir inativos
+    </label>
+    <button class="btn btn-primary" onclick="buscar()">Buscar</button>
+  </div>
+
+  <!-- Summary -->
+  <div id="summaryBar" class="summary-bar" style="display:none">
+    <div class="item"><span>Total</span><strong id="smTotal">—</strong></div>
+    <div class="item green"><span>Entradas</span><strong id="smEntra">—</strong></div>
+    <div class="item red"><span>Saídas</span><strong id="smSai">—</strong></div>
+    <div class="item"><span>Lançamentos</span><strong id="smCount">—</strong></div>
+  </div>
+
+  <div id="msg">Defina os filtros e clique em "Buscar".</div>
+  <div id="tblWrap" style="display:none" class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Descrição</th>
+          <th>Empresa</th>
+          <th>Fluxo</th>
+          <th class="right">Valor</th>
+          <th>Categoria</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+</div>
+
+<!-- Modal trocar categoria -->
+<div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>Trocar categoria</h3>
+    <p class="modal-desc" id="modalDesc"></p>
+    <div class="field">
+      <label>Nova conta</label>
+      <select id="modalConta"><option value="">— selecione —</option></select>
+    </div>
+    <div class="row">
+      <button class="alcance-btn" id="btnSoEsta" onclick="confirmarClassificacao('so_esta')">Só esta</button>
+      <button class="alcance-btn" id="btnTodas" onclick="confirmarClassificacao('todas')">Todas iguais</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/financeiro/api.js"></script>
+<script>
+let _contas = [];
+let _modalId = null;
+let _lancamentos = [];
+
+function fmt(v) {
+  return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function showToast(msg, type = 'ok', ms = 3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, ms);
+}
+
+// ── Defaults ──────────────────────────────────────────────────────────────────
+(function () {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  document.getElementById('fDe').value = `${y}-${m}-01`;
+  const last = new Date(y, now.getMonth() + 1, 0).getDate();
+  document.getElementById('fAte').value = `${y}-${m}-${String(last).padStart(2, '0')}`;
+})();
+
+// ── Carregar contas para filtro e modal ───────────────────────────────────────
+function buildContasOptions(sel, selectedId) {
+  const grupos = {};
+  for (const c of _contas) {
+    const g = c.grupo || 'Outras';
+    if (!grupos[g]) grupos[g] = [];
+    grupos[g].push(c);
+  }
+  sel.innerHTML = '<option value="">— selecione —</option>';
+  for (const [g, cs] of Object.entries(grupos)) {
+    const og = document.createElement('optgroup');
+    og.label = g;
+    for (const c of cs) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = (c.codigo ? c.codigo + ' ' : '') + c.nome;
+      if (selectedId && c.id === selectedId) opt.selected = true;
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+}
+
+async function init() {
+  try {
+    _contas = await FinAPI.contas();
+    const fConta = document.getElementById('fConta');
+    buildContasOptions(fConta, null);
+    // Adicionar opção "Todas" no topo do filtro
+    const optAll = document.createElement('option');
+    optAll.value = ''; optAll.textContent = 'Todas';
+    fConta.insertBefore(optAll, fConta.firstChild);
+  } catch (e) {
+    _contas = [];
+  }
+  await buscar();
+}
+
+// ── Buscar ────────────────────────────────────────────────────────────────────
+async function buscar() {
+  const msg = document.getElementById('msg');
+  const wrap = document.getElementById('tblWrap');
+  const bar = document.getElementById('summaryBar');
+
+  msg.textContent = 'Carregando...';
+  msg.style.display = '';
+  wrap.style.display = 'none';
+  bar.style.display = 'none';
+
+  const q = {};
+  const de = document.getElementById('fDe').value;
+  const ate = document.getElementById('fAte').value;
+  if (de) q.from = de;
+  if (ate) q.to = ate;
+  const emp = document.getElementById('fEmpresa').value;
+  if (emp) q.empresa = emp;
+  const conta = document.getElementById('fConta').value;
+  if (conta) q.conta_id = conta;
+  const fluxo = document.getElementById('fFluxo').value;
+  if (fluxo) q.fluxo = fluxo;
+  if (document.getElementById('fInativos').checked) q.incluir_inativos = '1';
+
+  try {
+    _lancamentos = await FinAPI.lancamentos(q);
+    renderTabela(_lancamentos);
+  } catch (e) {
+    msg.textContent = 'Erro ao buscar lançamentos: ' + e.message;
+    msg.style.display = '';
+    wrap.style.display = 'none';
+  }
+}
+
+function renderTabela(rows) {
+  const msg = document.getElementById('msg');
+  const wrap = document.getElementById('tblWrap');
+  const bar = document.getElementById('summaryBar');
+  const tbody = document.getElementById('tbody');
+
+  if (!rows.length) {
+    msg.textContent = 'Nenhum lançamento encontrado para os filtros selecionados.';
+    msg.style.display = '';
+    wrap.style.display = 'none';
+    bar.style.display = 'none';
+    return;
+  }
+
+  // Summary
+  let totalEntra = 0, totalSai = 0;
+  for (const l of rows) {
+    const v = Math.abs(Number(l.valor) || 0);
+    if (l.fluxo === 'entra') totalEntra += v;
+    else totalSai += v;
+  }
+  document.getElementById('smTotal').textContent = fmt(totalEntra - totalSai);
+  document.getElementById('smEntra').textContent = fmt(totalEntra);
+  document.getElementById('smSai').textContent = fmt(-totalSai);
+  document.getElementById('smCount').textContent = rows.length;
+  bar.style.display = 'flex';
+
+  tbody.innerHTML = '';
+  for (const l of rows) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = l.id;
+    const data = l.data ? l.data.substring(0, 10) : '—';
+    const fluxoClass = l.fluxo === 'entra' ? 'entra' : 'sai';
+    const fluxoLabel = l.fluxo === 'entra' ? 'Entra' : 'Sai';
+    const valorClass = l.fluxo === 'entra' ? 'valor-positivo' : 'valor-negativo';
+    const catNome = l.fin_contas
+      ? ((l.fin_contas.codigo ? l.fin_contas.codigo + ' ' : '') + l.fin_contas.nome)
+      : '<span style="color:var(--yellow)">Sem categoria</span>';
+    const desc = (l.descricao || '');
+    tr.innerHTML = `
+      <td>${data}</td>
+      <td title="${desc}">${desc.substring(0, 50)}${desc.length > 50 ? '…' : ''}</td>
+      <td><span class="empresa-badge">${l.empresa || '—'}</span></td>
+      <td><span class="fluxo-badge ${fluxoClass}">${fluxoLabel}</span></td>
+      <td style="text-align:right" class="${valorClass}">${fmt(l.valor || 0)}</td>
+      <td class="categoria-cell">${catNome}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="abrirModal('${l.id}')">Trocar</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  msg.style.display = 'none';
+  wrap.style.display = '';
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function abrirModal(id) {
+  const l = _lancamentos.find(x => String(x.id) === String(id));
+  _modalId = id;
+  document.getElementById('modalDesc').textContent = l ? (l.descricao || '').substring(0, 70) : '';
+  const sel = document.getElementById('modalConta');
+  buildContasOptions(sel, l && l.fin_contas ? l.fin_contas.id : null);
+  document.getElementById('modalOverlay').classList.add('open');
+  document.getElementById('btnSoEsta').disabled = false;
+  document.getElementById('btnTodas').disabled = false;
+}
+
+function fecharModal(e) {
+  if (e && e.target !== document.getElementById('modalOverlay')) return;
+  document.getElementById('modalOverlay').classList.remove('open');
+  _modalId = null;
+}
+
+async function confirmarClassificacao(alcance) {
+  const conta_id = document.getElementById('modalConta').value;
+  if (!conta_id) { showToast('Selecione uma conta.', 'err'); return; }
+
+  document.getElementById('btnSoEsta').disabled = true;
+  document.getElementById('btnTodas').disabled = true;
+
+  try {
+    await FinAPI.classificar(_modalId, { conta_id, alcance });
+    document.getElementById('modalOverlay').classList.remove('open');
+    showToast(alcance === 'todas' ? 'Todos os lançamentos iguais classificados!' : 'Lançamento classificado!', 'ok');
+    await buscar();
+  } catch (e) {
+    showToast('Erro: ' + e.message, 'err', 5000);
+    document.getElementById('btnSoEsta').disabled = false;
+    document.getElementById('btnTodas').disabled = false;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

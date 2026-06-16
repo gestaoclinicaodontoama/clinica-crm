@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadastros — Financeiro AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] {
+  --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+  --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6; --purple: #a855f7;
+}
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+  --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488; --purple: #9333ea;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+.fin-wrap { padding: 20px 24px; }
+
+.fin-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.fin-header h1 { font-size: 20px; font-weight: 700; flex: 1; min-width: 160px; }
+
+.fin-links {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;
+}
+.fin-link {
+  padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+  text-decoration: none; color: var(--muted); background: var(--bg2);
+  border: 1px solid var(--border); transition: all .15s;
+}
+.fin-link:hover { border-color: var(--accent); color: var(--accent); }
+.fin-link.active { border-color: var(--accent); color: var(--accent); background: var(--bg3); }
+
+.btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: .6; cursor: default; }
+.btn-ghost { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--bg3); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+
+/* ── Abas ── */
+.abas {
+  display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.aba {
+  padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+  border: none; background: none; color: var(--muted); font-family: inherit;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s;
+}
+.aba:hover { color: var(--text); }
+.aba.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Tabelas ── */
+.tbl-wrap {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  overflow-x: auto; margin-bottom: 20px;
+}
+table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.tbl th {
+  padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); border-bottom: 1px solid var(--border);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+table.tbl td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.tbl tr:last-child td { border-bottom: none; }
+
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 11px; font-weight: 600;
+  background: var(--bg3); color: var(--muted);
+}
+.badge.receita { background: rgba(34,197,94,.12); color: var(--green); }
+.badge.despesa { background: rgba(239,68,68,.12); color: var(--red); }
+.badge.metodo { background: rgba(79,142,247,.12); color: var(--accent); }
+
+/* ── Formulário Pessoas ── */
+.form-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px 24px; margin-bottom: 20px;
+}
+.form-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+.form-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
+  margin-bottom: 14px;
+}
+.form-field { display: flex; flex-direction: column; gap: 4px; }
+.form-field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.form-field input,
+.form-field select {
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--bg2); color: var(--text); font-family: inherit; outline: none;
+}
+.form-field input:focus,
+.form-field select:focus { border-color: var(--accent); }
+
+/* ── Feedback ── */
+#msg-plano, #msg-regras, #msg-pessoas { padding: 24px; color: var(--muted); text-align: center; }
+#form-feedback {
+  font-size: 13px; padding: 8px 12px; border-radius: 8px;
+  margin-top: 4px; display: none;
+}
+#form-feedback.ok { background: rgba(34,197,94,.1); color: var(--green); border: 1px solid var(--green); }
+#form-feedback.err { background: rgba(239,68,68,.1); color: var(--red); border: 1px solid var(--red); }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+  padding: 10px 18px; border-radius: 10px; font-size: 13px; font-weight: 500;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  box-shadow: 0 4px 20px rgba(0,0,0,.3); display: none;
+}
+#toast.ok { border-color: var(--green); color: var(--green); }
+#toast.err { border-color: var(--red); color: var(--red); }
+
+.section-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+}
+.section-header h2 { font-size: 15px; font-weight: 700; }
+.section-sub { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="financeiro"></script>
+<div class="main-content">
+<div class="fin-wrap">
+
+  <div class="fin-header">
+    <h1>Financeiro — Cadastros</h1>
+  </div>
+
+  <div class="fin-links">
+    <a class="fin-link" href="/financeiro/">DRE</a>
+    <a class="fin-link" href="/financeiro/a-categorizar.html">A categorizar</a>
+    <a class="fin-link" href="/financeiro/lancamentos.html">Lançamentos</a>
+    <a class="fin-link active" href="/financeiro/cadastros.html">Cadastros</a>
+  </div>
+
+  <!-- Abas -->
+  <div class="abas">
+    <button class="aba active" onclick="trocarAba('plano', this)">Plano de contas</button>
+    <button class="aba" onclick="trocarAba('regras', this)">Regras</button>
+    <button class="aba" onclick="trocarAba('pessoas', this)">Pessoas</button>
+  </div>
+
+  <!-- ── ABA: Plano de contas ── -->
+  <div class="tab-content active" id="tab-plano">
+    <div class="section-header">
+      <h2>Plano de contas</h2>
+      <button class="btn btn-ghost btn-sm" onclick="carregarContas()">Atualizar</button>
+    </div>
+    <p class="section-sub">Contas do plano financeiro utilizadas para categorização de lançamentos.</p>
+    <div id="msg-plano">Carregando...</div>
+    <div id="wrap-plano" style="display:none" class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Nome</th>
+            <th>Grupo</th>
+            <th>Tipo</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-plano"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── ABA: Regras ── -->
+  <div class="tab-content" id="tab-regras">
+    <div class="section-header">
+      <h2>Regras de categorização</h2>
+      <button class="btn btn-ghost btn-sm" onclick="carregarRegras()">Atualizar</button>
+    </div>
+    <p class="section-sub">Regras automáticas derivadas ao classificar lançamentos com "Todas iguais".</p>
+    <div id="msg-regras">Carregando...</div>
+    <div id="wrap-regras" style="display:none" class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Método</th>
+            <th>Padrão</th>
+            <th>Conta</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-regras"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── ABA: Pessoas ── -->
+  <div class="tab-content" id="tab-pessoas">
+    <div class="section-header">
+      <h2>Pessoas</h2>
+    </div>
+    <p class="section-sub">Cadastro de sócios, dentistas, funcionários e técnicos vinculados ao motor de categorização.</p>
+
+    <!-- Formulário criar pessoa -->
+    <div class="form-card">
+      <h3>Nova pessoa</h3>
+      <div class="form-grid">
+        <div class="form-field">
+          <label for="pNome">Nome *</label>
+          <input type="text" id="pNome" placeholder="Ex.: Dr. João Silva">
+        </div>
+        <div class="form-field">
+          <label for="pPapel">Papel *</label>
+          <select id="pPapel">
+            <option value="">— selecione —</option>
+            <option value="dentista_socio">Dentista Sócio</option>
+            <option value="dentista_cnpj">Dentista CNPJ</option>
+            <option value="funcionario">Funcionário</option>
+            <option value="tecnico">Técnico</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="pConta">Conta vinculada</label>
+          <select id="pConta"><option value="">— nenhuma —</option></select>
+        </div>
+        <div class="form-field">
+          <label for="pEmpresa">Empresa</label>
+          <select id="pEmpresa">
+            <option value="">— todas —</option>
+            <option value="AMA">AMA</option>
+            <option value="MAR">MAR</option>
+            <option value="PF">PF</option>
+          </select>
+        </div>
+      </div>
+      <div id="form-feedback"></div>
+      <button class="btn btn-primary" id="btnCriar" onclick="criarPessoa()" style="margin-top:10px">Criar pessoa</button>
+    </div>
+
+    <!-- Lista pessoas -->
+    <div class="section-header">
+      <h2>Pessoas cadastradas</h2>
+      <button class="btn btn-ghost btn-sm" onclick="carregarPessoas()">Atualizar</button>
+    </div>
+    <div id="msg-pessoas">Carregando...</div>
+    <div id="wrap-pessoas" style="display:none" class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Papel</th>
+            <th>Conta vinculada</th>
+            <th>Empresa</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-pessoas"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/financeiro/api.js"></script>
+<script>
+let _contas = [];
+
+const PAPEL_LABEL = {
+  dentista_socio: 'Dentista Sócio',
+  dentista_cnpj: 'Dentista CNPJ',
+  funcionario: 'Funcionário',
+  tecnico: 'Técnico',
+};
+
+function showToast(msg, type = 'ok', ms = 3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, ms);
+}
+
+function showFeedback(msg, type = 'ok') {
+  const el = document.getElementById('form-feedback');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+// ── Abas ──────────────────────────────────────────────────────────────────────
+function trocarAba(id, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.aba').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Contas ────────────────────────────────────────────────────────────────────
+async function carregarContas() {
+  const msg = document.getElementById('msg-plano');
+  const wrap = document.getElementById('wrap-plano');
+  const tbody = document.getElementById('tbody-plano');
+
+  msg.textContent = 'Carregando...';
+  msg.style.display = '';
+  wrap.style.display = 'none';
+
+  try {
+    _contas = await FinAPI.contas();
+
+    if (!_contas.length) {
+      msg.textContent = 'Nenhuma conta cadastrada.';
+      return;
+    }
+
+    tbody.innerHTML = '';
+    for (const c of _contas) {
+      const tipoClass = c.tipo === 'receita' ? 'receita' : 'despesa';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${c.codigo || '—'}</td>
+        <td>${c.nome}</td>
+        <td>${c.grupo || '—'}</td>
+        <td><span class="badge ${tipoClass}">${c.tipo || '—'}</span></td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    // Também popular select da aba Pessoas
+    popularSelectContas();
+
+    msg.style.display = 'none';
+    wrap.style.display = '';
+  } catch (e) {
+    msg.textContent = 'Erro ao carregar contas: ' + e.message;
+  }
+}
+
+function popularSelectContas() {
+  const sel = document.getElementById('pConta');
+  sel.innerHTML = '<option value="">— nenhuma —</option>';
+  const grupos = {};
+  for (const c of _contas) {
+    const g = c.grupo || 'Outras';
+    if (!grupos[g]) grupos[g] = [];
+    grupos[g].push(c);
+  }
+  for (const [g, cs] of Object.entries(grupos)) {
+    const og = document.createElement('optgroup');
+    og.label = g;
+    for (const c of cs) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = (c.codigo ? c.codigo + ' ' : '') + c.nome;
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+}
+
+// ── Regras ────────────────────────────────────────────────────────────────────
+async function carregarRegras() {
+  const msg = document.getElementById('msg-regras');
+  const wrap = document.getElementById('wrap-regras');
+  const tbody = document.getElementById('tbody-regras');
+
+  msg.textContent = 'Carregando...';
+  msg.style.display = '';
+  wrap.style.display = 'none';
+
+  try {
+    const regras = await FinAPI.regras();
+
+    if (!regras.length) {
+      msg.textContent = 'Nenhuma regra cadastrada ainda.';
+      return;
+    }
+
+    tbody.innerHTML = '';
+    for (const r of regras) {
+      const contaLabel = r.fin_contas
+        ? ((r.fin_contas.codigo ? r.fin_contas.codigo + ' ' : '') + r.fin_contas.nome)
+        : (r.conta_id || '—');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span class="badge metodo">${r.metodo || '—'}</span></td>
+        <td><code style="font-size:12px;color:var(--accent)">${r.padrao || '—'}</code></td>
+        <td>${contaLabel}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    msg.style.display = 'none';
+    wrap.style.display = '';
+  } catch (e) {
+    msg.textContent = 'Erro ao carregar regras: ' + e.message;
+  }
+}
+
+// ── Pessoas ───────────────────────────────────────────────────────────────────
+async function carregarPessoas() {
+  const msg = document.getElementById('msg-pessoas');
+  const wrap = document.getElementById('wrap-pessoas');
+  const tbody = document.getElementById('tbody-pessoas');
+
+  msg.textContent = 'Carregando...';
+  msg.style.display = '';
+  wrap.style.display = 'none';
+
+  try {
+    const pessoas = await FinAPI.pessoas();
+
+    if (!pessoas.length) {
+      msg.textContent = 'Nenhuma pessoa cadastrada ainda.';
+      return;
+    }
+
+    tbody.innerHTML = '';
+    for (const p of pessoas) {
+      const contaLabel = p.fin_contas
+        ? ((p.fin_contas.codigo ? p.fin_contas.codigo + ' ' : '') + p.fin_contas.nome)
+        : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${p.nome}</strong></td>
+        <td><span class="badge">${PAPEL_LABEL[p.papel] || p.papel || '—'}</span></td>
+        <td>${contaLabel}</td>
+        <td>${p.empresa || '—'}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    msg.style.display = 'none';
+    wrap.style.display = '';
+  } catch (e) {
+    msg.textContent = 'Erro ao carregar pessoas: ' + e.message;
+  }
+}
+
+async function criarPessoa() {
+  const nome = document.getElementById('pNome').value.trim();
+  const papel = document.getElementById('pPapel').value;
+  const conta_id = document.getElementById('pConta').value || null;
+  const empresa = document.getElementById('pEmpresa').value || null;
+
+  if (!nome) { showFeedback('Informe o nome da pessoa.', 'err'); return; }
+  if (!papel) { showFeedback('Selecione o papel da pessoa.', 'err'); return; }
+
+  const btn = document.getElementById('btnCriar');
+  btn.disabled = true;
+  btn.textContent = 'Criando...';
+
+  try {
+    const body = { nome, papel };
+    if (conta_id) body.conta_id = conta_id;
+    if (empresa) body.empresa = empresa;
+
+    await FinAPI.criarPessoa(body);
+    showFeedback('Pessoa criada com sucesso!', 'ok');
+    showToast('Pessoa criada!', 'ok');
+
+    // Limpar formulário
+    document.getElementById('pNome').value = '';
+    document.getElementById('pPapel').value = '';
+    document.getElementById('pConta').value = '';
+    document.getElementById('pEmpresa').value = '';
+
+    await carregarPessoas();
+  } catch (e) {
+    showFeedback('Erro ao criar pessoa: ' + e.message, 'err');
+    showToast('Erro: ' + e.message, 'err', 5000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Criar pessoa';
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  // Carregar contas primeiro (necessário para popular selects)
+  await carregarContas();
+  // Carregar regras e pessoas em paralelo
+  carregarRegras();
+  carregarPessoas();
+}
+
+init();
+</script>
+</body>
+</html>
