@@ -12,32 +12,39 @@ function toast(msg, tipo = 'success') {
 }
 
 let _itens = [];        // itens carregados do banco (filtro de status atual)
+let _status = 'pendente'; // status a que _itens corresponde (não ler o select ao renderizar)
 let _carregando = false;
+let _recarregarPendente = false;
 
 function valorDe(f)   { return f.revisao_status === 'aprovado' ? f.valor_aprovado   : f.valor_particular; }
 function entradaDe(f) { return f.revisao_status === 'aprovado' ? f.entrada_aprovada : f.entrada_valor; }
 
 async function carregar() {
-  if (_carregando) return;
+  // Se já há uma carga em andamento, marca para recarregar ao terminar — evita
+  // descartar a troca de status e renderizar dados de um status com o rótulo de outro.
+  if (_carregando) { _recarregarPendente = true; return; }
   _carregando = true;
   const status = document.getElementById('f-status').value;
   const lista = document.getElementById('lista');
   lista.innerHTML = '<div class="vazio">Carregando...</div>';
+  let ok = false;
   try {
     const data = await ComercialApi.listarConferencia(status);
     _itens = data.fechamentos || [];
+    _status = status;
+    ok = true;
   } catch (e) {
     lista.innerHTML = `<div class="vazio">Erro: ${esc(e.message)}</div>`;
     _itens = [];
-    return;
   } finally {
     _carregando = false;
   }
-  render();
+  if (ok) render();
+  if (_recarregarPendente) { _recarregarPendente = false; carregar(); }
 }
 
 function render() {
-  const status = document.getElementById('f-status').value;
+  const status = _status;
   const lista = document.getElementById('lista');
   const termo = (document.getElementById('f-busca').value || '').trim().toLowerCase();
 
@@ -118,10 +125,12 @@ async function sincronizar() {
   }
 }
 
-// Faz polling do status do sync por até ~6min; recarrega a lista ao concluir.
+// Faz polling do status do sync por até ~10min; recarrega a lista ao concluir.
+// Um sync pode dormir ~1h10 ao bater o rate limit da Clinicorp — por isso o
+// timeout não significa "terminou", apenas que paramos de aguardar na tela.
 async function aguardarSync() {
   const inicio = Date.now();
-  while (Date.now() - inicio < 6 * 60 * 1000) {
+  while (Date.now() - inicio < 10 * 60 * 1000) {
     await new Promise(r => setTimeout(r, 6000));
     let st;
     try { st = await ComercialApi.syncStatus(); } catch (_) { continue; }
@@ -132,7 +141,8 @@ async function aguardarSync() {
       return;
     }
   }
-  // fallback: recarrega mesmo sem confirmação de término
+  // timeout: o sync ainda pode estar rodando (ex.: espera de rate limit).
+  toast('Sincronização ainda em andamento — recarregue a lista em alguns minutos.');
   await carregar();
 }
 
