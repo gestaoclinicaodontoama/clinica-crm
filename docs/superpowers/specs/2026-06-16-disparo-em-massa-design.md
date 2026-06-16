@@ -36,7 +36,7 @@ uma database). A reorganização do lado dos leads também é Fase 2.
 |------|---------|
 | Fonte da lista (hoje) | Upload de CSV |
 | Telefone que **não** casa com lead existente | **Criar lead leve** (`origem='disparo-csv'`, etiqueta = nome da campanha) e disparar — começa a organizar a base sozinha |
-| Onde aparece no perfil do lead | **Nova aba "📢 Disparos"** ao lado de "📞 Chamadas" **+** entrada na timeline de Histórico |
+| Onde aparece no perfil do lead | **Nova aba "📢 Disparos"** ao lado de "📞 Chamadas" **+** evento na timeline do **Trajeto** (`lead_eventos`). ⚠️ A mini-timeline "Histórico" do modal é fixa por marcos (criado/agendado/avaliação/orçamento/fechamento) e NÃO lista eventos avulsos — não é alterada nesta fase. |
 | Ritmo de envio | Devagar e seguro: ~1 envio a cada ~2,5s (≈24/min); 245 contatos ≈ 10 min |
 | Painel "Importar Pacientes" atual | **Mantido** (usado para enviar a poucas pessoas via CSV de outro sistema) |
 
@@ -66,6 +66,7 @@ Página Disparos → aba "Disparar"
 | enviados | int | atualizado pelo runner |
 | falhas | int | atualizado pelo runner |
 | status | text | `rascunho` / `enviando` / `pausada` / `concluida` |
+| auto_pausada | boolean | default false — `true` quando a pausa veio de interrupção (deploy/crash), não do usuário. Dispara o aviso de "Retomar". |
 | criado_por | uuid | id do usuário |
 | criado_em | timestamptz | default now() |
 | iniciada_em | timestamptz | null até iniciar |
@@ -103,18 +104,34 @@ Todos protegidos por `requireAuth` + role (admin/gestor/crc_comercial — mesmo
   Cria `disparos_campanhas` (status `rascunho`) + grava todos os contatos válidos
   como `pendente`. Retorna `{ campanha_id, total }`.
 - `POST /api/disparos/:id/iniciar` — marca `enviando`, dispara o **runner em
-  background** (in-process). Retorna imediatamente `{ ok: true }`.
+  background** (in-process). Retorna imediatamente `{ ok: true }`. **Recusa (409) se
+  já houver outra campanha `enviando`** — uma campanha ativa por vez (mesma proteção
+  do 3cplus), para não somar o ritmo no número 8700 e arriscar a qualidade na Meta.
 - `GET /api/disparos/:id/progresso` — `{ status, total, enviados, falhas, restantes }`.
+  **Isento do rate limit apertado** (é polled a cada ~2s enquanto a barra roda).
 - `POST /api/disparos/:id/pausar` — runner para após o envio atual; status `pausada`.
 - `POST /api/disparos/:id/retomar` — re-dispara o runner para os `pendente`.
 - `GET /api/disparos` — lista de campanhas (histórico).
 - `GET /api/disparos/:id` — detalhe + lista de contatos (para relatório/falhas).
+- `GET /api/disparos/pendentes-aviso` — conta campanhas `auto_pausada=true` (para
+  o badge na sidebar e o banner de interrupção).
+
+### Matching de telefone (evita duplicar lead e o footgun das 1000 linhas)
+`chaveTelefone` ignora DDI e o 9º dígito, então NÃO dá para casar com um simples
+`.eq('telefone', x)`. E carregar todos os leads para filtrar no JS é proibido — o
+cliente Supabase trunca em 1000 linhas (ver memória do limite) e criaria
+duplicados silenciosos. Estratégia: **pré-filtrar no banco pelos últimos 8 dígitos**
+(invariantes a DDI e ao 9º dígito) com `telefone ilike '%<ult8>%'` (resultado
+pequeno), depois confirmar na lista com `chaveTelefone`. Só cria lead novo se não
+houver match confirmado.
 
 ### Runner (`lib/disparos/runner.js`)
 Loop sobre contatos `pendente` da campanha:
-1. Resolve o lead: casa por `chaveTelefone`; se não existe, cria lead leve
-   (`{ nome, telefone, origem:'disparo-csv', status:'Lead', etiquetas:[nome_campanha] }`).
-   Grava `lead_id` no contato.
+1. Resolve o lead pelo Matching acima; se não existe, cria lead leve **espelhando o
+   shape do insert de `/api/leads`** (todas as colunas: `nome, telefone, email:'',
+   origem:'disparo-csv', campanha:'', conteudo:'', fbclid:'', gclid:'', ctwa_clid:'',
+   status:'Lead', valor:null, tipo_trat:'', notas_*:'', score_interesse:null,
+   perfil_disc:'', etiquetas:[nome_campanha], ...`). Grava `lead_id` no contato.
 2. `whatsapp.enviarBroadcast({ para: telefone, templateName, variaveis, lang })`.
 3. Em sucesso: grava `mensagens` (canal `broadcast`, com `wa_id`), `lead_eventos`
    (`disparo_massa` para a timeline), atualiza `disparos_contatos` (`enviado`,
@@ -126,10 +143,28 @@ Loop sobre contatos `pendente` da campanha:
 
 **Resiliência:** estado vive no banco. Se o processo reiniciar (deploy Easypanel)
 no meio, a campanha fica `enviando` órfã. Na inicialização do servidor, campanhas
-`enviando` são marcadas `pausada` (não auto-retomam, para evitar reenvio
-surpresa). O usuário clica **Retomar** e o runner processa só os `pendente` —
-quem já recebeu (`enviado`) nunca é reenviado. Idempotência garantida pelo status
-por contato.
+`enviando` são marcadas `pausada` + `auto_pausada=true` (não auto-retomam, para
+evitar reenvio surpresa). O usuário clica **Retomar** e o runner processa só os
+`pendente` — quem já recebeu (`enviado`) nunca é reenviado. Idempotência garantida
+pelo status por contato.
+
+### Aviso de interrupção (para o usuário clicar Retomar)
+Quando uma campanha é interrompida (`auto_pausada=true`), o usuário **precisa ser
+avisado** — senão a campanha fica parada sem ninguém saber. Garantias, em ordem de
+confiabilidade:
+
+1. **Banner in-app (garantido):** ao abrir a página Disparos, qualquer campanha com
+   `auto_pausada=true` aparece num **banner vermelho no topo**: "⚠️ A campanha
+   *Nome* foi interrompida em X/Y enviados. [Retomar]". Também um **badge no item de
+   menu "Disparos"** na sidebar (ex.: "Disparos •") visível em qualquer página, para
+   o usuário notar sem entrar. O badge é alimentado por `GET /api/disparos/pendentes-aviso`
+   (conta campanhas `auto_pausada`), chamado no carregamento do app.
+2. **Push web (best-effort):** se VAPID estiver configurado e o usuário tiver
+   permitido notificações, envia push "Campanha interrompida — toque para retomar".
+   ⚠️ O push depende das chaves VAPID no Easypanel (atualmente instáveis — ver
+   pendências); por isso NÃO é a garantia principal, e sim um extra.
+
+Ao clicar **Retomar**, `auto_pausada` volta a `false` e o banner/badge somem.
 
 ## Frontend
 
@@ -144,7 +179,8 @@ Reorganizar em 3 áreas (abas internas ou seções):
 
 ### Parser de CSV (`public/` JS)
 Lê o cabeçalho e mapeia colunas conhecidas:
-- `primeiro_nome` → `{{1}}` (fallback: 1º token de `nome`/`nome_completo`).
+- `primeiro_nome` → `{{1}}` (fallback: 1º token de `nome`/`nome_completo`; se ainda
+  vazio, usa um genérico tipo "tudo bem" para o template não sair "Olá ,").
 - `nome_completo`/`nome` → nome do lead, removendo sufixo `(12345)`.
 - `telefone` → só dígitos; se não começa com `55` e tem 10–11 dígitos, prefixa `55`.
 - Ignora linhas sem telefone válido. Aceita também o formato simples `nome, telefone`.
@@ -154,22 +190,26 @@ Lê o cabeçalho e mapeia colunas conhecidas:
 - Nova aba **"📢 Disparos"** ao lado de "📞 Chamadas": lista os
   `disparos_contatos` daquele `lead_id` (join na campanha p/ template + data; join
   em `mensagens` por `wa_id` p/ status de entrega). Endpoint
-  `GET /api/leads/:id/disparos`.
-- Timeline de **Histórico**: cada disparo já gera evento `disparo_massa`, então
-  aparece junto dos demais eventos.
+  `GET /api/leads/:id/disparos`. **Esta é a fonte principal do registro no perfil.**
+- Timeline do **Trajeto** (`lead_eventos`): cada disparo grava um evento
+  `disparo_massa`, então aparece lá junto de `template_enviado` e demais. ⚠️ A
+  mini-timeline "Histórico" do modal NÃO é alterada (é fixa por marcos do funil).
 
 ## Tratamento de erros e bordas
 
 - **Template não aprovado:** dropdown só lista templates com `status='aprovado'`.
-  ⚠️ Pré-voo manual: confirmar na Meta que os templates Invisalign saíram de
-  PENDING antes do disparo de hoje.
+  ✅ Os templates Invisalign já foram aprovados na Meta (confirmado pelo usuário em
+  2026-06-16), então o disparo de hoje está liberado.
 - **Telefone inválido / vazio:** ignorado no preview (contado em `invalidos`).
 - **Falha de envio Meta (ex.: code 2 transitório):** contato marcado `falha` com
   motivo; campanha segue. Falhas podem ser reprocessadas via Retomar (opcional:
   botão "Reenviar falhas" numa iteração futura — não bloqueia Fase 1).
 - **Janela de 24h:** não se aplica — template/broadcast abre conversa.
-- **Lead duplicado:** evitado pelo casamento `chaveTelefone` antes de criar.
-- **Deploy no meio:** ver "Resiliência" acima.
+- **Lead duplicado:** evitado pelo "Matching de telefone" (pré-filtro por últimos 8
+  dígitos + `chaveTelefone`), nunca carregando a tabela inteira de leads.
+- **Duas campanhas ao mesmo tempo:** bloqueado — uma `enviando` por vez (409 em
+  `iniciar`/`retomar` se já houver outra ativa).
+- **Deploy no meio:** ver "Resiliência" + "Aviso de interrupção" acima.
 
 ## Migração Supabase
 
@@ -188,4 +228,4 @@ Aplicar via MCP Supabase (project `mtqdpjhhqzvuklnlfpvi`).
 ## Plano de deploy
 
 Branch próprio → migração Supabase → `git push` → deploy Easypanel (CRM) conforme
-CLAUDE.md. Pré-voo dos templates Invisalign antes do disparo real.
+CLAUDE.md. Templates Invisalign já aprovados na Meta — disparo liberado.
