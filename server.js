@@ -5695,6 +5695,16 @@ app.get('/api/tarefas/gestao', requireAuth, requireTarefasGestao, async (req, re
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/tarefas/pessoas → lista de perfis ativos (para atribuir e mapear nomes no painel)
+app.get('/api/tarefas/pessoas', requireAuth, requireTarefasGestao, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('profiles')
+      .select('id, nome, roles').eq('ativo', true).order('nome');
+    if (error) throw error;
+    res.json({ pessoas: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // PATCH /api/tarefas/:id  → concluir (com valor_resultado se numero), reabrir, editar
 app.patch('/api/tarefas/:id', requireAuth, async (req, res) => {
   try {

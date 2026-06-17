@@ -122,6 +122,11 @@
       ${IC.tarefas} Tarefas
     </a>
 
+    <a class="nav-btn${activePage==='tarefas-gestao'?' active':''}" href="/tarefas/gestao.html"
+      data-roles="admin,gestor">
+      ${IC.tarefas} Gestão de Tarefas
+    </a>
+
     ${section('crc-leads','admin,gestor,crc_leads,crc_comercial',IC.kanban,'CRC de Leads',
       link('/kanban-leads/','admin,crc,crc_leads,crc_comercial,mod_kanban_leads','kanban-leads',IC.kanban,'Kanban Leads') +
       link('/','admin,gestor,crc_leads,crc_comercial,crc_sucesso','conv-agendamentos',IC.whatsapp,'WhatsApp CRC Lead') +

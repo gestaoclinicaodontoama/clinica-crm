@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestão de Tarefas | CRM AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] {
+  --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+  --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --orange: #f97316;
+}
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+  --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --orange: #ea580c;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.page-wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px; }
+h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.page-subtitle { font-size: 13px; color: var(--muted); margin-bottom: 22px; }
+
+/* MODULE TABS */
+.mod-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.mod-tab {
+  padding: 10px 18px; cursor: pointer; font-size: 13.5px; font-weight: 500;
+  color: var(--muted); border-bottom: 2px solid transparent;
+  background: none; border-top: none; border-left: none; border-right: none;
+  transition: all .15s; font-family: inherit;
+}
+.mod-tab:hover { color: var(--text); }
+.mod-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* TAB PANES */
+.mod-pane { display: none; }
+.mod-pane.active { display: block; }
+
+/* TOAST */
+#tarefas-toast {
+  position: fixed; top: 20px; right: 20px; z-index: 9000;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast-item {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 16px; font-size: 13px; font-weight: 500; box-shadow: 0 6px 24px rgba(0,0,0,.2);
+  animation: toast-in .2s ease; pointer-events: auto; max-width: 340px;
+  display: flex; align-items: center; gap: 10px;
+}
+.toast-item.info  { border-left: 3px solid var(--accent); }
+.toast-item.success { border-left: 3px solid var(--green); }
+.toast-item.error { border-left: 3px solid var(--red); }
+.toast-item.warning { border-left: 3px solid var(--yellow); }
+@keyframes toast-in { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: none; } }
+
+/* MODAL */
+#tarefas-modal-bg {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
+  backdrop-filter: blur(4px); z-index: 8000; align-items: flex-start;
+  justify-content: center; overflow-y: auto; padding: 40px 16px;
+}
+#tarefas-modal-bg.open { display: flex; }
+#tarefas-modal {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+  width: 560px; max-width: 100%; padding: 28px; box-shadow: 0 16px 60px rgba(0,0,0,.35);
+}
+#tarefas-modal h2 { font-size: 17px; font-weight: 700; margin-bottom: 20px; }
+
+/* CHIPS */
+.chip {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 600; background: var(--bg3); color: var(--muted); border: 1px solid var(--border);
+}
+.chip.alta   { background: rgba(239,68,68,.12); color: var(--red); border-color: rgba(239,68,68,.3); }
+.chip.normal { background: rgba(79,142,247,.1); color: var(--accent); border-color: rgba(79,142,247,.3); }
+.chip.baixa  { background: var(--bg3); color: var(--muted); }
+.chip.cat    { background: rgba(249,115,22,.1); color: var(--orange); border-color: rgba(249,115,22,.3); }
+.chip.numero { background: rgba(34,197,94,.12); color: var(--green); border-color: rgba(34,197,94,.3); }
+
+/* FORMS */
+.form-row { margin-bottom: 14px; }
+.form-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; display: block; }
+.form-input, .form-select, .form-textarea {
+  width: 100%; padding: 8px 11px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit;
+  transition: border-color .15s; outline: none;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--accent); }
+.form-textarea { min-height: 70px; resize: vertical; }
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.btn {
+  padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; transition: all .15s; font-family: inherit;
+}
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-ghost { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--border); }
+.btn-danger { background: rgba(239,68,68,.12); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
+.btn-danger:hover { background: rgba(239,68,68,.22); }
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+
+/* PANEL TABLE */
+.gestao-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.gestao-table th {
+  text-align: left; padding: 8px 12px; font-size: 11.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.gestao-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.gestao-table tr:last-child td { border-bottom: none; }
+.gestao-table tr:hover td { background: var(--bg3); }
+.gestao-table-wrap {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+}
+.pct-bar {
+  display: flex; align-items: center; gap: 8px;
+}
+.pct-bar-bg {
+  flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden;
+}
+.pct-bar-fill { height: 100%; border-radius: 3px; background: var(--green); }
+.pct-label { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 34px; text-align: right; }
+
+/* PAINEL FILTERS */
+.painel-filters {
+  display: flex; align-items: flex-end; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.painel-filters .form-row { margin-bottom: 0; }
+.painel-filters label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px; }
+.painel-filters input, .painel-filters select {
+  padding: 7px 10px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit; outline: none;
+}
+.painel-filters input:focus, .painel-filters select:focus { border-color: var(--accent); }
+
+/* ASSIGNEES CHECKBOX LIST */
+.pessoas-list {
+  max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg3); padding: 6px 0;
+}
+.pessoa-check {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer;
+  font-size: 13px; transition: background .1s;
+}
+.pessoa-check:hover { background: var(--border); }
+.pessoa-check input { accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ROTINA ITEMS */
+.rotina-item {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: flex-start; gap: 12px;
+}
+.rotina-body { flex: 1; min-width: 0; }
+.rotina-titulo { font-size: 13.5px; font-weight: 500; }
+.rotina-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.tarefa-del {
+  background: none; border: none; cursor: pointer; color: var(--muted); padding: 2px 6px;
+  font-size: 16px; line-height: 1; border-radius: 4px; transition: color .15s;
+}
+.tarefa-del:hover { color: var(--red); }
+
+/* HIST TABLE */
+.hist-item {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 11px 14px; margin-bottom: 6px; display: flex; align-items: flex-start; gap: 12px;
+}
+.hist-body { flex: 1; min-width: 0; }
+.hist-titulo { font-size: 13.5px; font-weight: 500; }
+.hist-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.hist-status-concluida { color: var(--green); font-size: 11.5px; font-weight: 600; }
+.hist-status-pendente  { color: var(--muted); font-size: 11.5px; }
+.hist-status-atrasada  { color: var(--red);  font-size: 11.5px; font-weight: 600; }
+
+/* DIAS SEMANA CHECKBOXES */
+.dias-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.dia-btn {
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--border); background: var(--bg3); color: var(--muted);
+  transition: all .15s;
+}
+.dia-btn input[type="checkbox"] { display: none; }
+.dia-btn.checked { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* LOADING / EMPTY */
+.loading-msg { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+.empty-msg {
+  text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13.5px;
+  background: var(--bg2); border: 1px dashed var(--border); border-radius: 12px;
+}
+.empty-msg .empty-icon { font-size: 32px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div class="page-wrap">
+  <h1>Gestão de Tarefas</h1>
+  <div class="page-subtitle">Painel da equipe, atribuição e moldes por cargo</div>
+
+  <nav class="mod-tabs" role="tablist" aria-label="Abas de Gestão de Tarefas">
+    <button class="mod-tab active" id="tab-btn-painel" role="tab" aria-selected="true" aria-controls="tab-painel" data-tab="painel">
+      Painel
+    </button>
+    <button class="mod-tab" id="tab-btn-atribuir" role="tab" aria-selected="false" aria-controls="tab-atribuir" data-tab="atribuir">
+      Atribuir
+    </button>
+    <button class="mod-tab" id="tab-btn-moldes" role="tab" aria-selected="false" aria-controls="tab-moldes" data-tab="moldes">
+      Moldes por cargo
+    </button>
+    <button class="mod-tab" id="tab-btn-historico" role="tab" aria-selected="false" aria-controls="tab-historico" data-tab="historico">
+      Histórico
+    </button>
+  </nav>
+
+  <div id="tab-painel" class="mod-pane active" role="tabpanel" aria-labelledby="tab-btn-painel">
+    <div id="painel-root"><p class="loading-msg">Carregando...</p></div>
+  </div>
+
+  <div id="tab-atribuir" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-atribuir">
+    <div id="atribuir-root"></div>
+  </div>
+
+  <div id="tab-moldes" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-moldes">
+    <div id="moldes-root"><p class="loading-msg">Carregando...</p></div>
+  </div>
+
+  <div id="tab-historico" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-historico">
+    <div id="historico-root"><p class="loading-msg">Carregando...</p></div>
+  </div>
+</div>
+
+<div id="tarefas-toast" role="region" aria-live="polite" aria-label="Notificações"></div>
+
+<div id="tarefas-modal-bg" role="dialog" aria-modal="true">
+  <div id="tarefas-modal"></div>
+</div>
+
+<script src="/js/shared-nav.js" data-active="tarefas-gestao"></script>
+<script src="/js/tarefas/api.js"></script>
+<script src="/js/tarefas/gestao.js"></script>
+</body>
+</html>
