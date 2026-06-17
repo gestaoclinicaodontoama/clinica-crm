@@ -5505,7 +5505,7 @@ app.get('/api/tarefas', requireAuth, rateLimit, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/tarefas', _requireGestor, rateLimit, async (req, res) => {
+app.post('/api/tarefas', requireAuth, _requireGestor, rateLimit, async (req, res) => {
   try {
     const { titulo, descricao='', tipo='pontual', atribuido_para, data_vencimento, prioridade='normal' } = req.body;
     if (!titulo || !atribuido_para) return res.status(400).json({ error: 'titulo e atribuido_para obrigatórios' });
@@ -5524,7 +5524,7 @@ app.post('/api/tarefas', _requireGestor, rateLimit, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/tarefas/:id', _requireGestor, rateLimit, async (req, res) => {
+app.patch('/api/tarefas/:id', requireAuth, _requireGestor, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const ALLOWED_T = ['titulo','descricao','tipo','atribuido_para','data_vencimento','prioridade','ativo'];
