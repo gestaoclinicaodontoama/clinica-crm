@@ -5484,9 +5484,12 @@ function repoTarefas() {
     async templatesDoUsuario(userId, roles) {
       const orParts = [`and(escopo.eq.pessoal,owner_id.eq.${userId})`];
       if (roles.length) orParts.push(`and(escopo.eq.role,role.in.(${roles.join(',')}))`);
-      const { data } = await supabase.from('task_templates')
+      const { data: byRoleOrPersonal } = await supabase.from('task_templates')
         .select('*').eq('ativo', true).or(orParts.join(','));
-      return data || [];
+      const { data: byUsuarios } = await supabase.from('task_templates')
+        .select('*').eq('ativo', true).eq('escopo', 'usuarios')
+        .filter('assignee_ids', 'cs', JSON.stringify([userId]));
+      return [...(byRoleOrPersonal || []), ...(byUsuarios || [])];
     },
     async taskExisteNoDia(templateId, userId, dataRef) {
       const { count } = await supabase.from('tasks')
@@ -5585,15 +5588,27 @@ app.get('/api/tarefas/templates', requireAuth, async (req, res) => {
     const userId = req.user.id;
     const profile = await loadProfile(req);
     const roles = profile.roles || [];
+    const isGestor = roles.some(r => r === 'admin' || r === 'gestor');
+
+    if (req.query.gestao === '1' && isGestor) {
+      const { data, error } = await supabase.from('task_templates')
+        .select('*').eq('ativo', true)
+        .in('escopo', ['role', 'usuarios'])
+        .order('created_at');
+      if (error) throw error;
+      return res.json({ templates: data || [] });
+    }
+
     const orParts = [`and(escopo.eq.pessoal,owner_id.eq.${userId})`];
     if (roles.length) orParts.push(`and(escopo.eq.role,role.in.(${roles.join(',')}))`);
-    const { data, error } = await supabase.from('task_templates').select('*').or(orParts.join(',')).order('created_at');
+    const { data, error } = await supabase.from('task_templates')
+      .select('*').or(orParts.join(',')).order('created_at');
     if (error) throw error;
     res.json({ templates: data || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST template: role => só gestor/admin; pessoal => qualquer um (owner = ele)
+// POST template: role/usuarios => só gestor/admin; pessoal => qualquer um (owner = ele)
 app.post('/api/tarefas/templates', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -5601,12 +5616,14 @@ app.post('/api/tarefas/templates', requireAuth, async (req, res) => {
     const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
     const b = req.body || {};
     if (!b.titulo) return res.status(400).json({ error: 'titulo obrigatório' });
-    const escopo = b.escopo === 'role' ? 'role' : 'pessoal';
-    if (escopo === 'role' && !isGestor) return res.status(403).json({ error: 'Só gestor/admin cria molde por cargo' });
+    const escopo = ['role', 'usuarios'].includes(b.escopo) ? b.escopo : 'pessoal';
+    if (escopo !== 'pessoal' && !isGestor)
+      return res.status(403).json({ error: 'Só gestor/admin cria rotina por cargo ou usuários' });
     const row = {
       titulo: b.titulo, descricao: b.descricao || null, escopo,
-      role: escopo === 'role' ? b.role : null,
-      owner_id: escopo === 'pessoal' ? userId : null,
+      role:         escopo === 'role'     ? b.role         : null,
+      owner_id:     escopo === 'pessoal'  ? userId         : null,
+      assignee_ids: escopo === 'usuarios' ? (b.assignee_ids || null) : null,
       frequencia: ['diaria','semanal','mensal'].includes(b.frequencia) ? b.frequencia : 'diaria',
       dias_semana: b.dias_semana || null, dia_mes: b.dia_mes || null,
       hora_sugerida: b.hora_sugerida || null,
@@ -5641,15 +5658,21 @@ app.patch('/api/tarefas/templates/:id', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE template: mesmas regras do PATCH
+// DELETE template: mesmas regras do PATCH + fechar_instancias opcional
 app.delete('/api/tarefas/templates/:id', requireAuth, async (req, res) => {
   try {
     const profile = await loadProfile(req);
     const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
     const { data: tpl } = await supabase.from('task_templates').select('*').eq('id', req.params.id).maybeSingle();
     if (!tpl) return res.status(404).json({ error: 'Molde não encontrado' });
-    const pode = (tpl.escopo === 'pessoal' && tpl.owner_id === req.user.id) || (tpl.escopo === 'role' && isGestor);
+    const pode = (tpl.escopo === 'pessoal' && tpl.owner_id === req.user.id) ||
+                 ((tpl.escopo === 'role' || tpl.escopo === 'usuarios') && isGestor);
     if (!pode) return res.status(403).json({ error: 'Sem permissão' });
+    if (req.body && req.body.fechar_instancias) {
+      await supabase.from('tasks').delete()
+        .eq('template_id', tpl.id)
+        .eq('status', 'pendente');
+    }
     const { error } = await supabase.from('task_templates').delete().eq('id', tpl.id);
     if (error) throw error;
     res.json({ ok: true });
