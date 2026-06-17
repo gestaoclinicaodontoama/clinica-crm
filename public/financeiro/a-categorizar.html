@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Categorizar — Financeiro AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] {
+  --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+  --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6; --purple: #a855f7;
+}
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+  --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488; --purple: #9333ea;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+.fin-wrap { padding: 20px 24px; }
+
+.fin-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.fin-header h1 { font-size: 20px; font-weight: 700; flex: 1; min-width: 160px; }
+
+.fin-links {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;
+}
+.fin-link {
+  padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+  text-decoration: none; color: var(--muted); background: var(--bg2);
+  border: 1px solid var(--border); transition: all .15s;
+}
+.fin-link:hover { border-color: var(--accent); color: var(--accent); }
+.fin-link.active { border-color: var(--accent); color: var(--accent); background: var(--bg3); }
+
+.btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: .6; cursor: default; }
+.btn-ghost { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--bg3); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { opacity: .85; }
+
+/* ── Summary bar ── */
+.summary-bar {
+  display: flex; align-items: center; gap: 16px; padding: 12px 16px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  margin-bottom: 16px; flex-wrap: wrap;
+}
+.summary-bar .count { font-size: 14px; font-weight: 600; }
+.summary-bar .total { font-size: 14px; color: var(--red); font-weight: 600; }
+.summary-bar .spacer { flex: 1; }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+  padding: 10px 18px; border-radius: 10px; font-size: 13px; font-weight: 500;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  box-shadow: 0 4px 20px rgba(0,0,0,.3); display: none;
+  transition: opacity .2s;
+}
+#toast.ok { border-color: var(--green); color: var(--green); }
+#toast.err { border-color: var(--red); color: var(--red); }
+
+/* ── Mensagem central ── */
+#msg { padding: 40px; color: var(--muted); text-align: center; }
+
+/* ── Tabela ── */
+.tbl-wrap {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  overflow-x: auto;
+}
+table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 700px; }
+table.tbl th {
+  padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); border-bottom: 1px solid var(--border);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+table.tbl td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.tbl tr:last-child td { border-bottom: none; }
+table.tbl tr.removing { opacity: .4; transition: opacity .3s; }
+
+.valor-negativo { color: var(--red); }
+
+/* ── Select conta ── */
+select.conta-sel {
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 7px;
+  font-size: 12px; background: var(--bg2); color: var(--text);
+  font-family: inherit; outline: none; max-width: 260px;
+}
+select.conta-sel:focus { border-color: var(--accent); }
+
+.acoes { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+
+.empresa-badge {
+  display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600;
+  background: var(--bg3); color: var(--muted);
+}
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="financeiro"></script>
+<div class="main-content">
+<div class="fin-wrap">
+
+  <div class="fin-header">
+    <h1>Financeiro — A Categorizar</h1>
+  </div>
+
+  <div class="fin-links">
+    <a class="fin-link" href="/financeiro/">DRE</a>
+    <a class="fin-link active" href="/financeiro/a-categorizar.html">A categorizar</a>
+    <a class="fin-link" href="/financeiro/lancamentos.html">Lançamentos</a>
+    <a class="fin-link" href="/financeiro/cadastros.html">Cadastros</a>
+  </div>
+
+  <div id="summaryBar" class="summary-bar" style="display:none">
+    <span class="count" id="countLabel"></span>
+    <span class="total" id="totalLabel"></span>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost btn-sm" onclick="recarregar()">Atualizar lista</button>
+  </div>
+
+  <div id="msg">Carregando lançamentos...</div>
+  <div id="tblWrap" style="display:none" class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Descrição</th>
+          <th>Empresa</th>
+          <th style="text-align:right">Valor</th>
+          <th>Categoria</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/financeiro/api.js"></script>
+<script>
+let _contas = [];
+let _lancamentos = [];
+
+// ── XSS PROTECTION ────────────────────────────────────────────────────────────
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmt(v) {
+  return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function showToast(msg, type = 'ok', ms = 3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, ms);
+}
+
+function buildContasOptions(selectedId) {
+  // Agrupar por grupo
+  const grupos = {};
+  for (const c of _contas) {
+    const g = c.grupo || 'Outras';
+    if (!grupos[g]) grupos[g] = [];
+    grupos[g].push(c);
+  }
+  let html = '<option value="">— selecione —</option>';
+  for (const [g, cs] of Object.entries(grupos)) {
+    html += `<optgroup label="${g}">`;
+    for (const c of cs) {
+      const sel = selectedId && c.id === selectedId ? ' selected' : '';
+      html += `<option value="${c.id}"${sel}>${c.codigo ? c.codigo + ' ' : ''}${c.nome}</option>`;
+    }
+    html += '</optgroup>';
+  }
+  return html;
+}
+
+function renderLinha(l) {
+  const tr = document.createElement('tr');
+  tr.dataset.id = l.id;
+  const data = l.data ? l.data.substring(0, 10) : '—';
+  const val = fmt(l.valor || 0);
+  const descRaw = (l.descricao || '');
+  tr.innerHTML = `
+    <td>${data}</td>
+    <td title="${esc(descRaw)}">${esc(descRaw.substring(0, 50))}${descRaw.length > 50 ? '…' : ''}</td>
+    <td><span class="empresa-badge">${l.empresa ? esc(l.empresa) : '—'}</span></td>
+    <td style="text-align:right" class="valor-negativo">${val}</td>
+    <td>
+      <select class="conta-sel" id="sel-${l.id}">
+        ${buildContasOptions(null)}
+      </select>
+    </td>
+    <td>
+      <div class="acoes">
+        <button class="btn btn-ghost btn-sm" onclick="classificarLinha('${l.id}','so_esta')">Só esta</button>
+        <button class="btn btn-primary btn-sm" onclick="classificarLinha('${l.id}','todas')">Todas iguais</button>
+      </div>
+    </td>
+  `;
+  return tr;
+}
+
+function atualizarSummary() {
+  const bar = document.getElementById('summaryBar');
+  const n = _lancamentos.length;
+  if (n === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  const total = _lancamentos.reduce((s, l) => s + Math.abs(Number(l.valor) || 0), 0);
+  document.getElementById('countLabel').textContent = `${n} lançamento${n !== 1 ? 's' : ''} a categorizar`;
+  document.getElementById('totalLabel').textContent = fmt(-total);
+}
+
+async function recarregar() {
+  const msg = document.getElementById('msg');
+  const wrap = document.getElementById('tblWrap');
+  const tbody = document.getElementById('tbody');
+
+  msg.textContent = 'Carregando...';
+  msg.style.display = '';
+  wrap.style.display = 'none';
+
+  try {
+    _lancamentos = await FinAPI.aCategorizar();
+    tbody.innerHTML = '';
+
+    if (!_lancamentos.length) {
+      msg.textContent = 'Nenhum lançamento pendente de categorização.';
+      msg.style.display = '';
+      wrap.style.display = 'none';
+      document.getElementById('summaryBar').style.display = 'none';
+      return;
+    }
+
+    for (const l of _lancamentos) {
+      tbody.appendChild(renderLinha(l));
+    }
+
+    msg.style.display = 'none';
+    wrap.style.display = '';
+    atualizarSummary();
+  } catch (e) {
+    msg.textContent = 'Erro ao carregar lançamentos: ' + e.message;
+    msg.style.display = '';
+    wrap.style.display = 'none';
+  }
+}
+
+async function classificarLinha(id, alcance) {
+  const sel = document.getElementById('sel-' + id);
+  const conta_id = sel ? sel.value : '';
+  if (!conta_id) {
+    showToast('Selecione uma conta antes de classificar.', 'err');
+    return;
+  }
+
+  const tr = document.querySelector(`tr[data-id="${id}"]`);
+  const btns = tr ? tr.querySelectorAll('button') : [];
+  btns.forEach(b => b.disabled = true);
+
+  try {
+    await FinAPI.classificar(id, { conta_id, alcance });
+
+    if (alcance === 'todas') {
+      showToast('Todos os lançamentos iguais foram classificados!', 'ok');
+      await recarregar();
+    } else {
+      // Remover só esta linha
+      if (tr) {
+        tr.classList.add('removing');
+        setTimeout(() => tr.remove(), 350);
+      }
+      _lancamentos = _lancamentos.filter(l => String(l.id) !== String(id));
+      atualizarSummary();
+      if (_lancamentos.length === 0) {
+        document.getElementById('msg').textContent = 'Nenhum lançamento pendente de categorização.';
+        document.getElementById('msg').style.display = '';
+        document.getElementById('tblWrap').style.display = 'none';
+        document.getElementById('summaryBar').style.display = 'none';
+      }
+      showToast('Lançamento classificado!', 'ok');
+    }
+  } catch (e) {
+    showToast('Erro ao classificar: ' + e.message, 'err', 5000);
+    btns.forEach(b => b.disabled = false);
+  }
+}
+
+async function init() {
+  try {
+    _contas = await FinAPI.contas();
+  } catch (e) {
+    _contas = [];
+  }
+  await recarregar();
+}
+
+init();
+</script>
+</body>
+</html>

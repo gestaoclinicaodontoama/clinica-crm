@@ -170,6 +170,12 @@
       link('/atribuicao/','admin,gestor','atribuicao',IC.atrib,'Atribuição')
     )}
 
+    <a class="nav-btn${activePage==='financeiro'?' active':''}" href="/financeiro/"
+      data-roles="financeiro,mod_financeiro">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+      Financeiro
+    </a>
+
     ${section('config','admin,gestor',IC.config,'Configurações Gerais',
       link('/','admin,gestor','tarefas-gestor',IC.dentista,'Tarefas') +
       link('/','admin,gestor','config',IC.config,'Configurações') +

@@ -22,6 +22,16 @@ const { montarDashboard } = require('./lib/funil/dashboard');
 const { buscarEventosNovos } = require('./lib/monitor/queries');
 const { montarMonitor } = require('./lib/monitor/diario');
 const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
+const { montarDRE } = require('./lib/financeiro/dre');
+const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
+const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
+const { syncPeriodo: syncFinanceiro } = require('./sync/financeiro-sync');
+const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
+// Período do mês corrente em America/Sao_Paulo (evita virada de dia/mês por UTC).
+function _finMesCorrente() {
+  const hojeBR = _finDataLocal(new Date().toISOString());  // 'YYYY-MM-DD' no fuso BR
+  return { from: hojeBR.slice(0, 8) + '01', to: hojeBR };
+}
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
@@ -333,6 +343,7 @@ const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial'
 // Conversas WhatsApp: mesmas roles do item de menu + 'crc' legado
 const requireConversas = requireRole('admin', 'gestor', 'crc', 'crc_leads', 'crc_comercial', 'crc_sucesso');
 const requireDisparos = requireRole('admin', 'gestor', 'crc_comercial');
+const requireFinanceiro = requireRole('financeiro', 'admin', 'mod_financeiro');
 
 // ========== ADMIN MIDDLEWARE ==========
 // TODO(remover-em-2026-06-23): fallback de role em user_metadata
@@ -3915,6 +3926,12 @@ async function runGuardedSync(trigger) {
     }
     console.log('[sync-diario] disparando sync agendado');
     runGuardedSync('agendado').catch(e => console.error('[sync-diario] erro:', e.message));
+    // sync financeiro do mês corrente — mesma janela diária, sem derrubar o processo
+    try {
+      const { from, to } = _finMesCorrente();
+      await syncFinanceiro(from, to);
+      console.log('[financeiro-sync] mês corrente sincronizado');
+    } catch (e) { console.error('[financeiro-sync] erro:', e.message); }
   }
 
   setTimeout(() => verificarEExecutar().catch(() => {}), 30_000);       // logo após o boot
@@ -5692,6 +5709,131 @@ app.options('/t', (req, res) => {
   res.status(204).send('');
 });
 
+
+// ========== FINANCEIRO / DRE ==========
+
+// DRE do período (agregada no Postgres — evita o limite de 1000 linhas do supabase-js)
+app.get('/api/financeiro/dre', requireAuth, requireFinanceiro, async (req, res) => {
+  const { from, to } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
+  const { data, error } = await supabase.rpc('fin_dre_agg', { p_from: from, p_to: to });
+  if (error) return res.status(500).json({ error: error.message });
+  const lancs = (data || []).map(r => ({ fluxo: r.fluxo, valor: Number(r.total), conta_codigo: r.conta_codigo }));
+  res.json(montarDRE(lancs));
+});
+
+// Lançamentos filtráveis (página de até 2000)
+app.get('/api/financeiro/lancamentos', requireAuth, requireFinanceiro, async (req, res) => {
+  const { from, to, empresa, conta_id, fluxo, incluir_inativos } = req.query;
+  let q = supabase.from('fin_lancamentos').select('*, fin_contas(codigo,nome)').order('data', { ascending: false }).limit(2000);
+  if (from) q = q.gte('data', from);
+  if (to) q = q.lte('data', to);
+  if (empresa) q = q.eq('empresa', empresa);
+  if (conta_id) q = q.eq('conta_id', conta_id);
+  if (fluxo) q = q.eq('fluxo', fluxo);
+  if (incluir_inativos !== '1') q = q.eq('ativo', true);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// Fila "A categorizar" (despesas sem conta)
+app.get('/api/financeiro/a-categorizar', requireAuth, requireFinanceiro, async (req, res) => {
+  const { data, error } = await supabase.from('fin_lancamentos')
+    .select('*').eq('ativo', true).eq('fluxo', 'sai').is('conta_id', null).order('valor', { ascending: false }).limit(500);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// Classificar 1 lançamento. body: { conta_id, alcance: 'so_esta'|'todas', metodo, padrao }
+app.post('/api/financeiro/lancamentos/:id/classificar', requireAuth, requireFinanceiro, async (req, res) => {
+  const { conta_id, alcance, metodo, padrao } = req.body || {};
+  if (!conta_id) return res.status(400).json({ error: 'conta_id obrigatório' });
+
+  // busca a descrição da linha (para derivar padrão se vier vazio)
+  const { data: lanc, error: eL } = await supabase.from('fin_lancamentos').select('descricao').eq('id', req.params.id).maybeSingle();
+  if (eL) return res.status(500).json({ error: eL.message });
+
+  await supabase.from('fin_lancamentos').update({
+    conta_id, classificacao_metodo: 'manual', override_manual: alcance === 'so_esta',
+  }).eq('id', req.params.id);
+
+  if (alcance === 'todas') {
+    const met = metodo || 'exato';
+    const pad = padrao || (lanc ? _finNucleo(lanc.descricao) : null);
+    if (pad) {
+      await supabase.from('fin_regras').upsert(
+        { metodo: met, padrao: pad, conta_id, origem: 'manual', criado_por: req.user?.id },
+        { onConflict: 'metodo,padrao' });
+
+      // busca candidatos em páginas de 1000 (evita o limite do supabase-js) e reclassifica
+      const cands = [];
+      let from = 0;
+      while (true) {
+        const { data: page } = await supabase.from('fin_lancamentos')
+          .select('id,descricao,override_manual').eq('fluxo', 'sai').eq('override_manual', false)
+          .range(from, from + 999);
+        if (!page || !page.length) break;
+        cands.push(...page);
+        if (page.length < 1000) break;
+        from += 1000;
+      }
+      const alvos = alvosDaRegra(cands, { metodo: met, padrao: pad });
+      for (let i = 0; i < alvos.length; i += 500) {
+        const ids = alvos.slice(i, i + 500).map(a => a.id);
+        await supabase.from('fin_lancamentos')
+          .update({ conta_id, classificacao_metodo: met === 'pessoa' ? 'pessoa' : 'regra' })
+          .in('id', ids).eq('override_manual', false);
+      }
+    }
+  }
+  res.json({ ok: true });
+});
+
+// CRUD simples de cadastros (contas, regras, pessoas)
+// allow-list de campos por tabela (evita mass-assignment via req.body)
+const FIN_CRUD_CAMPOS = {
+  fin_contas:  ['codigo', 'nome', 'grupo', 'tipo', 'ordem', 'ativo'],
+  fin_regras:  ['metodo', 'padrao', 'conta_id', 'prioridade'],
+  fin_pessoas: ['nome', 'papel', 'conta_id', 'empresa', 'ativo'],
+};
+function _finPick(tabela, body) {
+  const campos = FIN_CRUD_CAMPOS[tabela] || [];
+  const out = {};
+  for (const k of campos) if (body && body[k] !== undefined) out[k] = body[k];
+  return out;
+}
+const FIN_GET_SELECT = {
+  fin_contas:  '*',
+  fin_regras:  '*, fin_contas(codigo,nome)',
+  fin_pessoas: '*, fin_contas(codigo,nome)',
+};
+for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
+  const slug = tabela.replace('fin_', '');
+  app.get(`/api/financeiro/${slug}`, requireAuth, requireFinanceiro, async (req, res) => {
+    const { data, error } = await supabase.from(tabela).select(FIN_GET_SELECT[tabela] || '*').order('id').limit(5000);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+  app.post(`/api/financeiro/${slug}`, requireAuth, requireFinanceiro, async (req, res) => {
+    const { data, error } = await supabase.from(tabela).insert(_finPick(tabela, req.body)).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.patch(`/api/financeiro/${slug}/:id`, requireAuth, requireFinanceiro, async (req, res) => {
+    const { data, error } = await supabase.from(tabela).update(_finPick(tabela, req.body)).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+}
+
+// Sync manual do financeiro — mês corrente (botão "Atualizar dados" da DRE)
+app.post('/api/financeiro/sync', requireAuth, requireFinanceiro, async (req, res) => {
+  const { from, to } = _finMesCorrente();
+  try { res.json(await syncFinanceiro(from, to)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.use((err, req, res, next) => {
   console.error('💥', err);
