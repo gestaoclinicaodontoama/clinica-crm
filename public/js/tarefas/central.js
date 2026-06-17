@@ -406,7 +406,7 @@
 
       <div id="rt-diames-wrap" style="display:none" class="form-row">
         <label class="form-label">Dia do mês</label>
-        <input class="form-input" id="rt-diames" type="number" min="1" max="28" placeholder="Ex: 1">
+        <input class="form-input" id="rt-diames" type="number" min="1" max="31" placeholder="Ex: 1">
       </div>
 
       <div class="form-row-2">
@@ -498,7 +498,7 @@
     }
     if (freq === 'mensal') {
       const dm = parseInt(document.getElementById('rt-diames').value, 10);
-      if (!dm || dm < 1 || dm > 28) { toast('Informe o dia do mês (1–28).', 'warning'); return; }
+      if (!dm || dm < 1 || dm > 31) { toast('Informe o dia do mês (1–31).', 'warning'); return; }
       body.dia_mes = dm;
     }
     if (tipo === 'numero') {
