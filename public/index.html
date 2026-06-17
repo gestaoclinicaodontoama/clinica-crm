@@ -698,7 +698,6 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <svg class="nav-arrow" id="arrow-config-geral" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
     </button>
     <div class="nav-submenu" id="submenu-config-geral" style="display:none">
-      <button class="nav-subitem" data-page="tarefas-gestor" data-roles="admin,gestor" onclick="setPage('tarefas-gestor',this)">Tarefas</button>
       <button class="nav-subitem" data-page="config" data-roles="admin,gestor" onclick="setPage('config',this)">Configurações</button>
       <button class="nav-subitem" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)">Usuários</button>
     </div>
@@ -1142,63 +1141,6 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
       <button id="btn-importar" class="btn btn-success" style="width:100%;display:none" onclick="confirmarImportacao()">✅ Importar Pacientes</button>
     </div>
 
-  </div>
-</div>
-
-<!-- TAREFAS (GESTOR) -->
-<div id="page-tarefas-gestor" class="page">
-  <h1>Tarefas</h1>
-
-  <!-- Criar nova tarefa -->
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:700px;margin-bottom:24px">
-    <div style="font-size:14px;font-weight:600;margin-bottom:14px">Nova tarefa</div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2">
-        <label>Título</label>
-        <input id="nt-titulo" placeholder="Ex: Ligar para leads frios">
-      </div>
-      <div class="form-group" style="flex:1">
-        <label>Tipo</label>
-        <select id="nt-tipo">
-          <option value="pontual">📌 Pontual (uma vez)</option>
-          <option value="diaria">🔁 Diária (repete todo dia)</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2">
-        <label>Atribuir para</label>
-        <select id="nt-usuario"><option value="">Carregando usuários...</option></select>
-      </div>
-      <div class="form-group" style="flex:1">
-        <label>Prioridade</label>
-        <select id="nt-prioridade">
-          <option value="normal">Normal</option>
-          <option value="alta">Alta</option>
-          <option value="urgente">Urgente</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label>Descrição (opcional)</label>
-      <textarea id="nt-descricao" rows="2" placeholder="Detalhes sobre a tarefa..."></textarea>
-    </div>
-    <div class="form-group" id="nt-venc-wrap">
-      <label>Data limite (apenas tarefas pontuais)</label>
-      <input type="datetime-local" id="nt-vencimento">
-    </div>
-    <button class="btn btn-primary" onclick="criarTarefaGestor(this)">Criar tarefa</button>
-  </div>
-
-  <!-- Lista de tarefas -->
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:700px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-      <div style="font-size:14px;font-weight:600">Tarefas existentes</div>
-      <select id="tg-filtro-usuario" class="filter-select" style="font-size:12px" onchange="carregarTarefasGestor()">
-        <option value="">Todos os usuários</option>
-      </select>
-    </div>
-    <div id="tg-lista"><div class="empty-small">Carregando...</div></div>
   </div>
 </div>
 
@@ -1898,7 +1840,6 @@ function setPage(p, btn) {
   if (p === 'funil') loadKanban();
   if (p === 'config') atualizarLinks();
   if (p === 'usuarios') loadUsuarios();
-  if (p === 'tarefas-gestor') initTarefasGestor();
   if (p === 'conv-agendamentos') { _chatMode = 'agendamentos'; loadConversas(); _iniciarConvListInterval(); }
   if (p === 'conv-avaliacao')    { _chatMode = 'avaliacao';    loadConversas(); _iniciarConvListInterval(); }
   if (p === 'conv-oficial')      { _chatMode = 'oficial';      loadConversas(); _iniciarConvListInterval(); }
@@ -5481,84 +5422,6 @@ async function carregarTrajeto(leadId, offset) {
 
 function carregarMaisTrajeto() { if (_trajetoLeadId) carregarTrajeto(_trajetoLeadId, _trajetoOffset); }
 
-// ============ GESTÃO DE TAREFAS (GESTOR/ADMIN) ============
-let _tgUsuarios = [];
-
-async function initTarefasGestor() {
-  if (!_tgUsuarios.length) {
-    const users = await api('/api/usuarios').catch(() => []);
-    _tgUsuarios = Array.isArray(users) ? users : [];
-    const sel = document.getElementById('nt-usuario');
-    const filtro = document.getElementById('tg-filtro-usuario');
-    const opts = _tgUsuarios.map(u => `<option value="${u.id}">${escHtml(u.nome||u.email||u.id)}</option>`).join('');
-    if (sel) sel.innerHTML = '<option value="">Selecione...</option>' + opts;
-    if (filtro) filtro.innerHTML = '<option value="">Todos os usuários</option>' + opts;
-  }
-  document.getElementById('nt-tipo').onchange = function() {
-    document.getElementById('nt-venc-wrap').style.display = this.value === 'pontual' ? '' : 'none';
-  };
-  carregarTarefasGestor();
-}
-
-async function criarTarefaGestor(btn) {
-  const titulo = document.getElementById('nt-titulo').value.trim();
-  const tipo = document.getElementById('nt-tipo').value;
-  const atribuido_para = document.getElementById('nt-usuario').value;
-  const prioridade = document.getElementById('nt-prioridade').value;
-  const descricao = document.getElementById('nt-descricao').value.trim();
-  const data_vencimento = document.getElementById('nt-vencimento').value || null;
-  if (!titulo || !atribuido_para) { toast('❌ Título e usuário são obrigatórios', true); return; }
-  btn.disabled = true; btn.textContent = 'Criando...';
-  try {
-    await api('/api/tarefas', { method: 'POST', body: JSON.stringify({ titulo, tipo, atribuido_para, prioridade, descricao, data_vencimento }) });
-    toast('✅ Tarefa criada!');
-    document.getElementById('nt-titulo').value = '';
-    document.getElementById('nt-descricao').value = '';
-    document.getElementById('nt-vencimento').value = '';
-    carregarTarefasGestor();
-  } catch(e) { toast('❌ ' + e.message, true); }
-  finally { btn.disabled = false; btn.textContent = 'Criar tarefa'; }
-}
-
-async function carregarTarefasGestor() {
-  const lista = document.getElementById('tg-lista');
-  const filtroUsuario = document.getElementById('tg-filtro-usuario')?.value || '';
-  lista.innerHTML = '<div class="empty-small">Carregando...</div>';
-  try {
-    const r = await api('/api/tarefas');
-    let tarefas = r.tarefas || [];
-    if (filtroUsuario) tarefas = tarefas.filter(t => t.atribuido_para === filtroUsuario);
-    if (!tarefas.length) { lista.innerHTML = '<div class="empty-small">Nenhuma tarefa</div>'; return; }
-    const usuNome = id => { const u = _tgUsuarios.find(u => u.id === id); return u?.nome || u?.email || id.slice(0,8); };
-    const COR_PRIOR = { urgente:'var(--red)', alta:'var(--yellow)', normal:'var(--muted)' };
-    lista.innerHTML = tarefas.map(t => `
-      <div style="padding:12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);margin-bottom:8px;opacity:${t.ativo?1:.5}">
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:600">${escHtml(t.titulo)}</div>
-            ${t.descricao ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${escHtml(t.descricao)}</div>` : ''}
-            <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;font-size:11px">
-              <span>👤 ${escHtml(usuNome(t.atribuido_para))}</span>
-              <span style="color:${COR_PRIOR[t.prioridade]};font-weight:600">${t.prioridade}</span>
-              <span>${t.tipo === 'diaria' ? '🔁 diária' : '📌 pontual'}</span>
-              ${t.data_vencimento ? `<span>📅 ${_fmtDateFull(t.data_vencimento)}</span>` : ''}
-            </div>
-          </div>
-          ${t.ativo ? `<button onclick="desativarTarefa(${t.id},this)" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px;padding:2px 6px;border-radius:4px" title="Desativar">✕</button>` : '<span style="font-size:11px;color:var(--muted)">inativa</span>'}
-        </div>
-      </div>`).join('');
-  } catch(e) { lista.innerHTML = '<div class="empty-small" style="color:var(--red)">Erro ao carregar</div>'; }
-}
-
-async function desativarTarefa(id, btn) {
-  if (!confirm('Desativar esta tarefa?')) return;
-  btn.disabled = true;
-  try {
-    await api('/api/tarefas/' + id, { method: 'PATCH', body: JSON.stringify({ ativo: false }) });
-    toast('Tarefa desativada');
-    carregarTarefasGestor();
-  } catch(e) { toast('❌ ' + e.message, true); btn.disabled = false; }
-}
 </script>
 
 <!-- Drawer Detalhe NF -->
