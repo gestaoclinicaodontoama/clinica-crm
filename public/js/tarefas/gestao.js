@@ -245,6 +245,35 @@
           <input class="form-input" id="at-prazo" type="datetime-local" style="max-width:260px">
         </div>
 
+        <div class="form-row-2">
+          <div>
+            <label class="form-label">Tipo de resultado</label>
+            <select class="form-select" id="at-tipo" onchange="_onAtNumeroChange()">
+              <option value="check">Check (feito/não feito)</option>
+              <option value="numero">Número (valor numérico)</option>
+            </select>
+          </div>
+          <div></div>
+        </div>
+
+        <div id="at-numero-wrap" style="display:none" class="form-row-2">
+          <div>
+            <label class="form-label">Unidade</label>
+            <input class="form-input" id="at-unidade" type="text" placeholder="Ex: ligações, R$">
+          </div>
+          <div>
+            <label class="form-label">Meta</label>
+            <input class="form-input" id="at-meta" type="number" step="any" placeholder="Ex: 10">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="at-arrasta">
+            <span><strong>Arrasta</strong> — se não concluída hoje, aparece amanhã</span>
+          </label>
+        </div>
+
         <div class="form-row">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <label class="form-label" style="margin:0">Atribuir para *</label>
@@ -266,6 +295,12 @@
     document.querySelectorAll('.at-pessoa-cb').forEach(function (cb) { cb.checked = true; });
   };
 
+  window._onAtNumeroChange = function () {
+    const tipo = document.getElementById('at-tipo').value;
+    const wrap = document.getElementById('at-numero-wrap');
+    if (wrap) wrap.style.display = tipo === 'numero' ? '' : 'none';
+  };
+
   window._salvarAtribuicao = async function () {
     const titulo = (document.getElementById('at-titulo').value || '').trim();
     const desc   = (document.getElementById('at-desc').value || '').trim();
@@ -279,10 +314,20 @@
     document.querySelectorAll('.at-pessoa-cb:checked').forEach(function (cb) { assignee_ids.push(cb.value); });
     if (assignee_ids.length === 0) { toast('Selecione ao menos uma pessoa.', 'warning'); return; }
 
-    const body = { titulo, prioridade: prio, assignee_ids: assignee_ids };
+    const tipo    = document.getElementById('at-tipo').value;
+    const arrasta = document.getElementById('at-arrasta').checked;
+
+    const body = { titulo, prioridade: prio, assignee_ids: assignee_ids, tipo_resultado: tipo, arrasta: arrasta };
     if (desc)  body.descricao = desc;
     if (cat)   body.categoria = cat;
     if (prazo) body.prazo = new Date(prazo).toISOString();
+
+    if (tipo === 'numero') {
+      const un   = (document.getElementById('at-unidade').value || '').trim();
+      const meta = document.getElementById('at-meta').value;
+      if (un)   body.unidade = un;
+      if (meta) body.meta = Number(meta);
+    }
 
     try {
       await tarefasApi('/api/tarefas', { method: 'POST', body: JSON.stringify(body) });
@@ -294,10 +339,13 @@
   };
 
   window._limparAtribuirForm = function () {
-    const ids = ['at-titulo', 'at-desc', 'at-prazo'];
+    const ids = ['at-titulo', 'at-desc', 'at-prazo', 'at-unidade', 'at-meta'];
     ids.forEach(function (id) { const el = document.getElementById(id); if (el) el.value = ''; });
-    const prio = document.getElementById('at-prio'); if (prio) prio.value = 'normal';
-    const cat  = document.getElementById('at-cat');  if (cat)  cat.value  = '';
+    const prio    = document.getElementById('at-prio');    if (prio)    prio.value = 'normal';
+    const cat     = document.getElementById('at-cat');     if (cat)     cat.value  = '';
+    const tipo    = document.getElementById('at-tipo');    if (tipo)    tipo.value = 'check';
+    const arrasta = document.getElementById('at-arrasta'); if (arrasta) arrasta.checked = false;
+    const wrap    = document.getElementById('at-numero-wrap'); if (wrap) wrap.style.display = 'none';
     document.querySelectorAll('.at-pessoa-cb').forEach(function (cb) { cb.checked = false; });
   };
 
