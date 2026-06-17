@@ -5471,98 +5471,336 @@ app.get('/api/usuarios', requireAuth, requireRole('admin', 'gestor'), rateLimit,
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Tarefas
-const _requireGestor = requireRole('admin', 'gestor');
+// ===================== CENTRAL DE TAREFAS =====================
+const { gerarTarefasDoDia } = require('./lib/tarefas/geracao');
 
-app.get('/api/tarefas', requireAuth, rateLimit, async (req, res) => {
+function hojeISO() {
+  // nowLocal() devolve STRING "YYYY-MM-DD HH:MM:SS" no fuso de Brasília (server.js:126)
+  return nowLocal().slice(0, 10);
+}
+
+function repoTarefas() {
+  return {
+    async templatesDoUsuario(userId, roles) {
+      const orParts = [`and(escopo.eq.pessoal,owner_id.eq.${userId})`];
+      if (roles.length) orParts.push(`and(escopo.eq.role,role.in.(${roles.join(',')}))`);
+      const { data } = await supabase.from('task_templates')
+        .select('*').eq('ativo', true).or(orParts.join(','));
+      return data || [];
+    },
+    async taskExisteNoDia(templateId, userId, dataRef) {
+      const { count } = await supabase.from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .eq('template_id', templateId).eq('assignee_id', userId).eq('data_ref', dataRef);
+      return (count || 0) > 0;
+    },
+    async taskAbertaDoTemplate(templateId, userId) {
+      const { count } = await supabase.from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .eq('template_id', templateId).eq('assignee_id', userId).eq('status', 'pendente');
+      return (count || 0) > 0;
+    },
+    async inserir(task) { await supabase.from('tasks').insert(task); },
+  };
+}
+
+// GET /api/tarefas?data=hoje  → gera sob demanda + retorna tarefas do dia, marca visto_em
+app.get('/api/tarefas', requireAuth, async (req, res) => {
   try {
-    const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-    const usuarioId = req.user.id;
-    const isGestor = req.user.profile?.roles?.some(r => ['admin','gestor'].includes(r));
-    let query = supabase.from('tarefas').select('*').eq('ativo', true);
-    if (!isGestor) query = query.eq('atribuido_para', usuarioId);
-    const { data: tarefas } = await query.order('prioridade', { ascending: false });
-    if (!tarefas?.length) return res.json({ tarefas: [], hoje });
+    const userId = req.user.id;
+    const profile = await loadProfile(req);
+    const roles = profile.roles || [];
+    const hoje = hojeISO();
+    try { await gerarTarefasDoDia(repoTarefas(), userId, roles, hoje); }
+    catch (e) { console.error('[tarefas] geracao on-demand', e.message); }
 
-    // Garante instâncias de hoje para tarefas diárias
-    const diarias = tarefas.filter(t => t.tipo === 'diaria');
-    if (diarias.length) {
-      await supabase.from('tarefa_instancias').upsert(
-        diarias.map(t => ({ tarefa_id: t.id, usuario_id: t.atribuido_para, data_ref: hoje, status: 'pendente' })),
-        { onConflict: 'tarefa_id,data_ref', ignoreDuplicates: true }
-      );
-    }
-
-    // Busca instâncias de hoje
-    const ids = tarefas.map(t => t.id);
-    const { data: instancias } = await supabase.from('tarefa_instancias')
-      .select('*').in('tarefa_id', ids).eq('data_ref', hoje);
-    const instMap = {};
-    (instancias || []).forEach(i => { instMap[i.tarefa_id] = i; });
-
-    const resultado = tarefas.map(t => ({ ...t, instancia_hoje: instMap[t.id] || null }));
-    res.json({ tarefas: resultado, hoje });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/tarefas', requireAuth, _requireGestor, rateLimit, async (req, res) => {
-  try {
-    const { titulo, descricao='', tipo='pontual', atribuido_para, data_vencimento, prioridade='normal' } = req.body;
-    if (!titulo || !atribuido_para) return res.status(400).json({ error: 'titulo e atribuido_para obrigatórios' });
-    const { data, error } = await supabase.from('tarefas').insert({
-      titulo: sanitizeStr(titulo, 200), descricao: sanitizeStr(descricao, 2000),
-      tipo, atribuido_para, criado_por: req.user.id,
-      data_vencimento: data_vencimento || null, prioridade,
-    }).select().single();
+    const { data, error } = await supabase.from('tasks')
+      .select('*')
+      .eq('assignee_id', userId)
+      .or(`data_ref.eq.${hoje},and(status.eq.pendente,data_ref.lt.${hoje})`)
+      .order('data_ref', { ascending: true });
     if (error) throw error;
-    // Notifica o usuário
-    await criarNotificacao(atribuido_para, 'tarefa_atribuida',
-      '📋 Nova tarefa atribuída', titulo,
-      { tarefa_id: data.id, tipo, prioridade }
-    );
-    res.json({ ok: true, tarefa: data });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+
+    const naoVistas = (data || []).filter(t => t.status === 'pendente' && !t.visto_em).map(t => t.id);
+    if (naoVistas.length) {
+      await supabase.from('tasks').update({ visto_em: new Date().toISOString() }).in('id', naoVistas);
+    }
+    res.json({ tarefas: data || [], hoje });
+  } catch (e) {
+    console.error('[GET /api/tarefas]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.patch('/api/tarefas/:id', requireAuth, _requireGestor, rateLimit, async (req, res) => {
+// POST /api/tarefas  → cria tarefa(s) pontual(is). assignee_ids[] permite fan-out.
+app.post('/api/tarefas', requireAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const ALLOWED_T = ['titulo','descricao','tipo','atribuido_para','data_vencimento','prioridade','ativo'];
+    const userId = req.user.id;
+    const profile = await loadProfile(req);
+    const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
+    const b = req.body || {};
+    if (!b.titulo || !String(b.titulo).trim()) return res.status(400).json({ error: 'titulo obrigatório' });
+
+    let assignees = Array.isArray(b.assignee_ids) && b.assignee_ids.length ? b.assignee_ids : [userId];
+    const paraTerceiros = assignees.some(a => a !== userId);
+    if (paraTerceiros && !isGestor) return res.status(403).json({ error: 'Sem permissão para atribuir a outros' });
+
+    const base = {
+      titulo: String(b.titulo).trim(),
+      descricao: b.descricao || null,
+      tipo: 'pontual',
+      template_id: null,
+      data_ref: b.data_ref || hojeISO(),
+      created_by: userId,
+      prioridade: ['alta','normal','baixa'].includes(b.prioridade) ? b.prioridade : 'normal',
+      categoria: b.categoria || null,
+      tipo_resultado: b.tipo_resultado === 'numero' ? 'numero' : 'check',
+      unidade: b.unidade || null,
+      meta: b.meta ?? null,
+      prazo: b.prazo || null,
+      lead_id: b.lead_id || null,
+      paciente_clinicorp_id: b.paciente_clinicorp_id || null,
+      arrasta: !!b.arrasta,
+      status: 'pendente',
+    };
+    const rows = assignees.map(a => ({ ...base, assignee_id: a }));
+    const { data, error } = await supabase.from('tasks').insert(rows).select();
+    if (error) throw error;
+
+    for (const t of data) {
+      if (t.assignee_id !== userId) {
+        await criarNotificacao(t.assignee_id, 'tarefa_atribuida', 'Nova tarefa', t.titulo, { url: '/tarefas/', task_id: t.id });
+      }
+    }
+    res.json({ tarefas: data });
+  } catch (e) {
+    console.error('[POST /api/tarefas]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET templates: pessoais do usuário + de role
+app.get('/api/tarefas/templates', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const profile = await loadProfile(req);
+    const roles = profile.roles || [];
+    const orParts = [`and(escopo.eq.pessoal,owner_id.eq.${userId})`];
+    if (roles.length) orParts.push(`and(escopo.eq.role,role.in.(${roles.join(',')}))`);
+    const { data, error } = await supabase.from('task_templates').select('*').or(orParts.join(',')).order('created_at');
+    if (error) throw error;
+    res.json({ templates: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST template: role => só gestor/admin; pessoal => qualquer um (owner = ele)
+app.post('/api/tarefas/templates', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const profile = await loadProfile(req);
+    const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
+    const b = req.body || {};
+    if (!b.titulo) return res.status(400).json({ error: 'titulo obrigatório' });
+    const escopo = b.escopo === 'role' ? 'role' : 'pessoal';
+    if (escopo === 'role' && !isGestor) return res.status(403).json({ error: 'Só gestor/admin cria molde por cargo' });
+    const row = {
+      titulo: b.titulo, descricao: b.descricao || null, escopo,
+      role: escopo === 'role' ? b.role : null,
+      owner_id: escopo === 'pessoal' ? userId : null,
+      frequencia: ['diaria','semanal','mensal'].includes(b.frequencia) ? b.frequencia : 'diaria',
+      dias_semana: b.dias_semana || null, dia_mes: b.dia_mes || null,
+      hora_sugerida: b.hora_sugerida || null,
+      prioridade: ['alta','normal','baixa'].includes(b.prioridade) ? b.prioridade : 'normal',
+      categoria: b.categoria || null,
+      tipo_resultado: b.tipo_resultado === 'numero' ? 'numero' : 'check',
+      unidade: b.unidade || null, meta: b.meta ?? null,
+      arrasta: !!b.arrasta, created_by: userId,
+    };
+    const { data, error } = await supabase.from('task_templates').insert(row).select().single();
+    if (error) throw error;
+    res.json({ template: data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH template: dono (pessoal) ou gestor/admin (role)
+app.patch('/api/tarefas/templates/:id', requireAuth, async (req, res) => {
+  try {
+    const profile = await loadProfile(req);
+    const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
+    const { data: tpl } = await supabase.from('task_templates').select('*').eq('id', req.params.id).maybeSingle();
+    if (!tpl) return res.status(404).json({ error: 'Molde não encontrado' });
+    const podeEditar = (tpl.escopo === 'pessoal' && tpl.owner_id === req.user.id) || (tpl.escopo === 'role' && isGestor);
+    if (!podeEditar) return res.status(403).json({ error: 'Sem permissão' });
     const patch = {};
-    ALLOWED_T.forEach(k => { if (req.body[k] !== undefined) patch[k] = req.body[k]; });
-    patch.atualizado_em = new Date().toISOString();
-    const { error } = await supabase.from('tarefas').update(patch).eq('id', id);
+    for (const k of ['titulo','descricao','frequencia','dias_semana','dia_mes','hora_sugerida','prioridade','categoria','tipo_resultado','unidade','meta','arrasta','ativo']) {
+      if (k in req.body) patch[k] = req.body[k];
+    }
+    const { data, error } = await supabase.from('task_templates').update(patch).eq('id', tpl.id).select().single();
+    if (error) throw error;
+    res.json({ template: data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE template: mesmas regras do PATCH
+app.delete('/api/tarefas/templates/:id', requireAuth, async (req, res) => {
+  try {
+    const profile = await loadProfile(req);
+    const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
+    const { data: tpl } = await supabase.from('task_templates').select('*').eq('id', req.params.id).maybeSingle();
+    if (!tpl) return res.status(404).json({ error: 'Molde não encontrado' });
+    const pode = (tpl.escopo === 'pessoal' && tpl.owner_id === req.user.id) || (tpl.escopo === 'role' && isGestor);
+    if (!pode) return res.status(403).json({ error: 'Sem permissão' });
+    const { error } = await supabase.from('task_templates').delete().eq('id', tpl.id);
     if (error) throw error;
     res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/tarefas/:id/concluir', requireAuth, rateLimit, async (req, res) => {
+// GET /api/tarefas/historico?de=YYYY-MM-DD&ate=YYYY-MM-DD  → histórico do próprio usuário
+app.get('/api/tarefas/historico', requireAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-    const { data: tarefa } = await supabase.from('tarefas').select('id,tipo,atribuido_para')
-      .eq('id', id).single();
-    if (!tarefa) return res.status(404).json({ error: 'Tarefa não encontrada' });
-    if (tarefa.atribuido_para !== req.user.id &&
-        !req.user.profile?.roles?.some(r => ['admin','gestor'].includes(r)))
-      return res.status(403).json({ error: 'Sem permissão' });
-
-    if (tarefa.tipo === 'diaria') {
-      await supabase.from('tarefa_instancias').upsert({
-        tarefa_id: id, usuario_id: tarefa.atribuido_para, data_ref: hoje,
-        status: 'concluida', concluida_em: new Date().toISOString(),
-      }, { onConflict: 'tarefa_id,data_ref' });
-    } else {
-      await supabase.from('tarefa_instancias').upsert({
-        tarefa_id: id, usuario_id: tarefa.atribuido_para, data_ref: hoje,
-        status: 'concluida', concluida_em: new Date().toISOString(),
-      }, { onConflict: 'tarefa_id,data_ref' });
-      await supabase.from('tarefas').update({ ativo: false }).eq('id', id);
-    }
-    res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const de = req.query.de || hojeISO();
+    const ate = req.query.ate || hojeISO();
+    const { data, error } = await supabase.from('tasks')
+      .select('*').eq('assignee_id', req.user.id)
+      .gte('data_ref', de).lte('data_ref', ate)
+      .order('data_ref', { ascending: false });
+    if (error) throw error;
+    res.json({ tarefas: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+const requireTarefasGestao = requireRole('admin', 'gestor');
+
+// GET /api/tarefas/gestao?de=&ate=&pessoa=&categoria=  → painel da equipe + histórico filtrado
+app.get('/api/tarefas/gestao', requireAuth, requireTarefasGestao, async (req, res) => {
+  try {
+    const de = req.query.de || hojeISO();
+    const ate = req.query.ate || hojeISO();
+    let q = supabase.from('tasks').select('*').gte('data_ref', de).lte('data_ref', ate);
+    if (req.query.pessoa) q = q.eq('assignee_id', req.query.pessoa);
+    if (req.query.categoria) q = q.eq('categoria', req.query.categoria);
+    const { data: tarefas, error } = await q.order('data_ref', { ascending: false });
+    if (error) throw error;
+
+    const porPessoa = {};
+    for (const t of (tarefas || [])) {
+      const p = porPessoa[t.assignee_id] || (porPessoa[t.assignee_id] = { total: 0, concluidas: 0, atrasadas: 0, soma_valor: 0, n_valor: 0 });
+      p.total++;
+      if (t.status === 'concluida') p.concluidas++;
+      if (t.status === 'pendente' && t.data_ref < hojeISO()) p.atrasadas++;
+      if (t.tipo_resultado === 'numero' && t.valor_resultado != null) { p.soma_valor += Number(t.valor_resultado); p.n_valor++; }
+    }
+    res.json({ tarefas: tarefas || [], resumo: porPessoa });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH /api/tarefas/:id  → concluir (com valor_resultado se numero), reabrir, editar
+app.patch('/api/tarefas/:id', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const profile = await loadProfile(req);
+    const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
+    const { data: tarefa, error: e0 } = await supabase.from('tasks').select('*').eq('id', req.params.id).maybeSingle();
+    if (e0) throw e0;
+    if (!tarefa) return res.status(404).json({ error: 'Tarefa não encontrada' });
+
+    const b = req.body || {};
+    const ehAssignee = tarefa.assignee_id === userId;
+    const ehCriador = tarefa.created_by === userId;
+
+    if (b.acao === 'concluir') {
+      if (!ehAssignee && !isGestor) return res.status(403).json({ error: 'Sem permissão' });
+      if (tarefa.tipo_resultado === 'numero' && (b.valor_resultado === undefined || b.valor_resultado === null || b.valor_resultado === ''))
+        return res.status(400).json({ error: 'Informe o valor para concluir esta tarefa' });
+      const patch = {
+        status: 'concluida',
+        concluida_em: new Date().toISOString(),
+        concluida_por: userId,
+        obs_conclusao: b.obs_conclusao || null,
+        valor_resultado: tarefa.tipo_resultado === 'numero' ? Number(b.valor_resultado) : null,
+      };
+      const { data, error } = await supabase.from('tasks').update(patch).eq('id', tarefa.id).select().single();
+      if (error) throw error;
+      return res.json({ tarefa: data });
+    }
+
+    if (b.acao === 'reabrir') {
+      if (!ehAssignee && !isGestor) return res.status(403).json({ error: 'Sem permissão' });
+      const { data, error } = await supabase.from('tasks')
+        .update({ status: 'pendente', concluida_em: null, concluida_por: null, valor_resultado: null, obs_conclusao: null })
+        .eq('id', tarefa.id).select().single();
+      if (error) throw error;
+      return res.json({ tarefa: data });
+    }
+
+    if (!ehCriador) return res.status(403).json({ error: 'Só quem criou pode editar' });
+    const patch = {};
+    for (const k of ['titulo','descricao','prioridade','categoria','prazo','lead_id','paciente_clinicorp_id','arrasta']) {
+      if (k in b) patch[k] = b[k];
+    }
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nada para atualizar' });
+    const { data, error } = await supabase.from('tasks').update(patch).eq('id', tarefa.id).select().single();
+    if (error) throw error;
+    res.json({ tarefa: data });
+  } catch (e) {
+    console.error('[PATCH /api/tarefas/:id]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/tarefas/:id  → só created_by e só se pendente (preserva histórico)
+app.delete('/api/tarefas/:id', requireAuth, async (req, res) => {
+  try {
+    const { data: tarefa } = await supabase.from('tasks').select('created_by,status').eq('id', req.params.id).maybeSingle();
+    if (!tarefa) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    if (tarefa.created_by !== req.user.id) return res.status(403).json({ error: 'Só quem criou pode excluir' });
+    if (tarefa.status === 'concluida') return res.status(400).json({ error: 'Não é possível excluir tarefa concluída' });
+    const { error } = await supabase.from('tasks').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[DELETE /api/tarefas/:id]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// CRON Central de Tarefas: geração matinal de todos + push resumo + push de prazo
+let _ultimaGeracaoMatinal = null; // 'YYYY-MM-DD'
+
+async function cronTarefas() {
+  try {
+    const agora = nowLocal();            // "YYYY-MM-DD HH:MM:SS" (string, fuso BR)
+    const hoje = agora.slice(0, 10);
+    const hora = Number(agora.slice(11, 13));
+
+    if (hora >= 6 && _ultimaGeracaoMatinal !== hoje) {
+      const { data: usuarios } = await supabase.from('profiles').select('id, roles').eq('ativo', true);
+      for (const u of (usuarios || [])) {
+        try {
+          await gerarTarefasDoDia(repoTarefas(), u.id, u.roles || [], hoje);
+          const { count } = await supabase.from('tasks').select('id', { count: 'exact', head: true })
+            .eq('assignee_id', u.id).eq('data_ref', hoje).eq('status', 'pendente');
+          if ((count || 0) > 0) {
+            await criarNotificacao(u.id, 'tarefa_resumo', 'Tarefas de hoje', `Você tem ${count} tarefa(s) hoje.`, { url: '/tarefas/' });
+          }
+        } catch (e) { console.error('[cronTarefas] usuario', u.id, e.message); }
+      }
+      _ultimaGeracaoMatinal = hoje;
+    }
+
+    const agoraISO = new Date().toISOString();
+    const { data: vencendo } = await supabase.from('tasks')
+      .select('id, assignee_id, titulo')
+      .eq('status', 'pendente').is('prazo_avisado_em', null)
+      .lte('prazo', agoraISO).not('prazo', 'is', null);
+    for (const t of (vencendo || [])) {
+      await criarNotificacao(t.assignee_id, 'tarefa_vencendo', 'Tarefa no prazo', t.titulo, { url: '/tarefas/', task_id: t.id });
+      await supabase.from('tasks').update({ prazo_avisado_em: agoraISO }).eq('id', t.id);
+    }
+  } catch (e) { console.error('[cronTarefas]', e.message); }
+}
+setInterval(cronTarefas, 15 * 60 * 1000);
 
 // Limpa notificações lidas com mais de 30 dias (roda no startup e a cada 24h)
 async function limparNotificacoesAntigas() {
