@@ -1038,9 +1038,14 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       </div>
     </div>
 
-    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <div class="form-group" style="margin-bottom:8px">
+      <label>Lista de contatos <small style="color:var(--muted)">cole nome e telefone (um por linha) — ou suba um CSV</small></label>
+      <textarea id="disp-texto" rows="3" placeholder="Maria Silva, 5531999990001&#10;João Souza, 31988887777" oninput="dispListaMudou()"></textarea>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <label class="btn btn-ghost" style="font-size:12.5px;cursor:pointer">
-        📎 Escolher CSV
+        📎 ou Escolher CSV
         <input type="file" id="disp-file" accept=".csv,.txt" style="display:none" onchange="dispArquivoEscolhido(event)">
       </label>
       <span id="disp-file-nome" style="font-size:12px;color:var(--muted);align-self:center"></span>
@@ -4001,12 +4006,25 @@ function dispArquivoEscolhido(ev) {
   reader.readAsText(f);
 }
 
+// Texto colado tem prioridade; senão usa o conteúdo do CSV escolhido.
+function dispObterTexto() {
+  const colado = (document.getElementById('disp-texto')?.value || '').trim();
+  return colado || _dispFileTexto || '';
+}
+
+// Ao digitar/colar, esconde preview e botão antigos (forçar Visualizar de novo).
+function dispListaMudou() {
+  document.getElementById('disp-btn-iniciar').style.display = 'none';
+  document.getElementById('disp-preview').style.display = 'none';
+}
+
 async function dispPreview() {
-  if (!_dispFileTexto) { toast('Escolha um CSV primeiro', true); return; }
+  const texto = dispObterTexto();
+  if (!texto) { toast('Cole a lista ou escolha um CSV', true); return; }
   const box = document.getElementById('disp-preview');
   box.style.display = 'block'; box.textContent = 'Analisando...';
   try {
-    const r = await api('/api/disparos/preview', { method: 'POST', body: JSON.stringify({ texto: _dispFileTexto }) });
+    const r = await api('/api/disparos/preview', { method: 'POST', body: JSON.stringify({ texto }) });
     if (r.error) { box.textContent = '❌ ' + r.error; return; }
     box.innerHTML = `<strong>${r.total}</strong> contatos válidos · <strong>${r.casam}</strong> já são leads · <strong>${r.novos}</strong> serão criados`
       + (r.invalidos ? ` · <span style="color:var(--red)">${r.invalidos} sem telefone válido (ignorados)</span>` : '');
@@ -4017,13 +4035,14 @@ async function dispPreview() {
 async function dispCriarEIniciar(btn) {
   const nome = document.getElementById('disp-nome').value.trim();
   const template_nome = document.getElementById('disp-template').value;
+  const texto = dispObterTexto();
   if (!nome) { toast('Dê um nome à campanha', true); return; }
   if (!template_nome) { toast('Escolha um template aprovado', true); return; }
-  if (!_dispFileTexto) { toast('Escolha um CSV', true); return; }
+  if (!texto) { toast('Cole a lista ou escolha um CSV', true); return; }
   if (!confirm(`Disparar "${template_nome}" para esta lista? Os envios começam agora.`)) return;
   btn.disabled = true; btn.textContent = 'Criando...';
   try {
-    const r = await api('/api/disparos/criar', { method: 'POST', body: JSON.stringify({ nome, template_nome, texto: _dispFileTexto }) });
+    const r = await api('/api/disparos/criar', { method: 'POST', body: JSON.stringify({ nome, template_nome, texto }) });
     if (r.error) { toast('❌ ' + r.error, true); return; }
     const ini = await api(`/api/disparos/${r.campanha_id}/iniciar`, { method: 'POST', body: '{}' });
     if (ini.error) { toast('❌ ' + ini.error, true); return; }
