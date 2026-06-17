@@ -8,7 +8,7 @@
     'dashboard': 'Início', 'leads': 'Leads', 'funil': 'Funil',
     'conv-agendamentos': 'CRC Lead', 'conv-avaliacao': 'CRC Com.', 'disparos': 'Disparos',
     'notas-fiscais': 'Notas', 'inadimplentes': 'Inadimpl.', 'usuarios': 'Usuários',
-    'tarefas-gestor': 'Tarefas', 'config': 'Config', 'avaliacao-dentista': 'Aval. Dent.',
+    'tarefas': 'Tarefas', 'gestao': 'Gestão Tar.', 'config': 'Config', 'avaliacao-dentista': 'Aval. Dent.',
     'atribuicao': 'Atribuição', 'ligacoes': 'Ligações',
     'aniversariantes': 'Aniversár.', 'recall': 'Recall', 'vips': 'VIPs',
   };
