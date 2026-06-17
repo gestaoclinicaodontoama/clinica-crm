@@ -13,9 +13,21 @@ const api = new ClinicorpApi({
 });
 
 async function carregarCategorizador() {
-  const [{ data: contas }, { data: regras }, { data: pessoas }] = await Promise.all([
+  // fin_regras pode ter milhares de linhas — paginar (o cliente JS trunca em 1000).
+  async function todasRegras() {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from('fin_regras').select('metodo,padrao,peso,conta_id').range(from, from + 999);
+      if (error) throw new Error(error.message);
+      if (!data || !data.length) break;
+      out.push(...data);
+      if (data.length < 1000) break;
+    }
+    return out;
+  }
+  const [{ data: contas }, regras, { data: pessoas }] = await Promise.all([
     supabase.from('fin_contas').select('id,codigo'),
-    supabase.from('fin_regras').select('metodo,padrao,peso,conta_id'),
+    todasRegras(),
     supabase.from('fin_pessoas').select('nome,conta_id').eq('ativo', true),
   ]);
   const codById = new Map(contas.map(c => [c.id, c.codigo]));
