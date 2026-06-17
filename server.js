@@ -123,7 +123,7 @@ function sanitizeStr(v, max = 200) {
 const sha256 = v => v ? crypto.createHash('sha256').update(String(v).toLowerCase().trim()).digest('hex') : null;
 const { chaveTelefone } = require('./lib/funil/telefone');
 const { parseCsv } = require('./lib/disparos/parser');
-const { ultimos8, confirmarMatch } = require('./lib/disparos/matching');
+const { ultimos8 } = require('./lib/disparos/matching');
 const disparoRunner = require('./lib/disparos/runner');
 
 // --------- APP ---------
@@ -1184,6 +1184,8 @@ app.get('/api/campanhas/:id/resultado', requireAuth, requireCrcLead, async (req,
 
 // ========== DISPARO EM MASSA (WhatsApp) ==========
 
+const DISPARO_MAX_CONTATOS = 5000;
+
 // Lê o CSV cru do request: arquivo (multer, campo 'file') ou { texto } no body.
 function lerCsvDoRequest(req) {
   if (req.file && req.file.buffer) return req.file.buffer.toString('utf8');
@@ -1191,23 +1193,33 @@ function lerCsvDoRequest(req) {
   return '';
 }
 
+// Confirma que um template está aprovado (db status 'aprovado' ou allow-list de env).
+async function templateAprovado(nome) {
+  const envNames = (process.env.WA_TEMPLATES || '').split(',').map(t => t.trim()).filter(Boolean);
+  if (envNames.includes(nome)) return true;
+  const { data } = await supabase.from('templates').select('status').eq('nome', nome).maybeSingle();
+  return !!data && data.status === 'aprovado';
+}
+
 app.post('/api/disparos/preview', requireAuth, requireDisparos, _upload.single('file'), async (req, res) => {
   try {
     const texto = lerCsvDoRequest(req);
     const { contatos, invalidos } = parseCsv(texto);
     if (!contatos.length) return res.json({ casam: 0, novos: 0, invalidos, total: 0, amostra: [] });
+    if (contatos.length > DISPARO_MAX_CONTATOS) return res.status(413).json({ error: 'Lista muito grande (máximo ' + DISPARO_MAX_CONTATOS + ' contatos)' });
 
-    let casam = 0;
-    for (const c of contatos) {
-      const ult8 = ultimos8(c.telefone);
-      let cand = [];
-      if (ult8.length === 8) {
-        const { data } = await supabase.from('leads').select('id, telefone')
-          .ilike('telefone', '%' + ult8 + '%').limit(50);
-        cand = data || [];
-      }
-      if (confirmarMatch(c.telefone, cand)) casam++;
+    // Matching em lote: junta os candidatos por sufixo (chunks de ilike) num só
+    // conjunto de chaves, em vez de 1 query por contato.
+    const sufixos = [...new Set(contatos.map(c => ultimos8(c.telefone)).filter(u => u.length === 8))];
+    const leadKeys = new Set();
+    for (let i = 0; i < sufixos.length; i += 50) {
+      const chunk = sufixos.slice(i, i + 50);
+      const orExpr = chunk.map(u => 'telefone.ilike.%' + u + '%').join(',');
+      const { data } = await supabase.from('leads').select('telefone').or(orExpr).limit(1000);
+      for (const l of data || []) { const k = chaveTelefone(l.telefone); if (k) leadKeys.add(k); }
     }
+    let casam = 0;
+    for (const c of contatos) { if (leadKeys.has(chaveTelefone(c.telefone))) casam++; }
     res.json({
       casam, novos: contatos.length - casam, invalidos,
       total: contatos.length,
@@ -1226,10 +1238,12 @@ app.post('/api/disparos/criar', requireAuth, requireDisparos, _upload.single('fi
     const lang = sanitizeStr(req.body.lang || 'pt_BR', 12);
     if (!nome) return res.status(400).json({ error: 'Nome da campanha obrigatório' });
     if (!template_nome) return res.status(400).json({ error: 'Template obrigatório' });
+    if (!(await templateAprovado(template_nome))) return res.status(400).json({ error: 'Template não aprovado pela Meta' });
 
     const texto = lerCsvDoRequest(req);
     const { contatos } = parseCsv(texto);
     if (!contatos.length) return res.status(400).json({ error: 'Nenhum contato válido no CSV' });
+    if (contatos.length > DISPARO_MAX_CONTATOS) return res.status(413).json({ error: 'Lista muito grande (máximo ' + DISPARO_MAX_CONTATOS + ' contatos)' });
 
     const { data: camp, error: cErr } = await supabase.from('disparos_campanhas').insert({
       nome, template_nome, lang, total: contatos.length,
@@ -1256,14 +1270,17 @@ app.post('/api/disparos/:id/iniciar', requireAuth, requireDisparos, async (req, 
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     if (!whatsapp.temBroadcast()) return res.status(503).json({ error: 'Número de broadcast não configurado.' });
     const { data: ativa } = await supabase.from('disparos_campanhas')
       .select('id').eq('status', 'enviando').neq('id', id).limit(1);
     if (ativa && ativa.length) return res.status(409).json({ error: 'Já existe uma campanha enviando. Aguarde ou pause antes.' });
 
-    await supabase.from('disparos_campanhas')
+    // Transição atômica: só inicia se ainda estiver em 'rascunho'.
+    const { data: upd } = await supabase.from('disparos_campanhas')
       .update({ status: 'enviando', auto_pausada: false, iniciada_em: new Date().toISOString() })
-      .eq('id', id);
+      .eq('id', id).eq('status', 'rascunho').select('id');
+    if (!upd || !upd.length) return res.status(409).json({ error: 'Campanha não está em rascunho (já iniciada?).' });
     disparoRunner.iniciarRunner(id, { supabase, whatsapp, logEvento });
     res.json({ ok: true });
   } catch (e) {
@@ -1274,7 +1291,8 @@ app.post('/api/disparos/:id/iniciar', requireAuth, requireDisparos, async (req, 
 app.post('/api/disparos/:id/pausar', requireAuth, requireDisparos, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    await supabase.from('disparos_campanhas').update({ status: 'pausada' }).eq('id', id);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    await supabase.from('disparos_campanhas').update({ status: 'pausada' }).eq('id', id).eq('status', 'enviando');
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1282,11 +1300,14 @@ app.post('/api/disparos/:id/pausar', requireAuth, requireDisparos, async (req, r
 app.post('/api/disparos/:id/retomar', requireAuth, requireDisparos, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { data: ativa } = await supabase.from('disparos_campanhas')
       .select('id').eq('status', 'enviando').neq('id', id).limit(1);
     if (ativa && ativa.length) return res.status(409).json({ error: 'Já existe uma campanha enviando. Aguarde ou pause antes.' });
-    await supabase.from('disparos_campanhas')
-      .update({ status: 'enviando', auto_pausada: false }).eq('id', id);
+    // Transição atômica: só retoma se estiver 'pausada'.
+    const { data: upd } = await supabase.from('disparos_campanhas')
+      .update({ status: 'enviando', auto_pausada: false }).eq('id', id).eq('status', 'pausada').select('id');
+    if (!upd || !upd.length) return res.status(409).json({ error: 'Campanha não está pausada.' });
     disparoRunner.iniciarRunner(id, { supabase, whatsapp, logEvento });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1330,9 +1351,10 @@ app.get('/api/disparos', requireAuth, requireDisparos, async (req, res) => {
 });
 
 // Disparos recebidos por um lead (para a aba no perfil).
-app.get('/api/leads/:id/disparos', requireAuth, async (req, res) => {
+app.get('/api/leads/:id/disparos', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
     const { data: contatos } = await supabase.from('disparos_contatos')
       .select('wa_id, status, enviado_em, campanha:disparos_campanhas(nome, template_nome)')
       .eq('lead_id', id).order('id', { ascending: false }).limit(100);

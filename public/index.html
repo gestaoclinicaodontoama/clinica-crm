@@ -2445,7 +2445,7 @@ async function carregarDisparosLead(leadId) {
     if (!lista.length) { div.innerHTML = '<div class="empty-small">Nenhum disparo recebido.</div>'; return; }
     const ENTREGA = { sent: '✓ enviado', delivered: '✓✓ entregue', read: '✓✓ lido', failed: '⚠️ não entregue' };
     div.innerHTML = lista.map(d => {
-      const ent = d.entrega?.wa_status ? (ENTREGA[d.entrega.wa_status] || d.entrega.wa_status) : (d.status_envio === 'falha' ? '⚠️ falhou' : '—');
+      const ent = d.entrega?.wa_status ? (ENTREGA[d.entrega.wa_status] || escHtml(d.entrega.wa_status)) : (d.status_envio === 'falha' ? '⚠️ falhou' : '—');
       const cor = (d.entrega?.wa_status === 'failed' || d.status_envio === 'falha') ? 'var(--red)' : 'var(--muted)';
       return `<div style="border-bottom:1px solid var(--border);padding:8px 0">
         <div style="font-size:13px"><strong>${escHtml(d.campanha || d.template)}</strong></div>
