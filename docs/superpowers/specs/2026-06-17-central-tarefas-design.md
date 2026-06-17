@@ -114,15 +114,13 @@ Regras de frequência (avaliadas para uma `data_ref`):
 Administrativo, Marketing. Editável no código; mantida como enum/lista pra o filtro do
 painel não fragmentar.
 
-### `task_push_subs` — assinaturas de push
-| campo | tipo | descrição |
-|---|---|---|
-| `id` | uuid PK | |
-| `user_id` | uuid | FK profiles |
-| `subscription` | jsonb | endpoint/keys do navegador |
-| `created_at` | timestamptz | |
-
-Único por `(user_id, subscription->>'endpoint')`.
+### Push e notificações — **reuso de infra existente** (sem tabela nova)
+O CRM já tem tudo pronto, então a Central **reusa**:
+- Tabela `push_subscriptions` + endpoints `POST/DELETE /api/push/subscribe`.
+- Tabela `notificacoes` (sininho global no `index.html`) — o check de `tipo` já aceita
+  `'tarefa_atribuida'` e `'tarefa_vencendo'`; adicionamos `'tarefa_resumo'` (manhã).
+- Helpers `sendPushToUser(usuarioId, title, body, data)` e
+  `criarNotificacao(usuarioId, tipo, titulo, corpo, metadata)` (grava no sininho + push).
 
 ## Lógica de recorrência e virada do dia
 
@@ -199,14 +197,15 @@ painel não fragmentar.
 - **Sininho** no header compartilhado (`shared-nav.js`): contador = tarefas pendentes
   com `visto_em IS NULL` atribuídas por terceiro **+** atrasadas. Abrir a Central marca as
   exibidas com `visto_em` (zera o contador). Aparece em qualquer tela.
-- **Push do SO** via `web-push`: ao entrar pela 1ª vez na Central, pede permissão e salva
-  em `task_push_subs` via `POST /api/tarefas/push-sub`. O `sw.js` já trata `push` e
-  `notificationclick` — enviar payload `{ title, body, data: { url: '/tarefas/', tipo } }`.
-- **Gatilhos:**
-  1. **Atribuição:** ao criar `tipo=pontual` com `assignee_id ≠ created_by` → push imediato.
-  2. **Manhã:** cron dispara um push-resumo por usuário com tarefas no dia.
-  3. **Prazo:** cron periódico verifica `status=pendente` com `prazo` vencendo/vencido e
-     `prazo_avisado_em IS NULL` → push, e grava `prazo_avisado_em` (dedup).
+- **Push do SO** via `web-push` (já configurado): registro reusa `POST /api/push/subscribe`
+  (já existe e é usado pelo `index.html`). O `sw.js` já trata `push`/`notificationclick`.
+- **Gatilhos** (todos via `criarNotificacao`, que grava no sininho global + dispara push):
+  1. **Atribuição:** ao criar `tipo=pontual` com `assignee_id ≠ created_by` →
+     `criarNotificacao(assignee, 'tarefa_atribuida', ...)`.
+  2. **Manhã:** cron dispara `criarNotificacao(user, 'tarefa_resumo', ...)` por usuário.
+  3. **Prazo:** cron verifica `status=pendente` com `prazo` vencendo/vencido e
+     `prazo_avisado_em IS NULL` → `criarNotificacao(assignee, 'tarefa_vencendo', ...)`,
+     grava `prazo_avisado_em` (dedup).
 
 ## API (rotas em `server.js`)
 
@@ -222,7 +221,8 @@ painel não fragmentar.
 | PATCH | `/api/tarefas/templates/:id` | auth | edita (dono ou gestor/admin p/ role) |
 | DELETE | `/api/tarefas/templates/:id` | auth | remove |
 | GET | `/api/tarefas/gestao` | admin/gestor | painel + histórico da equipe (filtros) |
-| POST | `/api/tarefas/push-sub` | auth | salva assinatura de push |
+
+(Push usa o já existente `POST/DELETE /api/push/subscribe` — sem rota nova.)
 
 Cron leve no mesmo padrão do scheduler existente, com proteção anti-duplicação de push
 e idempotência na geração.
