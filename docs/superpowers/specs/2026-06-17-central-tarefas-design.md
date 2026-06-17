@@ -29,6 +29,10 @@ operacional integrada ao CRM.
 7. **Frequência das rotinas** = diária / dias da semana / semanal / mensal.
 8. **Extras na v1** = vínculo com lead/paciente, prioridade, categoria/etiqueta,
    observação ao concluir.
+9. **Registrar quantidade** = a tarefa pode pedir um número ao concluir (`tipo_resultado`),
+   com unidade e meta opcionais. A tarefa é a camada de **captura** do dado; gráficos de
+   tendência/metas elaboradas ficam para um futuro módulo "Indicadores" que lê desses
+   valores. Sininho usa `visto_em` (estado de leitura real).
 
 ## Arquitetura geral
 
@@ -38,6 +42,9 @@ Segue o padrão existente do CRM:
 - **Front-end:** páginas HTML em `/public/tarefas/`, navegação por `data-roles`,
   header compartilhado (`shared-nav.js`) e tabbar mobile (`mobile-nav.js`).
 - **Notificações:** `web-push` (VAPID já configurado) + service worker (`sw.js`).
+  O `sw.js` **já trata** `push` e `notificationclick`; o back-end deve enviar o payload
+  no formato existente: `{ title, body, data: { url, tipo } }` — onde `url` leva pra
+  `/tarefas/` e `tipo` vira a `tag` da notificação.
 - **Recorrência:** geração sob demanda + cron leve (pré-geração matinal e push).
 - **Fuso:** todo cálculo de "dia"/`data_ref`/cron usa `nowLocal()` (America/Sao_Paulo).
 
@@ -53,11 +60,14 @@ Segue o padrão existente do CRM:
 | `role` | text null | cargo alvo quando escopo=role (ex.: `crc_leads`) |
 | `owner_id` | uuid null | dono quando escopo=pessoal (FK profiles) |
 | `frequencia` | text | `'diaria'` \| `'semanal'` \| `'mensal'` |
-| `dias_semana` | int[] null | 0–6; usado em diária (subset de dias) e semanal |
+| `dias_semana` | int[] null | 0–6, **0=domingo** (convenção `Date.getDay()`); usado em diária (subset de dias) e semanal |
 | `dia_mes` | int null | 1–31; usado em mensal |
 | `hora_sugerida` | time null | |
 | `prioridade` | text | `'alta'` \| `'normal'` \| `'baixa'` (default normal) |
-| `categoria` | text null | |
+| `categoria` | text null | de uma lista pré-definida (ver "Categorias") — evita fragmentar o painel |
+| `tipo_resultado` | text | `'check'` (default) \| `'numero'` |
+| `unidade` | text null | rótulo do número quando `tipo_resultado=numero` (ex.: "ligações", "R$") |
+| `meta` | numeric null | alvo do dia quando `tipo_resultado=numero` (ex.: 50) |
 | `arrasta` | bool | default false |
 | `ativo` | bool | default true |
 | `created_by` | uuid | |
@@ -81,18 +91,28 @@ Regras de frequência (avaliadas para uma `data_ref`):
 | `assignee_id` | uuid | de quem é a tarefa (FK profiles) |
 | `created_by` | uuid | quem criou/atribuiu |
 | `prioridade` | text | `'alta'`/`'normal'`/`'baixa'` |
-| `categoria` | text null | |
+| `categoria` | text null | da lista pré-definida |
+| `tipo_resultado` | text | `'check'` \| `'numero'` (herdado do molde) |
+| `unidade` | text null | rótulo do número (herdado) |
+| `meta` | numeric null | alvo (herdado) |
+| `valor_resultado` | numeric null | valor digitado na conclusão (quando `tipo_resultado=numero`) |
 | `prazo` | timestamptz null | opcional |
-| `lead_id` | bigint null | vínculo opcional com lead |
-| `paciente_id` | uuid null | vínculo opcional com paciente |
+| `lead_id` | bigint null | vínculo opcional com lead (FK `leads(id)` ON DELETE SET NULL) |
+| `paciente_clinicorp_id` | text null | vínculo opcional com paciente (id transversal Clinicorp, sem FK) |
 | `arrasta` | bool | herdado do molde ou definível na pontual |
 | `status` | text | `'pendente'` \| `'concluida'` |
 | `concluida_em` | timestamptz null | |
 | `concluida_por` | uuid null | |
 | `obs_conclusao` | text null | observação opcional no check |
+| `visto_em` | timestamptz null | quando o assignee viu a tarefa (alimenta o contador do sininho) |
+| `prazo_avisado_em` | timestamptz null | quando o push de prazo já foi enviado (dedup) |
 | `created_at` | timestamptz | |
 
-Índices: `(assignee_id, data_ref, status)`, `(status, prazo)`, `(template_id, assignee_id, data_ref)`.
+Índices: `(assignee_id, data_ref, status)`, `(status, prazo)`, `(template_id, assignee_id, status)`.
+
+**Categorias (lista pré-definida v1):** Leads, Comercial, Pacientes, Financeiro,
+Administrativo, Marketing. Editável no código; mantida como enum/lista pra o filtro do
+painel não fragmentar.
 
 ### `task_push_subs` — assinaturas de push
 | campo | tipo | descrição |
@@ -120,7 +140,10 @@ Regras de frequência (avaliadas para uma `data_ref`):
 **Quando roda:**
 - **Cron leve (madrugada, horário de Brasília):** chama `gerarTarefasDoDia` para
   **todos os usuários ativos** → alimenta o painel do gestor mesmo para quem ainda não
-  logou. Depois dispara o **push da manhã** ("você tem N tarefas hoje").
+  logou. Depois dispara o **push da manhã** ("você tem N tarefas hoje"). A varredura busca
+  moldes **em lote** (um SELECT por escopo, não um por usuário) para evitar N+1.
+- **Snapshot:** editar/desativar um molde **não** reescreve tarefas já geradas — elas
+  guardam título/categoria/etc. do momento da geração (comportamento intencional).
 - **Sob demanda:** `GET /api/tarefas` chama `gerarTarefasDoDia(userAtual, hoje)` como rede
   de segurança (conta nova, ou acesso antes do cron rodar). Não-crítico se o cron falhar.
 
@@ -140,6 +163,7 @@ Regras de frequência (avaliadas para uma `data_ref`):
 - **Atribuir a outra pessoa:** somente admin/gestor.
 - **Moldes role:** criar/editar somente admin/gestor. **Moldes pessoais:** o próprio dono.
 - **Painel/histórico da equipe:** admin/gestor.
+- **Editar molde role** afeta só gerações futuras (snapshot — tarefas já criadas não mudam).
 
 ## Telas
 
@@ -149,13 +173,18 @@ Regras de frequência (avaliadas para uma `data_ref`):
 - Item: check, título, etiqueta de categoria, badge de prioridade, hora/prazo e, se houver
   vínculo, link "↗ abrir lead/paciente" (abre conversa/ficha). Ao marcar o check, abre
   campo opcional de observação e grava `concluida_em`/`concluida_por`.
+- **Tarefa de número** (`tipo_resultado=numero`): em vez de só check, concluir **exige
+  digitar o valor** (com a `unidade` como rótulo); se houver `meta`, o item mostra
+  "X / meta Y". O valor grava em `valor_resultado`.
 - **+ Nova tarefa:** cria pontual; para si mesma (qualquer role) ou, se admin/gestor,
-  escolhe destinatário(s).
+  escolhe **um ou vários destinatários** (fan-out: uma tarefa por pessoa).
+- Ao abrir a lista, as tarefas exibidas são marcadas com `visto_em` (zera o sininho).
 - **Minha rotina:** a pessoa gerencia seus moldes pessoais.
 
 ### `/tarefas/gestao/` — admin/gestor
 - **Painel da equipe:** % de conclusão do dia por pessoa, atrasadas por pessoa, total
-  pendente.
+  pendente. Para tarefas de número, mostra soma/média de `valor_resultado` por pessoa e
+  período, comparada à `meta` quando houver.
 - **Atribuir tarefa:** pontual para um ou vários funcionários de uma vez.
 - **Moldes por cargo:** CRUD da rotina padrão de cada role.
 - **Histórico:** filtros por pessoa / período / categoria.
@@ -167,25 +196,27 @@ Regras de frequência (avaliadas para uma `data_ref`):
 
 ## Notificações
 
-- **Sininho** no header compartilhado (`shared-nav.js`): contador de tarefas
-  atribuídas não vistas / atrasadas; aparece em qualquer tela.
+- **Sininho** no header compartilhado (`shared-nav.js`): contador = tarefas pendentes
+  com `visto_em IS NULL` atribuídas por terceiro **+** atrasadas. Abrir a Central marca as
+  exibidas com `visto_em` (zera o contador). Aparece em qualquer tela.
 - **Push do SO** via `web-push`: ao entrar pela 1ª vez na Central, pede permissão e salva
-  em `task_push_subs` via `POST /api/tarefas/push-sub`. O `sw.js` trata o evento `push`
-  e o clique (abre `/tarefas/`).
+  em `task_push_subs` via `POST /api/tarefas/push-sub`. O `sw.js` já trata `push` e
+  `notificationclick` — enviar payload `{ title, body, data: { url: '/tarefas/', tipo } }`.
 - **Gatilhos:**
   1. **Atribuição:** ao criar `tipo=pontual` com `assignee_id ≠ created_by` → push imediato.
   2. **Manhã:** cron dispara um push-resumo por usuário com tarefas no dia.
-  3. **Prazo:** cron periódico verifica `status=pendente` com `prazo` vencendo/vencido →
-     push (com proteção anti-duplicação: marca que já avisou).
+  3. **Prazo:** cron periódico verifica `status=pendente` com `prazo` vencendo/vencido e
+     `prazo_avisado_em IS NULL` → push, e grava `prazo_avisado_em` (dedup).
 
 ## API (rotas em `server.js`)
 
 | método | rota | acesso | descrição |
 |---|---|---|---|
-| GET | `/api/tarefas?data=hoje` | auth | gera-sob-demanda + retorna tarefas do usuário |
-| POST | `/api/tarefas` | auth | cria pontual (valida atribuição a outro = gestor/admin) |
-| PATCH | `/api/tarefas/:id` | auth | concluir / reabrir / editar (conforme permissões) |
-| DELETE | `/api/tarefas/:id` | auth | só `created_by` |
+| GET | `/api/tarefas?data=hoje` | auth | gera-sob-demanda + retorna tarefas do dia; marca `visto_em` |
+| GET | `/api/tarefas/historico?de=&ate=` | auth | histórico próprio do usuário por período |
+| POST | `/api/tarefas` | auth | cria pontual; aceita `assignee_ids[]` (fan-out — 1 tarefa/pessoa); atribuir a outro = gestor/admin |
+| PATCH | `/api/tarefas/:id` | auth | concluir (com `valor_resultado` se número) / reabrir / editar |
+| DELETE | `/api/tarefas/:id` | auth | só `created_by` **e** só se `status=pendente` (não apaga concluída — preserva histórico) |
 | GET | `/api/tarefas/templates` | auth | moldes do usuário (pessoais + role) |
 | POST | `/api/tarefas/templates` | auth | cria molde (role ⇒ gestor/admin) |
 | PATCH | `/api/tarefas/templates/:id` | auth | edita (dono ou gestor/admin p/ role) |
@@ -211,9 +242,13 @@ e idempotência na geração.
 - Arrasta vs zera: tarefa que arrasta reaparece como atrasada com `data_ref` original;
   tarefa que zera vira "não-feita" e não reaparece.
 - Permissões: assignee não exclui tarefa atribuída; gestor conclui no lugar de outro
-  (grava `concluida_por`); funcionário não atribui a colega.
+  (grava `concluida_por`); funcionário não atribui a colega; DELETE bloqueado em concluída.
 - Painel do gestor reflete tarefas pré-geradas pelo cron de quem não logou.
 - Fuso: virada do dia consistente para acesso perto da meia-noite.
+- Tarefa de número: concluir sem `valor_resultado` é rejeitado; soma/média no painel.
+- Atribuição multi-pessoa (`assignee_ids[]`) gera uma tarefa por destinatário.
+- Push: subscription expirada (410/404) é removida; `prazo_avisado_em` evita push repetido.
+- Sininho: `visto_em` zera o contador ao abrir a Central.
 
 ## Fora de escopo (v1 / YAGNI)
 
@@ -222,3 +257,5 @@ e idempotência na geração.
 - Comentários/conversa dentro da tarefa.
 - Anexos.
 - Hierarquia de equipes (gestor vê todos; clínica é pequena).
+- Módulo "Indicadores": gráficos de tendência, evolução mês a mês, metas com bônus,
+  comparativos — lê dos `valor_resultado` no futuro. v1 só captura o dado.
