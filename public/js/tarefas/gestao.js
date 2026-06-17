@@ -1,5 +1,5 @@
 // public/js/tarefas/gestao.js
-// Gestão de Tarefas — Painel / Atribuir / Moldes por cargo / Histórico
+// Gestão de Tarefas — Painel / Criar / Histórico
 
 (function () {
   'use strict';
@@ -75,8 +75,7 @@
         if (pane) pane.classList.add('active');
 
         if (btn.dataset.tab === 'painel')    renderPainelFilters();
-        if (btn.dataset.tab === 'atribuir')  renderAtribuirForm();
-        if (btn.dataset.tab === 'moldes')    loadMoldes();
+        if (btn.dataset.tab === 'criar')     renderCriarForm();
         if (btn.dataset.tab === 'historico') renderHistoricoFilters();
       });
     });
@@ -191,41 +190,61 @@
 
   window._loadPainel = function () { loadPainelData(); };
 
-  // ── ATRIBUIR TAB ─────────────────────────────────────────────────────────────
-  function renderAtribuirForm() {
-    const root = document.getElementById('atribuir-root');
+  // ── CRIAR TAB ────────────────────────────────────────────────────────────────
+  function renderCriarForm() {
+    const root = document.getElementById('criar-root');
     if (!root) return;
 
-    const pessoasHtml = _pessoas.length === 0
+    const pessoasHtmlDem = _pessoas.length === 0
       ? '<p style="font-size:13px;color:var(--muted);padding:8px 12px">Nenhuma pessoa ativa encontrada.</p>'
       : _pessoas.map(function (p) {
           return `<label class="pessoa-check">
-            <input type="checkbox" class="at-pessoa-cb" value="${esc(p.id)}">
+            <input type="checkbox" class="cr-pessoa-dem-cb" value="${esc(p.id)}">
             ${esc(p.nome)}
           </label>`;
         }).join('');
 
+    const pessoasHtmlRot = _pessoas.length === 0
+      ? '<p style="font-size:13px;color:var(--muted);padding:8px 12px">Nenhuma pessoa ativa encontrada.</p>'
+      : _pessoas.map(function (p) {
+          return `<label class="pessoa-check">
+            <input type="checkbox" class="cr-pessoa-rot-cb" value="${esc(p.id)}">
+            ${esc(p.nome)}
+          </label>`;
+        }).join('');
+
+    const diasHtml = DIAS_LABELS.map(function (d, i) {
+      return '<label class="dia-btn" id="cr-dia-label-' + i + '"><input type="checkbox" id="cr-dia-' + i + '" value="' + i + '" onchange="_toggleCriarDia(' + i + ')"> ' + d + '</label>';
+    }).join('');
+
+    const cargosHtml = ROLES_CARGO.map(function (r) {
+      return '<option value="' + esc(r) + '">' + esc(r) + '</option>';
+    }).join('');
+
+    const catsHtml = CATEGORIAS.map(function (c) {
+      return '<option value="' + esc(c) + '">' + esc(c) + '</option>';
+    }).join('');
+
     root.innerHTML = `
       <div style="max-width:560px">
-        <div style="margin-bottom:20px">
-          <div style="font-size:15px;font-weight:600">Atribuir tarefa à equipe</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">Cria uma tarefa pontual para uma ou mais pessoas</div>
+
+        <div class="tipo-toggle">
+          <button class="tipo-btn active" id="cr-btn-demanda" onclick="_onTipoAtividade('demanda')">Demanda</button>
+          <button class="tipo-btn"        id="cr-btn-rotina"  onclick="_onTipoAtividade('rotina')">Rotina</button>
         </div>
 
         <div class="form-row">
           <label class="form-label">Título *</label>
-          <input class="form-input" id="at-titulo" type="text" placeholder="Ex: Ligar para leads pendentes" autocomplete="off">
+          <input class="form-input" id="cr-titulo" type="text" placeholder="Ex: Ligar para leads pendentes" autocomplete="off">
         </div>
-
         <div class="form-row">
           <label class="form-label">Descrição</label>
-          <textarea class="form-textarea" id="at-desc" placeholder="Detalhes opcionais..."></textarea>
+          <textarea class="form-textarea" id="cr-desc" placeholder="Detalhes opcionais..."></textarea>
         </div>
-
         <div class="form-row-2">
           <div>
             <label class="form-label">Prioridade</label>
-            <select class="form-select" id="at-prio">
+            <select class="form-select" id="cr-prio">
               <option value="normal">Normal</option>
               <option value="alta">Alta</option>
               <option value="baixa">Baixa</option>
@@ -233,351 +252,253 @@
           </div>
           <div>
             <label class="form-label">Categoria</label>
-            <select class="form-select" id="at-cat">
+            <select class="form-select" id="cr-cat">
               <option value="">Nenhuma</option>
-              ${CATEGORIAS.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('')}
+              ${catsHtml}
             </select>
           </div>
         </div>
-
-        <div class="form-row">
-          <label class="form-label">Prazo (opcional)</label>
-          <input class="form-input" id="at-prazo" type="datetime-local" style="max-width:260px">
-        </div>
-
         <div class="form-row-2">
           <div>
             <label class="form-label">Tipo de resultado</label>
-            <select class="form-select" id="at-tipo" onchange="_onAtNumeroChange()">
+            <select class="form-select" id="cr-tipo-resultado" onchange="_onCriarNumeroChange()">
               <option value="check">Check (feito/não feito)</option>
               <option value="numero">Número (valor numérico)</option>
             </select>
           </div>
           <div></div>
         </div>
-
-        <div id="at-numero-wrap" style="display:none" class="form-row-2">
+        <div id="cr-numero-wrap" style="display:none" class="form-row-2">
           <div>
             <label class="form-label">Unidade</label>
-            <input class="form-input" id="at-unidade" type="text" placeholder="Ex: ligações, R$">
+            <input class="form-input" id="cr-unidade" type="text" placeholder="Ex: ligações, R$">
           </div>
           <div>
             <label class="form-label">Meta</label>
-            <input class="form-input" id="at-meta" type="number" step="any" placeholder="Ex: 10">
+            <input class="form-input" id="cr-meta" type="number" step="any" placeholder="Ex: 10">
           </div>
         </div>
-
         <div class="form-row">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-            <input type="checkbox" id="at-arrasta">
+            <input type="checkbox" id="cr-arrasta">
             <span><strong>Arrasta</strong> — se não concluída hoje, aparece amanhã</span>
           </label>
         </div>
 
-        <div class="form-row">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <label class="form-label" style="margin:0">Atribuir para *</label>
-            <button class="btn btn-ghost btn-sm" onclick="_atSelectAll()">Selecionar todos</button>
+        <div id="cr-demanda-section">
+          <div class="form-row">
+            <label class="form-label">Prazo (opcional)</label>
+            <input class="form-input" id="cr-prazo" type="datetime-local" style="max-width:260px">
           </div>
-          <div class="pessoas-list" id="at-pessoas-list">
-            ${pessoasHtml}
+          <div class="form-row">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <label class="form-label" style="margin:0">Para quem *</label>
+              <button class="btn btn-ghost btn-sm" onclick="_criarSelectAll('dem')">Selecionar todos</button>
+            </div>
+            <div class="pessoas-list">${pessoasHtmlDem}</div>
           </div>
         </div>
 
-        <div class="form-actions" style="justify-content:flex-start">
-          <button class="btn btn-primary" onclick="_salvarAtribuicao()">Criar tarefa(s)</button>
-          <button class="btn btn-ghost" onclick="_limparAtribuirForm()">Limpar</button>
+        <div id="cr-rotina-section" style="display:none">
+          <div class="form-row-2">
+            <div>
+              <label class="form-label">Frequência</label>
+              <select class="form-select" id="cr-freq" onchange="_onRotinaFreqChange()">
+                <option value="diaria">Diária</option>
+                <option value="semanal">Semanal</option>
+                <option value="mensal">Mensal</option>
+              </select>
+            </div>
+            <div></div>
+          </div>
+          <div id="cr-dias-wrap" style="display:none" class="form-row">
+            <label class="form-label">Dias da semana</label>
+            <div class="dias-grid">${diasHtml}</div>
+          </div>
+          <div id="cr-diames-wrap" style="display:none" class="form-row">
+            <label class="form-label">Dia do mês (1–31)</label>
+            <input class="form-input" id="cr-diames" type="number" min="1" max="31" placeholder="Ex: 1" style="max-width:120px">
+          </div>
+          <div class="form-row">
+            <label class="form-label">Destino</label>
+            <div style="display:flex;gap:20px;margin-top:4px">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                <input type="radio" name="cr-destino" id="cr-destino-cargo" value="cargo" checked onchange="_onRotinaDestinoChange()">
+                Por cargo
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                <input type="radio" name="cr-destino" id="cr-destino-pessoas" value="pessoas" onchange="_onRotinaDestinoChange()">
+                Pessoas específicas
+              </label>
+            </div>
+          </div>
+          <div id="cr-cargo-wrap" class="form-row">
+            <label class="form-label">Cargo</label>
+            <select class="form-select" id="cr-role" style="max-width:260px">
+              <option value="">Selecione</option>
+              ${cargosHtml}
+            </select>
+          </div>
+          <div id="cr-pessoas-rotina-wrap" style="display:none" class="form-row">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <label class="form-label" style="margin:0">Para quem *</label>
+              <button class="btn btn-ghost btn-sm" onclick="_criarSelectAll('rot')">Selecionar todos</button>
+            </div>
+            <div class="pessoas-list">${pessoasHtmlRot}</div>
+          </div>
+        </div>
+
+        <div class="form-actions" style="justify-content:flex-start;margin-top:20px">
+          <button class="btn btn-primary" onclick="_salvarCriar()">Criar tarefa(s)</button>
+          <button class="btn btn-ghost" onclick="_limparCriar()">Limpar</button>
         </div>
       </div>`;
   }
 
-  window._atSelectAll = function () {
-    document.querySelectorAll('.at-pessoa-cb').forEach(function (cb) { cb.checked = true; });
+  window._onTipoAtividade = function (tipo) {
+    const btnDem = document.getElementById('cr-btn-demanda');
+    const btnRot = document.getElementById('cr-btn-rotina');
+    const secDem = document.getElementById('cr-demanda-section');
+    const secRot = document.getElementById('cr-rotina-section');
+    if (!btnDem) return;
+    const isDemanda = tipo === 'demanda';
+    btnDem.classList.toggle('active', isDemanda);
+    btnRot.classList.toggle('active', !isDemanda);
+    secDem.style.display = isDemanda ? '' : 'none';
+    secRot.style.display = isDemanda ? 'none' : '';
   };
 
-  window._onAtNumeroChange = function () {
-    const tipo = document.getElementById('at-tipo').value;
-    const wrap = document.getElementById('at-numero-wrap');
+  window._onCriarNumeroChange = function () {
+    const tipo = document.getElementById('cr-tipo-resultado').value;
+    const wrap = document.getElementById('cr-numero-wrap');
     if (wrap) wrap.style.display = tipo === 'numero' ? '' : 'none';
   };
 
-  window._salvarAtribuicao = async function () {
-    const titulo = (document.getElementById('at-titulo').value || '').trim();
-    const desc   = (document.getElementById('at-desc').value || '').trim();
-    const prio   = document.getElementById('at-prio').value;
-    const cat    = document.getElementById('at-cat').value;
-    const prazo  = document.getElementById('at-prazo').value;
-
-    if (!titulo) { toast('Informe o título.', 'warning'); return; }
-
-    const assignee_ids = [];
-    document.querySelectorAll('.at-pessoa-cb:checked').forEach(function (cb) { assignee_ids.push(cb.value); });
-    if (assignee_ids.length === 0) { toast('Selecione ao menos uma pessoa.', 'warning'); return; }
-
-    const tipo    = document.getElementById('at-tipo').value;
-    const arrasta = document.getElementById('at-arrasta').checked;
-
-    const body = { titulo, prioridade: prio, assignee_ids: assignee_ids, tipo_resultado: tipo, arrasta: arrasta };
-    if (desc)  body.descricao = desc;
-    if (cat)   body.categoria = cat;
-    if (prazo) body.prazo = new Date(prazo).toISOString();
-
-    if (tipo === 'numero') {
-      const un   = (document.getElementById('at-unidade').value || '').trim();
-      const meta = document.getElementById('at-meta').value;
-      if (un)   body.unidade = un;
-      if (meta) body.meta = Number(meta);
-    }
-
-    try {
-      await tarefasApi('/api/tarefas', { method: 'POST', body: JSON.stringify(body) });
-      toast('Tarefa criada para ' + assignee_ids.length + ' pessoa(s)!', 'success');
-      _limparAtribuirForm();
-    } catch (e) {
-      toast(e.message, 'error');
-    }
+  window._onRotinaFreqChange = function () {
+    const freq     = document.getElementById('cr-freq').value;
+    const diasWrap = document.getElementById('cr-dias-wrap');
+    const diaMWrap = document.getElementById('cr-diames-wrap');
+    if (diasWrap) diasWrap.style.display = freq === 'semanal' ? '' : 'none';
+    if (diaMWrap) diaMWrap.style.display = freq === 'mensal'  ? '' : 'none';
   };
 
-  window._limparAtribuirForm = function () {
-    const ids = ['at-titulo', 'at-desc', 'at-prazo', 'at-unidade', 'at-meta'];
-    ids.forEach(function (id) { const el = document.getElementById(id); if (el) el.value = ''; });
-    const prio    = document.getElementById('at-prio');    if (prio)    prio.value = 'normal';
-    const cat     = document.getElementById('at-cat');     if (cat)     cat.value  = '';
-    const tipo    = document.getElementById('at-tipo');    if (tipo)    tipo.value = 'check';
-    const arrasta = document.getElementById('at-arrasta'); if (arrasta) arrasta.checked = false;
-    const wrap    = document.getElementById('at-numero-wrap'); if (wrap) wrap.style.display = 'none';
-    document.querySelectorAll('.at-pessoa-cb').forEach(function (cb) { cb.checked = false; });
+  window._onRotinaDestinoChange = function () {
+    const checked     = document.querySelector('input[name="cr-destino"]:checked');
+    const cargoWrap   = document.getElementById('cr-cargo-wrap');
+    const pessoasWrap = document.getElementById('cr-pessoas-rotina-wrap');
+    if (!checked) return;
+    const isCargo = checked.value === 'cargo';
+    if (cargoWrap)   cargoWrap.style.display   = isCargo ? '' : 'none';
+    if (pessoasWrap) pessoasWrap.style.display = isCargo ? 'none' : '';
   };
 
-  // ── MOLDES TAB ───────────────────────────────────────────────────────────────
-  async function loadMoldes() {
-    const root = document.getElementById('moldes-root');
-    if (!root) return;
-    root.innerHTML = '<p class="loading-msg">Carregando...</p>';
-    try {
-      const data = await tarefasApi('/api/tarefas/templates');
-      const templates = (data.templates || []).filter(function (t) { return t.escopo === 'role'; });
-
-      let html = `
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div>
-            <div style="font-size:15px;font-weight:600">Moldes por cargo</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px">Rotinas geradas automaticamente por função</div>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="_openNovoMolde()">+ Novo molde</button>
-        </div>`;
-
-      if (templates.length === 0) {
-        html += `
-          <div class="empty-msg">
-            <div class="empty-icon">🗂️</div>
-            Nenhum molde por cargo criado ainda.<br>
-            <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="_openNovoMolde()">Criar primeiro molde</button>
-          </div>`;
-      } else {
-        templates.forEach(function (t) {
-          html += `
-            <div class="rotina-item" data-tid="${esc(t.id)}">
-              <div class="rotina-body">
-                <div class="rotina-titulo">${esc(t.titulo)}</div>
-                <div class="rotina-meta">
-                  <span class="chip">${esc(t.role || '')}</span>
-                  <span class="chip">${esc(fmtFreq(t))}</span>
-                  ${t.categoria    ? '<span class="chip cat">' + esc(t.categoria) + '</span>' : ''}
-                  ${t.prioridade   ? '<span class="chip ' + esc(t.prioridade) + '">' + esc(t.prioridade) + '</span>' : ''}
-                  ${t.tipo_resultado === 'numero' && t.meta != null ? '<span class="chip numero">meta: ' + esc(t.meta) + ' ' + esc(t.unidade || '') + '</span>' : ''}
-                  ${t.arrasta ? '<span class="chip" style="color:var(--yellow);border-color:rgba(245,158,11,.3)">arrasta</span>' : ''}
-                </div>
-              </div>
-              <button class="tarefa-del" onclick="_deletarMolde('${esc(t.id)}')" title="Excluir molde">×</button>
-            </div>`;
-        });
-      }
-
-      root.innerHTML = html;
-    } catch (e) {
-      root.innerHTML = '<p class="loading-msg" style="color:var(--red)">Erro: ' + esc(e.message) + '</p>';
-    }
-  }
-
-  window._deletarMolde = async function (id) {
-    if (!confirm('Excluir este molde? As tarefas já geradas não serão excluídas.')) return;
-    try {
-      await tarefasApi('/api/tarefas/templates/' + id, { method: 'DELETE' });
-      toast('Molde excluído.', 'info');
-      loadMoldes();
-    } catch (e) {
-      toast(e.message, 'error');
-    }
-  };
-
-  window._openNovoMolde = function () {
-    const modal = document.getElementById('tarefas-modal');
-    const bg    = document.getElementById('tarefas-modal-bg');
-    if (!modal || !bg) return;
-
-    modal.innerHTML = `
-      <h2>Novo molde por cargo</h2>
-
-      <div class="form-row">
-        <label class="form-label">Título *</label>
-        <input class="form-input" id="ml-titulo" type="text" placeholder="Ex: Ligar para leads do dia" autocomplete="off">
-      </div>
-
-      <div class="form-row-2">
-        <div>
-          <label class="form-label">Cargo *</label>
-          <select class="form-select" id="ml-role">
-            <option value="">Selecione</option>
-            ${ROLES_CARGO.map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="form-label">Frequência *</label>
-          <select class="form-select" id="ml-freq" onchange="_onMoldeFreqChange()">
-            <option value="">Selecione</option>
-            <option value="diaria">Diária</option>
-            <option value="semanal">Semanal</option>
-            <option value="mensal">Mensal</option>
-          </select>
-        </div>
-      </div>
-
-      <div id="ml-dias-wrap" style="display:none" class="form-row">
-        <label class="form-label">Dias da semana</label>
-        <div class="dias-grid">
-          ${DIAS_LABELS.map(function (d, i) {
-            return '<label class="dia-btn" id="ml-dia-label-' + i + '"><input type="checkbox" id="ml-dia-' + i + '" value="' + i + '" onchange="_toggleMoldeDia(' + i + ')"> ' + d + '</label>';
-          }).join('')}
-        </div>
-      </div>
-
-      <div id="ml-diames-wrap" style="display:none" class="form-row">
-        <label class="form-label">Dia do mês (1–31)</label>
-        <input class="form-input" id="ml-diames" type="number" min="1" max="31" placeholder="Ex: 1" style="max-width:120px">
-      </div>
-
-      <div class="form-row-2">
-        <div>
-          <label class="form-label">Prioridade</label>
-          <select class="form-select" id="ml-prio">
-            <option value="normal">Normal</option>
-            <option value="alta">Alta</option>
-            <option value="baixa">Baixa</option>
-          </select>
-        </div>
-        <div>
-          <label class="form-label">Categoria</label>
-          <select class="form-select" id="ml-cat">
-            <option value="">Nenhuma</option>
-            ${CATEGORIAS.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('')}
-          </select>
-        </div>
-      </div>
-
-      <div class="form-row-2">
-        <div>
-          <label class="form-label">Tipo de resultado</label>
-          <select class="form-select" id="ml-tipo" onchange="_onMoldeNumeroChange()">
-            <option value="check">Check (feito/não feito)</option>
-            <option value="numero">Número (valor numérico)</option>
-          </select>
-        </div>
-        <div></div>
-      </div>
-
-      <div id="ml-numero-wrap" style="display:none" class="form-row-2">
-        <div>
-          <label class="form-label">Unidade</label>
-          <input class="form-input" id="ml-unidade" type="text" placeholder="Ex: ligações, R$">
-        </div>
-        <div>
-          <label class="form-label">Meta</label>
-          <input class="form-input" id="ml-meta" type="number" step="any" placeholder="Ex: 10">
-        </div>
-      </div>
-
-      <div class="form-row">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-          <input type="checkbox" id="ml-arrasta">
-          <span><strong>Arrasta</strong> — se não concluída hoje, aparece amanhã</span>
-        </label>
-      </div>
-
-      <div class="form-actions">
-        <button class="btn btn-ghost" onclick="_closeModal()">Cancelar</button>
-        <button class="btn btn-primary" onclick="_salvarMolde()">Criar molde</button>
-      </div>`;
-
-    bg.classList.add('open');
-  };
-
-  window._onMoldeFreqChange = function () {
-    const freq = document.getElementById('ml-freq').value;
-    const diasWrap   = document.getElementById('ml-dias-wrap');
-    const diamesWrap = document.getElementById('ml-diames-wrap');
-    if (diasWrap)   diasWrap.style.display   = freq === 'semanal' ? '' : 'none';
-    if (diamesWrap) diamesWrap.style.display = freq === 'mensal'  ? '' : 'none';
-  };
-
-  window._onMoldeNumeroChange = function () {
-    const tipo = document.getElementById('ml-tipo').value;
-    const wrap = document.getElementById('ml-numero-wrap');
-    if (wrap) wrap.style.display = tipo === 'numero' ? '' : 'none';
-  };
-
-  window._toggleMoldeDia = function (i) {
-    const label = document.getElementById('ml-dia-label-' + i);
-    const cb    = document.getElementById('ml-dia-' + i);
+  window._toggleCriarDia = function (i) {
+    const label = document.getElementById('cr-dia-label-' + i);
+    const cb    = document.getElementById('cr-dia-' + i);
     if (label && cb) label.classList.toggle('checked', cb.checked);
   };
 
-  window._salvarMolde = async function () {
-    const titulo  = (document.getElementById('ml-titulo').value || '').trim();
-    const role    = document.getElementById('ml-role').value;
-    const freq    = document.getElementById('ml-freq').value;
-    const prio    = document.getElementById('ml-prio').value;
-    const cat     = document.getElementById('ml-cat').value;
-    const tipo    = document.getElementById('ml-tipo').value;
-    const arrasta = document.getElementById('ml-arrasta').checked;
+  window._criarSelectAll = function (scope) {
+    document.querySelectorAll('.cr-pessoa-' + scope + '-cb').forEach(function (cb) { cb.checked = true; });
+  };
 
+  window._salvarCriar = async function () {
+    const titulo = (document.getElementById('cr-titulo').value || '').trim();
     if (!titulo) { toast('Informe o título.', 'warning'); return; }
-    if (!role)   { toast('Selecione o cargo.', 'warning'); return; }
-    if (!freq)   { toast('Selecione a frequência.', 'warning'); return; }
 
-    const body = { titulo, escopo: 'role', role: role, frequencia: freq, prioridade: prio, arrasta: arrasta };
-    if (cat)  body.categoria = cat;
-    if (tipo) body.tipo_resultado = tipo;
+    const desc    = (document.getElementById('cr-desc').value || '').trim();
+    const prio    = document.getElementById('cr-prio').value;
+    const cat     = document.getElementById('cr-cat').value;
+    const tipoRes = document.getElementById('cr-tipo-resultado').value;
+    const arrasta = document.getElementById('cr-arrasta').checked;
+    const isDemanda = document.getElementById('cr-btn-demanda').classList.contains('active');
 
-    if (freq === 'semanal') {
-      const dias = [];
-      for (let i = 0; i < 7; i++) {
-        const cb = document.getElementById('ml-dia-' + i);
-        if (cb && cb.checked) dias.push(i);
+    const commonBody = { titulo, prioridade: prio, tipo_resultado: tipoRes, arrasta };
+    if (desc) commonBody.descricao = desc;
+    if (cat)  commonBody.categoria = cat;
+    if (tipoRes === 'numero') {
+      const un   = (document.getElementById('cr-unidade').value || '').trim();
+      const meta = document.getElementById('cr-meta').value;
+      if (un)   commonBody.unidade = un;
+      if (meta) commonBody.meta = Number(meta);
+    }
+
+    if (isDemanda) {
+      const prazo = document.getElementById('cr-prazo').value;
+      const assignee_ids = [];
+      document.querySelectorAll('.cr-pessoa-dem-cb:checked').forEach(function (cb) { assignee_ids.push(cb.value); });
+      if (assignee_ids.length === 0) { toast('Selecione ao menos uma pessoa.', 'warning'); return; }
+      const body = Object.assign({}, commonBody, { assignee_ids });
+      if (prazo) body.prazo = new Date(prazo).toISOString();
+      try {
+        await tarefasApi('/api/tarefas', { method: 'POST', body: JSON.stringify(body) });
+        toast('Demanda criada para ' + assignee_ids.length + ' pessoa(s)!', 'success');
+        _limparCriar();
+      } catch (e) { toast(e.message, 'error'); }
+
+    } else {
+      const freq    = document.getElementById('cr-freq').value;
+      const checked = document.querySelector('input[name="cr-destino"]:checked');
+      const destino = checked ? checked.value : 'cargo';
+      const body    = Object.assign({}, commonBody, { frequencia: freq });
+
+      if (freq === 'semanal') {
+        const dias = [];
+        for (let i = 0; i < 7; i++) {
+          const cb = document.getElementById('cr-dia-' + i);
+          if (cb && cb.checked) dias.push(i);
+        }
+        if (dias.length === 0) { toast('Selecione ao menos um dia da semana.', 'warning'); return; }
+        body.dias_semana = dias;
       }
-      if (dias.length === 0) { toast('Selecione ao menos um dia da semana.', 'warning'); return; }
-      body.dias_semana = dias;
-    }
-    if (freq === 'mensal') {
-      const dm = parseInt(document.getElementById('ml-diames').value, 10);
-      if (!dm || dm < 1 || dm > 31) { toast('Informe o dia do mês (1–31).', 'warning'); return; }
-      body.dia_mes = dm;
-    }
-    if (tipo === 'numero') {
-      const un = (document.getElementById('ml-unidade').value || '').trim();
-      const mt = parseFloat(document.getElementById('ml-meta').value);
-      if (un) body.unidade = un;
-      if (!isNaN(mt)) body.meta = mt;
-    }
+      if (freq === 'mensal') {
+        const dm = parseInt(document.getElementById('cr-diames').value, 10);
+        if (!dm || dm < 1 || dm > 31) { toast('Informe o dia do mês (1–31).', 'warning'); return; }
+        body.dia_mes = dm;
+      }
 
-    try {
-      await tarefasApi('/api/tarefas/templates', { method: 'POST', body: JSON.stringify(body) });
-      toast('Molde criado!', 'success');
-      window._closeModal();
-      loadMoldes();
-    } catch (e) {
-      toast(e.message, 'error');
+      if (destino === 'cargo') {
+        const role = document.getElementById('cr-role').value;
+        if (!role) { toast('Selecione o cargo.', 'warning'); return; }
+        body.escopo = 'role';
+        body.role   = role;
+      } else {
+        const assignee_ids = [];
+        document.querySelectorAll('.cr-pessoa-rot-cb:checked').forEach(function (cb) { assignee_ids.push(cb.value); });
+        if (assignee_ids.length === 0) { toast('Selecione ao menos uma pessoa.', 'warning'); return; }
+        body.escopo       = 'usuarios';
+        body.assignee_ids = assignee_ids;
+      }
+
+      try {
+        await tarefasApi('/api/tarefas/templates', { method: 'POST', body: JSON.stringify(body) });
+        toast('Rotina criada!', 'success');
+        _limparCriar();
+      } catch (e) { toast(e.message, 'error'); }
     }
+  };
+
+  window._limparCriar = function () {
+    ['cr-titulo','cr-desc','cr-prazo','cr-unidade','cr-meta','cr-diames'].forEach(function (id) {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    const prio    = document.getElementById('cr-prio');           if (prio)    prio.value    = 'normal';
+    const cat     = document.getElementById('cr-cat');            if (cat)     cat.value     = '';
+    const tipoRes = document.getElementById('cr-tipo-resultado'); if (tipoRes) tipoRes.value = 'check';
+    const freq    = document.getElementById('cr-freq');           if (freq)    freq.value    = 'diaria';
+    const role    = document.getElementById('cr-role');           if (role)    role.value    = '';
+    const arrasta = document.getElementById('cr-arrasta');        if (arrasta) arrasta.checked = false;
+    const numWrap = document.getElementById('cr-numero-wrap');    if (numWrap) numWrap.style.display = 'none';
+    const dWrap   = document.getElementById('cr-dias-wrap');      if (dWrap)   dWrap.style.display   = 'none';
+    const dmWrap  = document.getElementById('cr-diames-wrap');    if (dmWrap)  dmWrap.style.display  = 'none';
+    for (let i = 0; i < 7; i++) {
+      const cb    = document.getElementById('cr-dia-' + i);        if (cb)    cb.checked = false;
+      const label = document.getElementById('cr-dia-label-' + i);  if (label) label.classList.remove('checked');
+    }
+    document.querySelectorAll('.cr-pessoa-dem-cb, .cr-pessoa-rot-cb').forEach(function (cb) { cb.checked = false; });
+    const destCargo = document.getElementById('cr-destino-cargo'); if (destCargo) destCargo.checked = true;
+    _onRotinaDestinoChange();
+    _onTipoAtividade('demanda');
   };
 
   // ── HISTÓRICO TAB ────────────────────────────────────────────────────────────
@@ -684,7 +605,6 @@
     initTabs();
     await loadPessoas();
     renderPainelFilters();
-    renderAtribuirForm();
   }
 
   if (document.readyState === 'loading') {
