@@ -185,6 +185,22 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
 .dia-btn input[type="checkbox"] { display: none; }
 .dia-btn.checked { background: var(--accent); color: white; border-color: var(--accent); }
 
+/* TIPO TOGGLE (Demanda / Rotina) */
+.tipo-toggle {
+  display: flex; gap: 4px; margin-bottom: 24px;
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 10px; padding: 4px; width: fit-content;
+}
+.tipo-btn {
+  padding: 7px 22px; border-radius: 7px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; background: transparent; color: var(--muted);
+  font-family: inherit; transition: all .15s;
+}
+.tipo-btn.active {
+  background: var(--bg2); color: var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,.15);
+}
+
 /* LOADING / EMPTY */
 .loading-msg { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
 .empty-msg {
@@ -198,17 +214,14 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
 
 <div class="page-wrap">
   <h1>Gestão de Tarefas</h1>
-  <div class="page-subtitle">Painel da equipe, atribuição e moldes por cargo</div>
+  <div class="page-subtitle">Painel da equipe, criação de tarefas e histórico</div>
 
   <nav class="mod-tabs" role="tablist" aria-label="Abas de Gestão de Tarefas">
     <button class="mod-tab active" id="tab-btn-painel" role="tab" aria-selected="true" aria-controls="tab-painel" data-tab="painel">
       Painel
     </button>
-    <button class="mod-tab" id="tab-btn-atribuir" role="tab" aria-selected="false" aria-controls="tab-atribuir" data-tab="atribuir">
-      Atribuir
-    </button>
-    <button class="mod-tab" id="tab-btn-moldes" role="tab" aria-selected="false" aria-controls="tab-moldes" data-tab="moldes">
-      Moldes por cargo
+    <button class="mod-tab" id="tab-btn-criar" role="tab" aria-selected="false" aria-controls="tab-criar" data-tab="criar">
+      Criar
     </button>
     <button class="mod-tab" id="tab-btn-historico" role="tab" aria-selected="false" aria-controls="tab-historico" data-tab="historico">
       Histórico
@@ -219,12 +232,8 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
     <div id="painel-root"><p class="loading-msg">Carregando...</p></div>
   </div>
 
-  <div id="tab-atribuir" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-atribuir">
-    <div id="atribuir-root"></div>
-  </div>
-
-  <div id="tab-moldes" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-moldes">
-    <div id="moldes-root"><p class="loading-msg">Carregando...</p></div>
+  <div id="tab-criar" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-criar">
+    <div id="criar-root"></div>
   </div>
 
   <div id="tab-historico" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-historico">
