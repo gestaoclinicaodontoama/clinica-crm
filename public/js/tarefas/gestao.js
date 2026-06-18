@@ -127,6 +127,8 @@
     loadPainelData();
   }
 
+  let _pendingDeleteRotina = null;
+
   async function loadRotinasAtivas() {
     const wrap = document.getElementById('rotinas-ativas-wrap');
     if (!wrap) return;
@@ -151,7 +153,7 @@
                 ${t.arrasta    ? '<span class="chip" style="color:var(--yellow);border-color:rgba(245,158,11,.3)">arrasta</span>' : ''}
               </div>
             </div>
-            <button class="tarefa-del" onclick="_confirmarExcluirRotina('${esc(t.id)}', '${esc(t.titulo.replace(/'/g, "\\'"))}')" title="Excluir rotina">×</button>
+            <button class="tarefa-del rot-del-btn" data-tid="${esc(t.id)}" data-titulo="${esc(t.titulo)}" title="Excluir rotina">×</button>
           </div>`;
       }).join('');
 
@@ -166,6 +168,12 @@
           </div>
           <div id="rotinas-lista">${itensHtml}</div>
         </div>`;
+
+      wrap.querySelectorAll('.rot-del-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          _confirmarExcluirRotina(btn.dataset.tid, btn.dataset.titulo);
+        });
+      });
     } catch (e) {
       // silently fail — painel still works
     }
@@ -181,6 +189,7 @@
   };
 
   window._confirmarExcluirRotina = function (id, titulo) {
+    _pendingDeleteRotina = id;
     const modal = document.getElementById('tarefas-modal');
     const bg    = document.getElementById('tarefas-modal-bg');
     if (!modal || !bg) return;
@@ -202,12 +211,15 @@
       </div>
       <div class="form-actions">
         <button class="btn btn-ghost" onclick="_closeModal()">Cancelar</button>
-        <button class="btn btn-danger" onclick="_executarExcluirRotina('${esc(id)}')">Excluir rotina</button>
+        <button class="btn btn-danger" id="del-rotina-confirm-btn">Excluir rotina</button>
       </div>`;
     bg.classList.add('open');
+    document.getElementById('del-rotina-confirm-btn').addEventListener('click', window._executarExcluirRotina);
   };
 
-  window._executarExcluirRotina = async function (id) {
+  window._executarExcluirRotina = async function () {
+    const id = _pendingDeleteRotina;
+    if (!id) return;
     const opt = document.querySelector('input[name="del-rotina-opt"]:checked');
     const fechar = opt ? opt.value === 'fechar' : false;
     try {
@@ -215,6 +227,7 @@
         method: 'DELETE',
         body: JSON.stringify({ fechar_instancias: fechar }),
       });
+      _pendingDeleteRotina = null;
       toast('Rotina excluída' + (fechar ? ' e pendentes removidas' : '') + '.', 'info');
       window._closeModal();
       loadRotinasAtivas();
