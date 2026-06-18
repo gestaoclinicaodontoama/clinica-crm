@@ -110,6 +110,7 @@
     if (!root) return;
     const h = hojeISO();
     root.innerHTML = `
+      <div id="rotinas-ativas-wrap"></div>
       <div class="painel-filters">
         <div>
           <label>De</label>
@@ -122,8 +123,105 @@
         <button class="btn btn-primary btn-sm" onclick="_loadPainel()">Atualizar</button>
       </div>
       <div id="painel-table-wrap"><p class="loading-msg">Carregando...</p></div>`;
+    loadRotinasAtivas();
     loadPainelData();
   }
+
+  async function loadRotinasAtivas() {
+    const wrap = document.getElementById('rotinas-ativas-wrap');
+    if (!wrap) return;
+    try {
+      const data = await tarefasApi('/api/tarefas/templates?gestao=1');
+      const templates = (data.templates || []).filter(function (t) { return t.escopo === 'role' || t.escopo === 'usuarios'; });
+      if (templates.length === 0) { wrap.innerHTML = ''; return; }
+
+      const itensHtml = templates.map(function (t) {
+        const destinoLabel = t.escopo === 'role'
+          ? '<span class="chip">' + esc(t.role || '') + '</span>'
+          : '<span class="chip" style="color:var(--accent)">pessoas específicas</span>';
+        return `
+          <div class="rotina-item" data-tid="${esc(t.id)}">
+            <div class="rotina-body">
+              <div class="rotina-titulo">${esc(t.titulo)}</div>
+              <div class="rotina-meta">
+                ${destinoLabel}
+                <span class="chip">${esc(fmtFreq(t))}</span>
+                ${t.categoria  ? '<span class="chip cat">' + esc(t.categoria) + '</span>' : ''}
+                ${t.prioridade ? '<span class="chip ' + esc(t.prioridade) + '">' + esc(t.prioridade) + '</span>' : ''}
+                ${t.arrasta    ? '<span class="chip" style="color:var(--yellow);border-color:rgba(245,158,11,.3)">arrasta</span>' : ''}
+              </div>
+            </div>
+            <button class="tarefa-del" onclick="_confirmarExcluirRotina('${esc(t.id)}', '${esc(t.titulo.replace(/'/g, "\\'"))}')" title="Excluir rotina">×</button>
+          </div>`;
+      }).join('');
+
+      wrap.innerHTML = `
+        <div style="margin-bottom:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div>
+              <span style="font-size:14px;font-weight:600">Rotinas ativas</span>
+              <span style="font-size:12px;color:var(--muted);margin-left:8px">${templates.length} rotina${templates.length !== 1 ? 's' : ''}</span>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="rotinas-toggle-btn" onclick="_toggleRotinasAtivas()">Ocultar</button>
+          </div>
+          <div id="rotinas-lista">${itensHtml}</div>
+        </div>`;
+    } catch (e) {
+      // silently fail — painel still works
+    }
+  }
+
+  window._toggleRotinasAtivas = function () {
+    const lista = document.getElementById('rotinas-lista');
+    const btn   = document.getElementById('rotinas-toggle-btn');
+    if (!lista || !btn) return;
+    const hidden = lista.style.display === 'none';
+    lista.style.display = hidden ? '' : 'none';
+    btn.textContent = hidden ? 'Ocultar' : 'Mostrar';
+  };
+
+  window._confirmarExcluirRotina = function (id, titulo) {
+    const modal = document.getElementById('tarefas-modal');
+    const bg    = document.getElementById('tarefas-modal-bg');
+    if (!modal || !bg) return;
+    modal.innerHTML = `
+      <h2>Excluir rotina</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+        "<strong>${esc(titulo)}</strong>" não gerará mais tarefas.<br>
+        O que fazer com as tarefas <strong>pendentes</strong> desta rotina?
+      </p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;padding:12px;border:1px solid var(--border);border-radius:8px;transition:background .1s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+          <input type="radio" name="del-rotina-opt" value="manter" checked style="margin-top:2px;accent-color:var(--accent)">
+          <span><strong>Manter abertas</strong><br><span style="color:var(--muted)">As tarefas pendentes continuam visíveis até serem concluídas.</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;padding:12px;border:1px solid var(--border);border-radius:8px;transition:background .1s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+          <input type="radio" name="del-rotina-opt" value="fechar" style="margin-top:2px;accent-color:var(--accent)">
+          <span><strong>Fechar pendentes</strong><br><span style="color:var(--muted)">Remove as tarefas pendentes desta rotina imediatamente.</span></span>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" onclick="_closeModal()">Cancelar</button>
+        <button class="btn btn-danger" onclick="_executarExcluirRotina('${esc(id)}')">Excluir rotina</button>
+      </div>`;
+    bg.classList.add('open');
+  };
+
+  window._executarExcluirRotina = async function (id) {
+    const opt = document.querySelector('input[name="del-rotina-opt"]:checked');
+    const fechar = opt ? opt.value === 'fechar' : false;
+    try {
+      await tarefasApi('/api/tarefas/templates/' + id, {
+        method: 'DELETE',
+        body: JSON.stringify({ fechar_instancias: fechar }),
+      });
+      toast('Rotina excluída' + (fechar ? ' e pendentes removidas' : '') + '.', 'info');
+      window._closeModal();
+      loadRotinasAtivas();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  };
 
   async function loadPainelData() {
     const wrap = document.getElementById('painel-table-wrap');
