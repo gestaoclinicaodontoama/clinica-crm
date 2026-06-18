@@ -394,10 +394,14 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
 
     const userIds = users.map(u => u.id);
 
-    const [{ data: uf }, { data: profiles }] = await Promise.all([
+    const [ufResult, profResult] = await Promise.all([
       supabase.from('user_funcoes').select('user_id, funcao:funcao_id(id, nome)').in('user_id', userIds),
       supabase.from('profiles').select('id, roles_extra').in('id', userIds),
     ]);
+    if (ufResult.error) throw ufResult.error;
+    if (profResult.error) throw profResult.error;
+    const uf = ufResult.data;
+    const profiles = profResult.data;
 
     const funcoesByUser = {};
     (uf || []).forEach(row => {
