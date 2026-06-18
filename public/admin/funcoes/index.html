@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Funções — CRM AMA</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="funcoes"></script>
+
+<div style="padding:32px;max-width:860px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+    <h1 style="margin:0">Funções</h1>
+    <button class="btn btn-primary" onclick="abrirModalNova()">+ Nova Função</button>
+  </div>
+  <p style="color:var(--muted);font-size:13px;margin-top:-12px;margin-bottom:20px">
+    Funções agrupam permissões. Atribuir uma função ao usuário concede todas as suas permissões automaticamente.
+  </p>
+  <div id="funcoes-lista"><p style="color:var(--muted)">Carregando...</p></div>
+</div>
+
+<!-- Modal criar/editar função -->
+<div class="modal-bg" id="funcao-modal-bg" onclick="if(event.target===this)fecharModal()">
+  <div class="modal" style="width:480px;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <h2 id="fm-titulo" style="margin:0">Nova Função</h2>
+      <button class="btn btn-ghost" style="font-size:18px;padding:2px 8px" onclick="fecharModal()">×</button>
+    </div>
+    <input type="hidden" id="fm-id">
+    <div class="form-group">
+      <label>Nome da Função</label>
+      <input id="fm-nome" placeholder="Ex: Recepção, Gestor, Dentista">
+    </div>
+    <div class="form-group">
+      <label>Permissões desta função</label>
+      <p style="color:var(--muted);font-size:12px;margin:4px 0 8px">Todos os usuários com esta função receberão estas permissões automaticamente.</p>
+      <div id="fm-roles-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="fm-btn" onclick="salvarFuncao()" style="flex:1">Salvar</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+    </div>
+    <div id="fm-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
+  </div>
+</div>
+
+<script src="/js/tarefas/api.js"></script>
+<script>
+const _esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+const _ALL_ROLES = [
+  {role:'admin',              label:'Admin'},
+  {role:'gestor',             label:'Gestor'},
+  {role:'auxiliar_adm',       label:'Auxiliar Adm'},
+  {role:'crc_leads',          label:'CRC Leads'},
+  {role:'crc_comercial',      label:'CRC Comercial'},
+  {role:'crc_sucesso',        label:'CRC Sucesso'},
+  {role:'crc_pos_tratamento', label:'CRC Pós Tratamento'},
+  {role:'dentista',           label:'Dentista'},
+  {role:'mod_notas_fiscais',      label:'Notas Fiscais'},
+  {role:'mod_inadimplentes',      label:'Inadimplentes'},
+  {role:'mod_avaliacao_dentista', label:'Avaliação Dentista'},
+  {role:'mod_kanban_leads',       label:'Kanban Leads'},
+  {role:'mod_kanban_comercial',   label:'Kanban Comercial'},
+  {role:'mod_financeiro',         label:'Financeiro'},
+];
+
+const _ROLE_LABELS = Object.fromEntries(_ALL_ROLES.map(({role,label}) => [role, label]));
+
+function _roleBadge(r) {
+  const color = r==='admin'?'#6366f1':r==='gestor'?'#0ea5e9':r.startsWith('mod_')?'#059669':'#64748b';
+  return `<span style="background:${color};color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;margin:1px 2px 1px 0;display:inline-block">${_ROLE_LABELS[r]||r}</span>`;
+}
+
+// Auth check — redireciona para / se não for admin
+(async () => {
+  try {
+    const me = await api('/api/me');
+    if (!Array.isArray(me.roles) || !me.roles.includes('admin')) {
+      window.location.href = '/'; return;
+    }
+    loadFuncoes();
+  } catch { window.location.href = '/'; }
+})();
+
+async function loadFuncoes() {
+  const el = document.getElementById('funcoes-lista');
+  el.innerHTML = '<p style="color:var(--muted)">Carregando...</p>';
+  try {
+    const funcoes = await api('/api/admin/funcoes');
+    if (!funcoes.length) {
+      el.innerHTML = '<p style="color:var(--muted)">Nenhuma função cadastrada. Crie a primeira clicando em "+ Nova Função".</p>';
+      return;
+    }
+    el.innerHTML = funcoes.map(f => `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+        <div style="min-width:0">
+          <div style="font-weight:700;font-size:15px;margin-bottom:8px">${_esc(f.nome)}</div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center">
+            ${f.roles.length ? f.roles.map(_roleBadge).join('') : '<span style="color:var(--muted);font-size:12px">Sem permissões atribuídas</span>'}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;margin-top:2px">
+          <button class="btn btn-ghost" style="font-size:11px" onclick='abrirModalEditar(${JSON.stringify(f)})'>Editar</button>
+          <button class="btn btn-ghost" style="font-size:11px;color:var(--red)" onclick="excluirFuncao('${f.id}','${_esc(f.nome)}')">Excluir</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = `<p style="color:var(--red)">Erro: ${_esc(e.message)}</p>`;
+  }
+}
+
+function _renderRoleCheckboxes(checkedRoles = []) {
+  document.getElementById('fm-roles-list').innerHTML = _ALL_ROLES.map(({role, label}) => `
+    <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px;cursor:pointer">
+      <input type="checkbox" value="${role}" ${checkedRoles.includes(role) ? 'checked' : ''}>
+      ${label}
+    </label>
+  `).join('');
+}
+
+function abrirModalNova() {
+  document.getElementById('fm-id').value = '';
+  document.getElementById('fm-nome').value = '';
+  document.getElementById('fm-titulo').textContent = 'Nova Função';
+  document.getElementById('fm-msg').textContent = '';
+  _renderRoleCheckboxes([]);
+  document.getElementById('funcao-modal-bg').classList.add('open');
+  document.getElementById('fm-nome').focus();
+}
+
+function abrirModalEditar(f) {
+  document.getElementById('fm-id').value = f.id;
+  document.getElementById('fm-nome').value = f.nome;
+  document.getElementById('fm-titulo').textContent = 'Editar Função';
+  document.getElementById('fm-msg').textContent = '';
+  _renderRoleCheckboxes(f.roles || []);
+  document.getElementById('funcao-modal-bg').classList.add('open');
+  document.getElementById('fm-nome').focus();
+}
+
+function fecharModal() {
+  document.getElementById('funcao-modal-bg').classList.remove('open');
+}
+
+async function salvarFuncao() {
+  const id   = document.getElementById('fm-id').value;
+  const nome = document.getElementById('fm-nome').value.trim();
+  const msg  = document.getElementById('fm-msg');
+  const btn  = document.getElementById('fm-btn');
+  if (!nome) { msg.style.color='var(--red)'; msg.textContent='Nome obrigatório'; return; }
+  const roles = [...document.querySelectorAll('#fm-roles-list input:checked')].map(el => el.value);
+  btn.disabled = true; btn.textContent = 'Salvando...'; msg.textContent = '';
+  try {
+    if (id) {
+      await api('/api/admin/funcoes/' + id, { method:'PATCH', body: JSON.stringify({nome, roles}) });
+    } else {
+      await api('/api/admin/funcoes', { method:'POST', body: JSON.stringify({nome, roles}) });
+    }
+    fecharModal();
+    loadFuncoes();
+  } catch(e) { msg.style.color='var(--red)'; msg.textContent=e.message; }
+  finally { btn.disabled=false; btn.textContent='Salvar'; }
+}
+
+async function excluirFuncao(id, nome) {
+  if (!confirm(`Excluir a função "${nome}"?\n\nOs usuários mantêm as permissões individuais (roles_extra), mas perdem as permissões que vinham desta função.`)) return;
+  try {
+    await api('/api/admin/funcoes/' + id, { method:'DELETE' });
+    loadFuncoes();
+  } catch(e) { alert('Erro: ' + e.message); }
+}
+</script>
+</body>
+</html>
