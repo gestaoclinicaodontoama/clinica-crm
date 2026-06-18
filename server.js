@@ -388,51 +388,80 @@ async function requireModuloAtivo(req, res, next) {
 // ========== ADMIN: USUÁRIOS ==========
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { data, error } = await supabase.rpc('admin_list_users', { p_admin_id: req.user.id });
+    const { data: users, error } = await supabase.rpc('admin_list_users', { p_admin_id: req.user.id });
     if (error) throw error;
-    res.json(data || []);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    if (!users?.length) return res.json([]);
+
+    const userIds = users.map(u => u.id);
+
+    const [{ data: uf }, { data: profiles }] = await Promise.all([
+      supabase.from('user_funcoes').select('user_id, funcao:funcao_id(id, nome)').in('user_id', userIds),
+      supabase.from('profiles').select('id, roles_extra').in('id', userIds),
+    ]);
+
+    const funcoesByUser = {};
+    (uf || []).forEach(row => {
+      if (!funcoesByUser[row.user_id]) funcoesByUser[row.user_id] = [];
+      funcoesByUser[row.user_id].push(row.funcao);
+    });
+    const extrasByUser = {};
+    (profiles || []).forEach(p => { extrasByUser[p.id] = p.roles_extra || []; });
+
+    res.json(users.map(u => ({
+      ...u,
+      funcoes: funcoesByUser[u.id] || [],
+      roles_extra: extrasByUser[u.id] || [],
+    })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { nome, email, senha, roles } = req.body;
+    const { nome, email, senha, funcoes = [], roles_extra = [] } = req.body;
     if (!email || !senha) return res.status(400).json({ error: 'email e senha são obrigatórios' });
+
+    // Cria usuário com roles vazias — trigger preencherá ao atribuir funcoes
     const { data, error } = await supabase.rpc('admin_create_user', {
       p_admin_id: req.user.id,
-      p_email: email,
+      p_email:    email,
       p_password: senha,
-      p_nome: nome || email,
-      p_roles: Array.isArray(roles) ? roles : ['crc_leads'],
+      p_nome:     nome || email,
+      p_roles:    [],
     });
     if (error) throw error;
     if (data?.error) return res.status(400).json({ error: data.error });
+
     // Auto-confirma o email para que o usuario possa logar imediatamente
     await supabase.rpc('admin_confirm_user', { p_admin_id: req.user.id, p_email: email });
+
+    // Atribui funcoes + roles_extra (se fornecidos)
+    const userId = data?.id;
+    if (userId && (funcoes.length || roles_extra.length)) {
+      await supabase.rpc('admin_update_user_funcoes', {
+        p_user_id:     userId,
+        p_funcao_ids:  funcoes,
+        p_roles_extra: roles_extra,
+        p_nome:        null,
+      });
+    }
+
     res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.patch('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { roles, nome } = req.body;
-    if (!Array.isArray(roles)) return res.status(400).json({ error: 'roles deve ser array' });
-    const { data, error } = await supabase.rpc('admin_update_user_roles', {
-      p_admin_id: req.user.id,
-      p_user_id:  req.params.id,
-      p_roles:    roles,
-      p_nome:     nome || null,
+    const { nome, funcoes, roles_extra } = req.body;
+    const { data, error } = await supabase.rpc('admin_update_user_funcoes', {
+      p_user_id:     req.params.id,
+      p_funcao_ids:  Array.isArray(funcoes)     ? funcoes     : [],
+      p_roles_extra: Array.isArray(roles_extra) ? roles_extra : [],
+      p_nome:        nome || null,
     });
     if (error) throw error;
     if (data?.error) return res.status(400).json({ error: data.error });
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) => {
@@ -448,6 +477,49 @@ app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) =
     res.status(500).json({ error: e.message });
   }
 });
+// ========== ADMIN: FUNÇÕES ==========
+app.get('/api/admin/funcoes', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('funcoes').select('*').order('nome');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/funcoes', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { nome, roles } = req.body;
+    if (!nome) return res.status(400).json({ error: 'nome obrigatório' });
+    const { data, error } = await supabase
+      .from('funcoes').insert({ nome, roles: Array.isArray(roles) ? roles : [] })
+      .select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/admin/funcoes/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { nome, roles } = req.body;
+    const updates = {};
+    if (nome !== undefined) updates.nome = nome;
+    if (roles !== undefined) updates.roles = Array.isArray(roles) ? roles : [];
+    const { data, error } = await supabase
+      .from('funcoes').update(updates).eq('id', req.params.id)
+      .select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/funcoes/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { error } = await supabase.from('funcoes').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ========== CAPTURAR LEAD ==========
 app.get('/lead', rateLimit, async (req, res) => {
   try {
