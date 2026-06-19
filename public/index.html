@@ -712,6 +712,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
     <div class="nav-submenu" id="submenu-config-geral" style="display:none">
       <button class="nav-subitem" data-page="config" data-roles="admin,gestor" onclick="setPage('config',this)">Configurações</button>
       <button class="nav-subitem" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)">Usuários</button>
+      <a href="/admin/funcoes/" class="nav-subitem" data-roles="admin">Funções</a>
     </div>
   </div>
   <button class="nav-btn nav-logout" onclick="handleLogout()">
@@ -1182,24 +1183,16 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
       <div class="form-group"><label>Nome</label><input id="nu-nome" placeholder="Nome completo"></div>
       <div class="form-group"><label>E-mail</label><input type="email" id="nu-email" placeholder="email@exemplo.com"></div>
       <div class="form-group"><label>Senha tempor&#225;ria</label><input type="password" id="nu-senha" placeholder="M&#237;nimo 6 caracteres"></div>
-      <div class="form-group"><label>Perfil Base</label><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-admin"> Admin</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-gestor"> Gestor</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-auxiliar_adm"> Auxiliar Adm</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_leads"> CRC Leads</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_comercial"> CRC Comercial</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_sucesso"> CRC Sucesso</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-crc_pos_tratamento"> CRC P&#243;s Tratamento</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-role-dentista"> Dentista</label>
-      </div></div>
-      <div class="form-group"><label>M&#243;dulos Extras</label><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-notas_fiscais"> Notas Fiscais</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-inadimplentes"> Inadimplentes</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-avaliacao_dentista"> Avalia&#231;&#227;o Dentista</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-kanban_leads"> Kanban Leads</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-kanban_comercial"> Kanban Comercial</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="nu-mod-financeiro"> Financeiro</label>
-      </div></div>
+      <div class="form-group"><label>Fun&#231;&#245;es</label>
+        <p style="color:var(--muted);font-size:11px;margin:2px 0 6px">Selecione uma ou mais fun&#231;&#245;es do cargo.</p>
+        <div id="nu-funcoes-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+          <p style="color:var(--muted);font-size:12px">Carregando...</p>
+        </div>
+      </div>
+      <div class="form-group"><label>Permiss&#245;es extras</label>
+        <p style="color:var(--muted);font-size:11px;margin:2px 0 6px">Permiss&#245;es em cinza j&#225; est&#227;o cobertas pelas fun&#231;&#245;es selecionadas.</p>
+        <div id="nu-extras-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
+      </div>
       <button class="btn btn-primary" onclick="criarUsuario()" id="nu-btn" style="width:100%">Criar Usu&#225;rio</button>
       <div id="nu-msg" style="font-size:12px;margin-top:8px;text-align:center"></div>
     </div>
@@ -1461,25 +1454,11 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     </div>
     <input type="hidden" id="eu-id">
     <div class="form-group"><label>Nome</label><input id="eu-nome" placeholder="Nome completo"></div>
-    <div class="form-group"><label>Perfil Base</label>
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-admin"> Admin</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-gestor"> Gestor</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-auxiliar_adm"> Auxiliar Adm</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_leads"> CRC Leads</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_comercial"> CRC Comercial</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_sucesso"> CRC Sucesso</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-crc_pos_tratamento"> CRC Pós Tratamento</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-role-dentista"> Dentista</label>
-      </div>
+    <div class="form-group"><label>Funções</label>
+      <div id="eu-funcoes-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
     </div>
-    <div class="form-group"><label>Módulos Extras</label>
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-notas_fiscais"> Notas Fiscais</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-inadimplentes"> Inadimplentes</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-avaliacao_dentista"> Avaliação Dentista</label>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px"><input type="checkbox" id="eu-mod-financeiro"> Financeiro</label>
-      </div>
+    <div class="form-group"><label>Permissões extras</label>
+      <div id="eu-extras-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-primary" id="eu-btn" onclick="salvarEdicaoUsuario()" style="flex:1">Salvar</button>
@@ -5492,8 +5471,7 @@ async function handleLogin() {
     return;
   }
   _sbSession = data.session;
-  _showApp();
-  iniciarApp();
+  window.location.href = '/tarefas/';
 }
 
 async function handleLogout() {
@@ -5613,10 +5591,22 @@ const _ROLE_LABELS = {
   dentista:'Dentista',
   mod_notas_fiscais:'Notas Fiscais', mod_inadimplentes:'Inadimplentes',
   mod_avaliacao_dentista:'Avaliação Dentista',
-  mod_kanban_leads:    'Kanban Leads',
-  mod_kanban_comercial: 'Kanban Comercial',
-  mod_financeiro: 'Financeiro'
+  mod_kanban_leads:'Kanban Leads',
+  mod_kanban_comercial:'Kanban Comercial',
+  mod_financeiro:'Financeiro'
 };
+const _ALL_ROLES_DEF = [
+  {r:'admin',label:'Admin'},{r:'gestor',label:'Gestor'},{r:'auxiliar_adm',label:'Auxiliar Adm'},
+  {r:'crc_leads',label:'CRC Leads'},{r:'crc_comercial',label:'CRC Comercial'},
+  {r:'crc_sucesso',label:'CRC Sucesso'},{r:'crc_pos_tratamento',label:'CRC Pós Tratamento'},
+  {r:'dentista',label:'Dentista'},
+  {r:'mod_notas_fiscais',label:'Notas Fiscais'},{r:'mod_inadimplentes',label:'Inadimplentes'},
+  {r:'mod_avaliacao_dentista',label:'Avaliação Dentista'},{r:'mod_kanban_leads',label:'Kanban Leads'},
+  {r:'mod_kanban_comercial',label:'Kanban Comercial'},{r:'mod_financeiro',label:'Financeiro'}
+];
+let _funcoesCache = [];
+let _usuariosCache = [];
+
 function _renderRoles(roles) {
   const base = [], mods = [];
   (roles||[]).forEach(r => r.startsWith('mod_') ? mods.push(r) : base.push(r));
@@ -5627,28 +5617,88 @@ function _renderRoles(roles) {
   ].join(' ');
 }
 
+function _getRolesFromFuncoes(prefix) {
+  const covered = new Set();
+  _funcoesCache.forEach(f => {
+    const cb = document.getElementById(prefix + '-funcao-' + f.id);
+    if (cb && cb.checked) (f.roles||[]).forEach(r => covered.add(r));
+  });
+  return covered;
+}
+
+function _updateExtrasGrayout(prefix) {
+  const covered = _getRolesFromFuncoes(prefix);
+  _ALL_ROLES_DEF.forEach(({r}) => {
+    const cb = document.getElementById(prefix + '-extra-' + r);
+    if (!cb) return;
+    const label = cb.closest('label');
+    if (covered.has(r)) {
+      cb.disabled = true; cb.checked = true;
+      if (label) label.style.opacity = '0.45';
+    } else {
+      cb.disabled = false;
+      if (label) label.style.opacity = '';
+    }
+  });
+}
+
+function _renderFuncoesCheckboxes(prefix, checkedIds) {
+  const container = document.getElementById(prefix + '-funcoes-list');
+  if (!container) return;
+  if (!_funcoesCache.length) {
+    container.innerHTML = '<p style="color:var(--muted);font-size:12px">Nenhuma função cadastrada.</p>';
+    return;
+  }
+  container.innerHTML = _funcoesCache.map(f => `
+    <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px">
+      <input type="checkbox" id="${prefix}-funcao-${f.id}" onchange="_updateExtrasGrayout('${prefix}')" ${(checkedIds||[]).includes(f.id)?'checked':''}>
+      ${f.nome}
+    </label>`).join('');
+}
+
+function _renderExtras(prefix, checkedExtras) {
+  const container = document.getElementById(prefix + '-extras-list');
+  if (!container) return;
+  container.innerHTML = _ALL_ROLES_DEF.map(({r, label}) => `
+    <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px">
+      <input type="checkbox" id="${prefix}-extra-${r}" ${(checkedExtras||[]).includes(r)?'checked':''}>
+      ${label}
+    </label>`).join('');
+  _updateExtrasGrayout(prefix);
+}
+
 async function loadUsuarios() {
   const el = document.getElementById('usuarios-lista');
   if (!el) return;
   el.innerHTML = '<p style="color:var(--muted)">Carregando...</p>';
   try {
+    if (!_funcoesCache.length) {
+      _funcoesCache = await api('/api/admin/funcoes');
+    }
     const users = await api('/api/admin/users');
     if (!users.length) { el.innerHTML = '<p style="color:var(--muted)">Nenhum usuario cadastrado.</p>'; return; }
     _usuariosCache = users;
+    _renderFuncoesCheckboxes('nu', []);
+    _renderExtras('nu', []);
     const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    el.innerHTML = users.map(u => `
+    el.innerHTML = users.map(u => {
+      const funcoesBadges = (u.funcoes||[]).map(f =>
+        `<span style="background:#6366f1;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">${esc(f.nome)}</span>`
+      ).join(' ');
+      const extraBadges = _renderRoles(u.roles_extra||[]);
+      return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
         <div style="min-width:0">
           <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.nome) || '—'}</div>
           <div style="font-size:12px;color:var(--muted)">${esc(u.email)}</div>
-          <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${_renderRoles(u.roles)}</div>
+          <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${funcoesBadges}${extraBadges ? ' '+extraBadges : ''}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
           <button class="btn btn-ghost" style="font-size:11px;white-space:nowrap" onclick="abrirEdicaoUsuario('${u.id}')">Editar</button>
           <button class="btn btn-ghost" style="font-size:11px;color:var(--red);white-space:nowrap" onclick="excluirUsuario('${u.id}')">Excluir</button>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   } catch(e) { el.innerHTML = `<p style="color:var(--red)">${e.message}</p>`; }
 }
 
@@ -5659,39 +5709,25 @@ async function criarUsuario() {
   const msg = document.getElementById('nu-msg');
   const btn = document.getElementById('nu-btn');
   if (!nome || !email || !senha) { msg.style.color='var(--red)'; msg.textContent='Preencha todos os campos'; return; }
-  if (senha.length < 6) { msg.style.color='var(--red)'; msg.textContent='Senha minima: 6 caracteres'; return; }
-  const roles = [];
-  if (document.getElementById('nu-role-admin').checked) roles.push('admin');
-  if (document.getElementById('nu-role-gestor').checked) roles.push('gestor');
-  if (document.getElementById('nu-role-auxiliar_adm').checked) roles.push('auxiliar_adm');
-  if (document.getElementById('nu-role-crc_leads').checked) roles.push('crc_leads');
-  if (document.getElementById('nu-role-crc_comercial').checked) roles.push('crc_comercial');
-  if (document.getElementById('nu-role-crc_sucesso').checked) roles.push('crc_sucesso');
-  if (document.getElementById('nu-role-crc_pos_tratamento').checked) roles.push('crc_pos_tratamento');
-  if (document.getElementById('nu-role-dentista').checked) roles.push('dentista');
-  if (document.getElementById('nu-mod-notas_fiscais').checked) roles.push('mod_notas_fiscais');
-  if (document.getElementById('nu-mod-inadimplentes').checked) roles.push('mod_inadimplentes');
-  if (document.getElementById('nu-mod-avaliacao_dentista').checked) roles.push('mod_avaliacao_dentista');
-  if (document.getElementById('nu-mod-kanban_leads').checked) roles.push('mod_kanban_leads');
-  if (document.getElementById('nu-mod-kanban_comercial').checked) roles.push('mod_kanban_comercial');
-  if (document.getElementById('nu-mod-financeiro').checked) roles.push('mod_financeiro');
-  if (!roles.length) roles.push('crc_leads');
+  if (senha.length < 6) { msg.style.color='var(--red)'; msg.textContent='Senha mínima: 6 caracteres'; return; }
+  const funcoes = _funcoesCache.filter(f => document.getElementById('nu-funcao-'+f.id)?.checked).map(f => f.id);
+  const covered = _getRolesFromFuncoes('nu');
+  const roles_extra = _ALL_ROLES_DEF.filter(({r}) => {
+    const cb = document.getElementById('nu-extra-'+r);
+    return cb && cb.checked && !covered.has(r);
+  }).map(({r}) => r);
   btn.disabled = true; btn.textContent = 'Criando...'; msg.textContent = '';
   try {
-    await api('/api/admin/users', { method:'POST', body: JSON.stringify({nome, email, senha, roles}) });
+    await api('/api/admin/users', { method:'POST', body: JSON.stringify({nome, email, senha, funcoes, roles_extra}) });
     msg.style.color='var(--green)'; msg.textContent='Usuário criado com sucesso!';
     document.getElementById('nu-nome').value='';
     document.getElementById('nu-email').value='';
     document.getElementById('nu-senha').value='';
-    ['admin','gestor','auxiliar_adm','crc_leads','crc_comercial','crc_sucesso','crc_pos_tratamento','dentista'].forEach(r => {
-      const el = document.getElementById('nu-role-' + r); if (el) el.checked = false;
-    });
-    ['notas_fiscais','inadimplentes','avaliacao_dentista'].forEach(m => {
-      const el = document.getElementById('nu-mod-' + m); if (el) el.checked = false;
-    });
+    _renderFuncoesCheckboxes('nu', []);
+    _renderExtras('nu', []);
     loadUsuarios();
   } catch(e) { msg.style.color='var(--red)'; msg.textContent=e.message; }
-  finally { btn.disabled=false; btn.textContent='Criar Usuario'; }
+  finally { btn.disabled=false; btn.textContent='Criar Usuário'; }
 }
 
 async function excluirUsuario(id) {
@@ -5705,19 +5741,14 @@ async function excluirUsuario(id) {
   } catch(e) { toast('Erro: ' + e.message); }
 }
 
-const _EU_ROLES = ['admin','gestor','auxiliar_adm','crc_leads','crc_comercial','crc_sucesso','crc_pos_tratamento','dentista'];
-const _EU_MODS  = ['notas_fiscais','inadimplentes','avaliacao_dentista','financeiro'];
-let _usuariosCache = [];
-
 function abrirEdicaoUsuario(id) {
   const u = _usuariosCache.find(u => u.id === id);
   if (!u) return;
-  const roles = u.roles || [];
   document.getElementById('eu-id').value = id;
   document.getElementById('eu-nome').value = u.nome || '';
   document.getElementById('eu-msg').textContent = '';
-  _EU_ROLES.forEach(r => { const el = document.getElementById('eu-role-' + r); if (el) el.checked = roles.includes(r); });
-  _EU_MODS.forEach(m  => { const el = document.getElementById('eu-mod-' + m);  if (el) el.checked = roles.includes('mod_' + m); });
+  _renderFuncoesCheckboxes('eu', (u.funcoes||[]).map(f => f.id));
+  _renderExtras('eu', u.roles_extra||[]);
   document.getElementById('eu-modal-bg').classList.add('open');
 }
 
@@ -5730,13 +5761,15 @@ async function salvarEdicaoUsuario() {
   const nome = document.getElementById('eu-nome').value.trim();
   const msg  = document.getElementById('eu-msg');
   const btn  = document.getElementById('eu-btn');
-  const roles = [];
-  _EU_ROLES.forEach(r => { if (document.getElementById('eu-role-' + r)?.checked) roles.push(r); });
-  _EU_MODS.forEach(m  => { if (document.getElementById('eu-mod-'  + m)?.checked) roles.push('mod_' + m); });
-  if (!roles.length) roles.push('crc_leads');
+  const funcoes = _funcoesCache.filter(f => document.getElementById('eu-funcao-'+f.id)?.checked).map(f => f.id);
+  const covered = _getRolesFromFuncoes('eu');
+  const roles_extra = _ALL_ROLES_DEF.filter(({r}) => {
+    const cb = document.getElementById('eu-extra-'+r);
+    return cb && cb.checked && !covered.has(r);
+  }).map(({r}) => r);
   btn.disabled = true; btn.textContent = 'Salvando...'; msg.textContent = '';
   try {
-    await api('/api/admin/users/' + id, { method:'PATCH', body: JSON.stringify({ nome, roles }) });
+    await api('/api/admin/users/' + id, { method:'PATCH', body: JSON.stringify({ nome, funcoes, roles_extra }) });
     msg.style.color = 'var(--green)'; msg.textContent = 'Salvo!';
     loadUsuarios();
     setTimeout(fecharEdicaoUsuario, 800);
