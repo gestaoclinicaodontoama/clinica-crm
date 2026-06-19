@@ -3611,7 +3611,7 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
     if (!['aprovar', 'rejeitar'].includes(acao)) return res.status(400).json({ error: 'acao inválida' });
 
     const { data: orc } = await supabase.from('orcamentos')
-      .select('valor_particular, entrada_valor, clinicorp_lastchange, lead_id, paciente_nome, data_fechamento')
+      .select('valor_particular, entrada_valor, clinicorp_lastchange, lead_id, paciente_nome, telefone, data_fechamento')
       .eq('clinicorp_estimate_id', id).maybeSingle();
     if (!orc) return res.status(404).json({ error: 'Fechamento não encontrado' });
 
@@ -3635,18 +3635,26 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
     const { error } = await supabase.from('orcamentos').update(patch).eq('clinicorp_estimate_id', id);
     if (error) throw error;
 
-    if (acao === 'aprovar' && orc.lead_id) {
+    if (acao === 'aprovar') {
+      // Espelha a venda aprovada no módulo Pacientes (Sucesso do Cliente).
+      // Dedup por clinicorp_estimate_id — orçamentos vêm sem lead_id, então não dá pra
+      // depender dele aqui (era o bug: aprovados nunca chegavam em pacientes_sucesso).
       (async () => {
         try {
           const { data: jaExisteArr } = await supabase.from('pacientes_sucesso')
-            .select('id').eq('lead_id', orc.lead_id).limit(1);
+            .select('id').eq('clinicorp_estimate_id', id).limit(1);
           if (!jaExisteArr?.length) {
-            const { data: lead } = await supabase.from('leads')
-              .select('telefone').eq('id', orc.lead_id).maybeSingle();
+            let telefone = orc.telefone || '';
+            if (!telefone && orc.lead_id) {
+              const { data: lead } = await supabase.from('leads')
+                .select('telefone').eq('id', orc.lead_id).maybeSingle();
+              telefone = lead?.telefone || '';
+            }
             await supabase.from('pacientes_sucesso').insert({
-              lead_id: orc.lead_id,
+              lead_id: orc.lead_id || null,
+              clinicorp_estimate_id: id,
               nome: orc.paciente_nome || '',
-              telefone: lead?.telefone || '',
+              telefone,
               data_venda: orc.data_fechamento,
               valor_fechado: patch.valor_aprovado,
               importado_historico: false,
