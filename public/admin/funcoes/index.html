@@ -4,7 +4,52 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Funções — CRM AMA</title>
-  <link rel="stylesheet" href="/css/main.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root[data-theme="dark"] {
+      --bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;
+      --text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;
+      --green:#22c55e;--yellow:#f59e0b;--red:#ef4444;
+    }
+    :root[data-theme="light"] {
+      --bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;
+      --text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;
+      --green:#16a34a;--yellow:#d97706;--red:#dc2626;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+    h1{font-size:22px;font-weight:700}
+    h2{font-size:16px;font-weight:600}
+    input,textarea,select{
+      background:var(--bg3);border:1px solid var(--border);border-radius:8px;
+      padding:9px 12px;font-size:13px;color:var(--text);font-family:inherit;width:100%;
+      outline:none;transition:border-color .15s
+    }
+    input:focus,textarea:focus{border-color:var(--accent)}
+    label{font-size:13px;font-weight:500;color:var(--text);display:block;margin-bottom:6px}
+    .form-group{margin-bottom:14px}
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:6px;
+      padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;
+      cursor:pointer;border:none;font-family:inherit;transition:all .15s;white-space:nowrap
+    }
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-primary:hover:not(:disabled){background:var(--accent-hover)}
+    .btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+    .btn-ghost:hover:not(:disabled){background:var(--border)}
+    .modal-bg{
+      display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
+      backdrop-filter:blur(4px);z-index:1000;align-items:flex-start;
+      justify-content:center;overflow-y:auto;padding:30px 16px
+    }
+    .modal-bg.open{display:flex}
+    .modal{
+      background:var(--bg2);border:1px solid var(--border);border-radius:14px;
+      width:480px;max-width:100%;padding:24px 26px;box-shadow:0 16px 60px rgba(0,0,0,.4);
+      flex-shrink:0
+    }
+  </style>
 </head>
 <body>
 <script src="/js/shared-nav.js" data-active="funcoes"></script>
@@ -22,7 +67,7 @@
 
 <!-- Modal criar/editar função -->
 <div class="modal-bg" id="funcao-modal-bg" onclick="if(event.target===this)fecharModal()">
-  <div class="modal" style="width:480px;max-height:80vh;overflow-y:auto">
+  <div class="modal" style="max-height:80vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
       <h2 id="fm-titulo" style="margin:0">Nova Função</h2>
       <button class="btn btn-ghost" style="font-size:18px;padding:2px 8px" onclick="fecharModal()">×</button>
