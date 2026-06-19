@@ -5584,6 +5584,8 @@ async function loadCurrentUser() {
   } catch(e) {}
 }
 
+const _esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
 const _ROLE_LABELS = {
   admin:'Admin', gestor:'Gestor', auxiliar_adm:'Auxiliar Adm',
   crc_leads:'CRC Leads', crc_comercial:'CRC Comercial',
@@ -5651,8 +5653,8 @@ function _renderFuncoesCheckboxes(prefix, checkedIds) {
   }
   container.innerHTML = _funcoesCache.map(f => `
     <label style="display:flex;align-items:center;gap:8px;font-weight:normal;font-size:13px">
-      <input type="checkbox" id="${prefix}-funcao-${f.id}" onchange="_updateExtrasGrayout('${prefix}')" ${(checkedIds||[]).includes(f.id)?'checked':''}>
-      ${f.nome}
+      <input type="checkbox" id="${prefix}-funcao-${_esc(f.id)}" onchange="_updateExtrasGrayout('${prefix}')" ${(checkedIds||[]).includes(f.id)?'checked':''}>
+      ${_esc(f.nome)}
     </label>`).join('');
 }
 
@@ -5680,17 +5682,16 @@ async function loadUsuarios() {
     _usuariosCache = users;
     _renderFuncoesCheckboxes('nu', []);
     _renderExtras('nu', []);
-    const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     el.innerHTML = users.map(u => {
       const funcoesBadges = (u.funcoes||[]).map(f =>
-        `<span style="background:#6366f1;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">${esc(f.nome)}</span>`
+        `<span style="background:#6366f1;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">${_esc(f.nome)}</span>`
       ).join(' ');
       const extraBadges = _renderRoles(u.roles_extra||[]);
       return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
         <div style="min-width:0">
-          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.nome) || '—'}</div>
-          <div style="font-size:12px;color:var(--muted)">${esc(u.email)}</div>
+          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(u.nome) || '—'}</div>
+          <div style="font-size:12px;color:var(--muted)">${_esc(u.email)}</div>
           <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${funcoesBadges}${extraBadges ? ' '+extraBadges : ''}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
