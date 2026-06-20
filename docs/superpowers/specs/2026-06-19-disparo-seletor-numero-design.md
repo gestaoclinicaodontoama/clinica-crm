@@ -61,13 +61,23 @@ Nova coluna em `disparos_campanhas`:
 | wa_number_id | text | phone_number_id escolhido. `NULL`/vazio = comportamento antigo (número de broadcast) |
 
 ### Backend
+- **`GET /api/config/wa`**: incluir no retorno `sendable` = `Object.keys(getPhoneNumbers())`
+  (os números com token), para o front do disparo listar só esses no seletor. Os IDs
+  auto-descobertos continuam em `numbers` (usados em outras telas), mas ficam fora de `sendable`.
 - **`whatsapp.js` → `enviarBroadcast({ para, templateName, lang, variaveis, phoneNumberId })`**:
   novo parâmetro opcional `phoneNumberId`. Se ausente, usa `WA_BROADCAST_PHONE_ID` (comportamento
   atual preservado). O token é resolvido por `_tokenForPhone(phoneId)` (já existe). Internamente
   passa a usar `_post(pid, _tokenForPhone(pid), payload)` em vez do par fixo de broadcast.
-- **`POST /api/disparos/criar`**: recebe `wa_number_id`. Valida que está em
-  `Object.keys(await whatsapp.getPhoneNumbers())`; se inválido/ausente, cai no `defaultPhoneId()`.
-  Grava `wa_number_id` na campanha.
+- **`POST /api/disparos/criar`**: recebe `wa_number_id`. Valida contra os números **com token
+  configurado** — `Object.keys(await whatsapp.getPhoneNumbers())` (= 2873 e 8700), **não** a
+  lista expandida de `/api/config/wa` (que inclui IDs auto-descobertos de mensagens antigas, sem
+  token). Regras:
+  - **Ausente** (cliente antigo, sem o campo): cai no `defaultPhoneId()` — compatibilidade.
+  - **Presente mas sem token** (ex.: um 3º número descoberto): **rejeita com 400** ("Número sem
+    credencial de envio configurada"), em vez de fallback silencioso que mandaria pelo número
+    errado. `_tokenForPhone()` só resolve token para os dois números de env; qualquer outro cairia
+    no `WA_TOKEN` por engano.
+  - **Válido:** grava `wa_number_id` na campanha.
 - **`runner.js` (`_loop`)**:
   - `enviarBroadcast({ ..., phoneNumberId: camp.wa_number_id || undefined })`.
   - Ao gravar em `mensagens`, usar `wa_number_id: camp.wa_number_id || whatsapp.broadcastPhoneId()`
@@ -75,8 +85,11 @@ Nova coluna em `disparos_campanhas`:
     nascer no número certo e aparecer no inbox do 2873.
 
 ### Frontend (`#page-disparos`)
-- Novo `<select id="disp-numero">` ao lado de `#disp-template`, populado por `/api/config/wa`
-  (label = número formatado, ex.: "9649-2873"), **pré-selecionado no `defaultPhoneId`**.
+- Novo `<select id="disp-numero">` ao lado de `#disp-template`, **pré-selecionado no
+  `defaultPhoneId`** (2873). Para não oferecer número sem token (que o backend rejeitaria), o
+  dropdown lista apenas os números **com token** — `/api/config/wa` deve marcar quais são
+  enviáveis (ex.: campo `sendable: [ids]` = chaves de `getPhoneNumbers()`), e o front filtra por
+  ele. Label = número formatado, ex.: "9649-2873".
 - `dispCriarEIniciar()` inclui `wa_number_id` no corpo do `POST /api/disparos/criar`.
 - Enquanto `/api/config/wa` não respondeu, o select mostra "Carregando…" e o botão Iniciar
   espera (ou cai no default no backend).
@@ -87,7 +100,8 @@ Nova coluna em `disparos_campanhas`:
 - Aceita `?campanha_id=N` (além do `mode` atual).
 - Com `campanha_id`: busca os `lead_id` de `disparos_contatos` daquela campanha com
   `status='enviado'` (query enxuta, só a coluna `lead_id`), monta um `Set` e filtra as linhas
-  de `conversas_com_preview` por `lead_id ∈ Set`. Sem `campanha_id`: nada muda.
+  de `conversas_com_preview` por `r.id ∈ Set` (o RPC expõe o id do lead na coluna `id`, vinda de
+  `l.id`). Sem `campanha_id`: nada muda.
 - ⚠️ Uma campanha grande pode ter >1000 contatos; ao buscar os `lead_id`, paginar/`range`
   ou selecionar com `limit` alto explícito para não cair no corte silencioso de 1000 do
   cliente Supabase (ver memória do limite). Para os volumes atuais (dezenas) é trivial, mas
@@ -101,8 +115,10 @@ Nova coluna em `disparos_campanhas`:
 
 ## Guardrail (salvaguarda de WABA)
 
-No `runner.js`, se um envio falhar com erro de **template inexistente no número**
-(códigos Meta `132000`, `132001`, `131009` ou mensagem contendo "template"/"does not exist"),
+No `runner.js`, se um envio falhar com erro de **template indisponível no número**
+(código Meta `132001` "template does not exist", ou `132007` "template paused/rejected", ou
+mensagem contendo "template" + "does not exist"/"not found" — match por código com fallback por
+texto, pois a Meta nem sempre preenche o code de forma estável),
 o runner **pausa a campanha inteira** (`status='pausada'`, `auto_pausada=true`) com uma
 mensagem clara gravada (ex.: em `disparos_contatos.erro` do contato + log), **em vez de
 marcar todos os contatos como falha**. Assim os `pendente` ficam intactos: o usuário troca o
