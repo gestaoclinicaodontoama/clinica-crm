@@ -5710,6 +5710,13 @@ app.post('/api/tarefas/templates', requireAuth, async (req, res) => {
     const escopo = ['role', 'usuarios'].includes(b.escopo) ? b.escopo : 'pessoal';
     if (escopo !== 'pessoal' && !isGestor)
       return res.status(403).json({ error: 'Só gestor/admin cria rotina por cargo ou usuários' });
+    if (b.tipo === 'coleta') {
+      if (!Array.isArray(b.metricas) || b.metricas.length === 0)
+        return res.status(400).json({ error: 'Coleta precisa de ao menos um campo' });
+      if (!Array.isArray(b.periodos) || b.periodos.length === 0)
+        return res.status(400).json({ error: 'Coleta precisa de ao menos um período' });
+    }
+    const tipo = b.tipo === 'coleta' ? 'coleta' : 'tarefa';
     const row = {
       titulo: b.titulo, descricao: b.descricao || null, escopo,
       role:         escopo === 'role'     ? b.role         : null,
@@ -5722,7 +5729,12 @@ app.post('/api/tarefas/templates', requireAuth, async (req, res) => {
       categoria: b.categoria || null,
       tipo_resultado: b.tipo_resultado === 'numero' ? 'numero' : 'check',
       unidade: b.unidade || null, meta: b.meta ?? null,
+      tipo,
       arrasta: !!b.arrasta, created_by: userId,
+      metricas:   tipo === 'coleta' ? (Array.isArray(b.metricas)   ? b.metricas   : []) : null,
+      conversoes: tipo === 'coleta' ? (Array.isArray(b.conversoes) ? b.conversoes : []) : null,
+      periodos:   tipo === 'coleta' ? (Array.isArray(b.periodos)   ? b.periodos   : []) : null,
+      ver_proprio: tipo === 'coleta' ? !!b.ver_proprio : false,
     };
     const { data, error } = await supabase.from('task_templates').insert(row).select().single();
     if (error) throw error;
@@ -5737,10 +5749,11 @@ app.patch('/api/tarefas/templates/:id', requireAuth, async (req, res) => {
     const isGestor = (profile.roles || []).some(r => r === 'admin' || r === 'gestor');
     const { data: tpl } = await supabase.from('task_templates').select('*').eq('id', req.params.id).maybeSingle();
     if (!tpl) return res.status(404).json({ error: 'Molde não encontrado' });
-    const podeEditar = (tpl.escopo === 'pessoal' && tpl.owner_id === req.user.id) || (tpl.escopo === 'role' && isGestor);
+    const podeEditar = (tpl.escopo === 'pessoal' && tpl.owner_id === req.user.id) ||
+                       ((tpl.escopo === 'role' || tpl.escopo === 'usuarios') && isGestor);
     if (!podeEditar) return res.status(403).json({ error: 'Sem permissão' });
     const patch = {};
-    for (const k of ['titulo','descricao','frequencia','dias_semana','dia_mes','hora_sugerida','prioridade','categoria','tipo_resultado','unidade','meta','arrasta','ativo']) {
+    for (const k of ['titulo','descricao','frequencia','dias_semana','dia_mes','hora_sugerida','prioridade','categoria','tipo_resultado','unidade','meta','arrasta','ativo','metricas','conversoes','periodos','ver_proprio']) {
       if (k in req.body) patch[k] = req.body[k];
     }
     const { data, error } = await supabase.from('task_templates').update(patch).eq('id', tpl.id).select().single();
@@ -5819,6 +5832,55 @@ app.get('/api/tarefas/pessoas', requireAuth, requireTarefasGestao, async (req, r
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/coletas/:templateId/dashboard?de=&ate=&pessoa=&gran=
+app.get('/api/coletas/:templateId/dashboard', requireAuth, async (req, res) => {
+  try {
+    const profile = await loadProfile(req);
+    const roles = profile.roles || [];
+    const isGestor = roles.some(r => r === 'admin' || r === 'gestor');
+    const { data: tpl } = await supabase.from('task_templates')
+      .select('*').eq('id', req.params.templateId).maybeSingle();
+    if (!tpl || tpl.tipo !== 'coleta') return res.status(404).json({ error: 'Coleta não encontrada' });
+
+    const pessoa = req.query.pessoa || null;
+    if (!isGestor) {
+      if (!tpl.ver_proprio || pessoa !== req.user.id)
+        return res.status(403).json({ error: 'Sem permissão' });
+    }
+
+    const de = req.query.de || hojeISO();
+    const ate = req.query.ate || hojeISO();
+    const gran = req.query.gran === 'semana' ? 'semana' : 'dia';
+
+    const { somarLista, calcularConversoes } = require('./lib/tarefas/agregacao');
+
+    const totaisRpc = await supabase.rpc('coleta_totais',
+      { p_template_id: tpl.id, p_de: de, p_ate: ate, p_pessoa: pessoa });
+    const somas = somarLista(totaisRpc.data || []);
+    const conversoes = calcularConversoes(somas, tpl.conversoes || []);
+
+    const serieRpc = await supabase.rpc('coleta_serie',
+      { p_template_id: tpl.id, p_de: de, p_ate: ate, p_pessoa: pessoa, p_gran: gran });
+
+    const porPessoaRpc = await supabase.rpc('coleta_por_pessoa',
+      { p_template_id: tpl.id, p_de: de, p_ate: ate });
+    const porPessoa = {};
+    for (const r of (porPessoaRpc.data || [])) {
+      (porPessoa[r.assignee_id] || (porPessoa[r.assignee_id] = {}))[r.chave] = Number(r.total) || 0;
+    }
+
+    res.json({
+      template: { id: tpl.id, titulo: tpl.titulo, metricas: tpl.metricas || [], conversoes: tpl.conversoes || [], ver_proprio: tpl.ver_proprio },
+      somas, conversoes,
+      serie: serieRpc.data || [],
+      por_pessoa: porPessoa,
+    });
+  } catch (e) {
+    console.error('[GET /api/coletas/:id/dashboard]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // PATCH /api/tarefas/:id  → concluir (com valor_resultado se numero), reabrir, editar
 app.patch('/api/tarefas/:id', requireAuth, async (req, res) => {
   try {
@@ -5832,6 +5894,28 @@ app.patch('/api/tarefas/:id', requireAuth, async (req, res) => {
     const b = req.body || {};
     const ehAssignee = tarefa.assignee_id === userId;
     const ehCriador = tarefa.created_by === userId;
+
+    if (b.acao === 'lancar_coleta') {
+      if (!ehAssignee && !isGestor) return res.status(403).json({ error: 'Sem permissão' });
+      const { data: tpl } = await supabase.from('task_templates')
+        .select('metricas').eq('id', tarefa.template_id).maybeSingle();
+      const metricas = (tpl && Array.isArray(tpl.metricas)) ? tpl.metricas : [];
+      const entrada = (b.valores && typeof b.valores === 'object') ? b.valores : {};
+      const valores = {};
+      for (const m of metricas) {
+        const v = entrada[m.chave];
+        if (v === undefined || v === null || v === '') continue;
+        if (m.tipo_campo === 'texto') valores[m.chave] = String(v).slice(0, 500);
+        else { const n = Number(v); if (!Number.isNaN(n)) valores[m.chave] = n; }
+      }
+      const patch = {
+        valores, origem: 'manual', status: 'concluida',
+        concluida_em: new Date().toISOString(), concluida_por: userId,
+      };
+      const { data, error } = await supabase.from('tasks').update(patch).eq('id', tarefa.id).select().single();
+      if (error) throw error;
+      return res.json({ tarefa: data });
+    }
 
     if (b.acao === 'concluir') {
       if (!ehAssignee && !isGestor) return res.status(403).json({ error: 'Sem permissão' });
@@ -5921,6 +6005,22 @@ async function cronTarefas() {
     for (const t of (vencendo || [])) {
       await criarNotificacao(t.assignee_id, 'tarefa_vencendo', 'Tarefa no prazo', t.titulo, { url: '/tarefas/', task_id: t.id });
       await supabase.from('tasks').update({ prazo_avisado_em: agoraISO }).eq('id', t.id);
+    }
+
+    // Lembrete de coletas: card pendente cujo horário do período já passou
+    const horaAgora = agora.slice(11, 16); // "HH:MM"
+    const { data: cards } = await supabase.from('tasks')
+      .select('id, assignee_id, titulo, periodo, template_id')
+      .eq('status', 'pendente').eq('data_ref', hoje)
+      .not('periodo', 'is', null).is('prazo_avisado_em', null);
+    for (const c of (cards || [])) {
+      const { data: tpl } = await supabase.from('task_templates').select('periodos').eq('id', c.template_id).maybeSingle();
+      const per = (tpl && Array.isArray(tpl.periodos)) ? tpl.periodos.find(p => p.chave === c.periodo) : null;
+      if (!per) continue;
+      const horaAviso = (per.avisos_por_pessoa && per.avisos_por_pessoa[c.assignee_id]) || per.hora_aviso;
+      if (!horaAviso || horaAgora < horaAviso) continue;
+      await criarNotificacao(c.assignee_id, 'coleta_lembrete', 'Hora de preencher', c.titulo, { url: '/tarefas/', task_id: c.id });
+      await supabase.from('tasks').update({ prazo_avisado_em: new Date().toISOString() }).eq('id', c.id);
     }
   } catch (e) { console.error('[cronTarefas]', e.message); }
 }
