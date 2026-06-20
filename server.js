@@ -344,6 +344,7 @@ const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial'
 const requireConversas = requireRole('admin', 'gestor', 'crc', 'crc_leads', 'crc_comercial', 'crc_sucesso');
 const requireDisparos = requireRole('admin', 'gestor', 'crc_comercial');
 const requireFinanceiro = requireRole('financeiro', 'admin', 'mod_financeiro');
+const requireProducao  = requireRole('financeiro', 'admin', 'mod_financeiro', 'mod_producao');
 
 // ========== ADMIN MIDDLEWARE ==========
 // TODO(remover-em-2026-06-23): fallback de role em user_metadata
@@ -6199,6 +6200,69 @@ app.post('/api/financeiro/sync', requireAuth, requireFinanceiro, async (req, res
   const { from, to } = _finMesCorrente();
   try { res.json(await syncFinanceiro(from, to)); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Produção: Receita x Entrega ──────────────────────────────────────────────
+
+app.get('/api/producao/resumo', requireAuth, requireProducao, async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
+
+  try {
+    // Ambas as RPCs rodam em paralelo para melhor performance
+    const [{ data: dentData, error: eD }, { data: recData, error: eR }] = await Promise.all([
+      supabase.rpc('producao_por_dentista', { p_from: from, p_to: to }),
+      supabase.rpc('sum_received',          { p_from: from, p_to: to }),
+    ]);
+    if (eD) throw new Error(`producao_por_dentista: ${eD.message}`);
+    if (eR) throw new Error(`sum_received: ${eR.message}`);
+
+    // producao_por_dentista retorna tabela; sum_received retorna scalar numeric direto
+    const producao_total = (dentData || []).reduce((s, r) => s + Number(r.producao), 0);
+    const receita_total  = Number(recData ?? 0);
+
+    const por_dentista = (dentData || []).map(d => ({
+      dentist_person_id: d.dentist_person_id,
+      dentist_name:      d.dentist_name,
+      producao:          Number(d.producao),
+      participacao_pct:  producao_total > 0
+        ? Math.round((Number(d.producao) / producao_total) * 1000) / 10
+        : 0,
+    }));
+
+    const percentual = receita_total > 0
+      ? Math.round((producao_total / receita_total) * 1000) / 10
+      : null;
+
+    res.json({ from, to, producao_total, receita_total, percentual, por_dentista });
+  } catch (e) {
+    console.error('[producao/resumo]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/producao/procedimentos', requireAuth, requireProducao, async (req, res) => {
+  const { from, to } = req.query;
+  const page  = Math.max(1, parseInt(req.query.page  || '1'));
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || '100')));
+  if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
+
+  try {
+    const offset = (page - 1) * limit;
+    const { data, error, count } = await supabase
+      .from('producao_procedimentos')
+      .select('executed_date, dentist_name, procedure_name, paciente_nome, amount, bill_type', { count: 'exact' })
+      .gte('executed_date', from)
+      .lte('executed_date', to)
+      .order('executed_date', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw new Error(error.message);
+    res.json({ total: count || 0, page, data: data || [] });
+  } catch (e) {
+    console.error('[producao/procedimentos]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.use((err, req, res, next) => {
