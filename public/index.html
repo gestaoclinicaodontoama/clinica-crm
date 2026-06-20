@@ -702,6 +702,13 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
     Financeiro
   </a>
 
+  <a class="nav-btn" href="/producao/" data-roles="financeiro,mod_financeiro,mod_producao">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
+    </svg>
+    Receita × Entrega
+  </a>
+
   <!-- Configurações Gerais -->
   <div class="nav-section" id="nav-section-config-geral" data-roles="admin,gestor">
     <button class="nav-btn nav-btn--section" onclick="toggleNavSection('config-geral')">
@@ -5595,7 +5602,8 @@ const _ROLE_LABELS = {
   mod_avaliacao_dentista:'Avaliação Dentista',
   mod_kanban_leads:'Kanban Leads',
   mod_kanban_comercial:'Kanban Comercial',
-  mod_financeiro:'Financeiro'
+  mod_financeiro:'Financeiro',
+  mod_producao:'Receita × Entrega'
 };
 const _ALL_ROLES_DEF = [
   {r:'admin',label:'Admin'},{r:'gestor',label:'Gestor'},{r:'auxiliar_adm',label:'Auxiliar Adm'},
@@ -5604,7 +5612,8 @@ const _ALL_ROLES_DEF = [
   {r:'dentista',label:'Dentista'},
   {r:'mod_notas_fiscais',label:'Notas Fiscais'},{r:'mod_inadimplentes',label:'Inadimplentes'},
   {r:'mod_avaliacao_dentista',label:'Avaliação Dentista'},{r:'mod_kanban_leads',label:'Kanban Leads'},
-  {r:'mod_kanban_comercial',label:'Kanban Comercial'},{r:'mod_financeiro',label:'Financeiro'}
+  {r:'mod_kanban_comercial',label:'Kanban Comercial'},{r:'mod_financeiro',label:'Financeiro'},
+  {r:'mod_producao',label:'Receita × Entrega'}
 ];
 let _funcoesCache = [];
 let _usuariosCache = [];
