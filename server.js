@@ -5587,6 +5587,13 @@ function repoTarefas() {
         .eq('template_id', templateId).eq('assignee_id', userId).eq('status', 'pendente');
       return (count || 0) > 0;
     },
+    async coletaCardExiste(templateId, userId, dataRef, periodo) {
+      const { count } = await supabase.from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .eq('template_id', templateId).eq('assignee_id', userId)
+        .eq('data_ref', dataRef).eq('periodo', periodo);
+      return (count || 0) > 0;
+    },
     async inserir(task) { await supabase.from('tasks').insert(task); },
   };
 }
