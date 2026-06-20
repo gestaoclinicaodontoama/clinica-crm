@@ -120,6 +120,11 @@ select.conta-sel:focus { border-color: var(--accent); }
     <a class="fin-link" href="/financeiro/cadastros.html">Cadastros</a>
   </div>
 
+  <div style="margin:12px 0; display:flex; gap:8px; align-items:center;">
+    <label style="font-size:14px; font-weight:600;">Ano:</label>
+    <select id="anoSel" onchange="recarregar()" style="padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--fg);"></select>
+  </div>
+
   <div id="summaryBar" class="summary-bar" style="display:none">
     <span class="count" id="countLabel"></span>
     <span class="total" id="totalLabel"></span>
@@ -241,7 +246,9 @@ async function recarregar() {
   wrap.style.display = 'none';
 
   try {
-    _lancamentos = await FinAPI.aCategorizar();
+    const ano = document.getElementById('anoSel')?.value || '';
+    const q = ano ? { from: ano + '-01-01', to: ano + '-12-31' } : {};
+    _lancamentos = await FinAPI.aCategorizar(q);
     tbody.innerHTML = '';
 
     if (!_lancamentos.length) {
@@ -306,12 +313,25 @@ async function classificarLinha(id, alcance) {
   }
 }
 
+async function carregarAnos() {
+  const sel = document.getElementById('anoSel');
+  try {
+    const resumo = await FinAPI.aCategorizarResumo(); // [{ano, qtd, total}]
+    const totalGeral = resumo.reduce((s, r) => s + Number(r.qtd), 0);
+    sel.innerHTML = `<option value="">Todos os anos (${totalGeral})</option>` +
+      resumo.map(r => `<option value="${r.ano}">${r.ano} — ${r.qtd} pendente${Number(r.qtd) !== 1 ? 's' : ''}</option>`).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">Todos os anos</option>';
+  }
+}
+
 async function init() {
   try {
     _contas = await FinAPI.contas();
   } catch (e) {
     _contas = [];
   }
+  await carregarAnos();
   await recarregar();
 }
 

@@ -22,7 +22,8 @@ async function api(path, opts = {}) {
 window.FinAPI = {
   dre: (from, to) => api(`/api/financeiro/dre?from=${from}&to=${to}`),
   lancamentos: (q = {}) => api('/api/financeiro/lancamentos?' + new URLSearchParams(q)),
-  aCategorizar: () => api('/api/financeiro/a-categorizar'),
+  aCategorizar: (q = {}) => api('/api/financeiro/a-categorizar?' + new URLSearchParams(q)),
+  aCategorizarResumo: () => api('/api/financeiro/a-categorizar/resumo'),
   classificar: (id, body) => api(`/api/financeiro/lancamentos/${id}/classificar`, { method: 'POST', body: JSON.stringify(body) }),
   contas: () => api('/api/financeiro/contas'),
   regras: () => api('/api/financeiro/regras'),
