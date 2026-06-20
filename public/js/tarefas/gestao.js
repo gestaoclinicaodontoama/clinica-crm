@@ -794,6 +794,98 @@
     } catch (e) { toast(e.message, 'error'); }
   };
 
+  // ── COLETA DASHBOARD ─────────────────────────────────────────────────────────
+  let _chartColeta = null;
+
+  window._abrirDashboard = async function (templateId) {
+    const box = document.getElementById('coleta-dashboard');
+    if (!box) return;
+    const hoje = hojeISO();
+    const de = hoje.slice(0, 8) + '01'; // 1º dia do mês corrente
+    box.innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:12px;padding:16px">
+        <div class="painel-filters">
+          <div><label>De</label><input type="date" id="cd-de" value="${esc(de)}"></div>
+          <div><label>Até</label><input type="date" id="cd-ate" value="${esc(hoje)}"></div>
+          <div><label>Quem</label><select id="cd-pessoa"><option value="">Equipe toda</option>
+            ${_pessoas.map(p => '<option value="' + esc(p.id) + '">' + esc(p.nome) + '</option>').join('')}</select></div>
+          <button class="btn btn-primary btn-sm" onclick="_loadDashboard('${esc(templateId)}')">Atualizar</button>
+        </div>
+        <div id="cd-conteudo"><p class="loading-msg">Carregando...</p></div>
+      </div>`;
+    _loadDashboard(templateId);
+  };
+
+  window._loadDashboard = async function (templateId) {
+    const cont = document.getElementById('cd-conteudo');
+    if (!cont) return;
+    const de = document.getElementById('cd-de').value;
+    const ate = document.getElementById('cd-ate').value;
+    const pessoa = document.getElementById('cd-pessoa').value;
+    let url = '/api/coletas/' + templateId + '/dashboard?de=' + encodeURIComponent(de) + '&ate=' + encodeURIComponent(ate);
+    if (pessoa) url += '&pessoa=' + encodeURIComponent(pessoa);
+    cont.innerHTML = '<p class="loading-msg">Carregando...</p>';
+    try {
+      const d = await tarefasApi(url);
+      const metr = d.template.metricas || [];
+      const rotulo = {}; metr.forEach(m => { rotulo[m.chave] = m.rotulo; });
+
+      // Totais
+      const totais = metr.filter(m => m.tipo_campo !== 'texto')
+        .map(m => `<strong>${(d.somas[m.chave] || 0)}</strong> ${esc(m.rotulo)}`).join(' &nbsp;·&nbsp; ');
+
+      // Funil (taxas)
+      let funil = '';
+      d.conversoes.forEach(c => {
+        const pct = c.taxa == null ? '—' : Math.round(c.taxa * 100) + '%';
+        funil += `<div style="margin:4px 0">
+          <div style="font-size:12px;color:var(--muted)">${esc(c.rotulo)}: <strong>${pct}</strong>
+            (${c.valor_para}/${c.valor_de})</div></div>`;
+      });
+
+      // Por pessoa (tabela)
+      let linhas = '';
+      Object.keys(d.por_pessoa).forEach(pid => {
+        const row = d.por_pessoa[pid];
+        const cols = metr.filter(m => m.tipo_campo !== 'texto')
+          .map(m => '<td>' + (row[m.chave] || 0) + '</td>').join('');
+        linhas += `<tr><td style="font-weight:500">${esc(nomePessoa(pid))}</td>${cols}</tr>`;
+      });
+      const ths = metr.filter(m => m.tipo_campo !== 'texto').map(m => '<th>' + esc(m.rotulo) + '</th>').join('');
+
+      cont.innerHTML = `
+        <div style="margin:12px 0;font-size:15px">${totais || 'Sem dados no período.'}</div>
+        ${funil ? '<div style="margin:12px 0">' + funil + '</div>' : ''}
+        <div style="margin:12px 0"><canvas id="cd-chart" height="120"></canvas></div>
+        ${linhas ? `<div class="gestao-table-wrap"><table class="gestao-table">
+          <thead><tr><th>Pessoa</th>${ths}</tr></thead><tbody>${linhas}</tbody></table></div>` : ''}`;
+
+      _renderChartColeta(d.serie, rotulo);
+    } catch (e) {
+      cont.innerHTML = '<p class="loading-msg" style="color:var(--red)">Erro: ' + esc(e.message) + '</p>';
+    }
+  };
+
+  function _renderChartColeta(serie, rotulo) {
+    const ctx = document.getElementById('cd-chart');
+    if (!ctx || typeof Chart === 'undefined') return;
+    const buckets = [...new Set(serie.map(r => r.bucket))].sort();
+    const chaves = [...new Set(serie.map(r => r.chave))];
+    const idx = {}; buckets.forEach((b, i) => { idx[b] = i; });
+    const cores = ['#4f8ef7', '#22c55e', '#f59e0b', '#ef4444', '#a855f7'];
+    const datasets = chaves.map((ch, i) => {
+      const arr = new Array(buckets.length).fill(0);
+      serie.filter(r => r.chave === ch).forEach(r => { arr[idx[r.bucket]] = Number(r.total) || 0; });
+      return { label: rotulo[ch] || ch, data: arr, borderColor: cores[i % cores.length], backgroundColor: cores[i % cores.length], tension: 0.3 };
+    });
+    if (_chartColeta) _chartColeta.destroy();
+    _chartColeta = new Chart(ctx, {
+      type: 'line',
+      data: { labels: buckets.map(b => b.slice(5)), datasets },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } },
+    });
+  }
+
   // ── HISTÓRICO TAB ────────────────────────────────────────────────────────────
   function renderHistoricoFilters() {
     const root = document.getElementById('historico-root');
