@@ -6095,8 +6095,19 @@ app.get('/api/financeiro/lancamentos', requireAuth, requireFinanceiro, async (re
 
 // Fila "A categorizar" (despesas sem conta)
 app.get('/api/financeiro/a-categorizar', requireAuth, requireFinanceiro, async (req, res) => {
-  const { data, error } = await supabase.from('fin_lancamentos')
-    .select('*').eq('ativo', true).eq('fluxo', 'sai').is('conta_id', null).order('valor', { ascending: false }).limit(500);
+  const { from, to } = req.query;
+  let q = supabase.from('fin_lancamentos')
+    .select('*').eq('ativo', true).eq('fluxo', 'sai').is('conta_id', null).order('valor', { ascending: false }).limit(1000);
+  if (from) q = q.gte('data', from);
+  if (to) q = q.lte('data', to);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// Resumo de pendências de categorização agrupado por ano (para o seletor da tela)
+app.get('/api/financeiro/a-categorizar/resumo', requireAuth, requireFinanceiro, async (req, res) => {
+  const { data, error } = await supabase.rpc('fin_a_categorizar_por_ano');
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
