@@ -28,29 +28,38 @@ Comparar o valor dos procedimentos odontológicos **realizados** (produção cl�
 
 ```sql
 CREATE TABLE producao_procedimentos (
-  id                    bigserial PRIMARY KEY,
-  clinicorp_estimate_id text        NOT NULL,
+  id                     bigserial PRIMARY KEY,
+  clinicorp_estimate_id  text        NOT NULL,
   clinicorp_treatment_id text,
-  price_id              text,
-  procedure_name        text,
-  specialty_id          text,
-  dentist_person_id     text,
-  dentist_name          text,
-  executed_date         date        NOT NULL,
-  amount                numeric     NOT NULL DEFAULT 0,
-  bill_type             text,        -- 'CLAIM' = convênio, outro = particular
-  paciente_nome         text,
-  atualizado_em         timestamptz NOT NULL DEFAULT now(),
-
-  UNIQUE (clinicorp_estimate_id, price_id, executed_date, dentist_person_id)
+  price_id               text,
+  procedure_name         text,
+  specialty_id           text,
+  dentist_person_id      text,
+  dentist_name           text,
+  executed_date          date        NOT NULL,
+  amount                 numeric     NOT NULL DEFAULT 0,
+  bill_type              text,        -- valor bruto do Clinicorp: 'CLAIM'=convênio, demais=particular
+  paciente_nome          text,
+  atualizado_em          timestamptz NOT NULL DEFAULT now()
 );
+
+-- Índice único com COALESCE para tratar price_id NULL (3,4% dos casos)
+CREATE UNIQUE INDEX producao_procedimentos_dedup
+  ON producao_procedimentos (
+    clinicorp_estimate_id,
+    COALESCE(price_id, ''),
+    executed_date,
+    COALESCE(dentist_person_id, '')
+  );
 
 CREATE INDEX ON producao_procedimentos (executed_date);
 CREATE INDEX ON producao_procedimentos (dentist_person_id);
 CREATE INDEX ON producao_procedimentos (clinicorp_estimate_id);
 ```
 
-A chave de unicidade `(clinicorp_estimate_id, price_id, executed_date, dentist_person_id)` garante idempotência nos upserts do sync.
+A chave de unicidade via índice funcional com `COALESCE` garante idempotência nos upserts mesmo quando `price_id` ou `dentist_person_id` são NULL.
+
+O arquivo de migração deve seguir o padrão `supabase/migrations/YYYYMMDDHHMMSS_producao_procedimentos.sql`.
 
 ---
 
@@ -61,7 +70,7 @@ A chave de unicidade `(clinicorp_estimate_id, price_id, executed_date, dentist_p
 Entra como nova fase no batch diário do `clinicorp-sync.js`, após `orcamentos_funil`.
 
 - **Janela:** últimos 90 dias em chunks de ≤30 dias (mesmo padrão do financeiro)
-- **Reaproveitamento:** reutiliza o request de `estimates/list` já feito pelo sync de orçamentos — não duplica chamadas no rate limit
+- **Requests próprios:** o sync de produção faz seus próprios requests para `estimates/list` (a janela do sync de orçamentos é 180 dias; a de produção é 90 dias — janelas diferentes impedem reaproveitamento direto). Ambos rodam na mesma janela noturna, dentro do orçamento de 25 chamadas/hora.
 - **Fluxo por chunk:**
   1. Itera `ProcedureList[]` de cada estimate
   2. Filtra `Executed === "X"` e `Amount > 0`
@@ -179,8 +188,21 @@ Cor do card Alinhamento:
 ## Navegação e Acesso
 
 - URL: `/producao/`
-- Entrada no menu lateral: seção "Financeiro" → "Receita x Entrega"
-- Role: `mod_financeiro` ou `admin` (mesmo guard do módulo financeiro)
+- Entrada no menu lateral: seção "Financeiro" → "Receita x Entrega" (ou item independente, a decidir na implementação)
+- Role guard: `requireRole('financeiro', 'admin', 'mod_financeiro')` — mesmo middleware do financeiro existente
+- Página separada → incluir `<script src="/js/shared-nav.js" data-active="producao"></script>` + entrada correspondente em `public/js/shared-nav.js`
+
+### Registro obrigatório no módulo de Usuários (CLAUDE.md)
+
+Seguir os 5 passos obrigatórios para todo módulo novo:
+
+1. **Perfil Base** — não cria novo tipo de usuário; acesso via `mod_financeiro` já existente
+2. **Módulos Extras** — adicionar checkbox `#nu-mod-producao` em `public/index.html`
+3. **`_ROLE_LABELS`** — adicionar `mod_producao: 'Receita x Entrega'`
+4. **`criarUsuario()`** — adicionar push de `'mod_producao'` quando checkbox marcado
+5. **Nav `data-roles`** — incluir `mod_producao` no atributo `data-roles` do link em `index.html` e `shared-nav.js`
+
+> O middleware de acesso aceita `mod_financeiro` OU `mod_producao` para que usuários com acesso só ao módulo de produção (sem DRE completo) possam ser configurados futuramente.
 
 ---
 
