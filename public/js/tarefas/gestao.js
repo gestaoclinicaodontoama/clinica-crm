@@ -76,6 +76,7 @@
 
         if (btn.dataset.tab === 'painel')    renderPainelFilters();
         if (btn.dataset.tab === 'criar')     renderCriarForm();
+        if (btn.dataset.tab === 'coletas')   renderColetasHome();
         if (btn.dataset.tab === 'historico') renderHistoricoFilters();
       });
     });
@@ -610,6 +611,187 @@
     const destCargo = document.getElementById('cr-destino-cargo'); if (destCargo) destCargo.checked = true;
     _onRotinaDestinoChange();
     _onTipoAtividade('demanda');
+  };
+
+  // ── COLETAS TAB ──────────────────────────────────────────────────────────────
+  let _coletas = [];
+
+  async function renderColetasHome() {
+    const root = document.getElementById('coletas-root');
+    if (!root) return;
+    root.innerHTML = '<p class="loading-msg">Carregando...</p>';
+    try {
+      const data = await tarefasApi('/api/tarefas/templates?gestao=1');
+      _coletas = (data.templates || []).filter(t => t.tipo === 'coleta');
+      let html = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600">Coletas de métricas</div>
+          <button class="btn btn-primary btn-sm" onclick="_novaColeta()">+ Nova coleta</button>
+        </div>`;
+      if (_coletas.length === 0) {
+        html += `<div class="empty-msg"><div class="empty-icon">📊</div>Nenhuma coleta criada ainda.</div>`;
+      } else {
+        _coletas.forEach(c => {
+          html += `
+            <div class="rotina-item" data-tid="${esc(c.id)}">
+              <div class="rotina-body">
+                <div class="rotina-titulo">${esc(c.titulo)}</div>
+                <div class="rotina-meta">
+                  <span class="chip">${esc(c.escopo === 'role' ? (c.role || '') : 'pessoas')}</span>
+                  ${(c.metricas || []).map(m => '<span class="chip">' + esc(m.rotulo) + '</span>').join('')}
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="_abrirDashboard('${esc(c.id)}')">Dashboard</button>
+              <button class="tarefa-del" onclick="_excluirColeta('${esc(c.id)}')" title="Excluir">×</button>
+            </div>`;
+        });
+      }
+      html += '<div id="coleta-builder" style="margin-top:20px"></div>';
+      html += '<div id="coleta-dashboard" style="margin-top:20px"></div>';
+      root.innerHTML = html;
+    } catch (e) {
+      root.innerHTML = '<p class="loading-msg" style="color:var(--red)">Erro: ' + esc(e.message) + '</p>';
+    }
+  }
+
+  window._excluirColeta = async function (id) {
+    if (!confirm('Excluir esta coleta? Os lançamentos já feitos não são apagados.')) return;
+    try {
+      await tarefasApi('/api/tarefas/templates/' + id, { method: 'DELETE' });
+      toast('Coleta excluída.', 'info');
+      renderColetasHome();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  window._novaColeta = function () {
+    const box = document.getElementById('coleta-builder');
+    if (!box) return;
+    box.innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:12px;padding:16px;max-width:620px">
+        <div style="font-weight:600;margin-bottom:12px">Nova coleta</div>
+        <div class="form-row"><label class="form-label">Nome *</label>
+          <input class="form-input" id="co-titulo" placeholder="Ex: Coleta CRC Leads"></div>
+
+        <div class="form-label">Campos a preencher *</div>
+        <div id="co-campos"></div>
+        <button class="btn btn-ghost btn-sm" onclick="_coAddCampo()">+ Campo</button>
+
+        <div class="form-label" style="margin-top:14px">Conversões (funil)</div>
+        <div id="co-convs"></div>
+        <button class="btn btn-ghost btn-sm" onclick="_coAddConv()">+ Conversão</button>
+
+        <div class="form-label" style="margin-top:14px">Períodos de preenchimento *</div>
+        <div id="co-periodos"></div>
+        <button class="btn btn-ghost btn-sm" onclick="_coAddPeriodo()">+ Período</button>
+
+        <div class="form-row-2" style="margin-top:14px">
+          <div><label class="form-label">Atribuir a (cargo)</label>
+            <select class="form-select" id="co-role">
+              <option value="">— selecione —</option>
+              ${ROLES_CARGO.map(r => '<option value="' + esc(r) + '">' + esc(r) + '</option>').join('')}
+            </select></div>
+          <div><label class="form-label">&nbsp;</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+              <input type="checkbox" id="co-verproprio"> Pessoa vê o próprio dashboard
+            </label></div>
+        </div>
+
+        <div class="form-actions" style="justify-content:flex-start">
+          <button class="btn btn-primary" onclick="_salvarColetaTemplate()">Criar coleta</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('coleta-builder').innerHTML=''">Cancelar</button>
+        </div>
+      </div>`;
+    _coAddCampo(); _coAddPeriodo();
+  };
+
+  function _slug(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || ('campo' + Date.now()); }
+
+  window._coAddCampo = function () {
+    const box = document.getElementById('co-campos');
+    const div = document.createElement('div');
+    div.className = 'co-campo';
+    div.style = 'display:flex;gap:8px;margin-bottom:6px;align-items:center';
+    div.innerHTML = `
+      <input class="form-input co-c-rotulo" placeholder="Rótulo (ex: Ligações)" style="flex:2">
+      <select class="form-select co-c-tipo" style="flex:1">
+        <option value="numero">Número</option>
+        <option value="decimal">Decimal/R$</option>
+        <option value="texto">Texto</option>
+      </select>
+      <input class="form-input co-c-unidade" placeholder="unidade" style="flex:1">
+      <button class="tarefa-del" onclick="this.parentNode.remove()">×</button>`;
+    box.appendChild(div);
+  };
+
+  window._coAddConv = function () {
+    const box = document.getElementById('co-convs');
+    const div = document.createElement('div');
+    div.className = 'co-conv';
+    div.style = 'display:flex;gap:8px;margin-bottom:6px;align-items:center';
+    div.innerHTML = `
+      <input class="form-input co-cv-rotulo" placeholder="Rótulo (ex: Taxa agendamento)" style="flex:2">
+      <input class="form-input co-cv-de" placeholder="campo origem (rótulo)" style="flex:1">
+      <input class="form-input co-cv-para" placeholder="campo destino (rótulo)" style="flex:1">
+      <button class="tarefa-del" onclick="this.parentNode.remove()">×</button>`;
+    box.appendChild(div);
+  };
+
+  window._coAddPeriodo = function () {
+    const box = document.getElementById('co-periodos');
+    const div = document.createElement('div');
+    div.className = 'co-periodo';
+    div.style = 'display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap';
+    div.innerHTML = `
+      <input class="form-input co-p-rotulo" placeholder="Rótulo (ex: Manhã)" style="flex:1">
+      <input class="form-input co-p-hora" placeholder="aviso HH:MM" style="width:110px">
+      <span style="font-size:12px;color:var(--muted)">dias:</span>
+      ${DIAS_LABELS.map((d, i) => '<label style="font-size:12px"><input type="checkbox" class="co-p-dia" value="' + i + '" ' + (i >= 1 && i <= 5 ? 'checked' : '') + '>' + d + '</label>').join('')}
+      <button class="tarefa-del" onclick="this.parentNode.remove()">×</button>`;
+    box.appendChild(div);
+  };
+
+  window._salvarColetaTemplate = async function () {
+    const titulo = (document.getElementById('co-titulo').value || '').trim();
+    if (!titulo) { toast('Informe o nome.', 'warning'); return; }
+
+    const metricas = [];
+    document.querySelectorAll('#co-campos .co-campo').forEach((d, i) => {
+      const rotulo = d.querySelector('.co-c-rotulo').value.trim();
+      if (!rotulo) return;
+      metricas.push({ chave: _slug(rotulo), rotulo, tipo_campo: d.querySelector('.co-c-tipo').value,
+        unidade: d.querySelector('.co-c-unidade').value.trim() || null, ordem: i + 1, meta: null });
+    });
+    if (metricas.length === 0) { toast('Adicione ao menos um campo.', 'warning'); return; }
+    const rotuloParaChave = {}; metricas.forEach(m => { rotuloParaChave[m.rotulo.toLowerCase()] = m.chave; });
+
+    const conversoes = [];
+    document.querySelectorAll('#co-convs .co-conv').forEach(d => {
+      const rotulo = d.querySelector('.co-cv-rotulo').value.trim();
+      const de = rotuloParaChave[d.querySelector('.co-cv-de').value.trim().toLowerCase()];
+      const para = rotuloParaChave[d.querySelector('.co-cv-para').value.trim().toLowerCase()];
+      if (rotulo && de && para) conversoes.push({ de, para, rotulo });
+    });
+
+    const periodos = [];
+    document.querySelectorAll('#co-periodos .co-periodo').forEach(d => {
+      const rotulo = d.querySelector('.co-p-rotulo').value.trim();
+      if (!rotulo) return;
+      const dias = Array.from(d.querySelectorAll('.co-p-dia:checked')).map(c => Number(c.value));
+      periodos.push({ chave: _slug(rotulo), rotulo, dias_semana: dias,
+        hora_aviso: d.querySelector('.co-p-hora').value.trim() || null, avisos_por_pessoa: {} });
+    });
+    if (periodos.length === 0) { toast('Adicione ao menos um período.', 'warning'); return; }
+
+    const role = document.getElementById('co-role').value;
+    if (!role) { toast('Selecione o cargo.', 'warning'); return; }
+
+    const body = { tipo: 'coleta', titulo, escopo: 'role', role, frequencia: 'diaria',
+      metricas, conversoes, periodos, ver_proprio: document.getElementById('co-verproprio').checked };
+    try {
+      await tarefasApi('/api/tarefas/templates', { method: 'POST', body: JSON.stringify(body) });
+      toast('Coleta criada!', 'success');
+      renderColetasHome();
+    } catch (e) { toast(e.message, 'error'); }
   };
 
   // ── HISTÓRICO TAB ────────────────────────────────────────────────────────────
