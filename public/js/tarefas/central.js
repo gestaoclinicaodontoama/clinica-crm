@@ -86,8 +86,82 @@
     return t.frequencia || '';
   }
 
+  // ── COLETA (preenchimento na Central) ────────────────────────────────────────
+  const _coletaMetricas = {}; // template_id -> [metricas]
+
+  async function getMetricas(templateId) {
+    if (_coletaMetricas[templateId]) return _coletaMetricas[templateId];
+    const data = await tarefasApi('/api/tarefas/templates?gestao=1').catch(() => ({ templates: [] }));
+    (data.templates || []).forEach(tp => { if (tp.metricas) _coletaMetricas[tp.id] = tp.metricas; });
+    return _coletaMetricas[templateId] || [];
+  }
+
+  function renderColetaItem(t, refHoje) {
+    const concluida = t.status === 'concluida';
+    const atrasada = isAtrasada(t, refHoje);
+    const classes = ['tarefa-item', atrasada ? 'atrasada' : '', concluida ? 'concluida' : ''].filter(Boolean).join(' ');
+    let resumo = '';
+    if (concluida && t.valores) {
+      resumo = Object.entries(t.valores)
+        .map(([k, v]) => `${esc(k)}: <strong>${esc(v)}</strong>`).join(' · ');
+    }
+    return `
+      <div class="${classes}" data-id="${esc(t.id)}" data-coleta="1" data-tpl="${esc(t.template_id)}">
+        <div class="tarefa-body">
+          <div class="tarefa-titulo">📊 ${esc(t.titulo)}</div>
+          ${resumo ? `<div class="tarefa-meta"><span style="font-size:12px;color:var(--muted)">${resumo}</span></div>` : ''}
+          <div id="coleta-form-${esc(t.id)}" class="coleta-form" style="display:none"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="_abrirColeta('${esc(t.id)}','${esc(t.template_id)}')">
+          ${concluida ? 'Editar' : 'Preencher'}
+        </button>
+      </div>`;
+  }
+
+  window._abrirColeta = async function (id, templateId) {
+    const wrap = document.getElementById('coleta-form-' + id);
+    if (!wrap) return;
+    if (wrap.style.display === 'block') { wrap.style.display = 'none'; return; }
+    const metricas = await getMetricas(templateId);
+    let html = '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">';
+    metricas.forEach(m => {
+      const tipoInput = m.tipo_campo === 'texto' ? 'text' : 'number';
+      html += `
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <span style="min-width:120px">${esc(m.rotulo)}${m.unidade ? ' (' + esc(m.unidade) + ')' : ''}</span>
+          <input class="form-input cl-field" data-chave="${esc(m.chave)}" type="${tipoInput}"
+                 ${tipoInput === 'number' ? 'step="any"' : ''} style="max-width:160px">
+        </label>`;
+    });
+    html += `<div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-primary btn-sm" onclick="_salvarColeta('${esc(id)}')">Salvar lançamento</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('coleta-form-${esc(id)}').style.display='none'">Cancelar</button>
+    </div></div>`;
+    wrap.innerHTML = html;
+    wrap.style.display = 'block';
+  };
+
+  window._salvarColeta = async function (id) {
+    const wrap = document.getElementById('coleta-form-' + id);
+    if (!wrap) return;
+    const valores = {};
+    wrap.querySelectorAll('.cl-field').forEach(inp => {
+      if (inp.value !== '') valores[inp.dataset.chave] = inp.type === 'number' ? Number(inp.value) : inp.value;
+    });
+    if (Object.keys(valores).length === 0) { toast('Preencha ao menos um campo.', 'warning'); return; }
+    try {
+      await tarefasApi('/api/tarefas/' + id, {
+        method: 'PATCH',
+        body: JSON.stringify({ acao: 'lancar_coleta', valores }),
+      });
+      toast('Lançamento salvo!', 'success');
+      loadHoje();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
   // ── RENDERIZA TAREFA ITEM ────────────────────────────────────────────────────
   function renderTarefaItem(t, refHoje) {
+    if (t.periodo) return renderColetaItem(t, refHoje);
     _tipoResultado[t.id] = t.tipo_resultado;
 
     const atrasada = isAtrasada(t, refHoje);
@@ -292,6 +366,17 @@
             <summary>Concluídas (${concluidas.length})</summary>
             ${conclHtml}
           </details>`;
+      }
+
+      // Acumulado de coletas do dia (soma por chave entre cards concluídos)
+      const coletasOk = tarefas.filter(t => t.periodo && t.status === 'concluida' && t.valores);
+      if (coletasOk.length) {
+        const soma = {};
+        coletasOk.forEach(t => Object.entries(t.valores).forEach(([k, v]) => {
+          if (typeof v === 'number') soma[k] = (soma[k] || 0) + v;
+        }));
+        const txt = Object.entries(soma).map(([k, v]) => `${esc(k)}: ${v}`).join(' · ');
+        if (txt) html = `<div class="empty-msg" style="padding:12px;text-align:left;margin-bottom:12px">Hoje até agora — ${txt}</div>` + html;
       }
 
       root.innerHTML = html;
