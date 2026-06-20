@@ -187,6 +187,7 @@ async function syncProducao() {
   log(`Produção: ${count} procedimentos upserted (${valid.length} válidos de ${rows.length} brutos)`);
   return { count };
 }
+```
 
 - [ ] **Step 2: Registrar step `producao` no batch diário**
 
@@ -248,30 +249,10 @@ const api = new ClinicorpApi({
   businessId: process.env.CLINICORP_BUSINESS_ID,
 });
 
-const DELAY_MS = 3000; // 3s entre chunks = máx ~20 chamadas/minuto, seguro no rate limit
+const DELAY_MS = 3000; // 3s entre chunks ≈ 20 chamadas/min, seguro no rate limit
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function dateStr(d) {
-  return d.toISOString().slice(0, 10);
-}
-
-async function backfillMes(ano, mes) {
-  const from = new Date(ano, mes - 1, 1);
-  const to   = new Date(ano, mes, 0); // último dia do mês
-  const fromStr = dateStr(from);
-  const toStr   = dateStr(to);
-
-  console.log(`[${fromStr} → ${toStr}] buscando estimates...`);
-  const estimates = await api.get('/estimates/list', { from: fromStr, to: toStr });
-  if (!Array.isArray(estimates)) {
-    console.log(`  sem dados`);
-    return 0;
-  }
-
-  // Carrega catálogo apenas na primeira chamada (passa como parâmetro nos demais)
-  return { estimates, fromStr, toStr };
-}
+function dateStr(d) { return d.toISOString().slice(0, 10); }
 
 async function main() {
   const ano = parseInt(process.argv[2]);
@@ -364,13 +345,13 @@ async function main() {
 
   console.log(`\n✅ Backfill ${ano} concluído: ${totalGeral} procedimentos no total`);
 
-  // Verificação final
-  const { data } = await supabase
+  // Verificação final — contagem via head: true (não traz linhas, só o count)
+  const { count } = await supabase
     .from('producao_procedimentos')
-    .select('executed_date.sum(amount)', { count: 'exact' })
+    .select('*', { count: 'exact', head: true })
     .gte('executed_date', `${ano}-01-01`)
     .lte('executed_date', `${ano}-12-31`);
-  console.log(`Verificação Supabase ${ano}: ${data?.length || 0} registros`);
+  console.log(`Verificação Supabase ${ano}: ${count || 0} registros na tabela`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
@@ -423,56 +404,26 @@ app.get('/api/producao/resumo', requireAuth, requireProducao, async (req, res) =
   if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
 
   try {
-    // Produção total e por dentista
-    const { data: prods, error: eP } = await supabase
-      .from('producao_procedimentos')
-      .select('dentist_person_id, dentist_name, amount')
-      .gte('executed_date', from)
-      .lte('executed_date', to);
-    if (eP) throw new Error(eP.message);
+    // Ambas as RPCs rodam em paralelo para melhor performance
+    const [{ data: dentData, error: eD }, { data: recData, error: eR }] = await Promise.all([
+      supabase.rpc('producao_por_dentista', { p_from: from, p_to: to }),
+      supabase.rpc('sum_received',          { p_from: from, p_to: to }),
+    ]);
+    if (eD) throw new Error(`producao_por_dentista: ${eD.message}`);
+    if (eR) throw new Error(`sum_received: ${eR.message}`);
 
-    const producao_total = (prods || []).reduce((s, r) => s + Number(r.amount), 0);
+    // producao_por_dentista retorna tabela; sum_received retorna scalar numeric direto
+    const producao_total = (dentData || []).reduce((s, r) => s + Number(r.producao), 0);
+    const receita_total  = Number(recData ?? 0);
 
-    // Agrupa por dentista
-    const dentMap = new Map();
-    for (const r of (prods || [])) {
-      const key = r.dentist_person_id || '__sem_dentista__';
-      const entry = dentMap.get(key) || { dentist_person_id: key, dentist_name: r.dentist_name || 'Sem dentista', producao: 0 };
-      entry.producao += Number(r.amount);
-      dentMap.set(key, entry);
-    }
-    const por_dentista = [...dentMap.values()]
-      .sort((a, b) => b.producao - a.producao)
-      .map(d => ({
-        ...d,
-        participacao_pct: producao_total > 0 ? Math.round((d.producao / producao_total) * 1000) / 10 : 0,
-      }));
-
-    // Receita RECEIVED do período (usa SUM no Supabase para evitar limite de 1000 linhas)
-    const { data: recData, error: eR } = await supabase
-      .rpc('sum_received', { p_from: from, p_to: to });
-    // Fallback se a RPC não existir ainda: query direta com paginação
-    let receita_total = 0;
-    if (eR) {
-      // Sem RPC: soma paginada
-      let offset = 0;
-      while (true) {
-        const { data: page, error: ep2 } = await supabase
-          .from('fin_lancamentos')
-          .select('valor')
-          .eq('post_type', 'RECEIVED')
-          .eq('ativo', true)
-          .gte('data', from)
-          .lte('data', to)
-          .range(offset, offset + 999);
-        if (ep2 || !page || !page.length) break;
-        receita_total += page.reduce((s, r) => s + Number(r.valor), 0);
-        if (page.length < 1000) break;
-        offset += 1000;
-      }
-    } else {
-      receita_total = Number(recData?.[0]?.total ?? recData ?? 0);
-    }
+    const por_dentista = (dentData || []).map(d => ({
+      dentist_person_id: d.dentist_person_id,
+      dentist_name:      d.dentist_name,
+      producao:          Number(d.producao),
+      participacao_pct:  producao_total > 0
+        ? Math.round((Number(d.producao) / producao_total) * 1000) / 10
+        : 0,
+    }));
 
     const percentual = receita_total > 0
       ? Math.round((producao_total / receita_total) * 1000) / 10
@@ -510,24 +461,41 @@ app.get('/api/producao/procedimentos', requireAuth, requireProducao, async (req,
 });
 ```
 
-- [ ] **Step 3: Criar RPC `sum_received` no Supabase (simplifica a query de receita)**
+- [ ] **Step 3: Criar duas RPCs no Supabase via `mcp__plugin_supabase_supabase__execute_sql`**
 
-Usar `mcp__plugin_supabase_supabase__execute_sql`:
+As RPCs evitam o limite de 1000 linhas do `.select()` JS e eliminam a soma no cliente.
 
 ```sql
+-- RPC 1: receita RECEIVED do período (retorna scalar numeric)
 CREATE OR REPLACE FUNCTION sum_received(p_from date, p_to date)
-RETURNS numeric
-LANGUAGE sql STABLE AS $$
+RETURNS numeric LANGUAGE sql STABLE AS $$
   SELECT COALESCE(SUM(valor), 0)
   FROM fin_lancamentos
-  WHERE post_type = 'RECEIVED'
-    AND ativo = true
-    AND data >= p_from
-    AND data <= p_to;
+  WHERE post_type = 'RECEIVED' AND ativo = true
+    AND data >= p_from AND data <= p_to;
+$$;
+
+-- RPC 2: produção agrupada por dentista (retorna tabela)
+CREATE OR REPLACE FUNCTION producao_por_dentista(p_from date, p_to date)
+RETURNS TABLE (dentist_person_id text, dentist_name text, producao numeric)
+LANGUAGE sql STABLE AS $$
+  SELECT
+    COALESCE(dentist_person_id, '__sem_dentista__') AS dentist_person_id,
+    COALESCE(MAX(dentist_name), 'Sem dentista')     AS dentist_name,
+    SUM(amount)                                      AS producao
+  FROM producao_procedimentos
+  WHERE executed_date >= p_from AND executed_date <= p_to
+  GROUP BY COALESCE(dentist_person_id, '__sem_dentista__')
+  ORDER BY producao DESC;
 $$;
 ```
 
-Após criar, o endpoint `/resumo` vai preferir a RPC (mais eficiente que paginação).
+Verificar com:
+```sql
+SELECT sum_received('2026-06-01'::date, '2026-06-30'::date);
+SELECT * FROM producao_por_dentista('2026-06-01'::date, '2026-06-30'::date);
+```
+Esperado: valores numéricos (zerados até o backfill, mas sem erro).
 
 - [ ] **Step 4: Verificar sintaxe do server.js**
 
