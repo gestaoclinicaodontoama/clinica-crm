@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receita x Entrega — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] {
+  --bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;
+  --text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;
+  --green:#22c55e;--yellow:#f59e0b;--red:#ef4444;
+}
+:root[data-theme="light"] {
+  --bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;
+  --text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;
+  --green:#16a34a;--yellow:#d97706;--red:#dc2626;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{padding:20px 24px}
+.header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.header h1{font-size:20px;font-weight:700;flex:1}
+.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.controls label{font-size:13px;color:var(--muted);font-weight:500}
+.controls input[type="month"],.controls input[type="date"]{
+  padding:6px 10px;border:1px solid var(--border);border-radius:8px;
+  font-size:13px;background:var(--bg2);color:var(--text);font-family:inherit;outline:none
+}
+.controls input:focus{border-color:var(--accent)}
+.btn{padding:7px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-primary:disabled{opacity:.6;cursor:default}
+.btn-ghost{background:var(--bg2);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--bg3)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.card-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.card-value{font-size:24px;font-weight:700}
+.card-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.card-green .card-value{color:var(--green)}
+.card-yellow .card-value{color:var(--yellow)}
+.card-red .card-value{color:var(--red)}
+.section{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px}
+.section-header{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{padding:10px 14px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px}
+th:last-child,td:last-child{text-align:right}
+td{padding:9px 14px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg3)}
+.empty{padding:40px;color:var(--muted);text-align:center;font-size:13px}
+.pagination{display:flex;gap:8px;align-items:center;padding:12px 18px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)}
+.range-inputs{display:none;gap:8px;align-items:center}
+.range-inputs.visible{display:flex}
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="producao"></script>
+<div class="wrap">
+  <div class="header">
+    <h1>Receita × Entrega</h1>
+  </div>
+
+  <div class="controls">
+    <label>Mês</label>
+    <input type="month" id="mes" />
+    <button class="btn btn-ghost" id="btnRange" onclick="toggleRange()">Range livre</button>
+    <div class="range-inputs" id="rangeInputs">
+      <label>De</label><input type="date" id="rangeFrom" />
+      <label>Até</label><input type="date" id="rangeTo" />
+    </div>
+    <button class="btn btn-primary" onclick="carregar()">Carregar</button>
+    <button class="btn btn-ghost" onclick="atualizarDados()" id="btnSync">🔄 Atualizar dados</button>
+  </div>
+
+  <div class="cards" id="cards">
+    <div class="card"><div class="card-label">Produção</div><div class="card-value" id="valProd">—</div><div class="card-sub">procedimentos realizados</div></div>
+    <div class="card"><div class="card-label">Receita</div><div class="card-value" id="valRec">—</div><div class="card-sub">recebido em caixa (RECEIVED)</div></div>
+    <div class="card" id="cardAlign"><div class="card-label">Alinhamento</div><div class="card-value" id="valAlign">—</div><div class="card-sub">Produção ÷ Receita</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">Por dentista</div>
+    <table><thead><tr><th>Dentista</th><th>Produção</th><th>% da produção</th></tr></thead>
+    <tbody id="tbDentista"><tr><td colspan="3" class="empty">Selecione um período</td></tr></tbody></table>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      Procedimentos realizados
+      <span id="totalProc" style="font-size:12px;color:var(--muted);font-weight:400"></span>
+    </div>
+    <table><thead><tr><th>Data</th><th>Dentista</th><th>Procedimento</th><th>Paciente</th><th>Valor</th></tr></thead>
+    <tbody id="tbProc"><tr><td colspan="5" class="empty">Selecione um período</td></tr></tbody></table>
+    <div class="pagination" id="paginacao" style="display:none">
+      <button class="btn btn-ghost" id="btnAnterior" onclick="mudarPagina(-1)">← Anterior</button>
+      <span id="paginaInfo"></span>
+      <button class="btn btn-ghost" id="btnProximo" onclick="mudarPagina(1)">Próximo →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN_KEY = [...Object.keys(localStorage)].find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+const TOKEN = TOKEN_KEY ? JSON.parse(localStorage.getItem(TOKEN_KEY) || '{}')?.access_token : null;
+
+let currentPage = 1;
+let currentFrom = '';
+let currentTo   = '';
+
+// Inicializa com mês atual
+const hoje = new Date();
+document.getElementById('mes').value = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+
+function toggleRange() {
+  const ri = document.getElementById('rangeInputs');
+  const mes = document.getElementById('mes');
+  const visible = ri.classList.toggle('visible');
+  mes.style.display = visible ? 'none' : '';
+  document.getElementById('btnRange').textContent = visible ? 'Usar mês' : 'Range livre';
+}
+
+function getPeriodo() {
+  const rangeVisible = document.getElementById('rangeInputs').classList.contains('visible');
+  if (rangeVisible) {
+    return { from: document.getElementById('rangeFrom').value, to: document.getElementById('rangeTo').value };
+  }
+  const [ano, mes] = document.getElementById('mes').value.split('-');
+  if (!ano || !mes) return null;
+  const from = `${ano}-${mes}-01`;
+  const ultimo = new Date(Number(ano), Number(mes), 0).getDate();
+  const to = `${ano}-${mes}-${String(ultimo).padStart(2, '0')}`;
+  return { from, to };
+}
+
+function fmt(v) {
+  return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+async function apiFetch(url) {
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function carregar() {
+  const p = getPeriodo();
+  if (!p || !p.from || !p.to) { alert('Selecione um período válido'); return; }
+  currentFrom = p.from;
+  currentTo   = p.to;
+  currentPage = 1;
+  await Promise.all([carregarResumo(), carregarProcedimentos()]);
+}
+
+async function carregarResumo() {
+  document.getElementById('valProd').textContent = '...';
+  document.getElementById('valRec').textContent  = '...';
+  document.getElementById('valAlign').textContent = '...';
+  document.getElementById('tbDentista').innerHTML = '<tr><td colspan="3" class="empty">Carregando...</td></tr>';
+
+  try {
+    const d = await apiFetch(`/api/producao/resumo?from=${currentFrom}&to=${currentTo}`);
+
+    document.getElementById('valProd').textContent = fmt(d.producao_total);
+    document.getElementById('valRec').textContent  = fmt(d.receita_total);
+
+    const pct = d.percentual;
+    document.getElementById('valAlign').textContent = pct !== null ? `${pct}%` : '—';
+    const card = document.getElementById('cardAlign');
+    card.className = 'card ' + (pct === null ? '' : pct >= 90 && pct <= 110 ? 'card-green' : pct >= 80 && pct <= 125 ? 'card-yellow' : 'card-red');
+
+    const tb = document.getElementById('tbDentista');
+    if (!d.por_dentista || !d.por_dentista.length) {
+      tb.innerHTML = '<tr><td colspan="3" class="empty">Sem dados de produção neste período</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.por_dentista.map(r => `
+      <tr>
+        <td>${r.dentist_name}</td>
+        <td>${fmt(r.producao)}</td>
+        <td>${r.participacao_pct}%</td>
+      </tr>`).join('');
+  } catch (e) {
+    document.getElementById('tbDentista').innerHTML = `<tr><td colspan="3" class="empty">Erro: ${e.message}</td></tr>`;
+  }
+}
+
+async function carregarProcedimentos() {
+  document.getElementById('tbProc').innerHTML = '<tr><td colspan="5" class="empty">Carregando...</td></tr>';
+  document.getElementById('paginacao').style.display = 'none';
+
+  try {
+    const d = await apiFetch(`/api/producao/procedimentos?from=${currentFrom}&to=${currentTo}&page=${currentPage}&limit=100`);
+
+    document.getElementById('totalProc').textContent = `${d.total} procedimentos`;
+
+    if (!d.data || !d.data.length) {
+      document.getElementById('tbProc').innerHTML = '<tr><td colspan="5" class="empty">Sem procedimentos neste período</td></tr>';
+      return;
+    }
+
+    document.getElementById('tbProc').innerHTML = d.data.map(r => `
+      <tr>
+        <td>${r.executed_date ? r.executed_date.slice(0, 10).split('-').reverse().join('/') : '—'}</td>
+        <td>${r.dentist_name || '—'}</td>
+        <td>${r.procedure_name || '<em style="color:var(--muted)">não identificado</em>'}</td>
+        <td>${r.paciente_nome || '—'}</td>
+        <td>${fmt(r.amount)}</td>
+      </tr>`).join('');
+
+    const totalPags = Math.ceil(d.total / 100);
+    if (totalPags > 1) {
+      document.getElementById('paginaInfo').textContent = `Página ${currentPage} de ${totalPags}`;
+      document.getElementById('btnAnterior').disabled = currentPage <= 1;
+      document.getElementById('btnProximo').disabled  = currentPage >= totalPags;
+      document.getElementById('paginacao').style.display = 'flex';
+    }
+  } catch (e) {
+    document.getElementById('tbProc').innerHTML = `<tr><td colspan="5" class="empty">Erro: ${e.message}</td></tr>`;
+  }
+}
+
+async function mudarPagina(delta) {
+  currentPage = Math.max(1, currentPage + delta);
+  await carregarProcedimentos();
+}
+
+async function atualizarDados() {
+  const btn = document.getElementById('btnSync');
+  btn.disabled = true;
+  btn.textContent = '⏳ Sincronizando...';
+  try {
+    const r = await fetch('/api/admin/sync-clinicorp', { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } });
+    const d = await r.json();
+    btn.textContent = d.ok ? '✅ Sincronizado' : '⚠️ Erro no sync';
+    if (d.ok && currentFrom) await Promise.all([carregarResumo(), carregarProcedimentos()]);
+  } catch (e) {
+    btn.textContent = '⚠️ Erro';
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = '🔄 Atualizar dados'; }, 3000);
+}
+</script>
+</body>
+</html>

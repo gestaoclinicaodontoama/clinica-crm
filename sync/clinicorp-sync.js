@@ -479,6 +479,79 @@ async function syncEntradas() {
   return n;
 }
 
+const PRODUCAO_DIAS = 90;
+
+async function syncProducao() {
+  // Carrega catálogo de procedimentos uma vez (cache por sessão de sync)
+  const catalogRaw = await api.get('/procedures/list', {});
+  const catalog = new Map();
+  if (Array.isArray(catalogRaw)) {
+    for (const p of catalogRaw) {
+      if (p.id) catalog.set(String(p.id), p.ProcedureName || p.Name || '');
+    }
+  }
+
+  const estimates = await fetchRangeChunked('/estimates/list', PRODUCAO_DIAS);
+
+  const rows = [];
+  for (const est of estimates) {
+    const estId = String(est.id || est.EstimateId || '');
+    if (!estId) continue;
+    const procs = est.ProcedureList || est.procedureList || [];
+    for (const p of procs) {
+      if (p.Executed !== 'X') continue;
+      const amount = Number(p.Amount ?? 0);
+      if (amount <= 0) continue;
+      const priceId = p.PriceId ? String(p.PriceId) : null;
+      rows.push({
+        clinicorp_estimate_id:  estId,
+        clinicorp_treatment_id: est.TreatmentId ? String(est.TreatmentId) : null,
+        price_id:               priceId,
+        procedure_name:         priceId ? (catalog.get(priceId) || '') : '',
+        specialty_id:           p.SpecialtyId ? String(p.SpecialtyId) : null,
+        dentist_person_id:      p.Dentist_PersonId ? String(p.Dentist_PersonId) : null,
+        dentist_name:           p.ProfessionalName || p.DentistName || null,
+        executed_date:          p.ExecutedDate ? p.ExecutedDate.slice(0, 10) : null,
+        amount,
+        bill_type:              p.BillType || null,
+        paciente_nome:          est.PatientName || null,
+        atualizado_em:          new Date().toISOString(),
+      });
+    }
+  }
+
+  // Filtra linhas sem executed_date (dado inválido da Clinicorp)
+  const valid = rows.filter(r => r.executed_date);
+
+  // Deduplica pelo mesmo critério da coluna gerada no Postgres:
+  // dedup_key = clinicorp_estimate_id|price_id|epoch(executed_date)|dentist_person_id
+  const seenKeys = new Set();
+  const deduped = [];
+  for (const r of valid) {
+    const epoch = Math.floor(new Date(r.executed_date).getTime() / 1000);
+    const key = `${r.clinicorp_estimate_id}|${r.price_id || ''}|${epoch}|${r.dentist_person_id || ''}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      deduped.push(r);
+    }
+  }
+
+  let count = 0;
+  for (let i = 0; i < deduped.length; i += 500) {
+    const chunk = deduped.slice(i, i + 500);
+    // onConflict usa a coluna gerada 'dedup_key' (UNIQUE CONSTRAINT normal)
+    const { error } = await supabase.from('producao_procedimentos').upsert(chunk, {
+      onConflict: 'dedup_key',
+      ignoreDuplicates: false,
+    });
+    if (error) log(`ERRO upsert producao (batch ${i}): ${error.message}`);
+    else count += chunk.length;
+  }
+
+  log(`Produção: ${count} procedimentos upserted (${deduped.length} únicos de ${valid.length} válidos, ${rows.length} brutos)`);
+  return { count };
+}
+
 function addDias(dateStr, dias) {
   const d = new Date(dateStr); d.setDate(d.getDate() + dias);
   return d.toISOString().slice(0, 10);
@@ -632,6 +705,12 @@ async function runSync(trigger = 'agendado') {
   // Fase 7: funil comercial (orçamentos) — alimenta a Conferência
   await step('orcamentos_funil', async () => { result.steps.orcamentos_funil = await syncOrcamentos(); });
 
+  // Fase 7b: produção realizada (ProcedureList Executed=X, janela 90d)
+  await step('producao', async () => {
+    const r = await syncProducao();
+    result.steps.producao = r.count;
+  });
+
   // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
   await step('leads_vinculados', async () => { result.steps.leads_vinculados = await vincularLeads(); });
 
@@ -674,4 +753,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, syncProducao, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes };
