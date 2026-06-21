@@ -223,6 +223,9 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
     <button class="mod-tab" id="tab-btn-criar" role="tab" aria-selected="false" aria-controls="tab-criar" data-tab="criar">
       Criar
     </button>
+    <button class="mod-tab" id="tab-btn-coletas" role="tab" aria-selected="false" aria-controls="tab-coletas" data-tab="coletas">
+      Coletas
+    </button>
     <button class="mod-tab" id="tab-btn-historico" role="tab" aria-selected="false" aria-controls="tab-historico" data-tab="historico">
       Histórico
     </button>
@@ -234,6 +237,10 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
 
   <div id="tab-criar" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-criar">
     <div id="criar-root"></div>
+  </div>
+
+  <div id="tab-coletas" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-coletas">
+    <div id="coletas-root"></div>
   </div>
 
   <div id="tab-historico" class="mod-pane" role="tabpanel" aria-labelledby="tab-btn-historico">
@@ -249,6 +256,9 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
 
 <script src="/js/shared-nav.js" data-active="tarefas-gestao"></script>
 <script src="/js/tarefas/api.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+        integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="/js/tarefas/gestao.js"></script>
 </body>
 </html>
