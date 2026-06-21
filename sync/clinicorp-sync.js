@@ -523,9 +523,22 @@ async function syncProducao() {
   // Filtra linhas sem executed_date (dado inválido da Clinicorp)
   const valid = rows.filter(r => r.executed_date);
 
+  // Deduplica pelo mesmo critério da coluna gerada no Postgres:
+  // dedup_key = clinicorp_estimate_id|price_id|epoch(executed_date)|dentist_person_id
+  const seenKeys = new Set();
+  const deduped = [];
+  for (const r of valid) {
+    const epoch = Math.floor(new Date(r.executed_date).getTime() / 1000);
+    const key = `${r.clinicorp_estimate_id}|${r.price_id || ''}|${epoch}|${r.dentist_person_id || ''}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      deduped.push(r);
+    }
+  }
+
   let count = 0;
-  for (let i = 0; i < valid.length; i += 500) {
-    const chunk = valid.slice(i, i + 500);
+  for (let i = 0; i < deduped.length; i += 500) {
+    const chunk = deduped.slice(i, i + 500);
     // onConflict usa a coluna gerada 'dedup_key' (UNIQUE CONSTRAINT normal)
     const { error } = await supabase.from('producao_procedimentos').upsert(chunk, {
       onConflict: 'dedup_key',
@@ -535,7 +548,7 @@ async function syncProducao() {
     else count += chunk.length;
   }
 
-  log(`Produção: ${count} procedimentos upserted (${valid.length} válidos de ${rows.length} brutos)`);
+  log(`Produção: ${count} procedimentos upserted (${deduped.length} únicos de ${valid.length} válidos, ${rows.length} brutos)`);
   return { count };
 }
 
