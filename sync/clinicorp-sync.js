@@ -487,10 +487,10 @@ async function syncProducao() {
   const hoje = new Date().toISOString().slice(0, 10);
   const catalogRaw = await api.get('/procedures/list', { from: '2020-01-01', to: hoje });
   const catalog = new Map();
-  if (Array.isArray(catalogRaw)) {
-    for (const p of catalogRaw) {
-      if (p.id) catalog.set(String(p.id), p.ProcedureName || p.Name || '');
-    }
+  // API retorna { "NomeTabelaPreco": [{id, ProcedureName, ...}], ... }
+  const allProcs = Array.isArray(catalogRaw) ? catalogRaw : Object.values(catalogRaw).flat();
+  for (const p of allProcs) {
+    if (p.id) catalog.set(String(p.id), p.ProcedureName || p.Name || '');
   }
 
   const estimates = await fetchRangeChunked('/estimates/list', PRODUCAO_DIAS);
