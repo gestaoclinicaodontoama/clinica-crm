@@ -138,6 +138,9 @@ function getPeriodo() {
 function fmt(v) {
   return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 async function apiFetch(url) {
   const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
@@ -178,7 +181,7 @@ async function carregarResumo() {
     }
     tb.innerHTML = d.por_dentista.map(r => `
       <tr>
-        <td>${r.dentist_name}</td>
+        <td>${esc(r.dentist_name)}</td>
         <td>${fmt(r.producao)}</td>
         <td>${r.participacao_pct}%</td>
       </tr>`).join('');
@@ -204,9 +207,9 @@ async function carregarProcedimentos() {
     document.getElementById('tbProc').innerHTML = d.data.map(r => `
       <tr>
         <td>${r.executed_date ? r.executed_date.slice(0, 10).split('-').reverse().join('/') : '—'}</td>
-        <td>${r.dentist_name || '—'}</td>
-        <td>${r.procedure_name || '<em style="color:var(--muted)">não identificado</em>'}</td>
-        <td>${r.paciente_nome || '—'}</td>
+        <td>${esc(r.dentist_name) || '—'}</td>
+        <td>${r.procedure_name ? esc(r.procedure_name) : '<em style="color:var(--muted)">não identificado</em>'}</td>
+        <td>${esc(r.paciente_nome) || '—'}</td>
         <td>${fmt(r.amount)}</td>
       </tr>`).join('');
 
