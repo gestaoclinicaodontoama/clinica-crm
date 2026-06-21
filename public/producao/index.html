@@ -81,7 +81,6 @@ tr:hover td{background:var(--bg3)}
 </style>
 </head>
 <body>
-<script src="/js/shared-nav.js" data-active="producao"></script>
 <div class="wrap">
   <div class="page-header">
     <h1>Receita × Entrega</h1>
@@ -156,6 +155,7 @@ tr:hover td{background:var(--bg3)}
   </div>
 </div>
 
+<script src="/js/shared-nav.js" data-active="producao"></script>
 <script>
 const TOKEN_KEY = [...Object.keys(localStorage)].find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
 const TOKEN = TOKEN_KEY ? JSON.parse(localStorage.getItem(TOKEN_KEY) || '{}')?.access_token : null;
