@@ -32,8 +32,10 @@ async function main() {
   }
 
   // Carrega catálogo uma vez
+  // Clinicorp exige from/to em */list; usa janela ampla para cobrir todos os procedimentos
   console.log('Carregando catálogo de procedimentos...');
-  const catalogRaw = await api.get('/procedures/list', {});
+  const hoje = new Date().toISOString().slice(0, 10);
+  const catalogRaw = await api.get('/procedures/list', { from: '2020-01-01', to: hoje });
   const catalog = new Map();
   if (Array.isArray(catalogRaw)) {
     for (const p of catalogRaw) {

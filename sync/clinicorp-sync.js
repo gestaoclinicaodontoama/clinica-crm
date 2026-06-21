@@ -483,7 +483,9 @@ const PRODUCAO_DIAS = 90;
 
 async function syncProducao() {
   // Carrega catálogo de procedimentos uma vez (cache por sessão de sync)
-  const catalogRaw = await api.get('/procedures/list', {});
+  // Clinicorp exige from/to em */list; usa janela ampla para cobrir todos os procedimentos
+  const hoje = new Date().toISOString().slice(0, 10);
+  const catalogRaw = await api.get('/procedures/list', { from: '2020-01-01', to: hoje });
   const catalog = new Map();
   if (Array.isArray(catalogRaw)) {
     for (const p of catalogRaw) {
