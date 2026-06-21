@@ -845,7 +845,7 @@
 
       // Por pessoa (tabela)
       let linhas = '';
-      Object.keys(d.por_pessoa).forEach(pid => {
+      Object.keys(d.por_pessoa || {}).forEach(pid => {
         const row = d.por_pessoa[pid];
         const cols = metr.filter(m => m.tipo_campo !== 'texto')
           .map(m => '<td>' + (row[m.chave] || 0) + '</td>').join('');

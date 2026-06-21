@@ -5863,19 +5863,24 @@ app.get('/api/coletas/:templateId/dashboard', requireAuth, async (req, res) => {
     const serieRpc = await supabase.rpc('coleta_serie',
       { p_template_id: tpl.id, p_de: de, p_ate: ate, p_pessoa: pessoa, p_gran: gran });
 
-    const porPessoaRpc = await supabase.rpc('coleta_por_pessoa',
-      { p_template_id: tpl.id, p_de: de, p_ate: ate });
-    const porPessoa = {};
-    for (const r of (porPessoaRpc.data || [])) {
-      (porPessoa[r.assignee_id] || (porPessoa[r.assignee_id] = {}))[r.chave] = Number(r.total) || 0;
-    }
-
-    res.json({
+    const payload = {
       template: { id: tpl.id, titulo: tpl.titulo, metricas: tpl.metricas || [], conversoes: tpl.conversoes || [], ver_proprio: tpl.ver_proprio },
       somas, conversoes,
       serie: serieRpc.data || [],
-      por_pessoa: porPessoa,
-    });
+    };
+
+    // por_pessoa expõe os números de toda a equipe — só para gestor/admin.
+    if (isGestor) {
+      const porPessoaRpc = await supabase.rpc('coleta_por_pessoa',
+        { p_template_id: tpl.id, p_de: de, p_ate: ate });
+      const porPessoa = {};
+      for (const r of (porPessoaRpc.data || [])) {
+        (porPessoa[r.assignee_id] || (porPessoa[r.assignee_id] = {}))[r.chave] = Number(r.total) || 0;
+      }
+      payload.por_pessoa = porPessoa;
+    }
+
+    res.json(payload);
   } catch (e) {
     console.error('[GET /api/coletas/:id/dashboard]', e.message);
     res.status(500).json({ error: e.message });
