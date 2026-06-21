@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Receita x Entrega — AMA</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="/js/chart.min.js"></script>
 <style>
 :root[data-theme="dark"] {
   --bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;
@@ -18,79 +19,132 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-.wrap{padding:20px 24px}
-.header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
-.header h1{font-size:20px;font-weight:700;flex:1}
-.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px}
-.controls label{font-size:13px;color:var(--muted);font-weight:500}
+.wrap{padding:16px 20px}
+.page-header{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.page-header h1{font-size:20px;font-weight:700;flex:1}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;
+  background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.controls label{font-size:12px;color:var(--muted);font-weight:500}
 .controls input[type="month"],.controls input[type="date"]{
-  padding:6px 10px;border:1px solid var(--border);border-radius:8px;
-  font-size:13px;background:var(--bg2);color:var(--text);font-family:inherit;outline:none
-}
+  padding:5px 9px;border:1px solid var(--border);border-radius:7px;
+  font-size:13px;background:var(--bg);color:var(--text);font-family:inherit;outline:none}
 .controls input:focus{border-color:var(--accent)}
-.btn{padding:7px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
+.controls select{
+  padding:5px 9px;border:1px solid var(--border);border-radius:7px;
+  font-size:13px;background:var(--bg);color:var(--text);font-family:inherit;outline:none;cursor:pointer}
+.controls select:focus{border-color:var(--accent)}
+.year-btns{display:flex;gap:4px}
+.year-btn{padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);
+  background:var(--bg3);color:var(--muted);font-family:inherit;transition:all .15s}
+.year-btn:hover,.year-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-hover)}
 .btn-primary:disabled{opacity:.6;cursor:default}
-.btn-ghost{background:var(--bg2);color:var(--text);border:1px solid var(--border)}
-.btn-ghost:hover{background:var(--bg3)}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
-.card-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
-.card-value{font-size:24px;font-weight:700}
-.card-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--border)}
+.range-inputs{display:none;gap:6px;align-items:center}
+.range-inputs.visible{display:flex}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:16px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.card-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.card-value{font-size:22px;font-weight:700}
+.card-sub{font-size:11px;color:var(--muted);margin-top:3px}
 .card-green .card-value{color:var(--green)}
 .card-yellow .card-value{color:var(--yellow)}
 .card-red .card-value{color:var(--red)}
-.section{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px}
-.section-header{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+.section{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px}
+.section-header{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;
+  display:flex;justify-content:space-between;align-items:center}
+.section-header span{font-size:12px;color:var(--muted);font-weight:400}
 table{border-collapse:collapse;width:100%;font-size:13px}
-th{padding:10px 14px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px}
+th{padding:9px 13px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);
+  border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px}
 th:last-child,td:last-child{text-align:right}
-td{padding:9px 14px;border-bottom:1px solid var(--border)}
+td{padding:8px 13px;border-bottom:1px solid var(--border)}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--bg3)}
-.empty{padding:40px;color:var(--muted);text-align:center;font-size:13px}
-.pagination{display:flex;gap:8px;align-items:center;padding:12px 18px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)}
-.range-inputs{display:none;gap:8px;align-items:center}
-.range-inputs.visible{display:flex}
+.empty{padding:32px;color:var(--muted);text-align:center;font-size:13px}
+.pagination{display:flex;gap:8px;align-items:center;padding:10px 16px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)}
+.chart-wrap{padding:16px;height:260px;display:flex;align-items:center;justify-content:center}
+.filters{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--border);align-items:center}
+.search-input{flex:1;min-width:160px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;
+  font-size:13px;background:var(--bg);color:var(--text);font-family:inherit;outline:none}
+.search-input:focus{border-color:var(--accent)}
+.rank-bar-bg{background:var(--bg3);border-radius:3px;height:6px;flex:1;min-width:60px}
+.rank-bar{background:var(--accent);border-radius:3px;height:6px;transition:width .4s}
+.rank-row td{vertical-align:middle}
+.rank-num{font-weight:700;color:var(--muted);font-size:12px;width:28px}
 </style>
 </head>
 <body>
 <script src="/js/shared-nav.js" data-active="producao"></script>
 <div class="wrap">
-  <div class="header">
+  <div class="page-header">
     <h1>Receita × Entrega</h1>
+    <button class="btn btn-ghost" onclick="atualizarDados()" id="btnSync" style="font-size:12px">🔄 Atualizar dados</button>
   </div>
 
   <div class="controls">
+    <label>Ano</label>
+    <div class="year-btns">
+      <button class="year-btn" onclick="selecionarAno(2024)" id="y2024">2024</button>
+      <button class="year-btn" onclick="selecionarAno(2025)" id="y2025">2025</button>
+      <button class="year-btn" onclick="selecionarAno(2026)" id="y2026">2026</button>
+    </div>
+    <div class="sep"></div>
     <label>Mês</label>
     <input type="month" id="mes" />
-    <button class="btn btn-ghost" id="btnRange" onclick="toggleRange()">Range livre</button>
+    <button class="btn btn-ghost" id="btnRange" onclick="toggleRange()" style="font-size:12px">Range livre</button>
     <div class="range-inputs" id="rangeInputs">
       <label>De</label><input type="date" id="rangeFrom" />
       <label>Até</label><input type="date" id="rangeTo" />
     </div>
     <button class="btn btn-primary" onclick="carregar()">Carregar</button>
-    <button class="btn btn-ghost" onclick="atualizarDados()" id="btnSync">🔄 Atualizar dados</button>
   </div>
 
-  <div class="cards" id="cards">
+  <div class="cards">
     <div class="card"><div class="card-label">Produção</div><div class="card-value" id="valProd">—</div><div class="card-sub">procedimentos realizados</div></div>
     <div class="card"><div class="card-label">Receita</div><div class="card-value" id="valRec">—</div><div class="card-sub">recebido em caixa (RECEIVED)</div></div>
     <div class="card" id="cardAlign"><div class="card-label">Alinhamento</div><div class="card-value" id="valAlign">—</div><div class="card-sub">Produção ÷ Receita</div></div>
   </div>
 
+  <!-- Gráfico + Ranking lado a lado -->
+  <div class="grid2">
+    <div class="section">
+      <div class="section-header">Produção por dentista <span id="chartSub"></span></div>
+      <div class="chart-wrap"><canvas id="pieChart"></canvas></div>
+    </div>
+    <div class="section">
+      <div class="section-header">Top procedimentos <span id="topSub"></span></div>
+      <table>
+        <thead><tr><th style="width:28px">#</th><th>Procedimento</th><th>Qtd</th><th>Total</th></tr></thead>
+        <tbody id="tbTop"><tr><td colspan="4" class="empty">Selecione um período</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tabela por dentista -->
   <div class="section">
     <div class="section-header">Por dentista</div>
     <table><thead><tr><th>Dentista</th><th>Produção</th><th>% da produção</th></tr></thead>
     <tbody id="tbDentista"><tr><td colspan="3" class="empty">Selecione um período</td></tr></tbody></table>
   </div>
 
+  <!-- Procedimentos com filtros -->
   <div class="section">
     <div class="section-header">
       Procedimentos realizados
-      <span id="totalProc" style="font-size:12px;color:var(--muted);font-weight:400"></span>
+      <span id="totalProc"></span>
+    </div>
+    <div class="filters">
+      <input class="search-input" id="searchInput" type="text" placeholder="Buscar paciente ou procedimento..." oninput="debounceSearch()" />
+      <select id="dentistFilter" onchange="filtrarDentista()">
+        <option value="">Todos os dentistas</option>
+      </select>
     </div>
     <table><thead><tr><th>Data</th><th>Dentista</th><th>Procedimento</th><th>Paciente</th><th>Valor</th></tr></thead>
     <tbody id="tbProc"><tr><td colspan="5" class="empty">Selecione um período</td></tr></tbody></table>
@@ -109,13 +163,36 @@ const TOKEN = TOKEN_KEY ? JSON.parse(localStorage.getItem(TOKEN_KEY) || '{}')?.a
 let currentPage = 1;
 let currentFrom = '';
 let currentTo   = '';
+let searchTimer = null;
+let pieChartInst = null;
+
+const CHART_COLORS = [
+  '#4f8ef7','#22c55e','#f59e0b','#ef4444','#a855f7','#14b8a6',
+  '#f97316','#ec4899','#06b6d4','#84cc16','#8b5cf6','#fb923c',
+  '#10b981','#f43f5e','#64748b','#0ea5e9'
+];
 
 // Inicializa com mês atual
 const hoje = new Date();
-document.getElementById('mes').value = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+document.getElementById('mes').value = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+
+function selecionarAno(ano) {
+  // Desativa range e mês, configura range de ano inteiro
+  document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('y'+ano).classList.add('active');
+  // Esconde range livre, esconde mês
+  document.getElementById('rangeInputs').classList.remove('visible');
+  document.getElementById('mes').style.display = 'none';
+  document.getElementById('btnRange').textContent = 'Range livre';
+  // Define o range internamente
+  currentFrom = `${ano}-01-01`;
+  currentTo   = `${ano}-12-31`;
+  carregar();
+}
 
 function toggleRange() {
-  const ri = document.getElementById('rangeInputs');
+  document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+  const ri  = document.getElementById('rangeInputs');
   const mes = document.getElementById('mes');
   const visible = ri.classList.toggle('visible');
   mes.style.display = visible ? 'none' : '';
@@ -123,23 +200,33 @@ function toggleRange() {
 }
 
 function getPeriodo() {
+  if (currentFrom && currentTo && !document.getElementById('rangeInputs').classList.contains('visible') &&
+      !document.getElementById('mes').style.display) {
+    // pode ter sido setado por selecionarAno mas mes voltou — ignora
+  }
   const rangeVisible = document.getElementById('rangeInputs').classList.contains('visible');
   if (rangeVisible) {
     return { from: document.getElementById('rangeFrom').value, to: document.getElementById('rangeTo').value };
   }
-  const [ano, mes] = document.getElementById('mes').value.split('-');
-  if (!ano || !mes) return null;
-  const from = `${ano}-${mes}-01`;
-  const ultimo = new Date(Number(ano), Number(mes), 0).getDate();
-  const to = `${ano}-${mes}-${String(ultimo).padStart(2, '0')}`;
-  return { from, to };
+  const mesVal = document.getElementById('mes').value;
+  if (mesVal) {
+    const [ano, mes] = mesVal.split('-');
+    const from = `${ano}-${mes}-01`;
+    const ultimo = new Date(Number(ano), Number(mes), 0).getDate();
+    const to = `${ano}-${mes}-${String(ultimo).padStart(2,'0')}`;
+    return { from, to };
+  }
+  return null;
 }
 
 function fmt(v) {
-  return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return 'R$ ' + Number(v||0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
 }
 function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtNum(n) {
+  return Number(n||0).toLocaleString('pt-BR');
 }
 
 async function apiFetch(url) {
@@ -149,12 +236,18 @@ async function apiFetch(url) {
 }
 
 async function carregar() {
-  const p = getPeriodo();
-  if (!p || !p.from || !p.to) { alert('Selecione um período válido'); return; }
-  currentFrom = p.from;
-  currentTo   = p.to;
+  // Se não veio de selecionarAno, recalcula o período
+  const active = document.querySelector('.year-btn.active');
+  if (!active) {
+    const p = getPeriodo();
+    if (!p || !p.from || !p.to) { alert('Selecione um período válido'); return; }
+    currentFrom = p.from;
+    currentTo   = p.to;
+  }
   currentPage = 1;
-  await Promise.all([carregarResumo(), carregarProcedimentos()]);
+  document.getElementById('searchInput').value = '';
+  document.getElementById('dentistFilter').value = '';
+  await Promise.all([carregarResumo(), carregarProcedimentos(), carregarTop()]);
 }
 
 async function carregarResumo() {
@@ -172,21 +265,122 @@ async function carregarResumo() {
     const pct = d.percentual;
     document.getElementById('valAlign').textContent = pct !== null ? `${pct}%` : '—';
     const card = document.getElementById('cardAlign');
-    card.className = 'card ' + (pct === null ? '' : pct >= 90 && pct <= 110 ? 'card-green' : pct >= 80 && pct <= 125 ? 'card-yellow' : 'card-red');
+    card.className = 'card ' + (pct===null?'': pct>=90&&pct<=110?'card-green': pct>=80&&pct<=125?'card-yellow':'card-red');
 
-    const tb = document.getElementById('tbDentista');
     if (!d.por_dentista || !d.por_dentista.length) {
-      tb.innerHTML = '<tr><td colspan="3" class="empty">Sem dados de produção neste período</td></tr>';
+      document.getElementById('tbDentista').innerHTML = '<tr><td colspan="3" class="empty">Sem dados</td></tr>';
+      renderPie([]);
       return;
     }
-    tb.innerHTML = d.por_dentista.map(r => `
+
+    // Tabela por dentista
+    document.getElementById('tbDentista').innerHTML = d.por_dentista.map(r => `
       <tr>
         <td>${esc(r.dentist_name)}</td>
         <td>${fmt(r.producao)}</td>
         <td>${r.participacao_pct}%</td>
       </tr>`).join('');
+
+    // Popula filtro de dentista
+    const sel = document.getElementById('dentistFilter');
+    const prev = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    d.por_dentista.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.dentist_name;
+      opt.textContent = (r.dentist_name || 'Sem dentista') + ` (${r.participacao_pct}%)`;
+      sel.appendChild(opt);
+    });
+    if (prev) sel.value = prev;
+
+    renderPie(d.por_dentista);
+    document.getElementById('chartSub').textContent = fmt(d.producao_total);
   } catch (e) {
-    document.getElementById('tbDentista').innerHTML = `<tr><td colspan="3" class="empty">Erro: ${e.message}</td></tr>`;
+    document.getElementById('tbDentista').innerHTML = `<tr><td colspan="3" class="empty">Erro: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderPie(data) {
+  const ctx = document.getElementById('pieChart').getContext('2d');
+  if (pieChartInst) { pieChartInst.destroy(); pieChartInst = null; }
+  if (!data.length) return;
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#e8eaf0' : '#1a1d29';
+
+  pieChartInst = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: data.map(r => r.dentist_name || 'Sem dentista'),
+      datasets: [{
+        data: data.map(r => r.producao),
+        backgroundColor: CHART_COLORS.slice(0, data.length),
+        borderWidth: 2,
+        borderColor: isDark ? '#181b24' : '#ffffff',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '55%',
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            color: textColor,
+            font: { family: 'DM Sans', size: 11 },
+            boxWidth: 12,
+            padding: 8,
+            generateLabels(chart) {
+              return chart.data.labels.map((label, i) => ({
+                text: label.length > 18 ? label.slice(0, 18) + '…' : label,
+                fillStyle: CHART_COLORS[i % CHART_COLORS.length],
+                strokeStyle: CHART_COLORS[i % CHART_COLORS.length],
+                lineWidth: 0,
+                index: i,
+              }));
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const val = ctx.parsed;
+              const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
+              const pct = total > 0 ? Math.round(val/total*1000)/10 : 0;
+              return ` ${fmt(val)} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+async function carregarTop() {
+  document.getElementById('tbTop').innerHTML = '<tr><td colspan="4" class="empty">Carregando...</td></tr>';
+  try {
+    const d = await apiFetch(`/api/producao/top-procedimentos?from=${currentFrom}&to=${currentTo}&limit=10`);
+    if (!d.data || !d.data.length) {
+      document.getElementById('tbTop').innerHTML = '<tr><td colspan="4" class="empty">Sem dados</td></tr>';
+      return;
+    }
+    const maxVal = Number(d.data[0].total_value);
+    document.getElementById('tbTop').innerHTML = d.data.map((r, i) => {
+      const pct = maxVal > 0 ? Math.round(Number(r.total_value)/maxVal*100) : 0;
+      return `<tr class="rank-row">
+        <td class="rank-num">${i+1}</td>
+        <td>
+          <div style="font-size:12px;margin-bottom:4px">${esc(r.procedure_name)}</div>
+          <div class="rank-bar-bg"><div class="rank-bar" style="width:${pct}%"></div></div>
+        </td>
+        <td style="white-space:nowrap">${fmtNum(r.count)}×</td>
+        <td style="white-space:nowrap">${fmt(r.total_value)}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('topSub').textContent = `${d.data.length} procedimentos`;
+  } catch (e) {
+    document.getElementById('tbTop').innerHTML = `<tr><td colspan="4" class="empty">Erro: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -194,22 +388,28 @@ async function carregarProcedimentos() {
   document.getElementById('tbProc').innerHTML = '<tr><td colspan="5" class="empty">Carregando...</td></tr>';
   document.getElementById('paginacao').style.display = 'none';
 
-  try {
-    const d = await apiFetch(`/api/producao/procedimentos?from=${currentFrom}&to=${currentTo}&page=${currentPage}&limit=100`);
+  const search  = document.getElementById('searchInput').value.trim();
+  const dentist = document.getElementById('dentistFilter').value;
 
-    document.getElementById('totalProc').textContent = `${d.total} procedimentos`;
+  let url = `/api/producao/procedimentos?from=${currentFrom}&to=${currentTo}&page=${currentPage}&limit=100`;
+  if (search)  url += `&search=${encodeURIComponent(search)}`;
+  if (dentist) url += `&dentist=${encodeURIComponent(dentist)}`;
+
+  try {
+    const d = await apiFetch(url);
+    document.getElementById('totalProc').textContent = `${fmtNum(d.total)} procedimentos`;
 
     if (!d.data || !d.data.length) {
-      document.getElementById('tbProc').innerHTML = '<tr><td colspan="5" class="empty">Sem procedimentos neste período</td></tr>';
+      document.getElementById('tbProc').innerHTML = '<tr><td colspan="5" class="empty">Nenhum procedimento encontrado</td></tr>';
       return;
     }
 
     document.getElementById('tbProc').innerHTML = d.data.map(r => `
       <tr>
-        <td>${r.executed_date ? r.executed_date.slice(0, 10).split('-').reverse().join('/') : '—'}</td>
-        <td>${esc(r.dentist_name) || '—'}</td>
+        <td>${r.executed_date ? r.executed_date.slice(0,10).split('-').reverse().join('/') : '—'}</td>
+        <td>${esc(r.dentist_name)||'—'}</td>
         <td>${r.procedure_name ? esc(r.procedure_name) : '<em style="color:var(--muted)">não identificado</em>'}</td>
-        <td>${esc(r.paciente_nome) || '—'}</td>
+        <td>${esc(r.paciente_nome)||'—'}</td>
         <td>${fmt(r.amount)}</td>
       </tr>`).join('');
 
@@ -221,28 +421,35 @@ async function carregarProcedimentos() {
       document.getElementById('paginacao').style.display = 'flex';
     }
   } catch (e) {
-    document.getElementById('tbProc').innerHTML = `<tr><td colspan="5" class="empty">Erro: ${e.message}</td></tr>`;
+    document.getElementById('tbProc').innerHTML = `<tr><td colspan="5" class="empty">Erro: ${esc(e.message)}</td></tr>`;
   }
 }
 
-async function mudarPagina(delta) {
+function mudarPagina(delta) {
   currentPage = Math.max(1, currentPage + delta);
-  await carregarProcedimentos();
+  carregarProcedimentos();
+}
+
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { currentPage = 1; carregarProcedimentos(); }, 400);
+}
+
+function filtrarDentista() {
+  currentPage = 1;
+  carregarProcedimentos();
 }
 
 async function atualizarDados() {
   const btn = document.getElementById('btnSync');
-  btn.disabled = true;
-  btn.textContent = '⏳ Sincronizando...';
+  btn.disabled = true; btn.textContent = '⏳ Sincronizando...';
   try {
-    const r = await fetch('/api/admin/sync-clinicorp', { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } });
+    const r = await fetch('/api/admin/sync-clinicorp', { method:'POST', headers:{ Authorization:`Bearer ${TOKEN}` } });
     const d = await r.json();
     btn.textContent = d.ok ? '✅ Sincronizado' : '⚠️ Erro no sync';
-    if (d.ok && currentFrom) await Promise.all([carregarResumo(), carregarProcedimentos()]);
-  } catch (e) {
-    btn.textContent = '⚠️ Erro';
-  }
-  setTimeout(() => { btn.disabled = false; btn.textContent = '🔄 Atualizar dados'; }, 3000);
+    if (d.ok && currentFrom) await Promise.all([carregarResumo(), carregarProcedimentos(), carregarTop()]);
+  } catch (e) { btn.textContent = '⚠️ Erro'; }
+  setTimeout(() => { btn.disabled=false; btn.textContent='🔄 Atualizar dados'; }, 3000);
 }
 </script>
 </body>

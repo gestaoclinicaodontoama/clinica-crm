@@ -6354,25 +6354,43 @@ app.get('/api/producao/resumo', requireAuth, requireProducao, async (req, res) =
 });
 
 app.get('/api/producao/procedimentos', requireAuth, requireProducao, async (req, res) => {
-  const { from, to } = req.query;
+  const { from, to, search, dentist } = req.query;
   const page  = Math.max(1, parseInt(req.query.page  || '1'));
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || '100')));
   if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
 
   try {
     const offset = (page - 1) * limit;
-    const { data, error, count } = await supabase
+    let q = supabase
       .from('producao_procedimentos')
       .select('executed_date, dentist_name, procedure_name, paciente_nome, amount, bill_type', { count: 'exact' })
       .gte('executed_date', from)
       .lte('executed_date', to)
-      .order('executed_date', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order('executed_date', { ascending: false });
 
+    if (dentist) q = q.ilike('dentist_name', `%${dentist}%`);
+    if (search)  q = q.or(`procedure_name.ilike.%${search}%,paciente_nome.ilike.%${search}%`);
+
+    const { data, error, count } = await q.range(offset, offset + limit - 1);
     if (error) throw new Error(error.message);
     res.json({ total: count || 0, page, data: data || [] });
   } catch (e) {
     console.error('[producao/procedimentos]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/producao/top-procedimentos', requireAuth, requireProducao, async (req, res) => {
+  const { from, to } = req.query;
+  const topN = Math.min(20, Math.max(1, parseInt(req.query.limit || '10')));
+  if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
+
+  try {
+    const { data, error } = await supabase.rpc('producao_top_procedimentos', { p_from: from, p_to: to, p_limit: topN });
+    if (error) throw new Error(error.message);
+    res.json({ data: data || [] });
+  } catch (e) {
+    console.error('[producao/top-procedimentos]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
