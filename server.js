@@ -6424,7 +6424,7 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
     const { data: execDentists, error: eExec } = await supabase
       .from('producao_procedimentos')
       .select('dentist_person_id, dentist_name')
-      .ilike('dentist_name', '%execução%')
+      .not('dentist_name', 'ilike', '%avalia%')
       .not('dentist_person_id', 'is', null);
     if (eExec) throw new Error(eExec.message);
     const execMap = {};
@@ -6561,7 +6561,7 @@ app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (
     const { data: execDentists, error: eExec } = await supabase
       .from('producao_procedimentos')
       .select('dentist_person_id, dentist_name')
-      .ilike('dentist_name', '%execução%')
+      .not('dentist_name', 'ilike', '%avalia%')
       .not('dentist_person_id', 'is', null);
     if (eExec) throw new Error(eExec.message);
     const execMap = {};

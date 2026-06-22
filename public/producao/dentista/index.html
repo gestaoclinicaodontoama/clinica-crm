@@ -420,7 +420,7 @@ function renderEvolucao(rows) {
   });
 
   const datasets = dentIds.map((id, i) => {
-    const shortName = (dentMap.get(id) || id).replace(/\s*-\s*(Execu[cç][aã]o|Exec\.?)/i, '').trim();
+    const shortName = (dentMap.get(id) || id).replace(/\s*-\s*(Execu[cç][aã]o|Avalia[cç][aã]o|Exec\.?)/gi, '').trim();
     return {
       label: shortName,
       data: monthKeys.map(m => {
