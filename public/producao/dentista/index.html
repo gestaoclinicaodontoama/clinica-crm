@@ -273,11 +273,9 @@ async function carregar() {
   document.getElementById('cardsContainer').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
   document.getElementById('evolSection').style.display = 'none';
 
-  const [resumoRes] = await Promise.all([
-    fetch(`/api/producao/dentista/resumo?from=${currentFrom}&to=${currentTo}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
-  ]);
+  const resumoRes = await fetch(`/api/producao/dentista/resumo?from=${currentFrom}&to=${currentTo}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 
   const resumo = await resumoRes.json();
   if (resumoRes.ok) {
@@ -323,8 +321,7 @@ function renderCards(dentistas) {
 
 function cardHtml(d) {
   const resClass = d.resultado_por_hora == null ? 'muted' : (d.resultado_por_hora >= 0 ? 'green' : 'red');
-  const manualIcon = d.horas_manual_override
-    ? ' <span title="Inclui horas manuais" style="color:var(--accent)">✏️</span>' : '';
+  const manualIcon = ` <span title="${d.horas_manual_override ? 'Inclui horas manuais' : 'Sem horas manuais'}" style="${d.horas_manual_override ? 'color:var(--accent)' : 'opacity:.3'}">✏️</span>`;
   return `
 <div class="dent-card" id="card-${esc(d.dentist_person_id)}">
   <div class="dent-card-header">
@@ -399,7 +396,7 @@ function renderEvolucao(rows) {
     const [ano, mes] = r.mes.split('-').map(Number);
     const mesLabel = MESES[mes - 1] + ' ' + ano;
     const manualMark = r.horas_manual ? ' ✏️' : '';
-    const resClass = r.resultado_por_hora == null ? '' : (r.resultado_por_hora >= 0 ? 'style="color:var(--green)"' : 'style="color:var(--red)"');
+    const resClass = r.resultado_por_hora == null ? 'style="color:var(--muted)"' : (r.resultado_por_hora >= 0 ? 'style="color:var(--green)"' : 'style="color:var(--red)"');
     return `<tr>
       <td>${esc(r.dentist_name)}</td>
       <td>${esc(mesLabel)}</td>
