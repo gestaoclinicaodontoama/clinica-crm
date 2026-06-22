@@ -6395,6 +6395,334 @@ app.get('/api/producao/top-procedimentos', requireAuth, requireProducao, async (
   }
 });
 
+// ── Análise por Dentista ─────────────────────────────────────────────────────
+
+// Helper: retorna array de {ano, mes} entre from e to (inclusive)
+function _getMonths(from, to) {
+  const months = [];
+  let d = new Date(from.slice(0, 7) + '-01');
+  const end = new Date(to.slice(0, 7) + '-01');
+  while (d <= end) {
+    months.push({ ano: d.getFullYear(), mes: d.getMonth() + 1 });
+    d.setMonth(d.getMonth() + 1);
+  }
+  return months;
+}
+
+// Resumo por dentista no período
+app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
+
+  try {
+    const fromYear = parseInt(from.slice(0, 4));
+    const toYear   = parseInt(to.slice(0, 4));
+    const months   = _getMonths(from, to);
+
+    const [
+      { data: agendaRows, error: eA },
+      { data: producaoRows, error: eP },
+      { data: manualRows,  error: eM },
+      { data: custoRows,   error: eC },
+    ] = await Promise.all([
+      supabase.from('agenda_appointments')
+        .select('dentist_person_id, dentist_name, appointment_date, duration_minutes')
+        .gte('appointment_date', from)
+        .lte('appointment_date', to)
+        .ilike('dentist_name', '%execução%')
+        .eq('deleted', false),
+      supabase.rpc('producao_por_dentista', { p_from: from, p_to: to }),
+      supabase.from('dentista_horas_manual')
+        .select('dentist_person_id, ano, mes, horas')
+        .gte('ano', fromYear)
+        .lte('ano', toYear),
+      supabase.from('dentista_custo_hora')
+        .select('dentist_person_id, ano, custo_hora'),
+    ]);
+    if (eA) throw new Error(eA.message);
+    if (eP) throw new Error(eP.message);
+    if (eM) throw new Error(eM.message);
+    if (eC) throw new Error(eC.message);
+
+    // Indexes
+    const manualMap = {};
+    for (const r of (manualRows || [])) {
+      if (!manualMap[r.dentist_person_id]) manualMap[r.dentist_person_id] = {};
+      manualMap[r.dentist_person_id][`${r.ano}-${r.mes}`] = Number(r.horas);
+    }
+    const custoMap = {};
+    for (const r of (custoRows || [])) {
+      if (!custoMap[r.dentist_person_id]) custoMap[r.dentist_person_id] = {};
+      custoMap[r.dentist_person_id][r.ano] = Number(r.custo_hora);
+    }
+    const producaoMap = {};
+    for (const r of (producaoRows || [])) {
+      if (r.dentist_person_id === '__sem_dentista__') continue;
+      producaoMap[r.dentist_person_id] = { producao: Number(r.producao), dentist_name: r.dentist_name };
+    }
+
+    // Group agenda by dentist → month
+    const agendaByDent = {};
+    for (const r of (agendaRows || [])) {
+      if (!r.dentist_person_id) continue;
+      if (!agendaByDent[r.dentist_person_id]) {
+        agendaByDent[r.dentist_person_id] = { dentist_name: r.dentist_name, byMonth: {} };
+      }
+      const d = new Date(r.appointment_date + 'T00:00:00');
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      if (!agendaByDent[r.dentist_person_id].byMonth[key]) {
+        agendaByDent[r.dentist_person_id].byMonth[key] = { mins: 0, dias: new Set() };
+      }
+      agendaByDent[r.dentist_person_id].byMonth[key].mins += Number(r.duration_minutes) || 0;
+      agendaByDent[r.dentist_person_id].byMonth[key].dias.add(r.appointment_date);
+    }
+
+    // Build result — only for execução dentists (those who appear in agenda)
+    const data = [];
+    for (const dentId of Object.keys(agendaByDent)) {
+      const agenda = agendaByDent[dentId];
+      const manual = manualMap[dentId] || {};
+
+      let horasTot = 0;
+      const diasSet = new Set();
+      let horas_manual_override = false;
+
+      for (const { ano, mes } of months) {
+        const key = `${ano}-${mes}`;
+        if (manual[key] !== undefined) {
+          horasTot += Number(manual[key]);
+          horas_manual_override = true;
+        } else {
+          const m = agenda.byMonth[key];
+          if (m) {
+            horasTot += m.mins / 60;
+            for (const d of m.dias) diasSet.add(d);
+          }
+        }
+      }
+
+      const producao_total    = Math.round((producaoMap[dentId]?.producao || 0) * 100) / 100;
+      const horas_agendadas   = Math.round(horasTot * 100) / 100;
+      const producao_por_hora = horas_agendadas > 0
+        ? Math.round((producao_total / horas_agendadas) * 100) / 100
+        : null;
+      const custo_hora        = custoMap[dentId]?.[fromYear] ?? null;
+      const resultado_por_hora = (producao_por_hora !== null && custo_hora !== null)
+        ? Math.round((producao_por_hora - custo_hora) * 100) / 100
+        : null;
+
+      data.push({
+        dentist_person_id: dentId,
+        dentist_name:      agenda.dentist_name || producaoMap[dentId]?.dentist_name || '',
+        producao_total,
+        horas_agendadas,
+        dias_com_agenda: diasSet.size,
+        producao_por_hora,
+        custo_hora,
+        resultado_por_hora,
+        horas_manual_override,
+      });
+    }
+
+    data.sort((a, b) => b.producao_total - a.producao_total);
+    res.json({ data });
+  } catch (e) {
+    console.error('[producao/dentista/resumo]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Evolução mensal por dentista
+app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
+
+  try {
+    const fromYear = parseInt(from.slice(0, 4));
+    const toYear   = parseInt(to.slice(0, 4));
+    const months   = _getMonths(from, to);
+
+    const [
+      { data: agendaRows, error: eA },
+      { data: manualRows,  error: eM },
+      { data: custoRows,   error: eC },
+    ] = await Promise.all([
+      supabase.from('agenda_appointments')
+        .select('dentist_person_id, dentist_name, appointment_date, duration_minutes')
+        .gte('appointment_date', from)
+        .lte('appointment_date', to)
+        .ilike('dentist_name', '%execução%')
+        .eq('deleted', false),
+      supabase.from('dentista_horas_manual')
+        .select('dentist_person_id, ano, mes, horas')
+        .gte('ano', fromYear)
+        .lte('ano', toYear),
+      supabase.from('dentista_custo_hora')
+        .select('dentist_person_id, ano, custo_hora'),
+    ]);
+    if (eA) throw new Error(eA.message);
+    if (eM) throw new Error(eM.message);
+    if (eC) throw new Error(eC.message);
+
+    // Produção mensal por dentista via RPC (uma chamada por mês em paralelo)
+    const producaoResults = await Promise.all(months.map(({ ano, mes }) => {
+      const pad = String(mes).padStart(2, '0');
+      const mFrom = `${ano}-${pad}-01`;
+      const lastDay = new Date(ano, mes, 0).getDate();
+      const mTo   = `${ano}-${pad}-${String(lastDay).padStart(2, '0')}`;
+      return supabase.rpc('producao_por_dentista', { p_from: mFrom, p_to: mTo })
+        .then(({ data }) => ({ ano, mes, rows: data || [] }));
+    }));
+
+    // Build producaoByMonthDent: dentId → { 'ano-mes': producao }
+    const producaoByMonthDent = {};
+    for (const { ano, mes, rows } of producaoResults) {
+      for (const r of rows) {
+        if (r.dentist_person_id === '__sem_dentista__') continue;
+        if (!producaoByMonthDent[r.dentist_person_id]) producaoByMonthDent[r.dentist_person_id] = {};
+        producaoByMonthDent[r.dentist_person_id][`${ano}-${mes}`] = Number(r.producao);
+      }
+    }
+
+    // Indexes
+    const manualMap = {};
+    for (const r of (manualRows || [])) {
+      if (!manualMap[r.dentist_person_id]) manualMap[r.dentist_person_id] = {};
+      manualMap[r.dentist_person_id][`${r.ano}-${r.mes}`] = Number(r.horas);
+    }
+    const custoMap = {};
+    for (const r of (custoRows || [])) {
+      if (!custoMap[r.dentist_person_id]) custoMap[r.dentist_person_id] = {};
+      custoMap[r.dentist_person_id][r.ano] = Number(r.custo_hora);
+    }
+
+    // Group agenda by dentist → month
+    const agendaByDent = {};
+    for (const r of (agendaRows || [])) {
+      if (!r.dentist_person_id) continue;
+      if (!agendaByDent[r.dentist_person_id]) {
+        agendaByDent[r.dentist_person_id] = { dentist_name: r.dentist_name, byMonth: {} };
+      }
+      const d = new Date(r.appointment_date + 'T00:00:00');
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      if (!agendaByDent[r.dentist_person_id].byMonth[key]) {
+        agendaByDent[r.dentist_person_id].byMonth[key] = { mins: 0, dias: new Set() };
+      }
+      agendaByDent[r.dentist_person_id].byMonth[key].mins += Number(r.duration_minutes) || 0;
+      agendaByDent[r.dentist_person_id].byMonth[key].dias.add(r.appointment_date);
+    }
+
+    // Build monthly rows
+    const data = [];
+    for (const dentId of Object.keys(agendaByDent)) {
+      const agenda = agendaByDent[dentId];
+      const manual = manualMap[dentId] || {};
+
+      for (const { ano, mes } of months) {
+        const key = `${ano}-${mes}`;
+        const manualEntry = manual[key];
+        const agendaEntry = agenda.byMonth[key];
+
+        const horas_manual    = manualEntry !== undefined;
+        const horas_agendadas = horas_manual
+          ? Number(manualEntry)
+          : (agendaEntry ? Math.round(agendaEntry.mins / 60 * 100) / 100 : 0);
+        const dias_com_agenda = horas_manual ? 0 : (agendaEntry ? agendaEntry.dias.size : 0);
+
+        const producao = producaoByMonthDent[dentId]?.[key] || 0;
+        const producao_por_hora = horas_agendadas > 0
+          ? Math.round((producao / horas_agendadas) * 100) / 100
+          : null;
+        const custo_hora = custoMap[dentId]?.[ano] ?? null;
+        const resultado_por_hora = (producao_por_hora !== null && custo_hora !== null)
+          ? Math.round((producao_por_hora - custo_hora) * 100) / 100
+          : null;
+
+        data.push({
+          mes:               `${ano}-${String(mes).padStart(2, '0')}`,
+          dentist_person_id: dentId,
+          dentist_name:      agenda.dentist_name,
+          producao:          Math.round(producao * 100) / 100,
+          horas_agendadas,
+          dias_com_agenda,
+          producao_por_hora,
+          custo_hora,
+          resultado_por_hora,
+          horas_manual,
+        });
+      }
+    }
+
+    data.sort((a, b) => a.dentist_name.localeCompare(b.dentist_name) || a.mes.localeCompare(b.mes));
+    res.json({ data });
+  } catch (e) {
+    console.error('[producao/dentista/evolucao]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Top 5 procedimentos de um dentista no período
+app.get('/api/producao/dentista/top-procedimentos', requireAuth, requireProducao, async (req, res) => {
+  const { from, to, dentist_id } = req.query;
+  if (!from || !to || !dentist_id) return res.status(400).json({ error: 'from, to e dentist_id obrigatórios' });
+
+  try {
+    const { data, error } = await supabase.rpc('producao_top_procs_dentista', {
+      p_from: from, p_to: to, p_dentist_id: dentist_id, p_limit: 5,
+    });
+    if (error) throw new Error(error.message);
+    res.json({ data: data || [] });
+  } catch (e) {
+    console.error('[producao/dentista/top-procedimentos]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Salvar custo/hora por dentista por ano
+app.post('/api/producao/dentista/custo-hora', requireAuth, requireProducao, async (req, res) => {
+  const { dentist_person_id, dentist_name, ano, custo_hora } = req.body;
+  if (!dentist_person_id || !ano || custo_hora == null) {
+    return res.status(400).json({ error: 'dentist_person_id, ano e custo_hora obrigatórios' });
+  }
+  try {
+    const { error } = await supabase.from('dentista_custo_hora').upsert({
+      dentist_person_id: String(dentist_person_id),
+      dentist_name:      dentist_name || null,
+      ano:               parseInt(ano),
+      custo_hora:        Number(custo_hora),
+      atualizado_em:     new Date().toISOString(),
+    }, { onConflict: 'dentist_person_id,ano' });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[producao/dentista/custo-hora]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Salvar horas manuais por dentista por mês
+app.post('/api/producao/dentista/horas-manual', requireAuth, requireProducao, async (req, res) => {
+  const { dentist_person_id, dentist_name, ano, mes, horas } = req.body;
+  if (!dentist_person_id || !ano || !mes || horas == null) {
+    return res.status(400).json({ error: 'dentist_person_id, ano, mes e horas obrigatórios' });
+  }
+  try {
+    const { error } = await supabase.from('dentista_horas_manual').upsert({
+      dentist_person_id: String(dentist_person_id),
+      dentist_name:      dentist_name || null,
+      ano:               parseInt(ano),
+      mes:               parseInt(mes),
+      horas:             Number(horas),
+      atualizado_em:     new Date().toISOString(),
+    }, { onConflict: 'dentist_person_id,ano,mes' });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[producao/dentista/horas-manual]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.use((err, req, res, next) => {
   console.error('💥', err);
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Erro interno' });
