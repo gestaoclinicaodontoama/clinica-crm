@@ -2582,7 +2582,7 @@ const EVENTOS_FUNIL = {
 };
 
 async function dispararConversaoMeta(lead, eventoCustom = null) {
-  const PIXEL = process.env.META_PIXEL_ID;
+  let PIXEL = process.env.META_PIXEL_ID;
   const TOKEN = process.env.META_ACCESS_TOKEN;
   if (!PIXEL || !TOKEN) { console.log('⚠️  Meta CAPI não configurada'); return; }
   const eventName = eventoCustom || EVENTOS_FUNIL[lead.status];
@@ -2603,7 +2603,18 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
     // Prefere a Página resolvida pelo próprio anúncio; cai para o fallback por env.
     const adId = (lead.referral_data || {}).source_id || '';
     const pageId = (await resolveAdPageId(adId)) || pageIdFallback(lead);
-    if (pageId) user_data.page_id = pageId;
+    if (pageId) {
+      user_data.page_id = pageId;
+      // Roteamento de dataset por Página: o Events Manager só permite 1 Página
+      // vinculada por dataset ("Dados vinculados"), então cada Página tem seu
+      // próprio dataset. META_PIXEL_BY_PAGE (JSON page_id->pixel_id) escolhe o
+      // destino do evento; sem match mantém META_PIXEL_ID. Retrocompatível: se a
+      // env não existir, comportamento idêntico ao anterior (1 dataset só).
+      try {
+        const pixelByPage = JSON.parse(process.env.META_PIXEL_BY_PAGE || '{}');
+        if (pixelByPage[pageId]) PIXEL = pixelByPage[pageId];
+      } catch (e) { console.error('META_PIXEL_BY_PAGE inválido:', e.message); }
+    }
   } else if (lead.fbclid) {
     user_data.fbc = 'fb.1.' + Math.floor(Date.now()/1000) + '.' + lead.fbclid;
   }
