@@ -554,6 +554,64 @@ async function syncProducao() {
   return { count };
 }
 
+const AGENDA_DIAS = 90;
+
+async function syncAgenda() {
+  function parseMinutes(t) {
+    if (!t) return 0;
+    const [h, m] = t.split(':').map(Number);
+    return ((h || 0) * 60) + (m || 0);
+  }
+
+  const raw = await fetchRangeChunked('/appointment/list', AGENDA_DIAS);
+
+  const rows = [];
+  const seenIds = new Set();
+  for (const a of raw) {
+    const apptId = String(a.id || a.AppointmentId || '');
+    if (!apptId || seenIds.has(apptId)) continue;
+    seenIds.add(apptId);
+
+    const apptDate = (a.date || a.Date || '').slice(0, 10);
+    if (!apptDate) continue;
+
+    const fromTime = a.fromTime || a.FromTime || null;
+    const toTime   = a.toTime   || a.ToTime   || null;
+    const dur = (fromTime && toTime)
+      ? parseMinutes(toTime) - parseMinutes(fromTime)
+      : null;
+
+    rows.push({
+      clinicorp_appt_id:  apptId,
+      dentist_person_id:  a.Dentist_PersonId ? String(a.Dentist_PersonId) : null,
+      dentist_name:       a.DentistName || a.ProfessionalName || null,
+      patient_name:       a.PatientName || null,
+      appointment_date:   apptDate,
+      from_time:          fromTime,
+      to_time:            toTime,
+      duration_minutes:   (dur !== null && dur >= 0) ? dur : null,
+      category:           a.CategoryDescription || null,
+      checkin_time:       a.CheckinTime || null,
+      deleted:            (a.Deleted || '') === 'X',
+      atualizado_em:      new Date().toISOString(),
+    });
+  }
+
+  let count = 0;
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const { error } = await supabase.from('agenda_appointments').upsert(chunk, {
+      onConflict: 'clinicorp_appt_id',
+      ignoreDuplicates: false,
+    });
+    if (error) log(`ERRO upsert agenda (batch ${i}): ${error.message}`);
+    else count += chunk.length;
+  }
+
+  log(`Agenda: ${count} appointments upserted (${rows.length} válidos de ${raw.length} brutos)`);
+  return { count };
+}
+
 function addDias(dateStr, dias) {
   const d = new Date(dateStr); d.setDate(d.getDate() + dias);
   return d.toISOString().slice(0, 10);
@@ -713,6 +771,12 @@ async function runSync(trigger = 'agendado') {
     result.steps.producao = r.count;
   });
 
+  // Fase 7c: agenda de consultas (para análise por dentista, janela 90d)
+  await step('agenda', async () => {
+    const r = await syncAgenda();
+    result.steps.agenda = r.count;
+  });
+
   // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
   await step('leads_vinculados', async () => { result.steps.leads_vinculados = await vincularLeads(); });
 
@@ -755,4 +819,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, syncProducao, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes };
