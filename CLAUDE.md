@@ -19,38 +19,45 @@ curl -s -X POST "http://2.24.94.120:3000/api/deploy/a03d084c1fe9b98fa7aba9c4bfb7
 
 ## Padrão de novo módulo — sidebar
 
-Todo módulo novo **deve ser adicionado ao nav lateral** de `public/index.html`.
+⚠️ **FONTE ÚNICA: `public/js/nav-config.js`.** O menu é definido UMA vez no array
+`CRM_NAV` desse arquivo. Tanto o `index.html` (SPA, via `setPage`) quanto as
+páginas separadas (`shared-nav.js`, via links) renderizam a partir dele. **Não
+edite itens de menu direto no `index.html` nem no `shared-nav.js`** — eles só
+contêm o "chrome" (logo, sino, tema, versão) e a lógica de cada contexto.
 
-**Antes de adicionar, perguntar:**
-> "Este módulo faz parte de um módulo existente (ex.: 'Pós Tratamento') ou é um módulo independente?"
+Para adicionar/alterar um item, edite **apenas** `CRM_NAV` em `nav-config.js`.
 
-### Módulo independente (link direto)
-Adicionar antes do botão "Usuários" em `public/index.html`:
-```html
-<a class="nav-btn" href="/nome-do-modulo/" data-roles="roles,separados,por,virgula">
-  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><!-- ícone --></svg>
-  Nome do Módulo
-</a>
+### Campos de um item (`CRM_NAV`)
+```js
+{ slug:'meu-modulo', label:'Meu Módulo', icon:'comercial',
+  roles:'admin,gestor,mod_meu_modulo',
+  mode:'link', href:'/meu-modulo/' }        // link → página separada
+// ou
+{ slug:'minha-aba', label:'Minha Aba', icon:'funil',
+  roles:'admin,gestor', mode:'spa' }         // spa → aba dentro do index (setPage)
 ```
-- `data-roles`: roles que podem ver o link. `admin` sempre tem acesso implícito.
-- O link navega para uma página separada (`/nome-do-modulo/index.html`).
+- `mode:'spa'`  → no index vira `<button data-page>` que chama `setPage(slug)`;
+  nas páginas separadas vira link `/?page=slug` (o index lê `?page=` e abre a aba).
+- `mode:'link'` → âncora com `href` em todos os contextos.
+- `icon`: nome de um ícone definido em `PATHS` no topo do `nav-config.js`
+  (use ícones distintos por área). Subitens não têm ícone.
+- `roles`: CSV de roles que veem o item. `admin` sempre vê.
+- `badge`: opcional `{ id, cls }` cria o `<span>` (atualizado pelo JS do index).
 
-**Sidebar obrigatória em páginas separadas:**
-Toda página fora do `index.html` deve incluir o shared-nav para manter a sidebar visível:
-1. Incluir o script antes do script do módulo: `<script src="/js/shared-nav.js" data-active="slug-da-pagina"></script>`
-2. Também adicionar a entrada correspondente em `public/js/shared-nav.js` (lista de links do nav)
-3. O `data-active` deve ser o slug que identifica a página no menu (ex: `avaliacao-dentista`)
+### Submódulo (dentro de uma seção, ex.: "Pós Tratamento")
+Adicione um objeto ao array `items:[...]` da seção correspondente em `CRM_NAV`.
+Seções colapsáveis têm `{ id, label, icon, roles, items:[...] }`.
 
-### Submódulo (dentro de seção existente, ex.: "Pós Tratamento")
-Adicionar dentro do `<div class="nav-submenu">` da seção pai:
-```html
-<a href="/pos-tratamento/nome.html" class="nav-subitem">Nome do Submódulo</a>
-```
+### Sidebar em páginas separadas
+Toda página fora do `index.html` inclui:
+`<script src="/js/shared-nav.js" data-active="slug-da-pagina"></script>`
+(o `shared-nav.js` carrega o `nav-config.js` sozinho). O `data-active` deve
+bater com o `slug` do item no `CRM_NAV`.
 
 ### Filtragem por roles
-O JS em `index.html` filtra automaticamente os itens com `data-roles`:
-- `.nav-btn[data-roles]` — botões e links de nível superior
-- `.nav-section[data-roles]` — seções com submenu (ex.: Pós Tratamento)
+Itens recebem `data-roles` automaticamente a partir do `CRM_NAV`. O filtro roda
+em runtime (loadCurrentUser no index; applyRoles no shared-nav) escondendo o que
+o usuário não pode ver. A sidebar só aparece após esse filtro (evita FOUC).
 
 ## Auth em páginas separadas
 
@@ -86,7 +93,7 @@ const requireAlgoDoModulo = requireRole('role_base', 'admin', 'mod_novo_modulo')
 ```
 
 ### 5. Nav (`data-roles`)
-Incluir o novo role no `data-roles` do link do módulo em `index.html` e `shared-nav.js`.
+Incluir o novo role no `roles` do item em `public/js/nav-config.js` (fonte única).
 
 **Resumo por módulo existente:**
 - Avaliação Dentista → Perfil Base: `dentista` | Módulos Extras: `mod_avaliacao_dentista`

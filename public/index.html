@@ -559,7 +559,8 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
   </div>
 </div>
 <div class="shell" id="app-shell" style="display:none">
-<nav>
+<script src="/js/nav-config.js"></script>
+<nav hidden>
   <div class="logo" style="display:flex;align-items:center;justify-content:space-between">
     <span>CRM <span>AMA</span></span>
     <button id="btn-sino" onclick="togglePainelNotif()" title="Notificações e Tarefas"
@@ -568,160 +569,8 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <span id="notif-badge" style="display:none;position:absolute;top:-2px;right:-2px;background:var(--red);color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:1px 4px;min-width:14px;text-align:center;line-height:14px"></span>
     </button>
   </div>
-  <button class="nav-btn active" data-page="dashboard" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento" onclick="setPage('dashboard',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-    Dashboard
-  </button>
-  <!-- CRC de Leads -->
-  <div class="nav-section" id="nav-section-crc-leads" data-roles="admin,gestor,crc_leads,crc_comercial">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('crc-leads')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg>
-      CRC de Leads
-      <svg class="nav-arrow" id="arrow-crc-leads" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-crc-leads" style="display:none">
-      <a href="/kanban-leads/" class="nav-subitem" data-roles="admin,crc,crc_leads,crc_comercial,mod_kanban_leads">Kanban Leads</a>
-      <button class="nav-subitem" data-page="conv-agendamentos" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('conv-agendamentos',this)">WhatsApp CRC Lead</button>
-      <button class="nav-subitem" data-page="conv-oficial" data-roles="admin,gestor" onclick="setPage('conv-oficial',this)">WhatsApp API Oficial</button>
-      <a class="nav-subitem" href="/monitor-crc/" data-roles="admin,gestor,crc_leads">Monitor Diario</a>
-    </div>
-  </div>
-
-  <!-- CRC Comercial -->
-  <div class="nav-section" id="nav-section-crc-comercial" data-roles="admin,gestor,crc_comercial">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('crc-comercial')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
-      CRC Comercial
-      <svg class="nav-arrow" id="arrow-crc-comercial" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-crc-comercial" style="display:none">
-      <a href="/comercial/" class="nav-subitem" data-roles="admin,gestor,crc_comercial">Comercial</a>
-      <a href="/kanban-comercial/" class="nav-subitem" data-roles="admin,crc,crc_comercial,mod_kanban_comercial">Kanban Comercial</a>
-      <button class="nav-subitem" data-page="conv-avaliacao" data-roles="admin,gestor,crc_comercial,crc_sucesso" onclick="setPage('conv-avaliacao',this)">WhatsApp CRC Comercial</button>
-      <a href="/comercial/conferencia/" class="nav-subitem" data-roles="admin,gestor,crc_comercial">Conferência</a>
-    </div>
-  </div>
-
-  <!-- CRC Sucesso do Cliente -->
-  <div class="nav-section" id="nav-section-crc-sucesso" data-roles="admin,gestor,crc_sucesso,crc_comercial">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('crc-sucesso')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      CRC Sucesso do Cliente
-      <svg class="nav-arrow" id="arrow-crc-sucesso" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-crc-sucesso" style="display:none">
-      <a href="/pacientes/" class="nav-subitem" data-roles="crc_sucesso,crc_comercial,gestor,admin">Pacientes</a>
-    </div>
-  </div>
-
-  <!-- CRC Pós Tratamento -->
-  <div class="nav-section" id="nav-section-pos" data-roles="admin,gestor,crc_sucesso,crc_pos_tratamento">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('pos')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      CRC Pós Tratamento
-      <svg class="nav-arrow" id="arrow-pos" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-pos" style="display:none">
-      <a href="/pos-tratamento/aniversariantes.html" class="nav-subitem">
-        Aniversariantes
-        <span class="badge-nav badge-nav--green" id="badge-aniv">0</span>
-      </a>
-      <a href="/pos-tratamento/recall.html" class="nav-subitem">
-        Recall
-        <span class="badge-nav badge-nav--amber" id="badge-recall">0</span>
-      </a>
-      <a href="/pos-tratamento/vips.html" class="nav-subitem">VIPs</a>
-    </div>
-  </div>
-
-  <!-- Funil e Disparos -->
-  <button class="nav-btn" data-page="funil" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso" onclick="setPage('funil',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-    Funil
-  </button>
-  <button class="nav-btn" data-page="disparos" data-roles="admin,gestor,crc_comercial" onclick="setPage('disparos',this)">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
-    Disparos <span id="nav-disp-badge" style="display:none;color:var(--red);font-weight:700">•</span>
-  </button>
-
-  <!-- Administrativo -->
-  <div class="nav-section" id="nav-section-admin" data-roles="admin,gestor,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('admin')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      Administrativo
-      <svg class="nav-arrow" id="arrow-admin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-admin" style="display:none">
-      <button class="nav-subitem" data-page="inadimplentes" data-roles="admin,gestor,auxiliar_adm,mod_inadimplentes" onclick="setPage('inadimplentes',this)">
-        Inadimplentes <span class="inad-nav-badge" id="badge-inadimplentes"></span>
-      </button>
-      <button class="nav-subitem" data-page="notas-fiscais" data-roles="admin,gestor,auxiliar_adm,mod_notas_fiscais" onclick="setPage('notas-fiscais',this)">Notas Fiscais</button>
-    </div>
-  </div>
-
-  <!-- Dentistas -->
-  <div class="nav-section" id="nav-section-dentistas" data-roles="admin,gestor,dentista,mod_avaliacao_dentista,crc_comercial">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('dentistas')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      Dentistas
-      <svg class="nav-arrow" id="arrow-dentistas" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-dentistas" style="display:none">
-      <a href="/avaliacao-dentista/" class="nav-subitem" data-roles="gestor,dentista,admin,mod_avaliacao_dentista,crc_comercial">Avaliação Dentista</a>
-    </div>
-  </div>
-
-  <!-- Relatórios -->
-  <div class="nav-section" id="nav-section-relatorios" data-roles="admin,gestor">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('relatorios')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-      Relatórios
-      <svg class="nav-arrow" id="arrow-relatorios" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-relatorios" style="display:none">
-      <a href="/ligacoes" class="nav-subitem" data-roles="gestor,admin">Ligações</a>
-      <a href="/atribuicao/" class="nav-subitem" data-roles="admin,gestor">Atribuição</a>
-    </div>
-  </div>
-
-  <!-- Tarefas -->
-  <a class="nav-btn" href="/tarefas/" data-roles="admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-    Tarefas
-  </a>
-
-  <!-- Gestão de Tarefas -->
-  <a class="nav-btn" href="/tarefas/gestao.html" data-roles="admin,gestor">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-    Gestão de Tarefas
-  </a>
-
-  <!-- Financeiro -->
-  <a class="nav-btn" href="/financeiro/" data-roles="financeiro,mod_financeiro">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
-    Financeiro
-  </a>
-
-  <a class="nav-btn" href="/producao/" data-roles="financeiro,mod_financeiro,mod_producao">
-    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
-    </svg>
-    Receita × Entrega
-  </a>
-
-  <!-- Configurações Gerais -->
-  <div class="nav-section" id="nav-section-config-geral" data-roles="admin,gestor">
-    <button class="nav-btn nav-btn--section" onclick="toggleNavSection('config-geral')">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      Configurações Gerais
-      <svg class="nav-arrow" id="arrow-config-geral" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;width:12px;height:12px;transition:transform .2s"><path d="M4 6l4 4 4-4"/></svg>
-    </button>
-    <div class="nav-submenu" id="submenu-config-geral" style="display:none">
-      <button class="nav-subitem" data-page="config" data-roles="admin,gestor" onclick="setPage('config',this)">Configurações</button>
-      <button class="nav-subitem" data-page="usuarios" data-roles="admin" id="nav-usuarios" onclick="setPage('usuarios',this)">Usuários</button>
-      <a href="/admin/funcoes/" class="nav-subitem" data-roles="admin">Funções</a>
-    </div>
-  </div>
+  <!-- ITENS DO MENU — gerados por /js/nav-config.js (FONTE UNICA; mesma usada por shared-nav.js). NAO editar itens aqui: editar CRM_NAV em nav-config.js -->
+  <script>(function(){var s=document.currentScript;s.insertAdjacentHTML('beforebegin', window.CRMNav.buildItemsHTML('spa','dashboard'));})();</script>
   <button class="nav-btn nav-logout" onclick="handleLogout()">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       Sair
@@ -5503,6 +5352,10 @@ function _formatPhone(p) {
 
 function iniciarApp() {
   loadCurrentUser();
+  // Recursos da sidebar (busca, recolher, a11y) — fonte única em /js/nav-config.js
+  try { if (window.CRMNav) window.CRMNav.initFeatures(document.querySelector('nav')); } catch (e) {}
+  // Segurança: garante que a sidebar apareça mesmo se loadCurrentUser falhar
+  setTimeout(() => { const _n = document.querySelector('nav'); if (_n) _n.removeAttribute('hidden'); }, 1500);
   setInterval(captchaVerificar, 3000);
   api('/api/config/wa').then(r => { if (r?.numbers) _waNumbers = r.numbers; if (r?.defaultPhoneId) _waDefaultId = r.defaultPhoneId; }).catch(() => {});
 
@@ -5521,6 +5374,17 @@ function iniciarApp() {
         }
       }, 200);
       setTimeout(() => clearInterval(_tryOpen), 8000);
+      return;
+    }
+  }
+
+  // Deep-link: /?page=funil abre a aba correspondente (links vindos do shared-nav)
+  const _pageParam = new URLSearchParams(location.search).get('page');
+  if (_pageParam) {
+    const _pb = document.querySelector('[data-page="' + _pageParam + '"]:not([style*="none"])');
+    if (_pb) {
+      history.replaceState(null, '', location.pathname + location.hash);
+      _pb.click();
       return;
     }
   }
@@ -5588,7 +5452,10 @@ async function loadCurrentUser() {
     }
     // Badge de campanha de disparo interrompida (só visível p/ quem tem acesso).
     if (_canSee('admin,gestor,crc_comercial')) atualizarBadgeDisparos();
-  } catch(e) {}
+  } catch(e) {} finally {
+    // FOUC: revela a sidebar só depois de filtrar por permissão (evita piscar itens proibidos)
+    const _nav = document.querySelector('nav'); if (_nav) _nav.removeAttribute('hidden');
+  }
 }
 
 const _esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
