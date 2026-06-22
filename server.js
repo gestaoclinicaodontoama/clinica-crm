@@ -6707,6 +6707,38 @@ app.get('/api/producao/dentista/top-procedimentos', requireAuth, requireProducao
   }
 });
 
+// Alíquota de imposto global por ano
+app.get('/api/producao/imposto', requireAuth, requireProducao, async (req, res) => {
+  const ano = parseInt(req.query.ano);
+  if (!ano) return res.status(400).json({ error: 'ano obrigatório' });
+  try {
+    const { data, error } = await supabase.from('producao_imposto_aliquota')
+      .select('aliquota').eq('ano', ano).maybeSingle();
+    if (error) throw new Error(error.message);
+    res.json({ aliquota: data?.aliquota ?? null });
+  } catch (e) {
+    console.error('[producao/imposto GET]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/producao/imposto', requireAuth, requireProducao, async (req, res) => {
+  const { ano, aliquota } = req.body;
+  if (!ano || aliquota == null) return res.status(400).json({ error: 'ano e aliquota obrigatórios' });
+  try {
+    const { error } = await supabase.from('producao_imposto_aliquota').upsert({
+      ano:           parseInt(ano),
+      aliquota:      Number(aliquota),
+      atualizado_em: new Date().toISOString(),
+    }, { onConflict: 'ano' });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[producao/imposto POST]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Salvar custo/hora por dentista por ano
 app.post('/api/producao/dentista/custo-hora', requireAuth, requireProducao, async (req, res) => {
   const { dentist_person_id, dentist_name, ano, custo_hora } = req.body;
