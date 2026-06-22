@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Análise por Dentista — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444}
+:root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;--green:#16a34a;--yellow:#d97706;--red:#dc2626}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{padding:16px 20px}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.page-header-left{display:flex;flex-direction:column;gap:4px}
+.back-link{font-size:12px;color:var(--muted);text-decoration:none}
+.back-link:hover{color:var(--accent)}
+.page-header h1{font-size:20px;font-weight:700}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.year-btns{display:flex;gap:4px}
+.year-btn{padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--muted);font-family:inherit;transition:all .15s}
+.year-btn:hover,.year-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-primary:disabled{opacity:.6;cursor:default}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--border)}
+.btn-sm{padding:3px 9px;font-size:11px}
+.range-inputs{display:none;gap:6px;align-items:center}
+.range-inputs.visible{display:flex}
+.controls input[type="date"]{padding:5px 9px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--bg);color:var(--text);font-family:inherit;outline:none}
+.controls input:focus{border-color:var(--accent)}
+.controls label{font-size:12px;color:var(--muted);font-weight:500}
+/* Cards dentista */
+.dent-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-bottom:20px}
+.dent-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px}
+.dent-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.dent-name{font-size:15px;font-weight:700}
+.dent-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-bottom:14px}
+.dent-metric{display:flex;flex-direction:column;gap:2px}
+.dent-metric-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.dent-metric-value{font-size:16px;font-weight:700}
+.dent-metric-value.green{color:var(--green)}
+.dent-metric-value.red{color:var(--red)}
+.dent-metric-value.muted{color:var(--muted);font-size:13px;font-weight:400}
+.dent-metric-action{display:flex;align-items:center;gap:6px}
+.top-procs{border-top:1px solid var(--border);padding-top:10px;margin-top:4px}
+.top-procs-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+.top-proc-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0}
+.top-proc-rank{font-weight:700;color:var(--muted);width:16px;text-align:right;flex-shrink:0}
+.top-proc-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top-proc-val{color:var(--accent);font-weight:600;flex-shrink:0}
+.top-proc-count{color:var(--muted);flex-shrink:0}
+/* Evolução mensal */
+.section{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px}
+.section-header{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{padding:9px 13px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px}
+th:not(:first-child):not(:nth-child(2)){text-align:right}
+td{padding:8px 13px;border-bottom:1px solid var(--border)}
+td:not(:first-child):not(:nth-child(2)){text-align:right}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg3)}
+.empty{padding:32px;color:var(--muted);text-align:center;font-size:13px}
+/* Modais */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;width:340px;max-width:95vw}
+.modal h2{font-size:16px;font-weight:700;margin-bottom:16px}
+.modal label{font-size:12px;color:var(--muted);font-weight:500;display:block;margin-bottom:4px}
+.modal input,.modal select{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:14px;background:var(--bg);color:var(--text);font-family:inherit;outline:none;margin-bottom:12px}
+.modal input:focus,.modal select:focus{border-color:var(--accent)}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.modal-msg{font-size:12px;margin-top:8px;min-height:18px}
+.modal-msg.ok{color:var(--green)}
+.modal-msg.err{color:var(--red)}
+/* Spinner */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <a href="/producao/" class="back-link">← Receita × Entrega</a>
+      <h1>Análise por Dentista</h1>
+    </div>
+    <button class="btn btn-ghost" id="syncBtn" onclick="syncNow()">Atualizar dados</button>
+  </div>
+
+  <div class="controls">
+    <div class="year-btns" id="yearBtns"></div>
+    <div class="sep"></div>
+    <label>De</label>
+    <div class="range-inputs" id="rangeInputs">
+      <input type="date" id="fromInput">
+      <label>até</label>
+      <input type="date" id="toInput">
+      <button class="btn btn-primary btn-sm" onclick="aplicarRange()">Aplicar</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="customBtn" onclick="toggleCustom()">Período</button>
+  </div>
+
+  <div id="cardsContainer"><div class="empty"><span class="spinner"></span></div></div>
+
+  <div class="section" id="evolSection" style="display:none">
+    <div class="section-header">Evolução Mensal</div>
+    <div style="overflow-x:auto">
+      <table id="evolTable">
+        <thead><tr>
+          <th>Dentista</th><th>Mês</th><th>Produção</th><th>Horas</th>
+          <th>Dias</th><th>Prod/h</th><th>Custo/h</th><th>Resultado/h</th>
+        </tr></thead>
+        <tbody id="evolBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal Custo/hora -->
+<div class="modal-overlay" id="modalCusto" style="display:none" onclick="if(event.target===this)fecharModal('modalCusto')">
+  <div class="modal">
+    <h2>Custo/hora</h2>
+    <input type="hidden" id="custoDentId">
+    <input type="hidden" id="custoDentName">
+    <label>Dentista</label>
+    <input type="text" id="custoDentLabel" disabled>
+    <label>Ano</label>
+    <input type="number" id="custoAno" min="2020" max="2035">
+    <label>Custo por hora (R$)</label>
+    <input type="number" id="custoValor" min="0" step="0.01" placeholder="Ex: 120.00">
+    <div class="modal-btns">
+      <button class="btn btn-ghost" onclick="fecharModal('modalCusto')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCusto()">Salvar</button>
+    </div>
+    <div class="modal-msg" id="custoMsg"></div>
+  </div>
+</div>
+
+<!-- Modal Horas Manual -->
+<div class="modal-overlay" id="modalHoras" style="display:none" onclick="if(event.target===this)fecharModal('modalHoras')">
+  <div class="modal">
+    <h2>Horas de Agenda Manual</h2>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Define o total de horas para um mês específico, substituindo o cálculo automático da agenda.</p>
+    <input type="hidden" id="horasDentId">
+    <input type="hidden" id="horasDentName">
+    <label>Dentista</label>
+    <input type="text" id="horasDentLabel" disabled>
+    <label>Mês</label>
+    <select id="horasMes">
+      <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+      <option value="3">Março</option><option value="4">Abril</option>
+      <option value="5">Maio</option><option value="6">Junho</option>
+      <option value="7">Julho</option><option value="8">Agosto</option>
+      <option value="9">Setembro</option><option value="10">Outubro</option>
+      <option value="11">Novembro</option><option value="12">Dezembro</option>
+    </select>
+    <label>Ano</label>
+    <input type="number" id="horasAno" min="2020" max="2035">
+    <label>Total de horas</label>
+    <input type="number" id="horasValor" min="0" step="0.5" placeholder="Ex: 120">
+    <div class="modal-btns">
+      <button class="btn btn-ghost" onclick="fecharModal('modalHoras')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarHoras()">Salvar</button>
+    </div>
+    <div class="modal-msg" id="horasMsg"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── XSS helper ───────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ── Estado ───────────────────────────────────────────────────────────────────
+let token = null;
+let currentFrom = null;
+let currentTo   = null;
+let customOpen  = false;
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+(async function init() {
+  const k = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+  if (!k) return (window.location.href = '/');
+  let parsed;
+  try { parsed = JSON.parse(localStorage.getItem(k)); } catch (_) {}
+  token = parsed?.access_token;
+  if (!token) return (window.location.href = '/');
+
+  buildYearBtns();
+
+  const now = new Date();
+  currentFrom = `${now.getFullYear()}-01-01`;
+  currentTo   = now.toISOString().slice(0, 10);
+  document.getElementById('fromInput').value = currentFrom;
+  document.getElementById('toInput').value   = currentTo;
+
+  await carregar();
+})();
+
+// ── Período ──────────────────────────────────────────────────────────────────
+function buildYearBtns() {
+  const now = new Date().getFullYear();
+  const anos = [now - 1, now];
+  const c = document.getElementById('yearBtns');
+  c.innerHTML = anos.map(a =>
+    `<button class="year-btn" data-ano="${a}" onclick="selecionarAno(${a})">${a}</button>`
+  ).join('');
+  markActiveYear(now);
+}
+
+function markActiveYear(ano) {
+  document.querySelectorAll('.year-btn').forEach(b => {
+    b.classList.toggle('active', Number(b.dataset.ano) === ano);
+  });
+}
+
+function selecionarAno(ano) {
+  currentFrom = `${ano}-01-01`;
+  currentTo   = `${ano}-12-31`;
+  markActiveYear(ano);
+  carregar();
+}
+
+function toggleCustom() {
+  customOpen = !customOpen;
+  document.getElementById('rangeInputs').classList.toggle('visible', customOpen);
+}
+
+function aplicarRange() {
+  const f = document.getElementById('fromInput').value;
+  const t = document.getElementById('toInput').value;
+  if (!f || !t || f > t) return alert('Período inválido');
+  currentFrom = f;
+  currentTo   = t;
+  document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+  carregar();
+}
+
+function isMultiMonth() {
+  const f = new Date(currentFrom);
+  const t = new Date(currentTo);
+  return f.getFullYear() !== t.getFullYear() || f.getMonth() !== t.getMonth();
+}
+
+// ── Sync ─────────────────────────────────────────────────────────────────────
+async function syncNow() {
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    await fetch('/api/admin/sync-clinicorp', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await carregar();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Atualizar dados';
+  }
+}
+
+// ── Carregar ─────────────────────────────────────────────────────────────────
+async function carregar() {
+  document.getElementById('cardsContainer').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  document.getElementById('evolSection').style.display = 'none';
+
+  const [resumoRes] = await Promise.all([
+    fetch(`/api/producao/dentista/resumo?from=${currentFrom}&to=${currentTo}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  ]);
+
+  const resumo = await resumoRes.json();
+  if (resumoRes.ok) {
+    renderCards(resumo.data || []);
+    if (isMultiMonth()) carregarEvolucao();
+  } else {
+    document.getElementById('cardsContainer').innerHTML =
+      `<div class="empty">Erro ao carregar: ${esc(resumo.error)}</div>`;
+  }
+}
+
+async function carregarEvolucao() {
+  const res = await fetch(`/api/producao/dentista/evolucao?from=${currentFrom}&to=${currentTo}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) return;
+  renderEvolucao(json.data || []);
+}
+
+// ── Render Cards ─────────────────────────────────────────────────────────────
+function brl(v) {
+  if (v == null) return '—';
+  return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function brlph(v) {
+  if (v == null) return '—';
+  return brl(v) + '/h';
+}
+
+function renderCards(dentistas) {
+  if (!dentistas.length) {
+    document.getElementById('cardsContainer').innerHTML =
+      '<div class="empty">Nenhum dentista "execução" encontrado no período.<br>Execute "Atualizar dados" para sincronizar a agenda.</div>';
+    return;
+  }
+  document.getElementById('cardsContainer').innerHTML =
+    `<div class="dent-cards">${dentistas.map(d => cardHtml(d)).join('')}</div>`;
+
+  // Carrega top 5 procedimentos para cada dentista em paralelo
+  dentistas.forEach(d => carregarTopProcs(d.dentist_person_id));
+}
+
+function cardHtml(d) {
+  const resClass = d.resultado_por_hora == null ? 'muted' : (d.resultado_por_hora >= 0 ? 'green' : 'red');
+  const manualIcon = d.horas_manual_override
+    ? ' <span title="Inclui horas manuais" style="color:var(--accent)">✏️</span>' : '';
+  return `
+<div class="dent-card" id="card-${esc(d.dentist_person_id)}">
+  <div class="dent-card-header">
+    <div class="dent-name">👤 ${esc(d.dentist_name)}</div>
+  </div>
+  <div class="dent-metrics">
+    <div class="dent-metric">
+      <span class="dent-metric-label">Produção</span>
+      <span class="dent-metric-value">${brl(d.producao_total)}</span>
+    </div>
+    <div class="dent-metric">
+      <span class="dent-metric-label">Dias c/ agenda</span>
+      <span class="dent-metric-value">${d.dias_com_agenda}</span>
+    </div>
+    <div class="dent-metric">
+      <span class="dent-metric-label">Horas agenda${manualIcon}</span>
+      <div class="dent-metric-action">
+        <span class="dent-metric-value">${d.horas_agendadas != null ? d.horas_agendadas + 'h' : '—'}</span>
+        <button class="btn btn-ghost btn-sm" onclick='abrirModalHoras(${JSON.stringify(d.dentist_person_id)},${JSON.stringify(d.dentist_name)})'>✏️</button>
+      </div>
+    </div>
+    <div class="dent-metric">
+      <span class="dent-metric-label">Prod/hora</span>
+      <span class="dent-metric-value">${brlph(d.producao_por_hora)}</span>
+    </div>
+    <div class="dent-metric">
+      <span class="dent-metric-label">Custo/hora</span>
+      <div class="dent-metric-action">
+        <span class="dent-metric-value">${brlph(d.custo_hora)}</span>
+        <button class="btn btn-ghost btn-sm" onclick='abrirModalCusto(${JSON.stringify(d.dentist_person_id)},${JSON.stringify(d.dentist_name)})'>⚙️</button>
+      </div>
+    </div>
+    <div class="dent-metric">
+      <span class="dent-metric-label">Resultado/hora</span>
+      <span class="dent-metric-value ${resClass}">${brlph(d.resultado_por_hora)}</span>
+    </div>
+  </div>
+  <div class="top-procs">
+    <div class="top-procs-title">Top 5 procedimentos</div>
+    <div id="top-${esc(d.dentist_person_id)}"><span class="spinner"></span></div>
+  </div>
+</div>`;
+}
+
+async function carregarTopProcs(dentId) {
+  const el = document.getElementById('top-' + dentId);
+  if (!el) return;
+  try {
+    const res = await fetch(
+      `/api/producao/dentista/top-procedimentos?from=${currentFrom}&to=${currentTo}&dentist_id=${encodeURIComponent(dentId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const json = await res.json();
+    if (!res.ok || !json.data?.length) { el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Sem procedimentos</span>'; return; }
+    el.innerHTML = json.data.map((p, i) =>
+      `<div class="top-proc-row">
+        <span class="top-proc-rank">${i + 1}</span>
+        <span class="top-proc-name">${esc(p.procedure_name)}</span>
+        <span class="top-proc-val">${brl(p.total_value)}</span>
+        <span class="top-proc-count">(${p.count}×)</span>
+      </div>`
+    ).join('');
+  } catch (_) { el.innerHTML = '<span style="font-size:12px;color:var(--muted)">—</span>'; }
+}
+
+// ── Render Evolução ──────────────────────────────────────────────────────────
+function renderEvolucao(rows) {
+  if (!rows.length) return;
+  const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const tbody = document.getElementById('evolBody');
+  tbody.innerHTML = rows.map(r => {
+    const [ano, mes] = r.mes.split('-').map(Number);
+    const mesLabel = MESES[mes - 1] + ' ' + ano;
+    const manualMark = r.horas_manual ? ' ✏️' : '';
+    const resClass = r.resultado_por_hora == null ? '' : (r.resultado_por_hora >= 0 ? 'style="color:var(--green)"' : 'style="color:var(--red)"');
+    return `<tr>
+      <td>${esc(r.dentist_name)}</td>
+      <td>${esc(mesLabel)}</td>
+      <td>${brl(r.producao)}</td>
+      <td>${r.horas_agendadas != null ? r.horas_agendadas + 'h' + manualMark : '—'}</td>
+      <td>${r.dias_com_agenda || '—'}</td>
+      <td>${brlph(r.producao_por_hora)}</td>
+      <td>${brlph(r.custo_hora)}</td>
+      <td ${resClass}>${brlph(r.resultado_por_hora)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('evolSection').style.display = '';
+}
+
+// ── Modais ───────────────────────────────────────────────────────────────────
+function fecharModal(id) { document.getElementById(id).style.display = 'none'; }
+
+function abrirModalCusto(dentId, dentName) {
+  document.getElementById('custoDentId').value    = dentId;
+  document.getElementById('custoDentName').value  = dentName;
+  document.getElementById('custoDentLabel').value = dentName;
+  document.getElementById('custoAno').value       = new Date(currentFrom).getFullYear();
+  document.getElementById('custoValor').value     = '';
+  document.getElementById('custoMsg').textContent = '';
+  document.getElementById('modalCusto').style.display = 'flex';
+}
+
+async function salvarCusto() {
+  const dentId   = document.getElementById('custoDentId').value;
+  const dentName = document.getElementById('custoDentName').value;
+  const ano      = document.getElementById('custoAno').value;
+  const val      = document.getElementById('custoValor').value;
+  const msg      = document.getElementById('custoMsg');
+  if (!val || Number(val) < 0) { msg.className = 'modal-msg err'; msg.textContent = 'Valor inválido'; return; }
+
+  try {
+    const res = await fetch('/api/producao/dentista/custo-hora', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ dentist_person_id: dentId, dentist_name: dentName, ano: parseInt(ano), custo_hora: Number(val) }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    msg.className = 'modal-msg ok';
+    msg.textContent = 'Salvo!';
+    setTimeout(() => { fecharModal('modalCusto'); carregar(); }, 800);
+  } catch (e) {
+    msg.className = 'modal-msg err';
+    msg.textContent = e.message;
+  }
+}
+
+function abrirModalHoras(dentId, dentName) {
+  const from = new Date(currentFrom);
+  document.getElementById('horasDentId').value    = dentId;
+  document.getElementById('horasDentName').value  = dentName;
+  document.getElementById('horasDentLabel').value = dentName;
+  document.getElementById('horasMes').value       = from.getMonth() + 1;
+  document.getElementById('horasAno').value       = from.getFullYear();
+  document.getElementById('horasValor').value     = '';
+  document.getElementById('horasMsg').textContent = '';
+  document.getElementById('modalHoras').style.display = 'flex';
+}
+
+async function salvarHoras() {
+  const dentId   = document.getElementById('horasDentId').value;
+  const dentName = document.getElementById('horasDentName').value;
+  const mes      = document.getElementById('horasMes').value;
+  const ano      = document.getElementById('horasAno').value;
+  const val      = document.getElementById('horasValor').value;
+  const msg      = document.getElementById('horasMsg');
+  if (!val || Number(val) < 0) { msg.className = 'modal-msg err'; msg.textContent = 'Valor inválido'; return; }
+
+  try {
+    const res = await fetch('/api/producao/dentista/horas-manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ dentist_person_id: dentId, dentist_name: dentName, ano: parseInt(ano), mes: parseInt(mes), horas: Number(val) }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    msg.className = 'modal-msg ok';
+    msg.textContent = 'Salvo!';
+    setTimeout(() => { fecharModal('modalHoras'); carregar(); }, 800);
+  } catch (e) {
+    msg.className = 'modal-msg err';
+    msg.textContent = e.message;
+  }
+}
+</script>
+<script src="/js/shared-nav.js" data-active="producao-dentista"></script>
+</body>
+</html>

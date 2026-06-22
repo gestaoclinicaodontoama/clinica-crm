@@ -187,13 +187,13 @@
       Financeiro
     </a>
 
-    <a class="nav-btn${activePage==='producao'?' active':''}" href="/producao/"
-      data-roles="financeiro,mod_financeiro,mod_producao">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
-      </svg>
-      Receita × Entrega
-    </a>
+    ${section('producao','financeiro,mod_financeiro,mod_producao',
+      `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>`,
+      'Receita × Entrega',
+      link('/producao/','financeiro,mod_financeiro,mod_producao','producao','','Visão Geral') +
+      link('/producao/dentista/','financeiro,mod_financeiro,mod_producao','producao-dentista','','Análise por Dentista'),
+      activePage === 'producao' || activePage === 'producao-dentista'
+    )}
 
     ${section('config','admin,gestor',IC.config,'Configurações Gerais',
       link('/','admin,gestor','config',IC.config,'Configurações') +
