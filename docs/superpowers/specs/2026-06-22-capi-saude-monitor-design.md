@@ -79,7 +79,12 @@ Limites ficam como **constantes no topo de `health.js`** (ajustáveis sem migrat
 | 2 | Página/dataset em silêncio | últimas 18h | página com média ≥ 3 sucessos/dia nos 7d anteriores | **0 sucessos** na página na janela |
 | 3 | Erro novo aparecendo | 24h vs 14d anteriores | — | surge subcode/erro inexistente no histórico |
 | 4 | Queda de volume | 24h vs média do mesmo dia da semana nas 3 semanas anteriores | ≥ 2 semanas de histórico | sucessos < **50%** da média |
-| 5 | Divergência enviado-vs-registrado | snapshot diário | cross-check disponível | Meta registrou < **50%** do que enviamos com sucesso (200) no dataset |
+| 5 | Divergência enviado-vs-registrado | snapshot diário | cross-check disponível **e ≥ 20 enviados com sucesso no dia** | Meta registrou < **50%** do que enviamos com sucesso (200) no dataset |
+
+> O gatilho 5 é o mais sujeito a ruído (a API de estatísticas da Meta pode
+> subnotificar/atrasar). Por isso a guarda de volume mínimo (≥ 20) e o limite
+> conservador (< 50%). Se na prática der falso positivo, é o primeiro candidato a
+> afrouxar ou virar só-exibição.
 
 **Antispam (dedup):** cada gatilho tem estado `ok`/`alertado` em `capi_monitor_estado`
 (por escopo, ex.: silêncio por `page_id`). Push só na virada `ok→ruim`; no máximo **1
@@ -125,11 +130,13 @@ De cima pra baixo:
 3. **Tabela "Eventos por semana":** linhas = cada evento (LeadSubmitted, LeadQualified,
    Schedule, Contact, Purchase); colunas = enviados / sucesso / falha / % sucesso;
    semana atual com a anterior ao lado para comparação. **Semana = segunda a domingo**
-   (fuso America/Sao_Paulo).
+   (fuso America/Sao_Paulo). Contagem = **tentativas registradas no log** (uma linha por
+   disparo); a dedup por `event_id` é responsabilidade da Meta, não desta visão.
 4. **"Enviamos vs Meta registrou"** (do snapshot), por dataset.
-5. **"Qualidade do match":** cobertura dos parâmetros (% de eventos com telefone,
-   e-mail, nome, ctwa_clid, page_id) do nosso log + EMQ da Meta por dataset (quando
-   disponível; senão "indisponível").
+5. **"Qualidade do match":** cobertura dos parâmetros do nosso log (telefone, e-mail e
+   nome sobre **todos** os eventos; ctwa_clid e page_id sobre o subconjunto **CTWA**, que
+   é onde fazem sentido) + EMQ da Meta por dataset (quando disponível; senão
+   "indisponível").
 6. **"Erros recentes":** subcode + contagem + última vez + mensagem da Meta.
 7. **Painel dos 5 gatilhos:** cada um 🟢/🔴 com o detalhe.
 
@@ -155,6 +162,9 @@ Alertas por exceção usam o tipo `capi_alerta` (mesma função de notificação
   falho **não** gera alarme falso.
 - **Crons (alerta, resumo, cross-check):** cada tick em `try/catch`, loga e nunca lança;
   estado no banco → tick perdido se recupera (padrão self-healing do `sync_log`).
+- **Idempotência dos jobs diários:** resumos (8h/18h) e cross-check gravam um marcador
+  "já rodou neste slot/dia" no banco antes de notificar. Assim, múltiplos ticks (ou mais
+  de uma instância do serviço) **não** geram resumo/cross-check duplicado.
 - **Push:** reaproveita `sendPushToUser` (já remove assinatura morta).
 - **Endpoint do dashboard:** sub-query que falha → devolve parcial com flag de erro, não
   500.
@@ -178,6 +188,22 @@ Testes escritos antes da implementação.
   falha/vazio → marca indisponível sem falso alarme.
 - **Validação manual pós-deploy:** abrir `/capi-saude/`, clicar "Re-checar agora", bater
   os números com um SQL manual.
+
+## Faseamento (de-risca o cross-check)
+
+A parte que **não** depende da Meta é o coração e entra primeiro; a parte que depende de
+endpoints da Meta entra depois, com um spike de viabilidade.
+
+- **Fase 1 — núcleo (independe da Meta):** tabela `capi_monitor_estado`, `health.js`
+  com gatilhos **1–4**, endpoint + dashboard (cartões, tabela semanal, cobertura de
+  match pelo log, erros recentes, painel de gatilhos), botão Re-checar, cron de alerta
+  e os resumos 8h/18h. Já elimina o risco de "dias sem perceber".
+- **Fase 2 — cross-check Meta:** começa por um **spike** validando os endpoints Graph de
+  estatísticas do dataset e de EMQ (lembrar que a API veio esparsa/vazia para a 904 no
+  diagnóstico). Se viável: tabela `capi_meta_snapshot`, job diário, seção "enviamos vs
+  Meta registrou", EMQ e o **gatilho 5**. Se os endpoints não derem dado confiável, a
+  Fase 2 fica como "indisponível" no dashboard (degradação já prevista) sem bloquear a
+  Fase 1.
 
 ## Fora de escopo (YAGNI por enquanto)
 
