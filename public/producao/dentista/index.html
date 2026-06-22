@@ -343,7 +343,7 @@ function cardHtml(d) {
       <span class="dent-metric-label">Horas agenda${manualIcon}</span>
       <div class="dent-metric-action">
         <span class="dent-metric-value">${d.horas_agendadas != null ? d.horas_agendadas + 'h' : '—'}</span>
-        <button class="btn btn-ghost btn-sm" onclick='abrirModalHoras(${JSON.stringify(d.dentist_person_id)},${JSON.stringify(d.dentist_name)})'>✏️</button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirModalHoras(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})">✏️</button>
       </div>
     </div>
     <div class="dent-metric">
@@ -354,7 +354,7 @@ function cardHtml(d) {
       <span class="dent-metric-label">Custo/hora</span>
       <div class="dent-metric-action">
         <span class="dent-metric-value">${brlph(d.custo_hora)}</span>
-        <button class="btn btn-ghost btn-sm" onclick='abrirModalCusto(${JSON.stringify(d.dentist_person_id)},${JSON.stringify(d.dentist_name)})'>⚙️</button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirModalCusto(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})">⚙️</button>
       </div>
     </div>
     <div class="dent-metric">
