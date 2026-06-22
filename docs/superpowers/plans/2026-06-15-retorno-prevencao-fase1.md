@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-15-retorno-prevencao-design.md`
 
-**Decisão de implementação (refina o spec):** em vez de uma tabela `prevencao_status` separada, as colunas de prevenção ficam na `pacientes_abc` (upsert do Supabase só toca colunas informadas, então o sync ABC não as zera) e a fase de prevenção faz upsert dos pacientes convênio-only que faltam. Isso honra o "cobrir todos os pacientes" do review e reaproveita o frontend existente com mudança mínima.
+**Decisão de implementação (refina o spec):** em vez de uma tabela `prevencao_status` separada, as colunas de prevenção ficam na `pacientes_abc` (upsert do Supabase só toca colunas informadas, então o sync ABC não as zera) e a fase de prevenção faz upsert dos pacientes convênio-only que faltam (com `classe=NULL`). Isso honra o "cobrir todos os pacientes" do review e reaproveita o frontend existente com mudança mínima. **Para os convênio-only não distorcerem os KPIs ABC**, a RPC `abc_stats` passa a filtrar `classe IS NOT NULL` (Task 2) — esses pacientes aparecem na lista (com classe "?") mas ficam fora da contagem/distribuição ABC.
 
 ---
 
@@ -210,13 +210,33 @@ INSERT INTO prevencao_procedimentos (nome_norm, categoria) VALUES
   ('prevencao','adulto')
 ON CONFLICT (nome_norm) DO NOTHING;
 
--- 6) Chave para o PersonId da Dra. Ana Luiza (preencher quando souber; opcional)
-INSERT INTO app_config (chave, valor)
-  VALUES ('ana_luiza_person_id','')
-ON CONFLICT (chave) DO NOTHING;
-```
+-- 6) PersonId da Dra. Ana Luiza. app_config é tabela de LINHA ÚNICA (id=1, colunas
+--    nomeadas) — NÃO é key-value. Então adiciona coluna (opcional; regra infantil já
+--    funciona por expertise='Odontopediatria').
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS ana_luiza_person_id TEXT;
 
-> Se `app_config` não tiver colunas `(chave, valor)`, ajustar ao schema real (checar com `list_tables`). O `ana_luiza_person_id` é **opcional** — a regra infantil já funciona por `expertise='Odontopediatria'`.
+-- 7) Patch na RPC abc_stats: filtra classe NOT NULL para que os pacientes
+--    convênio-only (que a fase de prevenção insere com classe=NULL) NÃO inflem o
+--    KPI "Total de Pacientes" nem a distribuição. Não altera os números atuais
+--    (toda linha existente já tem classe).
+CREATE OR REPLACE FUNCTION public.abc_stats()
+ RETURNS TABLE(total bigint, a_count bigint, a_receita numeric, b_count bigint, b_receita numeric, c_count bigint, c_receita numeric, sem_retorno bigint, total_receita numeric)
+ LANGUAGE sql STABLE SECURITY DEFINER
+AS $function$
+  SELECT
+    COUNT(*)::bigint,
+    COUNT(*) FILTER (WHERE classe = 'A')::bigint,
+    COALESCE(SUM(total_receita) FILTER (WHERE classe = 'A'), 0),
+    COUNT(*) FILTER (WHERE classe = 'B')::bigint,
+    COALESCE(SUM(total_receita) FILTER (WHERE classe = 'B'), 0),
+    COUNT(*) FILTER (WHERE classe = 'C')::bigint,
+    COALESCE(SUM(total_receita) FILTER (WHERE classe = 'C'), 0),
+    COUNT(*) FILTER (WHERE proxima_consulta IS NULL AND dias_sem_visita >= 180)::bigint,
+    COALESCE(SUM(total_receita), 0)
+  FROM pacientes_abc
+  WHERE classe IS NOT NULL;
+$function$;
+```
 
 - [ ] **Step 2: Verificar**
 
@@ -275,12 +295,14 @@ async function syncPrevencao(janelaDias = PREVENCAO_DIAS) {
 
   const eventos = [];
   const naoClass = new Map(); // nome_norm → {exemplo_nome, expertise, ocorrencias, ultima_vez}
+  const infoMap = new Map();  // clinicorp_id → { nome, telefone } (p/ inserir cadastro faltante)
   for (const est of estimates) {
     for (const p of (est.ProcedureList || [])) {
       if (p.Executed !== 'X') continue;
       const data = (p.ExecutedDate || p.z_LastChange_Date || '').slice(0, 10);
       const cid  = p.Patient_PersonId || est.PatientId;
       if (!data || !cid) continue;
+      if (!infoMap.has(Number(cid))) infoMap.set(Number(cid), { nome: est.PatientName || `Paciente ${cid}`, telefone: est.PatientMobilePhone || null });
       const priceId = p.PriceId != null ? String(p.PriceId) : null;
       const info = priceId ? catalog.get(priceId) : null;
       const nome = info?.nome || '';
@@ -328,13 +350,13 @@ async function syncPrevencao(janelaDias = PREVENCAO_DIAS) {
     await supabase.from('prevencao_nao_classificados').upsert(naoRows.slice(i, i + 500), { onConflict: 'nome_norm' });
   }
 
-  await recomputarPrevencaoAbc();
+  await recomputarPrevencaoAbc(infoMap);
   return { eventos: dedup.length, nao_classificados: naoRows.length };
 }
 
 /** Recalcula ultima_prevencao* na pacientes_abc a partir de prevencao_eventos,
  *  inserindo pacientes que ainda não existem (convênio-only). */
-async function recomputarPrevencaoAbc() {
+async function recomputarPrevencaoAbc(infoMap = new Map()) {
   const eventos = await selectAll('prevencao_eventos', 'clinicorp_id, data, categoria, procedimento');
   const agg = new Map(); // clinicorp_id → {adulto, infantil}
   for (const e of eventos) {
@@ -343,16 +365,33 @@ async function recomputarPrevencaoAbc() {
     agg.set(e.clinicorp_id, a);
   }
 
-  // garante cadastro em pacientes e pacientes_abc p/ todos com evento
+  // 1) Mapeia clinicorp_id → pacientes.id
   const cids = [...agg.keys()];
-  const idMap = new Map(); // clinicorp_id → pacientes.id
-  for (let i = 0; i < cids.length; i += 1000) {
-    const { data } = await supabase.from('pacientes').select('id, clinicorp_id').in('clinicorp_id', cids.slice(i, i + 1000));
-    (data || []).forEach(p => idMap.set(Number(p.clinicorp_id), p.id));
+  const idMap = new Map();
+  async function carregarIds(lista) {
+    for (let i = 0; i < lista.length; i += 1000) {
+      const { data } = await supabase.from('pacientes').select('id, clinicorp_id').in('clinicorp_id', lista.slice(i, i + 1000));
+      (data || []).forEach(p => idMap.set(Number(p.clinicorp_id), p.id));
+    }
   }
-  // (pacientes faltantes: inserir mínimo com nome/telefone do evento — ver nota abaixo)
+  await carregarIds(cids);
 
-  const now = new Date().toISOString();
+  // 2) Insere cadastro mínimo dos que faltam (convênio-only) — mesmo shape de insertNewPatients
+  const faltantes = cids.filter(c => !idMap.has(c));
+  if (faltantes.length) {
+    const novos = faltantes.map(c => ({
+      clinicorp_id: c,
+      nome: infoMap.get(c)?.nome || `Paciente ${c}`,
+      telefone_celular: infoMap.get(c)?.telefone || null,
+      inserido_em: new Date().toISOString(),
+    }));
+    for (let i = 0; i < novos.length; i += 500) {
+      await supabase.from('pacientes').upsert(novos.slice(i, i + 500), { onConflict: 'clinicorp_id', ignoreDuplicates: true });
+    }
+    await carregarIds(faltantes); // recarrega ids dos recém-inseridos
+    log(`Prevenção: ${novos.length} pacientes convênio-only inseridos`);
+  }
+
   const rows = [];
   for (const [cid, a] of agg) {
     const ultima = [a.adulto, a.infantil].filter(Boolean).sort().slice(-1)[0] || null;
@@ -374,7 +413,7 @@ async function recomputarPrevencaoAbc() {
 }
 ```
 
-> Nota sobre pacientes faltantes: `pacientes_abc.paciente_id` é FK e a tela usa `pacientes!inner`. Pacientes com evento mas sem cadastro (~8%) precisam de upsert mínimo em `pacientes` (clinicorp_id + nome + telefone do estimate) ANTES do upsert em `pacientes_abc`. Coletar `est.PatientName`/`est.PatientMobilePhone` em `syncPrevencao` num mapa `cid→{nome,telefone}` e, em `recomputarPrevencaoAbc`, fazer `supabase.from('pacientes').upsert(..., {onConflict:'clinicorp_id'})` para os `cid` ausentes de `idMap`, depois reler os ids. (Reusa o padrão de `insertNewPatients` já existente no arquivo.)
+> Por que inserir cadastro faltante: `pacientes_abc.paciente_id` é FK e a tela usa `pacientes!inner` — sem o registro em `pacientes`, o paciente convênio-only não apareceria. O passo 2 acima já cobre isso (sem chamada extra à API: usa `est.PatientName`/`est.PatientMobilePhone` capturados no `infoMap`). Os `pacientes_abc` desses convênio-only ficam com `classe=NULL` (por isso o patch em `abc_stats`, Task 2).
 
 - [ ] **Step 3: Registrar a fase em `runSync`**
 
@@ -475,25 +514,33 @@ No `.select(...)` (~linha 146), acrescentar os campos:
 .select("paciente_id, clinicorp_id, nome, classe, total_receita, ultima_visita, dias_sem_visita, proxima_consulta, telefone, ultima_prevencao, ultima_prevencao_adulto, ultima_prevencao_infantil, pacientes!inner(id, telefone_celular)", { count: "exact" })
 ```
 
-- [ ] **Step 3: Cabeçalhos novos (ordenáveis) no `renderTabela`**
+- [ ] **Step 3: Ordenação trata nulls (em `carregar`)**
 
-Após o `<th ... data-col="proxima_consulta">` (~linha 186) adicionar:
+Em `carregar()` (~linha 147), trocar `.order(sortCol, { ascending: sortAsc })` por uma versão que joga "Nunca" (null) pro fim quando ordena por prevenção:
+
+```js
+    .order(sortCol, { ascending: sortAsc, nullsFirst: sortCol.startsWith("ultima_prevencao") ? false : undefined })
+```
+
+- [ ] **Step 4: Cabeçalhos novos (ordenáveis) no `renderTabela`**
+
+Em `renderTabela` (~linha 186), inserir ENTRE o `<th ... data-col="proxima_consulta">` e o `<th>WHATSAPP</th>`:
 
 ```js
         <th class="sortable-th" data-col="${prevCol()}">ÚLTIMA PREVENÇÃO${sortInd(prevCol())}</th>
         <th>STATUS</th>
 ```
 
-- [ ] **Step 4: Células novas em cada linha**
+- [ ] **Step 5: Células novas em cada linha**
 
-Onde monta cada `<tr>` (logo após a célula de PRÓXIMA AGENDA), adicionar:
+A var da linha no `.map` é **`p`** (`rows.map((p, idx) => {`). Inserir ENTRE a célula `<td>...abc-agenda-cell...</td>` (~linha 210) e o `<td>` do botão WhatsApp (~linha 211). Usar `formatarData` (já importado de `shared.js`):
 
 ```js
-        <td>${r[prevCol()] ? new Date(r[prevCol()]).toLocaleDateString('pt-BR') : '—'}</td>
-        <td><span class="prev-status ${statusPrev(r[prevCol()]).cls}">${statusPrev(r[prevCol()]).txt}</span></td>
+          <td>${p[prevCol()] ? formatarData(p[prevCol()]) : '—'}</td>
+          <td><span class="prev-status ${statusPrev(p[prevCol()]).cls}">${statusPrev(p[prevCol()]).txt}</span></td>
 ```
 
-- [ ] **Step 5: Chips de categoria (HTML)**
+- [ ] **Step 6: Chips de categoria (HTML)**
 
 Em `curva-abc.html`, dentro do bloco de filtros (`.abc-filters`, ~linha 76), adicionar um grupo:
 
@@ -508,24 +555,22 @@ Em `curva-abc.html`, dentro do bloco de filtros (`.abc-filters`, ~linha 76), adi
             </div>
 ```
 
-- [ ] **Step 6: Handler dos chips + ordenação pela coluna ativa**
+- [ ] **Step 7: Handler dos chips**
 
-Em `curva-abc.js`, no setup de eventos (perto dos outros listeners de chip), adicionar:
+Em `curva-abc.js`, dentro da função **`setupListeners()`** (onde já ficam os outros listeners de chip, ~linhas 91–113), adicionar. A var de página é **`paginaAtual`** e a função de recarga é **`carregar()`**:
 
 ```js
-document.getElementById("prev-cat-chips")?.addEventListener("click", (e) => {
-  const b = e.target.closest(".prev-cat"); if (!b) return;
-  document.querySelectorAll(".prev-cat").forEach(x => x.classList.remove("prev-cat--active"));
-  b.classList.add("prev-cat--active");
-  catPrev = b.dataset.cat;
-  if (sortCol.startsWith("ultima_prevencao")) sortCol = prevCol(); // mantém ordenando por prevenção
-  pagina = 1; carregar();
-});
+  document.getElementById("prev-cat-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest(".prev-cat"); if (!b) return;
+    document.querySelectorAll(".prev-cat").forEach(x => x.classList.remove("prev-cat--active"));
+    b.classList.add("prev-cat--active");
+    catPrev = b.dataset.cat;
+    if (sortCol.startsWith("ultima_prevencao")) sortCol = prevCol(); // segue ordenando por prevenção
+    paginaAtual = 1; carregar();
+  });
 ```
 
-> Verificar o nome real da função de recarga (`carregar`/`load`) e da var de página no arquivo e usar os corretos.
-
-- [ ] **Step 7: CSS dos status**
+- [ ] **Step 8: CSS dos status**
 
 Em `public/css/pos-tratamento.css`, adicionar:
 
@@ -537,12 +582,12 @@ Em `public/css/pos-tratamento.css`, adicionar:
 .st-nunca{background:#eee;color:#666}
 ```
 
-- [ ] **Step 8: Verificação visual**
+- [ ] **Step 9: Verificação visual**
 
 Subir local (`npm start` ou conforme projeto), abrir `/pos-tratamento/curva-abc.html`:
-- colunas Última prevenção + Status aparecem; clicar no cabeçalho ordena; chips Adulto/Infantil trocam a data/sort; "Nunca" aparece para quem não tem.
+- colunas Última prevenção + Status aparecem; clicar no cabeçalho ordena (DESC primeiro = menos vencido no topo, "Nunca" no fim); chips Adulto/Infantil trocam a data/sort; KPIs ABC permanecem iguais (convênio-only não os afeta).
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add public/js/pos-tratamento/curva-abc.js public/pos-tratamento/curva-abc.html public/css/pos-tratamento.css
