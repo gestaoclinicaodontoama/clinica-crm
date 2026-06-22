@@ -118,7 +118,11 @@ tr:hover td{background:var(--bg3)}
       <label>Imposto</label>
       <input type="number" id="impostoInput" class="imposto-input" min="0" max="100" step="0.1" placeholder="—" title="Alíquota de impostos sobre produção">
       <span style="font-size:13px;color:var(--muted)">%</span>
-      <button class="btn btn-ghost btn-sm" onclick="salvarImposto()" title="Salvar alíquota">✓</button>
+      <div class="sep" style="height:16px"></div>
+      <label>Custo/hora</label>
+      <span style="font-size:13px;color:var(--muted)">R$</span>
+      <input type="number" id="custoInput" class="imposto-input" style="width:80px" min="0" step="0.01" placeholder="—" title="Custo/hora da clínica">
+      <button class="btn btn-ghost btn-sm" onclick="salvarConfig()" title="Salvar configurações">✓</button>
     </div>
   </div>
 
@@ -139,26 +143,6 @@ tr:hover td{background:var(--bg3)}
     </div>
   </div>
 
-</div>
-
-<!-- Modal Custo/hora -->
-<div class="modal-overlay" id="modalCusto" style="display:none" onclick="if(event.target===this)fecharModal('modalCusto')">
-  <div class="modal">
-    <h2>Custo/hora</h2>
-    <input type="hidden" id="custoDentId">
-    <input type="hidden" id="custoDentName">
-    <label>Dentista</label>
-    <input type="text" id="custoDentLabel" disabled>
-    <label>Ano</label>
-    <input type="number" id="custoAno" min="2020" max="2035">
-    <label>Custo por hora (R$)</label>
-    <input type="number" id="custoValor" min="0" step="0.01" placeholder="Ex: 120.00">
-    <div class="modal-btns">
-      <button class="btn btn-ghost" onclick="fecharModal('modalCusto')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarCusto()">Salvar</button>
-    </div>
-    <div class="modal-msg" id="custoMsg"></div>
-  </div>
 </div>
 
 <!-- Modal Horas Manual -->
@@ -206,7 +190,8 @@ let currentFrom = null;
 let currentTo   = null;
 let customOpen  = false;
 let evolChart   = null;
-let aliquota    = null;   // % de imposto global (null = não configurado)
+let aliquota    = null;   // % de imposto global
+let custoHora   = null;   // custo/hora global da clínica
 let lastResumo  = [];
 let lastEvolucao= [];
 
@@ -297,24 +282,29 @@ async function carregarAliquota(ano) {
   try {
     const res = await fetch(`/api/producao/imposto?ano=${ano}`, { headers: { Authorization: `Bearer ${token}` } });
     const json = await res.json();
-    aliquota = json.aliquota != null ? Number(json.aliquota) : null;
-    document.getElementById('impostoInput').value = aliquota != null ? aliquota : '';
+    aliquota  = json.aliquota   != null ? Number(json.aliquota)   : null;
+    custoHora = json.custo_hora != null ? Number(json.custo_hora) : null;
+    document.getElementById('impostoInput').value = aliquota  != null ? aliquota  : '';
+    document.getElementById('custoInput').value   = custoHora != null ? custoHora : '';
   } catch (_) {}
 }
 
-async function salvarImposto() {
-  const val = document.getElementById('impostoInput').value.trim();
-  const ano = new Date(currentFrom).getFullYear();
-  if (val === '') return;
-  const n = Number(val);
-  if (isNaN(n) || n < 0 || n > 100) return;
+async function salvarConfig() {
+  const ano     = new Date(currentFrom).getFullYear();
+  const impVal  = document.getElementById('impostoInput').value.trim();
+  const custoVal= document.getElementById('custoInput').value.trim();
+  const body    = { ano };
+  if (impVal   !== '') body.aliquota   = Number(impVal);
+  if (custoVal !== '') body.custo_hora = Number(custoVal);
+  if (Object.keys(body).length === 1) return; // só o ano
   try {
     await fetch('/api/producao/imposto', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ano, aliquota: n }),
+      body: JSON.stringify(body),
     });
-    aliquota = n;
+    if (impVal   !== '') aliquota  = Number(impVal);
+    if (custoVal !== '') custoHora = Number(custoVal);
     renderCards(lastResumo);
     if (lastEvolucao.length) renderEvolucao(lastEvolucao);
   } catch (_) {}
@@ -382,11 +372,14 @@ function liquida(bruto) {
 
 function cardHtml(d) {
   const liq = liquida(d.producao_total);
-  // resultado/hora: se imposto configurado, recalcula sobre líquido
+  // custo/hora vem do estado global (clínica), não por dentista
+  const custo = custoHora ?? d.custo_hora ?? null;
   let resVal = d.resultado_por_hora;
-  if (liq != null && d.horas_agendadas > 0 && d.custo_hora != null) {
-    const pphLiq = Math.round((liq / d.horas_agendadas) * 100) / 100;
-    resVal = Math.round((pphLiq - d.custo_hora) * 100) / 100;
+  if (custo != null) {
+    const base = liq != null && d.horas_agendadas > 0 ? liq : (d.producao_total ?? 0);
+    resVal = d.horas_agendadas > 0
+      ? Math.round((base / d.horas_agendadas - custo) * 100) / 100
+      : null;
   }
   const resClass = resVal == null ? 'muted' : (resVal >= 0 ? 'green' : 'red');
   const manualIcon = ` <span title="${d.horas_manual_override ? 'Inclui horas manuais' : 'Sem horas manuais'}" style="${d.horas_manual_override ? 'color:var(--accent)' : 'opacity:.3'}">✏️</span>`;
@@ -424,10 +417,7 @@ function cardHtml(d) {
     </div>
     <div class="dent-metric">
       <span class="dent-metric-label">Custo/hora</span>
-      <div class="dent-metric-action">
-        <span class="dent-metric-value">${brlph(d.custo_hora)}</span>
-        <button class="btn btn-ghost btn-sm" onclick="abrirModalCusto(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})">⚙️</button>
-      </div>
+      <span class="dent-metric-value">${brlph(custo)}</span>
     </div>
     <div class="dent-metric">
       <span class="dent-metric-label">Resultado/hora${liq != null ? ' (líq.)' : ''}</span>
@@ -547,9 +537,11 @@ function renderEvolucao(rows) {
     const mesLabel   = MESES[mes - 1] + ' ' + ano;
     const manualMark = r.horas_manual ? ' ✏️' : '';
     const liqVal     = liquida(r.producao);
+    const custo      = custoHora ?? r.custo_hora ?? null;
     let resVal = r.resultado_por_hora;
-    if (liqVal != null && r.horas_agendadas > 0 && r.custo_hora != null) {
-      resVal = Math.round((liqVal / r.horas_agendadas - r.custo_hora) * 100) / 100;
+    if (custo != null && r.horas_agendadas > 0) {
+      const base = liqVal != null ? liqVal : r.producao;
+      resVal = Math.round((base / r.horas_agendadas - custo) * 100) / 100;
     }
     const resStyle = resVal == null
       ? 'style="color:var(--muted)"'
@@ -562,7 +554,7 @@ function renderEvolucao(rows) {
       <td>${r.horas_agendadas != null ? r.horas_agendadas + 'h' + manualMark : '—'}</td>
       <td>${r.dias_com_agenda || '—'}</td>
       <td>${brlph(r.producao_por_hora)}</td>
-      <td>${brlph(r.custo_hora)}</td>
+      <td>${brlph(custo)}</td>
       <td ${resStyle}>${brlph(resVal)}</td>
     </tr>`;
   }).join('');
@@ -572,41 +564,6 @@ function renderEvolucao(rows) {
 
 // ── Modais ───────────────────────────────────────────────────────────────────
 function fecharModal(id) { document.getElementById(id).style.display = 'none'; }
-
-function abrirModalCusto(dentId, dentName) {
-  document.getElementById('custoDentId').value    = dentId;
-  document.getElementById('custoDentName').value  = dentName;
-  document.getElementById('custoDentLabel').value = dentName;
-  document.getElementById('custoAno').value       = new Date(currentFrom).getFullYear();
-  document.getElementById('custoValor').value     = '';
-  document.getElementById('custoMsg').textContent = '';
-  document.getElementById('modalCusto').style.display = 'flex';
-}
-
-async function salvarCusto() {
-  const dentId   = document.getElementById('custoDentId').value;
-  const dentName = document.getElementById('custoDentName').value;
-  const ano      = document.getElementById('custoAno').value;
-  const val      = document.getElementById('custoValor').value;
-  const msg      = document.getElementById('custoMsg');
-  if (!val || Number(val) < 0) { msg.className = 'modal-msg err'; msg.textContent = 'Valor inválido'; return; }
-
-  try {
-    const res = await fetch('/api/producao/dentista/custo-hora', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ dentist_person_id: dentId, dentist_name: dentName, ano: parseInt(ano), custo_hora: Number(val) }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error);
-    msg.className = 'modal-msg ok';
-    msg.textContent = 'Salvo!';
-    setTimeout(() => { fecharModal('modalCusto'); carregar(); }, 800);
-  } catch (e) {
-    msg.className = 'modal-msg err';
-    msg.textContent = e.message;
-  }
-}
 
 function abrirModalHoras(dentId, dentName) {
   const from = new Date(currentFrom);

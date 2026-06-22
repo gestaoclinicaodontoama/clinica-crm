@@ -6451,8 +6451,10 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
         .select('dentist_person_id, ano, mes, horas')
         .gte('ano', fromYear)
         .lte('ano', toYear),
-      supabase.from('dentista_custo_hora')
-        .select('dentist_person_id, ano, custo_hora'),
+      supabase.from('producao_imposto_aliquota')
+        .select('ano, custo_hora')
+        .gte('ano', fromYear)
+        .lte('ano', toYear),
     ]);
     if (eA) throw new Error(eA.message);
     if (eP) throw new Error(eP.message);
@@ -6465,10 +6467,9 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
       if (!manualMap[r.dentist_person_id]) manualMap[r.dentist_person_id] = {};
       manualMap[r.dentist_person_id][`${r.ano}-${r.mes}`] = Number(r.horas);
     }
-    const custoMap = {};
+    const custoByYear = {};
     for (const r of (custoRows || [])) {
-      if (!custoMap[r.dentist_person_id]) custoMap[r.dentist_person_id] = {};
-      custoMap[r.dentist_person_id][r.ano] = Number(r.custo_hora);
+      custoByYear[r.ano] = r.custo_hora != null ? Number(r.custo_hora) : null;
     }
     const producaoMap = {};
     for (const r of (producaoRows || [])) {
@@ -6521,7 +6522,7 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
       const producao_por_hora = horas_agendadas > 0
         ? Math.round((producao_total / horas_agendadas) * 100) / 100
         : null;
-      const custo_hora        = custoMap[dentId]?.[fromYear] ?? null;
+      const custo_hora        = custoByYear[fromYear] ?? null;
       const resultado_por_hora = (producao_por_hora !== null && custo_hora !== null)
         ? Math.round((producao_por_hora - custo_hora) * 100) / 100
         : null;
@@ -6586,8 +6587,10 @@ app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (
         .select('dentist_person_id, ano, mes, horas')
         .gte('ano', fromYear)
         .lte('ano', toYear),
-      supabase.from('dentista_custo_hora')
-        .select('dentist_person_id, ano, custo_hora'),
+      supabase.from('producao_imposto_aliquota')
+        .select('ano, custo_hora')
+        .gte('ano', fromYear)
+        .lte('ano', toYear),
     ]);
     if (eA) throw new Error(eA.message);
     if (eM) throw new Error(eM.message);
@@ -6619,10 +6622,9 @@ app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (
       if (!manualMap[r.dentist_person_id]) manualMap[r.dentist_person_id] = {};
       manualMap[r.dentist_person_id][`${r.ano}-${r.mes}`] = Number(r.horas);
     }
-    const custoMap = {};
+    const custoByYear = {};
     for (const r of (custoRows || [])) {
-      if (!custoMap[r.dentist_person_id]) custoMap[r.dentist_person_id] = {};
-      custoMap[r.dentist_person_id][r.ano] = Number(r.custo_hora);
+      custoByYear[r.ano] = r.custo_hora != null ? Number(r.custo_hora) : null;
     }
 
     // Group agenda by dentist → month
@@ -6662,7 +6664,7 @@ app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (
         const producao_por_hora = horas_agendadas > 0
           ? Math.round((producao / horas_agendadas) * 100) / 100
           : null;
-        const custo_hora = custoMap[dentId]?.[ano] ?? null;
+        const custo_hora = custoByYear[ano] ?? null;
         const resultado_por_hora = (producao_por_hora !== null && custo_hora !== null)
           ? Math.round((producao_por_hora - custo_hora) * 100) / 100
           : null;
@@ -6707,15 +6709,15 @@ app.get('/api/producao/dentista/top-procedimentos', requireAuth, requireProducao
   }
 });
 
-// Alíquota de imposto global por ano
+// Configuração global de produção por ano (imposto + custo/hora)
 app.get('/api/producao/imposto', requireAuth, requireProducao, async (req, res) => {
   const ano = parseInt(req.query.ano);
   if (!ano) return res.status(400).json({ error: 'ano obrigatório' });
   try {
     const { data, error } = await supabase.from('producao_imposto_aliquota')
-      .select('aliquota').eq('ano', ano).maybeSingle();
+      .select('aliquota, custo_hora').eq('ano', ano).maybeSingle();
     if (error) throw new Error(error.message);
-    res.json({ aliquota: data?.aliquota ?? null });
+    res.json({ aliquota: data?.aliquota ?? null, custo_hora: data?.custo_hora ?? null });
   } catch (e) {
     console.error('[producao/imposto GET]', e.message);
     res.status(500).json({ error: e.message });
@@ -6723,14 +6725,14 @@ app.get('/api/producao/imposto', requireAuth, requireProducao, async (req, res) 
 });
 
 app.post('/api/producao/imposto', requireAuth, requireProducao, async (req, res) => {
-  const { ano, aliquota } = req.body;
-  if (!ano || aliquota == null) return res.status(400).json({ error: 'ano e aliquota obrigatórios' });
+  const { ano, aliquota, custo_hora } = req.body;
+  if (!ano) return res.status(400).json({ error: 'ano obrigatório' });
   try {
-    const { error } = await supabase.from('producao_imposto_aliquota').upsert({
-      ano:           parseInt(ano),
-      aliquota:      Number(aliquota),
-      atualizado_em: new Date().toISOString(),
-    }, { onConflict: 'ano' });
+    const row = { ano: parseInt(ano), atualizado_em: new Date().toISOString() };
+    if (aliquota  != null) row.aliquota  = Number(aliquota);
+    if (custo_hora != null) row.custo_hora = Number(custo_hora);
+    const { error } = await supabase.from('producao_imposto_aliquota')
+      .upsert(row, { onConflict: 'ano' });
     if (error) throw new Error(error.message);
     res.json({ ok: true });
   } catch (e) {
