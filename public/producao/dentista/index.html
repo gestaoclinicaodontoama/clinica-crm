@@ -78,7 +78,12 @@ tr:hover td{background:var(--bg3)}
 /* Spinner */
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* Chart */
+.chart-wrap{padding:16px;height:300px;position:relative}
+.evol-table-toggle{padding:8px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--accent);cursor:pointer;background:none;border-left:none;border-right:none;border-bottom:none;width:100%;text-align:left;font-family:inherit;font-weight:500}
+.evol-table-toggle:hover{background:var(--bg3)}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="wrap">
@@ -108,7 +113,9 @@ tr:hover td{background:var(--bg3)}
 
   <div class="section" id="evolSection" style="display:none">
     <div class="section-header">Evolução Mensal</div>
-    <div style="overflow-x:auto">
+    <div class="chart-wrap"><canvas id="evolCanvas"></canvas></div>
+    <button class="evol-table-toggle" id="evolToggle" onclick="toggleEvolTable()">Ver tabela detalhada ▾</button>
+    <div id="evolTableWrap" style="display:none;overflow-x:auto">
       <table id="evolTable">
         <thead><tr>
           <th>Dentista</th><th>Mês</th><th>Produção</th><th>Horas</th>
@@ -185,6 +192,7 @@ let token = null;
 let currentFrom = null;
 let currentTo   = null;
 let customOpen  = false;
+let evolChart   = null;
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 (async function init() {
@@ -388,15 +396,89 @@ async function carregarTopProcs(dentId) {
 }
 
 // ── Render Evolução ──────────────────────────────────────────────────────────
+function toggleEvolTable() {
+  const wrap = document.getElementById('evolTableWrap');
+  const btn  = document.getElementById('evolToggle');
+  const vis  = wrap.style.display !== 'none';
+  wrap.style.display = vis ? 'none' : '';
+  btn.textContent = vis ? 'Ver tabela detalhada ▾' : 'Ocultar tabela ▴';
+}
+
 function renderEvolucao(rows) {
   if (!rows.length) return;
   const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const COLORS = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a855f7'];
+
+  // Ordered unique months and dentists
+  const monthKeys = [...new Set(rows.map(r => r.mes))].sort();
+  const dentMap   = new Map(rows.map(r => [r.dentist_person_id, r.dentist_name]));
+  const dentIds   = [...dentMap.keys()];
+
+  const labels = monthKeys.map(m => {
+    const [ano, mes] = m.split('-').map(Number);
+    return MESES[mes - 1] + ' ' + String(ano).slice(2);
+  });
+
+  const datasets = dentIds.map((id, i) => {
+    const shortName = (dentMap.get(id) || id).replace(/\s*-\s*(Execu[cç][aã]o|Exec\.?)/i, '').trim();
+    return {
+      label: shortName,
+      data: monthKeys.map(m => {
+        const r = rows.find(r => r.dentist_person_id === id && r.mes === m);
+        return r ? r.producao : 0;
+      }),
+      backgroundColor: COLORS[i % COLORS.length] + 'bb',
+      borderColor:     COLORS[i % COLORS.length],
+      borderWidth: 2,
+      borderRadius: 4,
+    };
+  });
+
+  if (evolChart) { evolChart.destroy(); evolChart = null; }
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const textColor  = isDark ? '#e8eaf0' : '#1a1d29';
+  const mutedColor = isDark ? '#6b7280' : '#6b7280';
+  const gridColor  = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+
+  const ctx = document.getElementById('evolCanvas').getContext('2d');
+  evolChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: textColor, font: { family: 'DM Sans' } } },
+        tooltip: {
+          callbacks: { label: c => ' ' + brl(c.raw) },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: mutedColor, font: { family: 'DM Sans', size: 11 } },
+          grid:  { color: gridColor },
+        },
+        y: {
+          ticks: {
+            color: mutedColor,
+            font:  { family: 'DM Sans', size: 11 },
+            callback: v => v >= 1000 ? 'R$ ' + (v / 1000).toFixed(0) + 'k' : 'R$ ' + v,
+          },
+          grid: { color: gridColor },
+        },
+      },
+    },
+  });
+
+  // Fill table (hidden by default)
   const tbody = document.getElementById('evolBody');
   tbody.innerHTML = rows.map(r => {
     const [ano, mes] = r.mes.split('-').map(Number);
-    const mesLabel = MESES[mes - 1] + ' ' + ano;
+    const mesLabel  = MESES[mes - 1] + ' ' + ano;
     const manualMark = r.horas_manual ? ' ✏️' : '';
-    const resClass = r.resultado_por_hora == null ? 'style="color:var(--muted)"' : (r.resultado_por_hora >= 0 ? 'style="color:var(--green)"' : 'style="color:var(--red)"');
+    const resStyle = r.resultado_por_hora == null
+      ? 'style="color:var(--muted)"'
+      : r.resultado_por_hora >= 0 ? 'style="color:var(--green)"' : 'style="color:var(--red)"';
     return `<tr>
       <td>${esc(r.dentist_name)}</td>
       <td>${esc(mesLabel)}</td>
@@ -405,9 +487,10 @@ function renderEvolucao(rows) {
       <td>${r.dias_com_agenda || '—'}</td>
       <td>${brlph(r.producao_por_hora)}</td>
       <td>${brlph(r.custo_hora)}</td>
-      <td ${resClass}>${brlph(r.resultado_por_hora)}</td>
+      <td ${resStyle}>${brlph(r.resultado_por_hora)}</td>
     </tr>`;
   }).join('');
+
   document.getElementById('evolSection').style.display = '';
 }
 
