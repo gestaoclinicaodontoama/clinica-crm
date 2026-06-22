@@ -2607,13 +2607,17 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
       user_data.page_id = pageId;
       // Roteamento de dataset por Página: o Events Manager só permite 1 Página
       // vinculada por dataset ("Dados vinculados"), então cada Página tem seu
-      // próprio dataset. META_PIXEL_BY_PAGE (JSON page_id->pixel_id) escolhe o
-      // destino do evento; sem match mantém META_PIXEL_ID. Retrocompatível: se a
-      // env não existir, comportamento idêntico ao anterior (1 dataset só).
+      // próprio dataset. Mapa default abaixo + override opcional por env
+      // META_PIXEL_BY_PAGE (JSON page_id->pixel_id). Sem match, mantém
+      // META_PIXEL_ID (= Página 106 "Dr. Marcos Vinicius - AMA").
+      const DEFAULT_PIXEL_BY_PAGE = {
+        '1204513262736152': '981176104681444', // Clínica AMA → dataset "Pixel WhatsApp CAPI - Clínica AMA"
+      };
+      let pixelByPage = DEFAULT_PIXEL_BY_PAGE;
       try {
-        const pixelByPage = JSON.parse(process.env.META_PIXEL_BY_PAGE || '{}');
-        if (pixelByPage[pageId]) PIXEL = pixelByPage[pageId];
+        pixelByPage = { ...DEFAULT_PIXEL_BY_PAGE, ...JSON.parse(process.env.META_PIXEL_BY_PAGE || '{}') };
       } catch (e) { console.error('META_PIXEL_BY_PAGE inválido:', e.message); }
+      if (pixelByPage[pageId]) PIXEL = pixelByPage[pageId];
     }
   } else if (lead.fbclid) {
     user_data.fbc = 'fb.1.' + Math.floor(Date.now()/1000) + '.' + lead.fbclid;
