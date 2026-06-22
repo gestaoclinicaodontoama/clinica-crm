@@ -78,17 +78,25 @@ CREATE INDEX idx_prev_eventos_pac ON prevencao_eventos (clinicorp_id);
 
 Dedup natural: vários procedimentos preventivos no mesmo dia/tratamento colapsam numa data (resolve "soma de procedimentos = uma limpeza").
 
-### 1.3 Agregados em `pacientes_abc`
+### 1.3 Agregados — `prevencao_status` (NÃO em `pacientes_abc`)
 
-O sync já faz UPSERT nesta tabela; o mesmo sync computa estas colunas:
+⚠️ **Verificado:** de 108 pacientes de prevenção de maio, só 95 estão em `pacientes_abc` e 99 em `pacientes` — pacientes convênio-only (sem receita particular) não entram no ABC. Então os agregados **não podem viver na `pacientes_abc`**, senão a lista perde ~12% do público de prevenção. Ficam numa tabela própria por `clinicorp_id`, cobrindo TODO mundo que fez prevenção:
 
 ```sql
-ALTER TABLE pacientes_abc
-  ADD COLUMN ultima_prevencao          DATE,   -- max(adulto, infantil)
-  ADD COLUMN ultima_prevencao_adulto   DATE,
-  ADD COLUMN ultima_prevencao_infantil DATE,
-  ADD COLUMN dias_sem_prevencao        INTEGER;
+CREATE TABLE prevencao_status (
+  clinicorp_id              BIGINT PRIMARY KEY,   -- Patient_PersonId
+  nome                      TEXT,                 -- fallback do estimates (PatientName)
+  telefone                  TEXT,
+  ultima_prevencao          DATE,                 -- max(adulto, infantil)
+  ultima_prevencao_adulto   DATE,
+  ultima_prevencao_infantil DATE,
+  qtd_prevencoes            INTEGER DEFAULT 0,
+  dias_sem_prevencao        INTEGER,
+  atualizado_em             TIMESTAMPTZ DEFAULT NOW()
+);
 ```
+
+A página junta `prevencao_status` (última prevenção) com `pacientes` (cadastro) e `pacientes_abc` (classe/gasto/visitas, via LEFT JOIN — nulo para convênio-only). Ver §3.4.
 
 ### 1.4 (Fase 2) Estender `nao_ligar_pacientes`
 
@@ -120,9 +128,9 @@ ALTER TABLE nao_ligar_pacientes
 
 ### 2.3 Agregação
 
-- `ultima_prevencao_adulto` / `ultima_prevencao_infantil` = max(`ExecutedDate`) por categoria; `ultima_prevencao` = max das duas.
-- `dias_sem_prevencao` = dias desde `ultima_prevencao`.
-- Incluir as 4 colunas no upsert de `pacientes_abc` (server.js ~3665).
+- Por paciente: `ultima_prevencao_adulto` / `_infantil` = max(`ExecutedDate`) por categoria; `ultima_prevencao` = max das duas; `qtd_prevencoes` = nº de datas distintas; `dias_sem_prevencao` = dias desde `ultima_prevencao`.
+- **Upsert em `prevencao_status`** (não em `pacientes_abc`), com `nome`/`telefone` vindos do estimate (cobre quem não está em `pacientes`).
+- **Fechar o gap de cadastro:** pacientes presentes nos estimates mas ausentes de `pacientes` → upsert mínimo em `pacientes` (clinicorp_id, nome, telefone) pra aparecerem na lista e poderem ser ligados.
 
 ### 2.4 Sync diário vs histórico
 
@@ -155,7 +163,7 @@ Atalho que aplica: ordenar por última prevenção ↑ (menos vencido primeiro) 
 
 ### 3.4 Dados
 
-Lê `pacientes_abc` (anon key já no HTML) com as 4 colunas novas. Sem endpoint novo na Fase 1.
+Universo da lista = **todos os pacientes que fizeram prevenção** (`prevencao_status`) **+** pacientes ABC sem prevenção (para os "Nunca"). Join: `pacientes` (cadastro) ⟕ `prevencao_status` (última prevenção) ⟕ `pacientes_abc` (classe/gasto/visitas — nulo p/ convênio-only, mostrado como "sem classe"). Provavelmente uma **VIEW** ou endpoint que faz esse join server-side (mais robusto que 3 queries no cliente). Sem dado novo de procedimento na Fase 1 além do que o sync grava.
 
 ### 3.5 Auditoria
 
@@ -195,8 +203,14 @@ Arquivos `recall.html`/`recall.js` podem ficar no repo sem link (decidir na impl
 ## 7. Riscos
 
 - **Resolução de nome (96,6%):** ~3,4% sem match → auditoria. Monitorar e completar config.
-- **`ExecutedDate`:** confirmar sempre preenchido em `Executed="X"` (fallback `z_LastChange_Date`).
-- **Filtro de data do `estimates/list`:** confirmar CreateDate vs LastChange p/ o incremental (§2.4).
+- **Filtro de data do `estimates/list`:** confirmar CreateDate vs LastChange p/ o incremental (§2.4). Único ponto técnico ainda não verificado.
 - **`ANA_LUIZA_PERSON_ID`:** obter/configurar em `app_config`.
 - **Catálogo muda por convênio:** novos procedimentos caem em auditoria → adicionar à config.
+- **Volume / UX:** a base de prevenção é baixa por mês (~100 pacientes) → a maioria dos pacientes vai estar "vencido" ou "nunca". A lista será grande; a priorização (ordenar por menos vencido + classe/gasto) e a paginação são essenciais pra não virar uma lista inútil de milhares.
+
+### Verificado ao vivo (não são mais riscos)
+- ✅ `ExecutedDate` preenchida em 100% dos `Executed="X"` (maio e 2024-05).
+- ✅ Cobertura histórica: `estimates/list` retorna execuções de 2024 normalmente.
+- ✅ `Patient_PersonId` (estimates) = `clinicorp_id` (bate em `pacientes`).
+- ✅ Gap convênio-only tratado: agregados em `prevencao_status` + upsert de cadastro faltante (§1.3/§2.3).
 </content>
