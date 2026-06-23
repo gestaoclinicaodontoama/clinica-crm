@@ -239,6 +239,29 @@ from public.leads;
 ```
 Expected: `frios` ≈ número do Step 1; `nutrir_restante` = poucas dezenas (as que têm algum marco).
 
+- [ ] **Step 4: Remapear os 'Nutrir' que TÊM marco (vieram em algum momento) pelo estágio mais avançado**
+
+Aplicar migração (MCP `apply_migration`, name `remap_nutrir_com_marco`):
+```sql
+update public.leads set status = case
+  when data_fechamento   is not null then 'Fechou'
+  when data_orcamento    is not null then 'Em negociação'
+  when data_comparecimento is not null or data_avaliacao is not null then 'Compareceu'
+  when data_agendamento  is not null then 'Avaliação agendada'
+  when clinicorp_appointment_id is not null then 'Compareceu'
+  else 'Novo'
+end
+where status='Nutrir';
+```
+
+- [ ] **Step 5: Verificar que não sobrou nenhum 'Nutrir'**
+
+Run (MCP `execute_sql`):
+```sql
+select count(*) nutrir_restante from public.leads where status='Nutrir';
+```
+Expected: `nutrir_restante` = 0.
+
 ---
 
 ## Task 6: Remapear os status restantes para o conjunto canônico
@@ -254,7 +277,7 @@ select status, count(*) n from public.leads
 where status not in ('Novo','Em qualificação','Avaliação agendada','Compareceu','Em negociação','Fechou','Perdido')
 group by status order by n desc;
 ```
-Expected: `Nutrir` (resto com marco), `Lead`, `Não tem Interesse`, `Reclassificar`, `Agendado`, `Em conversa - Lead Qualificado`, `Faltou`, e possíveis `Orçado`/`D0..D5` (0).
+Expected: `Lead`, `Não tem Interesse`, `Reclassificar`, `Agendado`, `Em conversa - Lead Qualificado`, `Faltou`, e possíveis `Orçado`/`D0..D5` (0). (`Nutrir` já foi 100% tratado na Task 5.)
 
 - [ ] **Step 2: Aplicar migração de remapeamento**
 
@@ -265,7 +288,7 @@ update public.leads set status='Perdido', motivo_perda='Sem interesse'
   where status='Não tem Interesse';
 
 -- Entradas do funil
-update public.leads set status='Novo' where status in ('Lead','Reclassificar','Nutrir');
+update public.leads set status='Novo' where status in ('Lead','Reclassificar');
 update public.leads set status='Em qualificação' where status in ('Em conversa - Lead Qualificado','Faltou');
 update public.leads set status='Avaliação agendada' where status='Agendado';
 update public.leads set status='Em negociação' where status in ('Orçado','D0','D1','D2','D3','D4','D5');
@@ -368,9 +391,9 @@ if (k === 'carteira' && !CARTEIRAS.includes(v)) return res.status(400).json({ er
 Run:
 ```bash
 cd "/c/Users/Luiz Martins/Desktop/Projeto Claude Code/clinica-crm"
-node -e "require('./server.js')" 2>&1 | head -5 || true
+node --check server.js && echo "OK: sintaxe válida"
 ```
-Expected: sem `SyntaxError`/`ReferenceError`. (Se o arquivo inicia um listener, usar Ctrl-C; o objetivo é só validar que carrega.)
+Expected: `OK: sintaxe válida` (sem `SyntaxError`). `node --check` valida sem iniciar o servidor.
 
 - [ ] **Step 6: Commit**
 
@@ -477,7 +500,39 @@ git commit -m "feat(funil): visual com estágios canônicos + selo de carteira"
 
 ---
 
-## Task 10: Conferência final e deploy
+## Task 10: Caçar referências a status antigos no resto do código
+
+**Files:**
+- Modify: arquivos em `public/` e `server.js` que ainda citem status antigos (kanban-comercial, dashboard, atribuição, etc.)
+
+- [ ] **Step 1: Localizar todas as referências aos status antigos**
+
+Run:
+```bash
+cd "/c/Users/Luiz Martins/Desktop/Projeto Claude Code/clinica-crm"
+grep -rnE "Nutrir|Em nutrição|'Agendado'|\"Agendado\"|Não tem Interesse|Reclassificar|Em conversa - Lead Qualificado|'Lead'|Orçado|'D[0-5]'" public/ server.js | grep -v node_modules
+```
+Expected: uma lista de ocorrências (filtros de kanban, dashboards, labels). Anotar cada arquivo:linha.
+
+- [ ] **Step 2: Corrigir cada ocorrência para o nome canônico**
+
+Para cada resultado do Step 1, trocar pelo equivalente canônico (`Lead`→`Novo`, `Agendado`→`Avaliação agendada`, `Orçado`/`D0-5`→`Em negociação`, `Nutrir`/`Em nutrição`→tratar como estado_frio/Reativação). Se uma página filtra por status, ajustar para os 7 canônicos. **Não** alterar `lead_eventos` (histórico) nem textos de migração já aplicados.
+
+- [ ] **Step 3: Confirmar que não sobrou referência viva**
+
+Run o mesmo grep do Step 1.
+Expected: apenas ocorrências aceitáveis (comentários, histórico) — nenhum filtro/label de UI usando nome antigo.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add -A
+git commit -m "fix(funil): atualiza referências de status antigos em telas e rotas"
+```
+
+---
+
+## Task 11: Conferência final e deploy
 
 **Files:**
 - Nenhum — verificação + deploy.
