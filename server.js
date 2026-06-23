@@ -4170,6 +4170,38 @@ async function capiEnviarResumo(slot, force = false) {
   console.log('[capi-monitor] scheduler de resumos 8h/18h ativo');
 })();
 
+// Conjuntos de anúncio rumo aos 50/semana (limiar da fase de aprendizado do Meta,
+// que é POR CONJUNTO). Conversas iniciadas por adset nos últimos 7 dias, direto das
+// insights da Meta — mesmo action_type usado em /api/meta-insights.
+app.get('/api/admin/capi-saude/adsets', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const TOKEN = process.env.META_ACCESS_TOKEN;
+    if (!TOKEN) return res.json({ sem_token: true, conjuntos: [], meta: 50 });
+    const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const timeRange = JSON.stringify({ since: ymd(new Date(Date.now() - 7 * 86400000)), until: ymd(new Date()) });
+    const filtering = JSON.stringify([{ field: 'adset.effective_status', operator: 'IN', value: ['ACTIVE'] }]);
+    const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
+      '/insights?level=adset&fields=adset_id,adset_name,campaign_name,actions' +
+      '&filtering=' + encodeURIComponent(filtering) +
+      '&time_range=' + encodeURIComponent(timeRange) + '&limit=200';
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 25000);
+    let r;
+    try { r = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN }, signal: ctrl.signal }); }
+    finally { clearTimeout(to); }
+    const json = await r.json();
+    if (json.error) return res.json({ erro_meta: json.error.message || 'Erro Meta', conjuntos: [], meta: 50 });
+    const conjuntos = (json.data || []).map(row => {
+      const conv = (row.actions || []).find(a => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+      return { adset_id: row.adset_id, adset_name: row.adset_name, campaign_name: row.campaign_name, conversas: conv ? parseInt(conv.value, 10) : 0 };
+    }).filter(c => c.conversas > 0).sort((a, b) => b.conversas - a.conversas);
+    res.json({ conjuntos, meta: 50, atualizadoEm: new Date().toISOString() });
+  } catch (e) {
+    if (e.name === 'AbortError') return res.json({ erro_meta: 'Meta não respondeu a tempo', conjuntos: [], meta: 50 });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========
 // Lazy requires — lib/ criada no PR 3 (pode não existir no startup se PR 3 não deployado ainda)
 function geminiLib()   { return require('./lib/gemini'); }
