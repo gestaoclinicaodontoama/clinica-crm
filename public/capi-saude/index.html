@@ -1,45 +1,133 @@
-<!doctype html><html lang="pt-BR"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Saúde do CAPI</title>
-<link rel="stylesheet" href="/css/app.css">
-</head><body>
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saúde do CAPI -- CRM AMA</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root { --bg:#0f1115; --bg2:#171a21; --bg3:#1f2330; --border:#2a2f3d; --text:#e8eaf0; --muted:#8b93a7; --accent:#4f8ef7; --green:#22c55e; --red:#ef4444; --yellow:#f59e0b; }
+  [data-theme="light"] { --bg:#f5f6f8; --bg2:#fff; --bg3:#eef0f4; --border:#dde1e8; --text:#1a1d26; --muted:#6b7280; --accent:#2563eb; --green:#16a34a; --red:#dc2626; --yellow:#d97706; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+  /* shared-nav injeta .crm-content{flex:1} como irmão de <main>; zeramos para
+     main ser o único flex:1 e ocupar o espaço depois da sidebar. */
+  .crm-content { flex:0 0 0 !important; width:0 !important; min-width:0 !important; overflow:hidden !important; }
+  main { flex:1; padding:24px; max-width:1100px; min-width:0; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:22px 0 10px; }
+  .topo { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+  .pill.ok { background:rgba(34,197,94,.15); color:var(--green); }
+  .pill.bad { background:rgba(239,68,68,.15); color:var(--red); }
+  .btn { background:var(--bg2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; }
+  .btn:hover { border-color:var(--accent); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  .card .num { font-size:22px; font-weight:700; }
+  .card .lbl { font-size:11.5px; color:var(--muted); margin-top:2px; }
+  table { width:100%; border-collapse:collapse; background:var(--bg2); border:1px solid var(--border); border-radius:10px; overflow:hidden; font-size:13px; }
+  th, td { padding:9px 10px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { background:var(--bg3); color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+  tr:last-child td { border-bottom:none; }
+  .tabela-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .cob { display:flex; gap:14px; flex-wrap:wrap; font-size:13px; }
+  .cob b { color:var(--accent); }
+  .gat { display:flex; flex-direction:column; gap:6px; }
+  .gat .item { display:flex; align-items:center; gap:8px; font-size:13px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; }
+  .gat .item.bad { border-color:rgba(239,68,68,.5); background:rgba(239,68,68,.07); }
+  .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .dot.ok { background:var(--green); } .dot.bad { background:var(--red); }
+  .gat .det { color:var(--muted); font-size:11.5px; margin-left:auto; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .erro { color:var(--red); }
+  @media (max-width:760px){
+    main { padding:12px; padding-bottom:84px; }
+    .cards { grid-template-columns:repeat(2,1fr); gap:8px; }
+    .card .num { font-size:20px; }
+    table { font-size:11px; } th, td { padding:6px 5px; }
+    .gat .det { display:none; }
+  }
+</style>
+</head>
+<body>
 <script src="/js/shared-nav.js" data-active="capi-saude"></script>
-<main class="crm-content" style="padding:16px">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-    <h1 id="status" style="font-size:18px">Saúde do CAPI</h1>
-    <button id="recheck" class="btn">Re-checar agora</button>
+<main>
+  <div class="topo">
+    <div>
+      <h1>Saúde do CAPI</h1>
+      <div class="sub" id="sub">carregando…</div>
+    </div>
+    <button class="btn" id="recheck">Re-checar agora</button>
   </div>
-  <p id="atualizado" style="color:#666;font-size:12px"></p>
-  <section id="cards"></section>
-  <h2 style="font-size:15px;margin-top:16px">Eventos por semana</h2>
-  <table id="tab-semana" border="0" cellpadding="6" style="width:100%;border-collapse:collapse"></table>
-  <h2 style="font-size:15px;margin-top:16px">Qualidade do match</h2>
-  <div id="cobertura"></div>
-  <h2 style="font-size:15px;margin-top:16px">Gatilhos</h2>
-  <div id="gatilhos"></div>
+  <div class="cards" id="cards"></div>
+  <h2>Eventos por semana</h2>
+  <div class="tabela-wrap"><table id="tab-semana"></table></div>
+  <h2>Qualidade do match</h2>
+  <div class="cob" id="cobertura"></div>
+  <h2>Gatilhos</h2>
+  <div class="gat" id="gatilhos"></div>
 </main>
-<script src="/js/capi-saude/api.js"></script>
 <script>
 const EVS = ['LeadSubmitted','LeadQualified','Schedule','Contact','Purchase'];
-function esc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function cell(v){ return '<td style="border-bottom:1px solid #eee">'+esc(v)+'</td>'; }
-async function carregar() {
-  const d = await capiApi('/api/admin/capi-saude');
-  const ruins = d.gatilhos.filter(g=>g.status==='ruim').length;
-  document.getElementById('status').textContent = 'Saúde do CAPI — ' + (ruins ? ('⚠️ '+ruins+' alerta(s)') : '✅ tudo ok');
-  document.getElementById('atualizado').textContent = 'Atualizado: ' + new Date(d.atualizadoEm).toLocaleString('pt-BR');
-  const t = d.totais7d, pct = t.total ? Math.round(t.sucesso/t.total*100) : 0;
-  let cards = `<div>Últimos 7 dias: <b>${t.total}</b> tentativas · <b>${pct}%</b> sucesso · ${t.falha} falha</div>`;
-  cards += '<div style="margin-top:6px">' + Object.entries(t.porPagina).map(([p,v])=>`Página ${esc(p)}: ${esc(v.sucesso)}✓ / ${esc(v.falha)}✗`).join(' &nbsp;|&nbsp; ') + '</div>';
-  document.getElementById('cards').innerHTML = cards;
-  let h = '<tr><th align="left">Evento</th><th>Sem. atual (✓/✗)</th><th>Sem. anterior (✓/✗)</th></tr>';
-  for (const e of EVS) { const a=d.semana.atual[e], b=d.semana.anterior[e];
-    h += '<tr>'+cell(e)+cell(`${a.sucesso}/${a.falha} (${a.enviados})`)+cell(`${b.sucesso}/${b.falha} (${b.enviados})`)+'</tr>'; }
-  document.getElementById('tab-semana').innerHTML = h;
-  document.getElementById('cobertura').innerHTML = Object.entries(d.cobertura).map(([k,v])=>`${esc(k)}: <b>${esc(v)}%</b>`).join(' &nbsp;·&nbsp; ');
-  document.getElementById('gatilhos').innerHTML = d.gatilhos.map(g=>`<div>${g.status==='ruim'?'🔴':'🟢'} ${esc(g.gatilho)}${g.escopo?(' ('+esc(g.escopo)+')'):''}</div>`).join('');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function token() {
+  const k = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+  try { return k ? JSON.parse(localStorage.getItem(k))?.access_token : null; } catch { return null; }
 }
-document.getElementById('recheck').onclick = async () => { await capiApi('/api/admin/capi-saude/recheck',{method:'POST'}); setTimeout(carregar, 1500); };
-carregar().catch(e=>{ document.getElementById('status').textContent = 'Erro: '+e.message; });
+async function api(url, opts = {}) {
+  const r = await fetch(url, { ...opts, headers: { 'Content-Type':'application/json', Authorization:'Bearer ' + token(), ...(opts.headers||{}) } });
+  if (r.status === 401) { location.href = '/'; return; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Erro ' + r.status));
+  return j;
+}
+const GAT_LBL = { taxa_falha:'Taxa de falha', silencio:'Silêncio de página', erro_novo:'Erro novo', queda_volume:'Queda de volume', divergencia:'Divergência Meta' };
+
+async function carregar() {
+  const d = await api('/api/admin/capi-saude');
+  const ruins = d.gatilhos.filter(g => g.status === 'ruim').length;
+  document.getElementById('sub').innerHTML =
+    `<span class="pill ${ruins?'bad':'ok'}">${ruins ? ('⚠️ '+ruins+' alerta(s)') : '✅ tudo ok'}</span> · atualizado ${esc(new Date(d.atualizadoEm).toLocaleString('pt-BR'))}`;
+
+  const t = d.totais7d, pct = t.total ? Math.round(t.sucesso/t.total*100) : 0;
+  let cards = `<div class="card"><div class="num">${esc(t.total)}</div><div class="lbl">tentativas (7d)</div></div>`
+    + `<div class="card"><div class="num">${esc(pct)}%</div><div class="lbl">sucesso (7d)</div></div>`
+    + `<div class="card"><div class="num">${esc(t.falha)}</div><div class="lbl">falhas (7d)</div></div>`;
+  for (const [p,v] of Object.entries(t.porPagina))
+    cards += `<div class="card"><div class="num">${esc(v.sucesso)}✓ / ${esc(v.falha)}✗</div><div class="lbl">página ${esc(p)}</div></div>`;
+  document.getElementById('cards').innerHTML = cards;
+
+  let h = '<tr><th>Evento</th><th>Sem. atual ✓/✗</th><th>Sem. anterior ✓/✗</th></tr>';
+  for (const e of EVS) {
+    const a = d.semana.atual[e] || {sucesso:0,falha:0,enviados:0};
+    const b = d.semana.anterior[e] || {sucesso:0,falha:0,enviados:0};
+    h += `<tr><td>${esc(e)}</td><td>${esc(a.sucesso)}/${esc(a.falha)} <span style="color:var(--muted)">(${esc(a.enviados)})</span></td><td>${esc(b.sucesso)}/${esc(b.falha)} <span style="color:var(--muted)">(${esc(b.enviados)})</span></td></tr>`;
+  }
+  document.getElementById('tab-semana').innerHTML = h;
+
+  document.getElementById('cobertura').innerHTML = Object.entries(d.cobertura)
+    .map(([k,v]) => `<span>${esc(k)}: <b>${esc(v)}%</b></span>`).join('');
+
+  document.getElementById('gatilhos').innerHTML = d.gatilhos.map(g => {
+    const bad = g.status === 'ruim';
+    const det = g.detalhe ? esc(JSON.stringify(g.detalhe)) : '';
+    return `<div class="item ${bad?'bad':''}"><span class="dot ${bad?'bad':'ok'}"></span>`
+      + `<span>${esc(GAT_LBL[g.gatilho] || g.gatilho)}${g.escopo?(' · '+esc(g.escopo)):''}</span>`
+      + `<span class="det">${det}</span></div>`;
+  }).join('');
+}
+
+const btn = document.getElementById('recheck');
+btn.onclick = async () => {
+  btn.disabled = true; const txt = btn.textContent; btn.textContent = 'Checando…';
+  try { await api('/api/admin/capi-saude/recheck', { method:'POST' }); await new Promise(r => setTimeout(r, 1800)); await carregar(); }
+  catch (e) { document.getElementById('sub').innerHTML = '<span class="erro">Erro: ' + esc(e.message) + '</span>'; }
+  finally { btn.disabled = false; btn.textContent = txt; }
+};
+carregar().catch(e => { document.getElementById('sub').innerHTML = '<span class="erro">Erro: ' + esc(e.message) + '</span>'; });
 </script>
-</body></html>
+</body>
+</html>
