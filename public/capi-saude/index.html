@@ -10,10 +10,10 @@
   [data-theme="light"] { --bg:#f5f6f8; --bg2:#fff; --bg3:#eef0f4; --border:#dde1e8; --text:#1a1d26; --muted:#6b7280; --accent:#2563eb; --green:#16a34a; --red:#dc2626; --yellow:#d97706; }
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
-  /* shared-nav injeta .crm-content{flex:1} como irmão de <main>; zeramos para
-     main ser o único flex:1 e ocupar o espaço depois da sidebar. */
-  .crm-content { flex:0 0 0 !important; width:0 !important; min-width:0 !important; overflow:hidden !important; }
-  main { flex:1; padding:24px; max-width:1100px; min-width:0; }
+  /* shared-nav move este <main> para dentro do .crm-content (flex:1) que ele
+     cria; então main é só um bloco normal com padding/largura — NÃO mexer no
+     .crm-content (a versão atual do shared-nav o usa como host do conteúdo). */
+  main { padding:24px; max-width:1100px; min-width:0; }
   h1 { font-size:20px; margin-bottom:4px; }
   .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
   h2 { font-size:14px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:22px 0 10px; }
