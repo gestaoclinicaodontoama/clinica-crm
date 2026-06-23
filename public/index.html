@@ -282,7 +282,7 @@ textarea { resize: vertical; min-height: 80px; }
 .msg-action-btn:hover { color: var(--accent); border-color: var(--accent); }
 .msg-action-btn.del:hover { color: var(--red); border-color: var(--red); }
 .chat-input-area { padding: 12px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; align-items: flex-end; }
-.chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 120px; min-height: 40px; line-height: 1.4; }
+.chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 260px; min-height: 40px; line-height: 1.4; overflow-y: auto; }
 .chat-textarea:focus { outline: none; border-color: var(--accent); }
 .ctwa-badge { background: rgba(79,142,247,.15); color: var(--accent); border-radius: 6px; font-size: 10.5px; font-weight: 600; padding: 2px 7px; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
@@ -697,6 +697,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <button onclick="abrirNovaConversa()" title="Nova conversa" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--accent);font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
       <button id="btn-filtro-nao-lidas" title="Mostrar apenas não lidas" onclick="toggleFiltroNaoLidas()" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">🔔</button>
       <button id="btn-filtro-vencendo" onclick="toggleFiltroVencendo()" title="Mostrar apenas janelas vencendo" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">⏳</button>
+      <button id="btn-filtro-sem-crc" onclick="toggleFiltroSemCrc()" title="Sem CRC responsável" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">👤</button>
       <input class="search-input" style="width:150px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
         <option value="">Todas as CRCs</option>
@@ -736,6 +737,21 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button onclick="cancelarEnvioImagem()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
         <button onclick="confirmarEnvioImagem()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: encaminhar mensagem -->
+  <div id="encaminhar-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2100;align-items:center;justify-content:center" onclick="if(event.target===this)fecharModalEncaminhar()">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:380px;max-width:95vw;padding:20px;box-shadow:0 16px 48px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:12px">
+      <div style="font-weight:700;font-size:15px">↪ Encaminhar mensagem</div>
+      <div id="encaminhar-preview" style="background:var(--bg3);border-left:3px solid var(--accent);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--muted);max-height:60px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></div>
+      <input id="encaminhar-busca" type="text" placeholder="🔍 Buscar conversa..." autocomplete="off"
+        style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"
+        oninput="encaminharFiltrar()">
+      <div id="encaminhar-lista" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="fecharModalEncaminhar()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit;font-size:13px">Cancelar</button>
       </div>
     </div>
   </div>
@@ -2546,6 +2562,7 @@ function filtrarChats() {
   if (crcFiltro) base = base.filter(l => _chatMode === 'avaliacao' ? l.crc_comercial_id === crcFiltro : l.crc_agendamento_id === crcFiltro);
   if (_filtroNaoLidas) base = base.filter(l => _isUnread(l));
   if (_filtroVencendo && typeof estadoJanela === 'function') base = base.filter(l => estadoJanela(l.ultima_recebida_em).estado === 'fechando');
+  if (_filtroSemCrc) base = base.filter(l => !l.crc_agendamento_id && !l.crc_comercial_id);
   if (_chatViewMode === 'kanban') renderKanban(base);
   else renderChatList(base);
 }
@@ -3274,10 +3291,12 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
         m.wa_status === 'sent' ? ' <span style="opacity:.6">✓</span>' : '';
       const replyBtn = m.wa_id
         ? `<button class="msg-action-btn" data-ri="${i}" title="Responder">↩</button>` : '';
+      const forwardBtn = m.texto && m.texto !== '🚫 Mensagem apagada'
+        ? `<button class="msg-action-btn" data-fwi="${i}" title="Encaminhar">↪</button>` : '';
       const deleteBtn = m.direcao === 'enviada' && m.wa_id && m.texto !== '🚫 Mensagem apagada'
         ? `<button class="msg-action-btn del" data-di="${i}" title="Apagar para todos">🗑</button>` : '';
       const pinBtn = `<button class="msg-action-btn${m.fixada ? ' pin-active' : ''}" data-pi="${i}" title="${m.fixada ? 'Desafixar' : 'Fixar mensagem'}">📌</button>`;
-      const actionsHtml = `<div class="msg-actions">${replyBtn}${pinBtn}${deleteBtn}</div>`;
+      const actionsHtml = `<div class="msg-actions">${replyBtn}${forwardBtn}${pinBtn}${deleteBtn}</div>`;
       return `
         <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}${m.fixada ? ' msg-fixada' : ''}">
           ${actionsHtml}
@@ -3299,6 +3318,11 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
       const idx = parseInt(btn.dataset.pi, 10);
       const m = msgs[idx];
       btn.addEventListener('click', () => fixarMensagem(m.id, leadId));
+    });
+    el.querySelectorAll('[data-fwi]').forEach(btn => {
+      const idx = parseInt(btn.dataset.fwi, 10);
+      const m = msgs[idx];
+      btn.addEventListener('click', () => abrirModalEncaminhar(m.texto));
     });
     renderMensagensFixadas(msgs);
     el.querySelectorAll('[data-midia]').forEach(node => {
@@ -3423,6 +3447,70 @@ function toggleFiltroVencendo() {
     btn.title = _filtroVencendo ? 'Mostrar todas' : 'Mostrar apenas janelas vencendo';
   }
   filtrarChats();
+}
+
+// ============ FILTRO SEM CRC ============
+let _filtroSemCrc = false;
+
+function toggleFiltroSemCrc() {
+  _filtroSemCrc = !_filtroSemCrc;
+  const btn = document.getElementById('btn-filtro-sem-crc');
+  if (btn) {
+    btn.style.background = _filtroSemCrc ? 'var(--red)' : 'var(--bg2)';
+    btn.style.color = _filtroSemCrc ? '#fff' : 'var(--muted)';
+    btn.title = _filtroSemCrc ? 'Mostrar todas' : 'Sem CRC responsável';
+  }
+  filtrarChats();
+}
+
+// ============ ENCAMINHAR MENSAGEM ============
+let _encaminharTexto = '';
+
+function abrirModalEncaminhar(texto) {
+  _encaminharTexto = texto;
+  const prev = document.getElementById('encaminhar-preview');
+  if (prev) prev.textContent = texto;
+  document.getElementById('encaminhar-busca').value = '';
+  encaminharFiltrar();
+  document.getElementById('encaminhar-bg').style.display = 'flex';
+}
+
+function fecharModalEncaminhar() {
+  document.getElementById('encaminhar-bg').style.display = 'none';
+  _encaminharTexto = '';
+}
+
+function encaminharFiltrar() {
+  const q = (document.getElementById('encaminhar-busca').value || '').toLowerCase();
+  const lista = document.getElementById('encaminhar-lista');
+  const leads = (chatLeads || []).filter(l => {
+    if (chatLeadAtual && l.id === chatLeadAtual.id) return false;
+    if (!q) return true;
+    return (l.nome || '').toLowerCase().includes(q) || (l.telefone || '').includes(q);
+  }).slice(0, 40);
+  lista.innerHTML = leads.map(l => `
+    <div onclick="confirmarEncaminhar(${l.id})" style="padding:8px 10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">
+      <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex-shrink:0">${escHtml((l.nome||'?')[0].toUpperCase())}</div>
+      <div>
+        <div style="font-size:13px;font-weight:600">${escHtml(l.nome||l.telefone||'Sem nome')}</div>
+        <div style="font-size:11px;color:var(--muted)">${escHtml(l.telefone||'')}</div>
+      </div>
+    </div>
+  `).join('') || '<div style="text-align:center;padding:16px;font-size:13px;color:var(--muted)">Nenhuma conversa encontrada</div>';
+}
+
+async function confirmarEncaminhar(leadId) {
+  if (!_encaminharTexto) return;
+  const texto = _encaminharTexto;
+  fecharModalEncaminhar();
+  try {
+    await api(`/api/leads/${leadId}/whatsapp`, {
+      method: 'POST', body: JSON.stringify({ texto: '📨 ' + texto }),
+    });
+    toast('✓ Mensagem encaminhada');
+  } catch(e) {
+    toast('❌ Erro ao encaminhar: ' + e.message, true);
+  }
 }
 
 // ============ ENVIO DE IMAGEM COM LEGENDA ============
@@ -3692,7 +3780,7 @@ function chatKeyDown(e) {
 
 function autoResizeChat(el) {
   el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  el.style.height = Math.min(el.scrollHeight, 260) + 'px';
 }
 
 // ============ TEMPLATES (modal chat) ============
