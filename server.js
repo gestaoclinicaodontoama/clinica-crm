@@ -4090,6 +4090,52 @@ app.get('/api/admin/capi-saude', requireAuth, requireGestor, async (req, res) =>
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+function _textoAlerta(n) {
+  const map = {
+    taxa_falha: 'Taxa de falha alta no CAPI',
+    silencio: 'Página sem eventos CAPI (silêncio)',
+    erro_novo: 'Novo erro no CAPI',
+    queda_volume: 'Queda de volume de eventos CAPI',
+    divergencia: 'Divergência enviado x registrado na Meta',
+  };
+  return (map[n.gatilho] || n.gatilho) + (n.escopo ? ` — ${n.escopo}` : '');
+}
+
+let _capiChecando = false;
+async function capiChecarGatilhos() {
+  if (_capiChecando) return;
+  _capiChecando = true;
+  try {
+    const agora = new Date();
+    const rows = await capiCarregarRows(21);
+    const atuais = capiHealth.avaliarGatilhos(rows, agora);
+    const { data: salvos } = await supabase.from('capi_monitor_estado').select('*');
+    const { notificar, upserts } = capiHealth.decidirAlertas(atuais, salvos || [], agora);
+    for (const u of upserts) {
+      await supabase.from('capi_monitor_estado')
+        .upsert({ ...u, atualizado_em: agora.toISOString() }, { onConflict: 'gatilho,escopo' });
+    }
+    if (notificar.length) {
+      const { data: gestores } = await supabase.from('profiles').select('id').or('roles.cs.{admin},roles.cs.{gestor}');
+      for (const n of notificar) {
+        const corpo = _textoAlerta(n) + ' — veja o detalhe no monitor.';
+        for (const g of gestores || []) await criarNotificacao(g.id, 'capi_alerta', 'Alerta CAPI', corpo, { url: '/capi-saude/' });
+      }
+      console.log('[capi-monitor] alertas enviados:', notificar.map(_textoAlerta).join(' | '));
+    }
+  } catch (e) { console.error('[capi-monitor] checagem falhou:', e.message); }
+  finally { _capiChecando = false; }
+}
+
+setTimeout(() => capiChecarGatilhos(), 45_000);
+setInterval(() => capiChecarGatilhos(), 30 * 60_000); // a cada 30 min
+console.log('[capi-monitor] scheduler de alertas ativo (30 min)');
+
+app.post('/api/admin/capi-saude/recheck', requireAuth, requireGestor, async (req, res) => {
+  res.json({ ok: true, msg: 'Re-checagem disparada' });
+  capiChecarGatilhos().catch(e => console.error('[capi-monitor] recheck:', e.message));
+});
+
 // ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========
 // Lazy requires — lib/ criada no PR 3 (pode não existir no startup se PR 3 não deployado ainda)
 function geminiLib()   { return require('./lib/gemini'); }
