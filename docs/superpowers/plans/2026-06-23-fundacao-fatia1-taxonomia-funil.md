@@ -338,21 +338,25 @@ const CARTEIRAS = ['Comercial', 'Dra. Izabela'];
 const ESTADOS_FRIO = ['nunca_agendou', 'orcou_sem_fechar'];
 ```
 
-- [ ] **Step 2: Ajustar `EVENTOS_FUNIL` para as chaves canônicas**
+- [ ] **Step 2: Atualizar `EVENTOS_FUNIL` (mapa do CAPI Meta) PRESERVANDO os eventos + travar leads importados**
 
-Localizar `const EVENTOS_FUNIL = {` (~linha 2561) e garantir que as chaves usem os novos nomes. Ler o bloco atual:
-```bash
-grep -n "EVENTOS_FUNIL" server.js
-```
-Reescrever o objeto mapeando os marcos automáticos para os novos estágios (manter os já existentes que continuam válidos: `Agendado`→`Avaliação agendada`, `Compareceu`, `Fechou`). Exemplo do shape esperado:
+⚠️ **CRÍTICO — CAPI.** O objeto `EVENTOS_FUNIL` (`server.js:2561`) é o **mapa do CAPI**: decide qual evento a Meta recebe em cada etapa. As chaves usam os nomes ANTIGOS de status. Renomear os status sem atualizar aqui **quebra o CAPI**. Substituir o objeto inteiro por (mesmos eventos Meta, nomes de status canônicos):
 ```js
 const EVENTOS_FUNIL = {
-  'Avaliação agendada': 'agendou',
-  'Compareceu': 'compareceu',
-  'Em negociação': 'orcou',
-  'Fechou': 'fechou',
-  'Perdido': 'perdeu',
+  'Novo':               'LeadSubmitted',   // era 'Lead'
+  'Em qualificação':    'LeadQualified',   // era 'Em conversa - Lead Qualificado'
+  'Avaliação agendada': 'Schedule',        // era 'Agendado'
+  'Compareceu':         'Contact',
+  'Em negociação':      null,              // era 'Orçado'/'D0-D5' (já eram null)
+  'Fechou':             'Purchase',
+  'Perdido':            null,
 };
+```
+Os eventos enviados à Meta (LeadSubmitted/LeadQualified/Schedule/Contact/Purchase) ficam **idênticos** — só muda o nome do status que os aciona. A config do lado da Meta (Pixel, dataset linha ~2614, token, page_id) **não é tocada**.
+
+Em seguida, no início de `dispararConversaoMeta` (logo após a checagem de `PIXEL`/`TOKEN`, ~linha 2587), adicionar a trava para os importados antigos não dispararem CAPI numa edição futura:
+```js
+  if (lead.importado_historico) { console.log('⏭️  Lead importado #' + lead.id + ' não dispara CAPI'); return; }
 ```
 
 - [ ] **Step 3: Ajustar os efeitos colaterais de `patchLead` para os novos estágios**
