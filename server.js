@@ -813,7 +813,7 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
     case 'nutrir_365':
       qb = qb.eq('status', 'Novo').not('estado_frio', 'is', null).lt('criado_em', d365); break;
     case 'agendado':          qb = qb.eq('status', 'Avaliação agendada'); break;
-    case 'faltou':            qb = qb.eq('status', 'Em qualificação'); break;
+    case 'faltou':            qb = qb.contains('etiquetas', ['Faltou']); break;
     case 'nao_tem_interesse': qb = qb.eq('status', 'Perdido').eq('motivo_perda', 'Sem interesse'); break;
     default: return null;
   }

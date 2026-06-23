@@ -1383,6 +1383,12 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
           <option>Compareceu</option><option>Em negociação</option><option>Fechou</option><option>Perdido</option>
         </select>
       </div>
+      <div class="form-group">
+        <label>Carteira</label>
+        <select id="m-carteira">
+          <option>Comercial</option><option>Dra. Izabela</option>
+        </select>
+      </div>
       <div class="form-group" id="area-valor" style="display:none">
         <label>Valor (R$)</label>
         <input id="m-valor" type="number" placeholder="8500">
@@ -1617,7 +1623,7 @@ let discAtual = '';
 let scoreAtual = null;
 const FUNIL = ['Novo','Em qualificação','Avaliação agendada','Compareceu','Em negociação','Fechou','Perdido'];
 const ORIGENS = ['Meta Ads','Facebook','Instagram','WhatsApp Direto','Indicação','Dra. Izabela','Google','TikTok','Evento','Outdoor','Rádio','Outros'];
-const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
+const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar','Faltou'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Facebook':'orig-meta','Instagram':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
 
 function classStatus(s) { return 's-' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,''); }
@@ -1960,6 +1966,7 @@ async function abrirModal(id) {
     _mOrig.value = '';
   }
   document.getElementById('m-status').value = l.status;
+  document.getElementById('m-carteira').value = l.carteira || 'Comercial';
   document.getElementById('m-valor').value = l.valor || '';
   document.getElementById('m-tipo').value = l.tipo_trat || '';
   document.getElementById('m-notas-sdr').value = l.notas_sdr || '';
@@ -1974,6 +1981,7 @@ async function abrirModal(id) {
     <div class="resumo-item"><span class="l">Campanha</span><span class="v">${escHtml(l.campanha || '—')}</span></div>
     <div class="resumo-item"><span class="l">Cadastro</span><span class="v">${_fmtDateFull(l.criado_em)}</span></div>
     <div class="resumo-item"><span class="l">Status</span><span class="badge ${classBadge(l.status)}">${l.status}</span></div>
+    <div class="resumo-item"><span class="l">Carteira</span><span class="v">${escHtml(l.carteira || 'Comercial')}</span></div>
   `;
 
   // Score buttons
@@ -2139,6 +2147,7 @@ async function salvarLead(btn) {
     score_interesse: scoreAtual,
     perfil_disc: discAtual,
     etiquetas: etiquetasAtual,
+    carteira: document.getElementById('m-carteira').value,
   };
   // Campos de contato: só envia se preenchidos (evita apagar dados existentes)
   const _nome = (document.getElementById('m-nome').value || '').trim();
