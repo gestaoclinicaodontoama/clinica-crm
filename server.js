@@ -67,7 +67,9 @@ const _buildDeployedAt = new Date().toISOString();
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
-const FUNIL = ['Lead', 'Dra. Izabela', 'Em conversa - Lead Qualificado', 'Agendado', 'Faltou', 'Compareceu', 'Orçado', 'Nutrir', 'Não tem Interesse', 'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'Reclassificar', 'Em nutrição', 'Fechou', 'Perdido'];
+const FUNIL = ['Novo', 'Em qualificação', 'Avaliação agendada', 'Compareceu', 'Em negociação', 'Fechou', 'Perdido'];
+const CARTEIRAS = ['Comercial', 'Dra. Izabela'];
+const ESTADOS_FRIO = ['nunca_agendou', 'orcou_sem_fechar'];
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY not set — RLS bypass unavailable, refusing to start');
@@ -555,7 +557,7 @@ app.get('/lead', rateLimit, async (req, res) => {
       const { data: inserted, error } = await supabase.from('leads').insert({
         nome: sanitizeStr(nome), telefone, email,
         origem, campanha, conteudo, fbclid, gclid, ctwa_clid,
-        status: 'Lead', valor: null, tipo_trat: '',
+        status: 'Novo', valor: null, tipo_trat: '',
         notas_sdr: '', notas_avaliacao: '', notas_comercial: '',
         score_interesse: null, perfil_disc: '',
         etiquetas: [], proximo_contato: null, ultimo_contato: null,
@@ -617,7 +619,7 @@ app.get('/api/leads', requireAuth, rateLimit, async (req, res) => {
 
 app.post('/api/leads', requireAuth, rateLimit, async (req, res) => {
   try {
-    const { nome, telefone, email = '', origem = 'Direto', status = 'Lead', notas_sdr = '' } = req.body;
+    const { nome, telefone, email = '', origem = 'Direto', status = 'Novo', notas_sdr = '' } = req.body;
     if (!nome) return res.status(400).json({ error: 'Nome obrigatório' });
     const tel = sanitizeStr(telefone, 30).replace(/\D/g, '');
     if (!tel) return res.status(400).json({ error: 'Telefone obrigatório' });
@@ -626,7 +628,7 @@ app.post('/api/leads', requireAuth, rateLimit, async (req, res) => {
     const { data: lead, error } = await supabase.from('leads').insert({
       nome: sanitizeStr(nome), telefone: tel, email: sanitizeStr(email, 100),
       origem: sanitizeStr(origem), campanha: '', conteudo: '', fbclid: '', gclid: '', ctwa_clid: '',
-      status: FUNIL.includes(status) ? status : 'Lead',
+      status: FUNIL.includes(status) ? status : 'Novo',
       valor: null, tipo_trat: '',
       notas_sdr: sanitizeStr(notas_sdr, 4000), notas_avaliacao: '', notas_comercial: '',
       score_interesse: null, perfil_disc: '',
@@ -671,6 +673,7 @@ async function patchLead(req, res) {
       'proximo_contato','ultimo_contato',
       'crc_comercial_id','crc_comercial_nome',
       'crc_agendamento_id','crc_agendamento_nome',
+      'carteira','motivo_perda',
     ];
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const agora = new Date().toISOString();
@@ -680,14 +683,14 @@ async function patchLead(req, res) {
       let v = req.body[k];
       if (k === 'status') {
         if (!FUNIL.includes(v)) return res.status(400).json({ error: 'Status inválido. Use: ' + FUNIL.join(', ') });
-        if (v === 'Agendado' && !lead.data_agendamento) patch.data_agendamento = agora;
-        if (v === 'Agendado') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.nome || null; }
+        if (v === 'Avaliação agendada' && !lead.data_agendamento) patch.data_agendamento = agora;
+        if (v === 'Avaliação agendada') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.nome || null; }
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
-        // D0 = entrada na régua comercial (avaliação realizada)
-        if (v === 'D0' && !lead.data_avaliacao) patch.data_avaliacao = agora;
-        if (v === 'Em nutrição' && !lead.data_orcamento) patch.data_orcamento = agora;
+        if (v === 'Em negociação' && !lead.data_avaliacao) patch.data_avaliacao = agora;
+        if (v === 'Em negociação' && !lead.data_orcamento) patch.data_orcamento = agora;
         if (v === 'Fechou' && !lead.data_fechamento) patch.data_fechamento = agora;
       }
+      if (k === 'carteira' && !CARTEIRAS.includes(v)) return res.status(400).json({ error: 'Carteira inválida' });
       if (k === 'valor') {
         v = (v === '' || v === null) ? null : parseFloat(v);
         if (v !== null && !Number.isFinite(v)) v = null;
@@ -796,22 +799,22 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
   const d30  = new Date(now - 30  * 864e5).toISOString();
   const d180 = new Date(now - 180 * 864e5).toISOString();
   const d365 = new Date(now - 365 * 864e5).toISOString();
-  const NURTURE = ['Lead', 'Nutrir', 'Reclassificar'];
   const sel = countOnly ? '*' : CARD_FIELDS;
   const opts = countOnly ? { count: 'exact', head: true } : { count: 'exact' };
   let qb = supabase.from('leads').select(sel, opts);
   switch (coluna) {
+    // 'lead' = Novo ativo (não frio); colunas nutrir_* = pool de reativação (frio) por idade
     case 'lead':
-      qb = qb.in('status', NURTURE).gte('criado_em', d30); break;
+      qb = qb.eq('status', 'Novo').is('estado_frio', null).gte('criado_em', d30); break;
     case 'nutrir_30':
-      qb = qb.in('status', NURTURE).lt('criado_em', d30).gte('criado_em', d180); break;
+      qb = qb.eq('status', 'Novo').not('estado_frio', 'is', null).lt('criado_em', d30).gte('criado_em', d180); break;
     case 'nutrir_180':
-      qb = qb.in('status', NURTURE).lt('criado_em', d180).gte('criado_em', d365); break;
+      qb = qb.eq('status', 'Novo').not('estado_frio', 'is', null).lt('criado_em', d180).gte('criado_em', d365); break;
     case 'nutrir_365':
-      qb = qb.in('status', NURTURE).lt('criado_em', d365); break;
-    case 'agendado':          qb = qb.eq('status', 'Agendado'); break;
-    case 'faltou':            qb = qb.eq('status', 'Faltou'); break;
-    case 'nao_tem_interesse': qb = qb.eq('status', 'Não tem Interesse'); break;
+      qb = qb.eq('status', 'Novo').not('estado_frio', 'is', null).lt('criado_em', d365); break;
+    case 'agendado':          qb = qb.eq('status', 'Avaliação agendada'); break;
+    case 'faltou':            qb = qb.eq('status', 'Em qualificação'); break;
+    case 'nao_tem_interesse': qb = qb.eq('status', 'Perdido').eq('motivo_perda', 'Sem interesse'); break;
     default: return null;
   }
   if (q) {
@@ -885,7 +888,7 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
   switch (coluna) {
     case 'compareceu':
       qb = qb.eq('status', 'Compareceu').gte('data_comparecimento', d30); break;
-    case 'orcado': qb = qb.eq('status', 'Orçado'); break;
+    case 'orcado': qb = qb.eq('status', 'Em negociação'); break;
     case 'd0': qb = qb.eq('status', 'D0'); break;
     case 'd1': qb = qb.eq('status', 'D1'); break;
     case 'd2': qb = qb.eq('status', 'D2'); break;
@@ -2259,7 +2262,7 @@ app.post('/api/leads/importar', requireAuth, rateLimit, async (req, res) => {
       toInsert.push({
         nome, telefone, email: sanitizeStr(p.email || '', 100), origem: sanitizeStr(p.origem || 'Importação', 100),
         campanha: '', conteudo: '', fbclid: '', gclid: '', ctwa_clid: '',
-        status: 'Lead', valor: null, tipo_trat: '',
+        status: 'Novo', valor: null, tipo_trat: '',
         notas_sdr: sanitizeStr(p.observacoes || '', 4000), notas_avaliacao: '', notas_comercial: '',
         score_interesse: null, perfil_disc: '',
         etiquetas: [], proximo_contato: null, ultimo_contato: null,
@@ -2348,7 +2351,7 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         ctwa_clid: sanitizeStr(m.ctwa_clid || '', 500),
         referral_data: m.referral_data || {},
         wa_number_id: sanitizeStr(m.phone_number_id || '', 50),
-        status: 'Lead', valor: null, tipo_trat: '',
+        status: 'Novo', valor: null, tipo_trat: '',
         notas_sdr: '', notas_avaliacao: '', notas_comercial: '',
         score_interesse: null, perfil_disc: '',
         etiquetas: [], proximo_contato: null, ultimo_contato: new Date().toISOString(),
@@ -2560,32 +2563,20 @@ function pageIdFallback(lead) {
 //   carregando o mesmo ctwa_clid → usado para as fases geradas pelo CRM.
 
 const EVENTOS_FUNIL = {
-  'Lead':              'LeadSubmitted',
-  'Aguardando':        null,
-  'Dra. Izabela':      null,
-  'Em conversa - Qualificado':       null,
-  'Em conversa - Lead Qualificado':  'LeadQualified',
-  'Agendado':          'Schedule',
-  'Compareceu':        'Contact',
-  'Orçado':            null,
-  'Nutrir':            null,
-  'Não tem Interesse': null,
-  'D0':                null,
-  'D1':                null,
-  'D2':                null,
-  'D3':                null,
-  'D4':                null,
-  'D5':                null,
-  'Reclassificar':     null,
-  'Em nutrição':       null,
-  'Fechou':            'Purchase',
-  'Perdido':           null,
+  'Novo':               'LeadSubmitted',   // era 'Lead'
+  'Em qualificação':    'LeadQualified',   // era 'Em conversa - Lead Qualificado'
+  'Avaliação agendada': 'Schedule',        // era 'Agendado'
+  'Compareceu':         'Contact',
+  'Em negociação':      null,              // era 'Orçado'/'D0-D5'
+  'Fechou':             'Purchase',
+  'Perdido':            null,
 };
 
 async function dispararConversaoMeta(lead, eventoCustom = null) {
   let PIXEL = process.env.META_PIXEL_ID;
   const TOKEN = process.env.META_ACCESS_TOKEN;
   if (!PIXEL || !TOKEN) { console.log('⚠️  Meta CAPI não configurada'); return; }
+  if (lead.importado_historico) { console.log('⏭️  Lead importado #' + lead.id + ' não dispara CAPI'); return; }
   const eventName = eventoCustom || EVENTOS_FUNIL[lead.status];
   if (!eventName) { console.log('⏭️  Lead #' + lead.id + ' status "' + lead.status + '" não dispara CAPI'); return; }
   const isCTWA = !!lead.ctwa_clid;
@@ -3269,7 +3260,7 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
     const dataAgendamento = new Date(data + 'T' + hora_inicio + ':00-03:00').toISOString();
     const crcNome = req.user?.profile?.name || req.user?.email || null;
     await supabase.from('leads').update({
-      status: 'Agendado', data_agendamento: dataAgendamento,
+      status: 'Avaliação agendada', data_agendamento: dataAgendamento,
       clinicorp_appointment_id,
       crc_agendamento_id: req.user?.id || null,
       crc_agendamento_nome: crcNome,
@@ -3294,7 +3285,7 @@ const normPhone = s => String(s || '').replace(/\D/g, '').slice(-11);
 async function syncComparecimentos() {
   if (!process.env.CLINICORP_TOKEN) return;
   // Inclui Nutrir/Reclassificar: leads históricos que podem ter comparecido sem passar pelo CRM
-  const PRE_COMPARECEU = ['Lead', 'Aguardando', 'Dra. Izabela', 'Agendado', 'Nutrir', 'Reclassificar'];
+  const PRE_COMPARECEU = ['Novo', 'Em qualificação', 'Avaliação agendada'];
   try {
     const d30ago  = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -3379,7 +3370,7 @@ setInterval(syncComparecimentos, 10 * 60 * 1000);
 // CLINICORP_WEBHOOK_SECRET (querystring ?secret= ou header x-webhook-secret).
 // v1: trata COMPARECIMENTO (check-in) → marca "Compareceu" + dispara CAPI Contact.
 // Loga o payload cru para mapearmos o formato exato do Clinicorp na 1ª chamada real.
-const _PODE_COMPARECER = new Set(['Lead','Aguardando','Dra. Izabela','Em conversa - Lead Qualificado','Agendado','Nutrir','Reclassificar']);
+const _PODE_COMPARECER = new Set(['Novo','Em qualificação','Avaliação agendada']);
 
 async function _processarAptWebhook(apt) {
   if (!apt || typeof apt !== 'object') return;

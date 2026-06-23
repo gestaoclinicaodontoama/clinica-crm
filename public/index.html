@@ -628,15 +628,8 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
         <input class="search-input" placeholder="🔍 Buscar..." id="search-q" oninput="clearTimeout(this._t);this._t=setTimeout(loadLeads,350)">
         <select class="filter-select" id="filter-status" onchange="loadLeads()">
           <option value="">Todos status</option>
-          <optgroup label="CRC Lead">
-            <option>Lead</option><option>Dra. Izabela</option><option>Em conversa - Lead Qualificado</option><option>Agendado</option>
-            <option>Faltou</option><option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
-          </optgroup>
-          <optgroup label="CRC Comercial">
-            <option>D0</option><option>D1</option><option>D2</option><option>D3</option>
-            <option>D4</option><option>D5</option><option>Em nutrição</option>
-            <option>Fechou</option><option>Perdido</option>
-          </optgroup>
+          <option>Novo</option><option>Em qualificação</option><option>Avaliação agendada</option>
+          <option>Compareceu</option><option>Em negociação</option><option>Fechou</option><option>Perdido</option>
         </select>
         <select class="filter-select" id="filter-origem" onchange="loadLeads()">
           <option value="">Todas origens</option>
@@ -1386,15 +1379,8 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
       <div class="form-group">
         <label>Status</label>
         <select id="m-status">
-          <optgroup label="CRC Lead">
-            <option>Lead</option><option>Dra. Izabela</option><option>Em conversa - Lead Qualificado</option><option>Agendado</option>
-            <option>Faltou</option><option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
-          </optgroup>
-          <optgroup label="CRC Comercial">
-            <option>D0</option><option>D1</option><option>D2</option><option>D3</option>
-            <option>D4</option><option>D5</option><option>Reclassificar</option><option>Em nutrição</option>
-            <option>Fechou</option><option>Perdido</option>
-          </optgroup>
+          <option>Novo</option><option>Em qualificação</option><option>Avaliação agendada</option>
+          <option>Compareceu</option><option>Em negociação</option><option>Fechou</option><option>Perdido</option>
         </select>
       </div>
       <div class="form-group" id="area-valor" style="display:none">
@@ -1546,15 +1532,8 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <div>
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Status inicial</label>
           <select id="nl-status" class="filter-select" style="width:100%">
-            <optgroup label="CRC Lead">
-              <option>Lead</option><option>Em conversa - Qualificado</option><option>Agendado</option>
-              <option>Compareceu</option><option>Nutrir</option><option>Não tem Interesse</option>
-            </optgroup>
-            <optgroup label="CRC Comercial">
-              <option>D0</option><option>D1</option><option>D2</option><option>D3</option>
-              <option>D4</option><option>D5</option><option>Em nutrição</option>
-              <option>Fechou</option><option>Perdido</option>
-            </optgroup>
+            <option>Novo</option><option>Em qualificação</option><option>Avaliação agendada</option>
+            <option>Compareceu</option><option>Em negociação</option><option>Fechou</option><option>Perdido</option>
           </select>
         </div>
       </div>
@@ -1636,7 +1615,7 @@ let leadAtual = null;
 let etiquetasAtual = [];
 let discAtual = '';
 let scoreAtual = null;
-const FUNIL = ['Lead','Dra. Izabela','Em conversa - Lead Qualificado','Agendado','Faltou','Compareceu','Nutrir','Não tem Interesse','D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
+const FUNIL = ['Novo','Em qualificação','Avaliação agendada','Compareceu','Em negociação','Fechou','Perdido'];
 const ORIGENS = ['Meta Ads','Facebook','Instagram','WhatsApp Direto','Indicação','Dra. Izabela','Google','TikTok','Evento','Outdoor','Rádio','Outros'];
 const ETIQUETAS_PADRAO = ['Reaquecido','Quente','Frio','Pendente','VIP','Reagendar'];
 const COR_ORIG = { 'Meta Ads':'orig-meta','Facebook':'orig-meta','Instagram':'orig-meta','Google Ads':'orig-google','Orgânico':'orig-org','Indicação':'orig-ind' };
@@ -1737,12 +1716,12 @@ async function loadDash() {
 
   const fr = document.getElementById('funil-row');
   const etapas = [
-    { label:'Lead',          match:['Lead'],          cls:'s-Lead' },
-    { label:'Agendado',      match:['Agendado'],      cls:'s-Agendado' },
-    { label:'Compareceu',    match:['Compareceu'],    cls:'s-Compareceu' },
-    { label:'Em negociação', match:['D0','D1','D2','D3','D4','D5'], cls:'s-D0' },
-    { label:'Em nutrição',   match:['Em nutrição'],   cls:'s-Emnutricao' },
-    { label:'Fechou',        match:['Fechou'],        cls:'s-Fechou' },
+    { label:'Novo',               match:['Novo'],               cls:'s-Novo' },
+    { label:'Em qualificação',    match:['Em qualificação'],    cls:'s-Emqualificacao' },
+    { label:'Avaliação agendada', match:['Avaliação agendada'], cls:'s-Avaliacaoagendada' },
+    { label:'Compareceu',         match:['Compareceu'],         cls:'s-Compareceu' },
+    { label:'Em negociação',      match:['Em negociação'],      cls:'s-Emnegociacao' },
+    { label:'Fechou',             match:['Fechou'],             cls:'s-Fechou' },
   ];
   fr.innerHTML = etapas.map(et => {
     const n = et.match.reduce((sum, st) => sum + (s.porStatus.find(x => x.status === st)?.n || 0), 0);
@@ -1823,16 +1802,16 @@ let _funilEtapaSelecionada = null;
 
 // Etapas macro do funil. 'Em negociação' agrega a régua comercial D0-D5.
 const FUNIL_ETAPAS = [
-  { label:'Lead',          match:['Lead'] },
-  { label:'Agendado',      match:['Agendado'] },
-  { label:'Compareceu',    match:['Compareceu'] },
-  { label:'Em negociação', match:['D0','D1','D2','D3','D4','D5'] },
-  { label:'Em nutrição',   match:['Em nutrição'] },
-  { label:'Fechou',        match:['Fechou'] },
+  { label:'Novo',               match:['Novo'] },
+  { label:'Em qualificação',    match:['Em qualificação'] },
+  { label:'Avaliação agendada', match:['Avaliação agendada'] },
+  { label:'Compareceu',         match:['Compareceu'] },
+  { label:'Em negociação',      match:['Em negociação'] },
+  { label:'Fechou',             match:['Fechou'] },
 ];
 const FUNIL_CORES  = {
-  'Lead':'#4f8ef7','Agendado':'#f59e0b','Compareceu':'#a855f7',
-  'Em negociação':'#06b6d4','Em nutrição':'#ec4899','Fechou':'#22c55e',
+  'Novo':'#4f8ef7','Em qualificação':'#8b9467','Avaliação agendada':'#f59e0b','Compareceu':'#a855f7',
+  'Em negociação':'#06b6d4','Fechou':'#22c55e',
 };
 function _statusesDaEtapa(label) {
   const e = FUNIL_ETAPAS.find(x => x.label === label);
@@ -1852,15 +1831,15 @@ function renderFunil() {
   FUNIL_ETAPAS.forEach(e => counts[e.label] = leads.filter(l => e.match.includes(l.status)).length);
   const perdidos = leads.filter(l => l.status === 'Perdido').length;
   const total = leads.length;
-  const base = Math.max(counts['Lead'], 1);
+  const base = Math.max(counts['Novo'], 1);
 
   // Summary cards
   const taxaConv = base ? Math.round(counts['Fechou'] / base * 100) : 0;
   const receita = leads.filter(l => l.status === 'Fechou' && l.valor).reduce((s,l) => s + l.valor, 0);
-  const potencial = leads.filter(l => ['Agendado','Compareceu','D0','D1','D2','D3','D4','D5','Em nutrição'].includes(l.status) && l.valor).reduce((s,l) => s + l.valor, 0);
+  const potencial = leads.filter(l => ['Avaliação agendada','Compareceu','Em negociação'].includes(l.status) && l.valor).reduce((s,l) => s + l.valor, 0);
   document.getElementById('funil-summary').innerHTML = [
     { label:'Total no funil', val: total, mono: true },
-    { label:'Taxa Lead→Fechou', val: taxaConv+'%', color: taxaConv >= 20 ? 'var(--green)' : taxaConv >= 8 ? 'var(--yellow)' : 'var(--red)' },
+    { label:'Taxa Novo→Fechou', val: taxaConv+'%', color: taxaConv >= 20 ? 'var(--green)' : taxaConv >= 8 ? 'var(--yellow)' : 'var(--red)' },
     { label:'Receita fechada', val: 'R$ '+Math.round(receita).toLocaleString('pt-BR'), color:'var(--green)' },
     { label:'Potencial em aberto', val: 'R$ '+Math.round(potencial).toLocaleString('pt-BR'), color:'var(--accent)' },
   ].map(c => `<div class="funil-summary-card">
@@ -2090,7 +2069,7 @@ function fecharModal() {
 function abrirModalNovoLead() {
   ['nl-nome','nl-tel','nl-email','nl-obs'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('nl-origem').value = 'Direto';
-  document.getElementById('nl-status').value = 'Lead';
+  document.getElementById('nl-status').value = 'Novo';
   document.getElementById('modal-novo-lead-bg').classList.add('open');
 }
 function fecharModalNovoLead() {
@@ -2127,8 +2106,8 @@ async function criarLeadManual(btn) {
 function renderStepper(statusAtual) {
   // Vocabulário rico alinhado com servidor (FUNIL 15) e banco (constraint)
   const idx = FUNIL.indexOf(statusAtual);
-  const grupoLead      = ['Lead','Dra. Izabela','Em conversa - Lead Qualificado','Agendado','Faltou','Compareceu','Nutrir','Não tem Interesse'];
-  const grupoComercial = ['D0','D1','D2','D3','D4','D5','Reclassificar','Em nutrição','Fechou','Perdido'];
+  const grupoLead      = ['Novo','Em qualificação','Avaliação agendada','Compareceu'];
+  const grupoComercial = ['Em negociação','Fechou','Perdido'];
   function mkStep(f) {
     const i = FUNIL.indexOf(f);
     const cls = i < idx && statusAtual !== 'Perdido' ? 'done' : i === idx ? 'current' : '';
@@ -2419,10 +2398,10 @@ let _chatViewMode = 'lista';
 let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
 let _kanbanDragging = false;
 
-const KANBAN_AGENDAMENTOS  = ['Lead','Em conversa - Lead Qualificado','Dra. Izabela','Agendado','Compareceu','Faltou','Nutrir','Não tem Interesse'];
-const KANBAN_OFICIAL       = ['Lead','Em conversa - Lead Qualificado','Dra. Izabela','Agendado','Compareceu','Faltou','Nutrir','Não tem Interesse'];
-const KANBAN_AVALIACAO     = ['Compareceu','D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido'];
-const COMERCIAL_STATUSES   = new Set(['D0','D1','D2','D3','D4','D5','Em nutrição','Fechou','Perdido']);
+const KANBAN_AGENDAMENTOS  = ['Novo','Em qualificação','Avaliação agendada','Compareceu'];
+const KANBAN_OFICIAL       = ['Novo','Em qualificação','Avaliação agendada','Compareceu'];
+const KANBAN_AVALIACAO     = ['Compareceu','Em negociação','Fechou','Perdido'];
+const COMERCIAL_STATUSES   = new Set(['Em negociação','Fechou','Perdido']);
 
 function _statusParaModo()  { return _chatMode === 'avaliacao' ? KANBAN_AVALIACAO : _chatMode === 'oficial' ? KANBAN_OFICIAL : KANBAN_AGENDAMENTOS; }
 function _filtrarParaModo(leads) {
@@ -2769,7 +2748,7 @@ function toggleBannerAnuncio(btn) {
 function _initPainel(lead) {
   const ps = document.getElementById('painel-status');
   if (!ps.options.length) FUNIL.forEach(s => ps.appendChild(Object.assign(document.createElement('option'),{value:s,textContent:s})));
-  ps.value = lead.status || 'Lead';
+  ps.value = lead.status || 'Novo';
 
   const po = document.getElementById('painel-origem');
   const _origLista = (lead.origem && !ORIGENS.includes(lead.origem)) ? [lead.origem, ...ORIGENS] : [...ORIGENS];
@@ -3095,11 +3074,11 @@ async function agendarNoClinicorp() {
       method: 'POST', body: JSON.stringify({ dentista_id: Number(dentistaId), data, hora_inicio: _agHoraSelecionada }),
     });
     chatLeadAtual.clinicorp_appointment_id = r.clinicorp_appointment_id;
-    chatLeadAtual.status = 'Agendado';
+    chatLeadAtual.status = 'Avaliação agendada';
     chatLeadAtual.data_agendamento = new Date(data + 'T' + _agHoraSelecionada + ':00').toISOString();
     const idx = chatLeads.findIndex(l => l.id === chatLeadAtual.id);
-    if (idx >= 0) { chatLeads[idx].status = 'Agendado'; chatLeads[idx].data_agendamento = chatLeadAtual.data_agendamento; }
-    document.getElementById('painel-status').value = 'Agendado';
+    if (idx >= 0) { chatLeads[idx].status = 'Avaliação agendada'; chatLeads[idx].data_agendamento = chatLeadAtual.data_agendamento; }
+    document.getElementById('painel-status').value = 'Avaliação agendada';
     const agInfo = document.getElementById('painel-ag-info');
     agInfo.style.display = '';
     agInfo.innerHTML = `<b>Agendado</b><br>${r.dentista} — ${data.split('-').reverse().join('/')} ${r.hora}`;
