@@ -54,6 +54,7 @@
       { slug: 'conv-agendamentos', label: 'WhatsApp CRC Lead',  roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso',    mode: 'spa' },
       { slug: 'conv-oficial',      label: 'WhatsApp API Oficial', roles: 'admin,gestor',                                       mode: 'spa' },
       { slug: 'monitor-crc',       label: 'Monitor Diário',     roles: 'admin,gestor,crc_leads',                              mode: 'link', href: '/monitor-crc/' },
+      { slug: 'capi-saude',        label: 'Saúde do CAPI',      roles: 'admin,gestor',                                        mode: 'link', href: '/capi-saude/' },
     ]},
 
     { id: 'crc-comercial', label: 'CRC Comercial', icon: 'comercial', roles: 'admin,gestor,crc_comercial', items: [

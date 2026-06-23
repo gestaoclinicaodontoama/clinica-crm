@@ -1,0 +1,44 @@
+<!doctype html><html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saúde do CAPI</title>
+<link rel="stylesheet" href="/css/app.css">
+</head><body>
+<script src="/js/shared-nav.js" data-active="capi-saude"></script>
+<main class="crm-content" style="padding:16px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <h1 id="status" style="font-size:18px">Saúde do CAPI</h1>
+    <button id="recheck" class="btn">Re-checar agora</button>
+  </div>
+  <p id="atualizado" style="color:#666;font-size:12px"></p>
+  <section id="cards"></section>
+  <h2 style="font-size:15px;margin-top:16px">Eventos por semana</h2>
+  <table id="tab-semana" border="0" cellpadding="6" style="width:100%;border-collapse:collapse"></table>
+  <h2 style="font-size:15px;margin-top:16px">Qualidade do match</h2>
+  <div id="cobertura"></div>
+  <h2 style="font-size:15px;margin-top:16px">Gatilhos</h2>
+  <div id="gatilhos"></div>
+</main>
+<script src="/js/capi-saude/api.js"></script>
+<script>
+const EVS = ['LeadSubmitted','LeadQualified','Schedule','Contact','Purchase'];
+function cell(v){ return '<td style="border-bottom:1px solid #eee">'+v+'</td>'; }
+async function carregar() {
+  const d = await capiApi('/api/admin/capi-saude');
+  const ruins = d.gatilhos.filter(g=>g.status==='ruim').length;
+  document.getElementById('status').textContent = 'Saúde do CAPI — ' + (ruins ? ('⚠️ '+ruins+' alerta(s)') : '✅ tudo ok');
+  document.getElementById('atualizado').textContent = 'Atualizado: ' + new Date(d.atualizadoEm).toLocaleString('pt-BR');
+  const t = d.totais7d, pct = t.total ? Math.round(t.sucesso/t.total*100) : 0;
+  let cards = `<div>Últimos 7 dias: <b>${t.total}</b> tentativas · <b>${pct}%</b> sucesso · ${t.falha} falha</div>`;
+  cards += '<div style="margin-top:6px">' + Object.entries(t.porPagina).map(([p,v])=>`Página ${p}: ${v.sucesso}✓ / ${v.falha}✗`).join(' &nbsp;|&nbsp; ') + '</div>';
+  document.getElementById('cards').innerHTML = cards;
+  let h = '<tr><th align="left">Evento</th><th>Sem. atual (✓/✗)</th><th>Sem. anterior (✓/✗)</th></tr>';
+  for (const e of EVS) { const a=d.semana.atual[e], b=d.semana.anterior[e];
+    h += '<tr>'+cell(e)+cell(`${a.sucesso}/${a.falha} (${a.enviados})`)+cell(`${b.sucesso}/${b.falha} (${b.enviados})`)+'</tr>'; }
+  document.getElementById('tab-semana').innerHTML = h;
+  document.getElementById('cobertura').innerHTML = Object.entries(d.cobertura).map(([k,v])=>`${k}: <b>${v}%</b>`).join(' &nbsp;·&nbsp; ');
+  document.getElementById('gatilhos').innerHTML = d.gatilhos.map(g=>`<div>${g.status==='ruim'?'🔴':'🟢'} ${g.gatilho}${g.escopo?(' ('+g.escopo+')'):''}</div>`).join('');
+}
+document.getElementById('recheck').onclick = async () => { await capiApi('/api/admin/capi-saude/recheck',{method:'POST'}); setTimeout(carregar, 1500); };
+carregar().catch(e=>{ document.getElementById('status').textContent = 'Erro: '+e.message; });
+</script>
+</body></html>
