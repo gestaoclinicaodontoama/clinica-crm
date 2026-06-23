@@ -35,6 +35,7 @@ function _finMesCorrente() {
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
+const capiHealth = require('./lib/capi/health');
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
     'mailto:gestao.clinicaodontoama@gmail.com',
@@ -4054,6 +4055,38 @@ app.get('/api/admin/sync-status', requireAuth, async (req, res) => {
       .order('started_at', { ascending: false }).limit(1);
     if (error) throw error;
     res.json({ running: _syncRunning, last: data?.[0] || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ========== CAPI SAÚDE — Monitor ==========
+async function capiCarregarRows(diasAtras = 21) {
+  const desde = new Date(Date.now() - diasAtras * 86400000).toISOString();
+  const todos = [];
+  let from = 0; const passo = 1000;
+  while (true) { // lead_eventos pode passar de 1000 linhas — paginar
+    const { data, error } = await supabase.from('lead_eventos')
+      .select('criado_em, metadata')
+      .eq('tipo', 'capi_disparado').gte('criado_em', desde)
+      .order('criado_em', { ascending: false }).range(from, from + passo - 1);
+    if (error) throw error;
+    todos.push(...(data || []));
+    if (!data || data.length < passo) break;
+    from += passo;
+  }
+  return todos.map(capiHealth.normalizar);
+}
+
+app.get('/api/admin/capi-saude', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const agora = new Date();
+    const rows = await capiCarregarRows(21);
+    res.json({
+      semana: capiHealth.contagensPorSemana(rows, agora),
+      cobertura: capiHealth.coberturaMatch(rows.filter(r => r.ts >= new Date(agora - 7 * 86400000))),
+      totais7d: capiHealth.totais7d(rows, agora),
+      gatilhos: capiHealth.avaliarGatilhos(rows, agora),
+      atualizadoEm: agora.toISOString(),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
