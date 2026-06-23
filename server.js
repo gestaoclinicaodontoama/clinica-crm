@@ -4136,6 +4136,49 @@ app.post('/api/admin/capi-saude/recheck', requireAuth, requireGestor, async (req
   capiChecarGatilhos().catch(e => console.error('[capi-monitor] recheck:', e.message));
 });
 
+// ========== CAPI — Resumos diários 8h / 18h ==========
+function _resumoTexto(rows, slot, agora) {
+  const t = capiHealth.totais7d(rows, agora);
+  const g = capiHealth.avaliarGatilhos(rows, agora).filter(x => x.status === 'ruim');
+  const cab = slot === '8h' ? 'Saúde CAPI (ontem)' : 'Saúde CAPI (hoje até agora)';
+  const status = g.length ? `⚠️ ${g.length} alerta(s)` : '✅ tudo ok';
+  return `${cab}: ${status}. 7d: ${t.sucesso} ok / ${t.falha} falha.`;
+}
+
+async function capiEnviarResumo(slot, force = false) {
+  const col = slot === '8h' ? 'capi_resumo_8h_ultimo' : 'capi_resumo_18h_ultimo';
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  if (!force) {
+    const { data: claimed, error } = await supabase.from('app_config')
+      .update({ [col]: hoje }).eq('id', 1)
+      .or(`${col}.is.null,${col}.neq.${hoje}`).select('id');
+    if (error || !claimed || !claimed.length) return false; // já enviado hoje
+  } else {
+    await supabase.from('app_config').update({ [col]: hoje }).eq('id', 1);
+  }
+  const rows = await capiCarregarRows(21);
+  const texto = _resumoTexto(rows, slot, new Date());
+  const { data: gestores } = await supabase.from('profiles').select('id').or('roles.cs.{admin},roles.cs.{gestor}');
+  for (const gst of gestores || []) await criarNotificacao(gst.id, 'capi_resumo', 'Resumo CAPI', texto, { url: '/capi-saude/' });
+  console.log('[capi-monitor] resumo', slot, 'enviado:', texto);
+  return true;
+}
+
+// scheduler self-healing dos resumos (claim atômico evita duplicação entre ticks/instâncias)
+(function agendarResumosCapi() {
+  function horaBRT() { return Number(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false })); }
+  async function tick() {
+    const hh = horaBRT();
+    try {
+      if (hh >= 8 && hh < 18) await capiEnviarResumo('8h');
+      if (hh >= 18) await capiEnviarResumo('18h');
+    } catch (e) { console.error('[capi-monitor] resumo tick:', e.message); }
+  }
+  setTimeout(() => tick().catch(() => {}), 60_000);
+  setInterval(() => tick().catch(() => {}), 15 * 60_000);
+  console.log('[capi-monitor] scheduler de resumos 8h/18h ativo');
+})();
+
 // ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========
 // Lazy requires — lib/ criada no PR 3 (pode não existir no startup se PR 3 não deployado ainda)
 function geminiLib()   { return require('./lib/gemini'); }
