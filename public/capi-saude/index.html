@@ -21,7 +21,8 @@
 <script src="/js/capi-saude/api.js"></script>
 <script>
 const EVS = ['LeadSubmitted','LeadQualified','Schedule','Contact','Purchase'];
-function cell(v){ return '<td style="border-bottom:1px solid #eee">'+v+'</td>'; }
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cell(v){ return '<td style="border-bottom:1px solid #eee">'+esc(v)+'</td>'; }
 async function carregar() {
   const d = await capiApi('/api/admin/capi-saude');
   const ruins = d.gatilhos.filter(g=>g.status==='ruim').length;
@@ -29,14 +30,14 @@ async function carregar() {
   document.getElementById('atualizado').textContent = 'Atualizado: ' + new Date(d.atualizadoEm).toLocaleString('pt-BR');
   const t = d.totais7d, pct = t.total ? Math.round(t.sucesso/t.total*100) : 0;
   let cards = `<div>Últimos 7 dias: <b>${t.total}</b> tentativas · <b>${pct}%</b> sucesso · ${t.falha} falha</div>`;
-  cards += '<div style="margin-top:6px">' + Object.entries(t.porPagina).map(([p,v])=>`Página ${p}: ${v.sucesso}✓ / ${v.falha}✗`).join(' &nbsp;|&nbsp; ') + '</div>';
+  cards += '<div style="margin-top:6px">' + Object.entries(t.porPagina).map(([p,v])=>`Página ${esc(p)}: ${esc(v.sucesso)}✓ / ${esc(v.falha)}✗`).join(' &nbsp;|&nbsp; ') + '</div>';
   document.getElementById('cards').innerHTML = cards;
   let h = '<tr><th align="left">Evento</th><th>Sem. atual (✓/✗)</th><th>Sem. anterior (✓/✗)</th></tr>';
   for (const e of EVS) { const a=d.semana.atual[e], b=d.semana.anterior[e];
     h += '<tr>'+cell(e)+cell(`${a.sucesso}/${a.falha} (${a.enviados})`)+cell(`${b.sucesso}/${b.falha} (${b.enviados})`)+'</tr>'; }
   document.getElementById('tab-semana').innerHTML = h;
-  document.getElementById('cobertura').innerHTML = Object.entries(d.cobertura).map(([k,v])=>`${k}: <b>${v}%</b>`).join(' &nbsp;·&nbsp; ');
-  document.getElementById('gatilhos').innerHTML = d.gatilhos.map(g=>`<div>${g.status==='ruim'?'🔴':'🟢'} ${g.gatilho}${g.escopo?(' ('+g.escopo+')'):''}</div>`).join('');
+  document.getElementById('cobertura').innerHTML = Object.entries(d.cobertura).map(([k,v])=>`${esc(k)}: <b>${esc(v)}%</b>`).join(' &nbsp;·&nbsp; ');
+  document.getElementById('gatilhos').innerHTML = d.gatilhos.map(g=>`<div>${g.status==='ruim'?'🔴':'🟢'} ${esc(g.gatilho)}${g.escopo?(' ('+esc(g.escopo)+')'):''}</div>`).join('');
 }
 document.getElementById('recheck').onclick = async () => { await capiApi('/api/admin/capi-saude/recheck',{method:'POST'}); setTimeout(carregar, 1500); };
 carregar().catch(e=>{ document.getElementById('status').textContent = 'Erro: '+e.message; });
