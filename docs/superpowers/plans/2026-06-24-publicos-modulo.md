@@ -706,7 +706,7 @@ Criar `public/js/publicos/api.js` copiando o padrão de `public/js/pacientes/api
 
 Criar `public/publicos/index.html` seguindo o esqueleto de uma página separada (ex.: `public/atribuicao/index.html`): `<head>` com o CSS compartilhado, `<script src="/js/shared-nav.js" data-active="publicos"></script>`, depois `<script src="/js/publicos/api.js"></script>` e `<script src="/js/publicos/app.js"></script>`. Corpo: coluna esquerda = formulário do construtor (envolver num container `id="construtor"` — os listeners de preview do `app.js` usam `e.target.closest('#construtor')`) com os campos:
 - Interesse: input `#f-termo` + 3 checkboxes `#f-em-origem`/`#f-em-conversa`/`#f-em-anuncio` (marcados por default).
-- Status: grupo de checkboxes `#f-status` (Lead, Nutrir, Em conversa - Lead Qualificado, Agendado, Compareceu, Faltou, Não tem Interesse, Reclassificar).
+- Status: grupo de checkboxes `#f-status` com o DOMÍNIO ATUAL do funil (migrado pela reestruturação em jun/2026): `Novo`, `Em qualificação`, `Avaliação agendada`, `Em negociação`, `Compareceu`, `Fechou`, `Perdido`, `Não tem Interesse`. (Os valores antigos `Lead`/`Nutrir`/`Em conversa - Lead Qualificado` não existem mais.)
 - Período: `#f-dias` (número; vazio = sem filtro).
 - DDD: input de chips `#f-ddd` (lista separada por vírgula → array de 2 dígitos).
 - Origem: input de chips `#f-origem` (lista separada por vírgula, texto livre — ex.: `Facebook - Invisalign`; popular com valores reais da base fica como polimento futuro).
