@@ -103,14 +103,47 @@ async function api(path, _retry=0) {
   }
   return r.json();
 }
-async function patchLead(id, status) {
+async function patchLead(id, fields) {
+  if (typeof fields === 'string') fields = { status: fields };
   const r = await fetch('/api/leads/' + id, {
     method: 'PATCH',
     headers: { Authorization: 'Bearer ' + _token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(fields),
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+// ── MOTIVO DE PERDA (popup obrigatório) ───────────────────────────────────────
+const MOTIVOS_SEM_ORC = ['Clicou errado / não era lead','Número errado / duplicado','Sumiu / não responde','Sem interesse','Só queria informação/preço','Distância / localização','Já está em tratamento em outro local','Currículo','Outro'];
+const MOTIVOS_COM_ORC = ['Preço / achou caro','Fez em outro local (concorrente)','Vai pensar / adiou decisão','Sumiu / não responde','Sem condições financeiras no momento','Desistiu do tratamento','Outro'];
+function pedirMotivoPerda(lead) {
+  return new Promise(resolve => {
+    const comOrc = !!(lead && lead.data_orcamento);
+    const motivos = comOrc ? MOTIVOS_COM_ORC : MOTIVOS_SEM_ORC;
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--card,#fff);color:var(--text,#1a1d29);border-radius:12px;padding:18px;max-width:360px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3)';
+    box.innerHTML = `<div style="font-weight:700;font-size:15px;margin-bottom:4px">Por que foi perdido?</div>
+      <div style="font-size:12px;color:var(--muted,#6b7280);margin-bottom:12px">${comOrc ? 'Lead com orçamento' : 'Lead inicial'} · obrigatório</div>
+      <div id="mp-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button id="mp-cancel" style="margin-top:12px;width:100%;padding:8px;border:1px solid var(--border,#e5e7eb);background:none;border-radius:8px;cursor:pointer;color:var(--muted,#6b7280)">Cancelar</button>`;
+    ov.appendChild(box); document.body.appendChild(ov);
+    const close = v => { document.body.removeChild(ov); resolve(v); };
+    box.querySelector('#mp-list').append(...motivos.map(m => {
+      const b = document.createElement('button');
+      b.textContent = m;
+      b.style.cssText = 'text-align:left;padding:9px 12px;border:1px solid var(--border,#e5e7eb);background:var(--bg3,#f9fafb);border-radius:8px;cursor:pointer;font-size:13px;color:var(--text,#1a1d29)';
+      b.onclick = () => {
+        if (m === 'Outro') { const t = prompt('Descreva o motivo:'); if (!t || !t.trim()) return; return close(t.trim()); }
+        close(m);
+      };
+      return b;
+    }));
+    box.querySelector('#mp-cancel').onclick = () => close(null);
+    ov.onclick = e => { if (e.target === ov) close(null); };
+  });
 }
 
 // ── XSS PROTECTION ────────────────────────────────────────────────────────────
@@ -124,7 +157,12 @@ const D_COLORS = ['#4f8ef7','#3ea4e8','#2dbad9','#1ccfca','#0be5bb','#22c55e'];
 // ── COLUMN DEFINITIONS ────────────────────────────────────────────────────────
 const COLUNAS = [
   { slug:'compareceu',   label:'Compareceu',          cor:'var(--purple)', dropTarget:true,  statusSet:'Compareceu', isNutricao:false },
-  { slug:'orcado',       label:'Em negociação',       cor:'var(--accent)', dropTarget:true,  statusSet:'Em negociação', isNutricao:false },
+  { slug:'d0',           label:'D0',                  cor:D_COLORS[0],     dropTarget:true,  statusSet:'Em negociação', etapaSet:'D0', isNutricao:false },
+  { slug:'d1',           label:'D1',                  cor:D_COLORS[1],     dropTarget:true,  statusSet:'Em negociação', etapaSet:'D1', isNutricao:false },
+  { slug:'d2',           label:'D2',                  cor:D_COLORS[2],     dropTarget:true,  statusSet:'Em negociação', etapaSet:'D2', isNutricao:false },
+  { slug:'d3',           label:'D3',                  cor:D_COLORS[3],     dropTarget:true,  statusSet:'Em negociação', etapaSet:'D3', isNutricao:false },
+  { slug:'d4',           label:'D4',                  cor:D_COLORS[4],     dropTarget:true,  statusSet:'Em negociação', etapaSet:'D4', isNutricao:false },
+  { slug:'d5',           label:'D5',                  cor:D_COLORS[5],     dropTarget:true,  statusSet:'Em negociação', etapaSet:'D5', isNutricao:false },
   { slug:'nutricao_30',  label:'Reativação 30–180d',  cor:'var(--yellow)', dropTarget:false, statusSet:null,         isNutricao:true },
   { slug:'nutricao_180', label:'Reativação 180–365d', cor:'var(--orange)', dropTarget:false, statusSet:null,         isNutricao:true },
   { slug:'nutricao_365', label:'Reativação 365+',     cor:'var(--red)',    dropTarget:false, statusSet:null,         isNutricao:true },
@@ -139,7 +177,7 @@ const state = {};
 COLUNAS.forEach(c => { state[c.slug] = { leads:[], total:0, page:0, hasMore:false, loading:false }; });
 const collapsed = JSON.parse(localStorage.getItem('kb-comercial-collapsed') || '{}');
 let _searchQ = '', _crcQ = '', _searchTimer = null;
-let _draggingId = null, _draggingStatus = null, _draggingFromSlug = null;
+let _draggingId = null, _draggingStatus = null, _draggingFromSlug = null, _draggingEtapa = '';
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function timeAgo(iso) {
@@ -154,7 +192,7 @@ function timeAgo(iso) {
 function cardAge(lead, slug) {
   if (slug === 'compareceu') return timeAgo(lead.data_comparecimento);
   if (slug.startsWith('nutricao')) return timeAgo(lead.data_orcamento || lead.data_comparecimento || lead.criado_em);
-  if (slug === 'orcado') return timeAgo(lead.data_avaliacao || lead.data_orcamento);
+  if (['d0','d1','d2','d3','d4','d5'].includes(slug)) return timeAgo(lead.data_avaliacao || lead.data_orcamento);
   if (slug === 'fechou') return timeAgo(lead.data_fechamento);
   return timeAgo(lead.criado_em);
 }
@@ -172,7 +210,7 @@ function renderCard(lead, slug) {
   const tel = lead.telefone || '';
   const telDigits = tel.replace(/\D/g, '');
   const crc = lead.crc_comercial_nome || lead.crc_agendamento_nome || '';
-  return `<div class="kb-card" draggable="true" data-id="${lead.id}" data-status="${esc(lead.status)}" data-slug="${esc(slug)}"
+  return `<div class="kb-card" draggable="true" data-id="${lead.id}" data-status="${esc(lead.status)}" data-slug="${esc(slug)}" data-etapa="${esc(lead.etapa_negociacao||'')}"
     ondragstart="onDragStart(event)" ondragend="onDragEnd(event)"
     onclick="if(!window._kbDragging)abrirLead(${lead.id})">
     <div class="kb-card-top">
@@ -289,6 +327,7 @@ function onDragStart(e) {
   _draggingId       = parseInt(e.currentTarget.dataset.id, 10);
   _draggingStatus   = e.currentTarget.dataset.status;
   _draggingFromSlug = e.currentTarget.dataset.slug;
+  _draggingEtapa    = e.currentTarget.dataset.etapa || '';
   window._kbDragging = true;
   e.currentTarget.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
@@ -305,7 +344,9 @@ async function onDrop(e, col) {
   const el = document.getElementById('col-' + col.slug);
   if (el) el.classList.remove('drop-over');
   if (!_draggingId || !col.statusSet) return;
-  if (col.statusSet === _draggingStatus) return;
+  const alvoEtapa = col.etapaSet || '';
+  // no-op: soltou no mesmo lugar (mesmo status E mesma etapa D)
+  if (col.statusSet === _draggingStatus && alvoEtapa === (_draggingEtapa || '')) return;
 
   // EDGE CASE: bloquear drop de Em nutrição → Compareceu
   if (col.slug === 'compareceu' && NUTRICAO_SLUGS.has(_draggingFromSlug)) {
@@ -320,8 +361,20 @@ async function onDrop(e, col) {
     return;
   }
 
+  // Perdido → popup obrigatório de motivo
+  let patchFields;
+  if (col.slug === 'perdido') {
+    const leadObj = (state[_draggingFromSlug]?.leads || []).find(l => l.id === _draggingId);
+    const motivo = await pedirMotivoPerda(leadObj);
+    if (!motivo) return; // cancelou
+    patchFields = { status: 'Perdido', motivo_perda: motivo };
+  } else {
+    patchFields = { status: col.statusSet };
+    if (col.etapaSet) patchFields.etapa_negociacao = col.etapaSet;
+  }
+
   try {
-    await patchLead(_draggingId, col.statusSet);
+    await patchLead(_draggingId, patchFields);
     COLUNAS.forEach(c => {
       const idx = state[c.slug].leads.findIndex(l => l.id === _draggingId);
       if (idx !== -1) {

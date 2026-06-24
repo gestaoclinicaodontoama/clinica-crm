@@ -141,14 +141,47 @@ async function api(path, _retry=0) {
   return r.json();
 }
 
-async function patchLead(id, status) {
+async function patchLead(id, fields) {
+  if (typeof fields === 'string') fields = { status: fields };
   const r = await fetch('/api/leads/' + id, {
     method: 'PATCH',
     headers: { Authorization: 'Bearer ' + _token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(fields),
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+// ── MOTIVO DE PERDA (popup obrigatório) ───────────────────────────────────────
+const MOTIVOS_SEM_ORC = ['Clicou errado / não era lead','Número errado / duplicado','Sumiu / não responde','Sem interesse','Só queria informação/preço','Distância / localização','Já está em tratamento em outro local','Currículo','Outro'];
+const MOTIVOS_COM_ORC = ['Preço / achou caro','Fez em outro local (concorrente)','Vai pensar / adiou decisão','Sumiu / não responde','Sem condições financeiras no momento','Desistiu do tratamento','Outro'];
+function pedirMotivoPerda(lead) {
+  return new Promise(resolve => {
+    const comOrc = !!(lead && lead.data_orcamento);
+    const motivos = comOrc ? MOTIVOS_COM_ORC : MOTIVOS_SEM_ORC;
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--card,#fff);color:var(--text,#1a1d29);border-radius:12px;padding:18px;max-width:360px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3)';
+    box.innerHTML = `<div style="font-weight:700;font-size:15px;margin-bottom:4px">Por que foi perdido?</div>
+      <div style="font-size:12px;color:var(--muted,#6b7280);margin-bottom:12px">${comOrc ? 'Lead com orçamento' : 'Lead inicial'} · obrigatório</div>
+      <div id="mp-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button id="mp-cancel" style="margin-top:12px;width:100%;padding:8px;border:1px solid var(--border,#e5e7eb);background:none;border-radius:8px;cursor:pointer;color:var(--muted,#6b7280)">Cancelar</button>`;
+    ov.appendChild(box); document.body.appendChild(ov);
+    const close = v => { document.body.removeChild(ov); resolve(v); };
+    box.querySelector('#mp-list').append(...motivos.map(m => {
+      const b = document.createElement('button');
+      b.textContent = m;
+      b.style.cssText = 'text-align:left;padding:9px 12px;border:1px solid var(--border,#e5e7eb);background:var(--bg3,#f9fafb);border-radius:8px;cursor:pointer;font-size:13px;color:var(--text,#1a1d29)';
+      b.onclick = () => {
+        if (m === 'Outro') { const t = prompt('Descreva o motivo:'); if (!t || !t.trim()) return; return close(t.trim()); }
+        close(m);
+      };
+      return b;
+    }));
+    box.querySelector('#mp-cancel').onclick = () => close(null);
+    ov.onclick = e => { if (e.target === ov) close(null); };
+  });
 }
 
 // ── COLUMN DEFINITIONS ────────────────────────────────────────────────────────
@@ -332,8 +365,17 @@ async function onDrop(e, col) {
   if (el) el.classList.remove('drop-over');
   if (!_draggingId || !col.statusSet) return;
   if (col.statusSet === _draggingStatus) return;
+
+  let patchFields = { status: col.statusSet };
+  if (col.statusSet === 'Perdido') {
+    const leadObj = Object.values(state).flatMap(s => s.leads).find(l => l.id === _draggingId);
+    const motivo = await pedirMotivoPerda(leadObj);
+    if (!motivo) return; // cancelou
+    patchFields.motivo_perda = motivo;
+  }
+
   try {
-    await patchLead(_draggingId, col.statusSet);
+    await patchLead(_draggingId, patchFields);
     COLUNAS.forEach(c => {
       const idx = state[c.slug].leads.findIndex(l => l.id === _draggingId);
       if (idx !== -1) {

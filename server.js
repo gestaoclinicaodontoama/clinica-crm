@@ -673,7 +673,7 @@ async function patchLead(req, res) {
       'proximo_contato','ultimo_contato',
       'crc_comercial_id','crc_comercial_nome',
       'crc_agendamento_id','crc_agendamento_nome',
-      'carteira','motivo_perda',
+      'carteira','motivo_perda','etapa_negociacao',
     ];
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const agora = new Date().toISOString();
@@ -688,9 +688,16 @@ async function patchLead(req, res) {
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
         if (v === 'Em negociação' && !lead.data_avaliacao) patch.data_avaliacao = agora;
         if (v === 'Em negociação' && !lead.data_orcamento) patch.data_orcamento = agora;
+        // Entrou em negociação sem D definido → começa em D0; saiu de negociação → limpa o D.
+        if (v === 'Em negociação' && !lead.etapa_negociacao && req.body.etapa_negociacao == null) patch.etapa_negociacao = 'D0';
+        if (v !== 'Em negociação' && lead.etapa_negociacao) patch.etapa_negociacao = null;
         if (v === 'Fechou' && !lead.data_fechamento) patch.data_fechamento = agora;
       }
       if (k === 'carteira' && !CARTEIRAS.includes(v)) return res.status(400).json({ error: 'Carteira inválida' });
+      if (k === 'etapa_negociacao') {
+        if (v === '' || v === null) v = null;
+        else if (!['D0','D1','D2','D3','D4','D5'].includes(v)) return res.status(400).json({ error: 'Etapa de negociação inválida' });
+      }
       if (k === 'valor') {
         v = (v === '' || v === null) ? null : parseFloat(v);
         if (v !== null && !Number.isFinite(v)) v = null;
@@ -792,7 +799,7 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
   }
 });
 // ========== KANBAN ==========
-const CARD_FIELDS = 'id,nome,telefone,origem,status,valor,criado_em,data_comparecimento,data_agendamento,data_fechamento,data_orcamento,data_avaliacao,crc_agendamento_nome,crc_comercial_nome,ultimo_contato';
+const CARD_FIELDS = 'id,nome,telefone,origem,status,valor,criado_em,data_comparecimento,data_agendamento,data_fechamento,data_orcamento,data_avaliacao,crc_agendamento_nome,crc_comercial_nome,ultimo_contato,etapa_negociacao';
 
 function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
   const now = Date.now();
@@ -890,7 +897,13 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
   switch (coluna) {
     case 'compareceu':
       qb = qb.eq('status', 'Compareceu').gte('data_comparecimento', d30); break;
-    case 'orcado': qb = qb.eq('status', 'Em negociação'); break;
+    // D0 acolhe quem entrou em negociação sem D ainda (etapa null) + os marcados D0
+    case 'd0': qb = qb.eq('status', 'Em negociação').or('etapa_negociacao.is.null,etapa_negociacao.eq.D0'); break;
+    case 'd1': qb = qb.eq('status', 'Em negociação').eq('etapa_negociacao', 'D1'); break;
+    case 'd2': qb = qb.eq('status', 'Em negociação').eq('etapa_negociacao', 'D2'); break;
+    case 'd3': qb = qb.eq('status', 'Em negociação').eq('etapa_negociacao', 'D3'); break;
+    case 'd4': qb = qb.eq('status', 'Em negociação').eq('etapa_negociacao', 'D4'); break;
+    case 'd5': qb = qb.eq('status', 'Em negociação').eq('etapa_negociacao', 'D5'); break;
     case 'fechou':
       qb = qb.eq('status', 'Fechou').gte('data_fechamento', d30); break;
     case 'perdido': qb = qb.eq('status', 'Perdido'); break;
@@ -904,7 +917,7 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
   return qb;
 }
 
-const COMERCIAL_SIMPLES = ['compareceu','orcado','fechou','perdido'];
+const COMERCIAL_SIMPLES = ['compareceu','d0','d1','d2','d3','d4','d5','fechou','perdido'];
 const COMERCIAL_COLUNAS = [...COMERCIAL_SIMPLES, 'nutricao_30','nutricao_180','nutricao_365'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
