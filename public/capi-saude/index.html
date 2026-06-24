@@ -68,6 +68,8 @@
   <div class="tabela-wrap"><table id="tab-semana"></table></div>
   <h2>Qualidade do match</h2>
   <div class="cob" id="cobertura"></div>
+  <h2>EMQ pela Meta <span style="text-transform:none;font-weight:400;color:var(--muted);font-size:11.5px">Event Match Quality 0–10 por dataset · quanto maior, melhor o match</span></h2>
+  <div class="gat" id="emq"><div class="item">carregando…</div></div>
   <h2>Gatilhos</h2>
   <div class="gat" id="gatilhos"></div>
   <h2>Erros recentes <span style="text-transform:none;font-weight:400;color:var(--muted);font-size:11.5px">últimos 7 dias</span></h2>
@@ -141,6 +143,23 @@ async function carregar() {
   }).join('');
 }
 
+async function carregarEmq() {
+  const el = document.getElementById('emq');
+  const cor = s => s == null ? 'var(--muted)' : (s >= 6 ? 'var(--green)' : (s >= 4 ? 'var(--yellow)' : 'var(--red)'));
+  try {
+    const d = await api('/api/admin/capi-saude/emq');
+    if (d.sem_token) { el.innerHTML = '<div class="item">Token Meta não configurado.</div>'; return; }
+    el.innerHTML = (d.datasets || []).map(ds => {
+      if (ds.erro) return `<div class="item"><span><b>${esc(ds.label)}</b> — indisponível <span style="color:var(--muted);font-size:11px">(${esc(ds.erro)})</span></span></div>`;
+      if (!ds.eventos || !ds.eventos.length) return `<div class="item"><span><b>${esc(ds.label)}</b> — sem EMQ ainda</span></div>`;
+      const evs = ds.eventos.map(e => `${esc(e.evento)} <b style="color:${cor(e.score)}">${esc(e.score)}</b>`).join(' · ');
+      const ch = (ds.eventos[0] && ds.eventos[0].chaves || []);
+      const keys = ch.length ? (' · ' + ch.map(k => esc(k.id) + ' ' + esc(k.pct) + '%').join(', ')) : '';
+      return `<div class="item"><span><b>${esc(ds.label)}</b> — ${evs}<span style="color:var(--muted);font-size:11px">${keys}</span></span></div>`;
+    }).join('') || '<div class="item">Sem datasets.</div>';
+  } catch (e) { el.innerHTML = '<div class="item">Erro: ' + esc(e.message) + '</div>'; }
+}
+
 async function carregarConjuntos() {
   const tab = document.getElementById('tab-conjuntos');
   const vazio = m => tab.innerHTML = '<tr><td style="padding:10px;color:var(--muted)">' + m + '</td></tr>';
@@ -171,12 +190,13 @@ async function carregarConjuntos() {
 const btn = document.getElementById('recheck');
 btn.onclick = async () => {
   btn.disabled = true; const txt = btn.textContent; btn.textContent = 'Checando…';
-  try { await api('/api/admin/capi-saude/recheck', { method:'POST' }); await new Promise(r => setTimeout(r, 1800)); await carregar(); await carregarConjuntos(); }
+  try { await api('/api/admin/capi-saude/recheck', { method:'POST' }); await new Promise(r => setTimeout(r, 1800)); await carregar(); await carregarConjuntos(); await carregarEmq(); }
   catch (e) { document.getElementById('sub').innerHTML = '<span class="erro">Erro: ' + esc(e.message) + '</span>'; }
   finally { btn.disabled = false; btn.textContent = txt; }
 };
 carregar().catch(e => { document.getElementById('sub').innerHTML = '<span class="erro">Erro: ' + esc(e.message) + '</span>'; });
 carregarConjuntos();
+carregarEmq();
 </script>
 </body>
 </html>

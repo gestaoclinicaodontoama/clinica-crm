@@ -4261,6 +4261,41 @@ app.get('/api/admin/capi-saude/conjuntos', requireAuth, requireGestor, async (re
   }
 });
 
+// EMQ (Event Match Quality) por dataset — qualidade do match que a Meta calcula (0–10).
+// Endpoint Graph: /dataset_quality?dataset_id=<id>&fields=web{event_match_quality,event_name}.
+const CAPI_DATASETS_EMQ = {
+  '904146029308947': 'Dr. Marcos Vinicius (pág 106)',
+  '981176104681444': 'Clínica AMA (pág 1204)',
+};
+app.get('/api/admin/capi-saude/emq', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const TOKEN = process.env.META_ACCESS_TOKEN;
+    if (!TOKEN) return res.json({ sem_token: true, datasets: [] });
+    const fields = encodeURIComponent('web{event_match_quality,event_name}');
+    const datasets = [];
+    for (const [id, label] of Object.entries(CAPI_DATASETS_EMQ)) {
+      const url = 'https://graph.facebook.com/' + META_API_VERSION + '/dataset_quality?dataset_id=' + id + '&fields=' + fields;
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const r = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN }, signal: ctrl.signal });
+        const json = await r.json();
+        if (json.error) { datasets.push({ id, label, erro: json.error.message || 'Erro Meta' }); continue; }
+        const eventos = (json.web || []).map(w => ({
+          evento: w.event_name,
+          score: w.event_match_quality ? w.event_match_quality.composite_score : null,
+          chaves: ((w.event_match_quality && w.event_match_quality.match_key_feedback) || [])
+            .map(k => ({ id: k.identifier, pct: k.coverage ? k.coverage.percentage : null })),
+        }));
+        datasets.push({ id, label, eventos });
+      } catch (e) {
+        datasets.push({ id, label, erro: e.name === 'AbortError' ? 'timeout' : e.message });
+      } finally { clearTimeout(to); }
+    }
+    res.json({ datasets, atualizadoEm: new Date().toISOString() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========
 // Lazy requires — lib/ criada no PR 3 (pode não existir no startup se PR 3 não deployado ainda)
 function geminiLib()   { return require('./lib/gemini'); }
