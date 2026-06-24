@@ -801,11 +801,13 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
   const d365 = new Date(now - 365 * 864e5).toISOString();
   const sel = countOnly ? '*' : CARD_FIELDS;
   const opts = countOnly ? { count: 'exact', head: true } : { count: 'exact' };
-  let qb = supabase.from('leads').select(sel, opts);
+  // Board de leads é só carteira Comercial; Dra. Izabela fica fora do funil.
+  let qb = supabase.from('leads').select(sel, opts).neq('carteira', 'Dra. Izabela');
   switch (coluna) {
     // 'lead' = Novo ativo (não frio); colunas nutrir_* = pool de reativação (frio) por idade
     case 'lead':
       qb = qb.eq('status', 'Novo').is('estado_frio', null).gte('criado_em', d30); break;
+    case 'em_qualificacao':   qb = qb.eq('status', 'Em qualificação'); break;
     case 'nutrir_30':
       qb = qb.eq('status', 'Novo').not('estado_frio', 'is', null).lt('criado_em', d30).gte('criado_em', d180); break;
     case 'nutrir_180':
@@ -826,7 +828,7 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
   return qb;
 }
 
-const LEADS_COLUNAS = ['lead','agendado','faltou','nao_tem_interesse','nutrir_30','nutrir_180','nutrir_365'];
+const LEADS_COLUNAS = ['lead','em_qualificacao','agendado','faltou','nao_tem_interesse','nutrir_30','nutrir_180','nutrir_365'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
 app.get('/api/kanban/leads/counts', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
@@ -889,12 +891,6 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
     case 'compareceu':
       qb = qb.eq('status', 'Compareceu').gte('data_comparecimento', d30); break;
     case 'orcado': qb = qb.eq('status', 'Em negociação'); break;
-    case 'd0': qb = qb.eq('status', 'D0'); break;
-    case 'd1': qb = qb.eq('status', 'D1'); break;
-    case 'd2': qb = qb.eq('status', 'D2'); break;
-    case 'd3': qb = qb.eq('status', 'D3'); break;
-    case 'd4': qb = qb.eq('status', 'D4'); break;
-    case 'd5': qb = qb.eq('status', 'D5'); break;
     case 'fechou':
       qb = qb.eq('status', 'Fechou').gte('data_fechamento', d30); break;
     case 'perdido': qb = qb.eq('status', 'Perdido'); break;
@@ -908,7 +904,7 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
   return qb;
 }
 
-const COMERCIAL_SIMPLES = ['compareceu','orcado','d0','d1','d2','d3','d4','d5','fechou','perdido'];
+const COMERCIAL_SIMPLES = ['compareceu','orcado','fechou','perdido'];
 const COMERCIAL_COLUNAS = [...COMERCIAL_SIMPLES, 'nutricao_30','nutricao_180','nutricao_365'];
 
 // IMPORTANTE: /counts deve vir ANTES de /:coluna
