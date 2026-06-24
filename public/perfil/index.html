@@ -20,11 +20,28 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .tel{color:var(--muted);font-family:'DM Mono',monospace;font-size:13px}
 .badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:5px;background:var(--bg3);color:var(--text)}
 .raiox{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
-.rx{min-width:90px}
+.rx{min-width:84px}
 .rx .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .rx .v{font-size:15px;font-weight:700;font-family:'DM Mono',monospace;margin-top:2px}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:6px 0 12px}
-.tl{border-left:2px solid var(--border);margin-left:8px;padding-left:0}
+.linkrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.linkrow a{font-size:12.5px;padding:7px 12px;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600}
+.linkrow a.sec{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+/* abas */
+.tabs{display:flex;gap:5px;margin:4px 0 14px;flex-wrap:wrap}
+.tab{padding:8px 14px;border:1px solid var(--border);border-radius:9px;background:var(--bg2);color:var(--muted);cursor:pointer;font-size:13px;font-weight:600}
+.tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.panel{display:none}
+.panel.active{display:block}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 12px}
+/* listas limpas (sem bolinha cobrindo o texto) */
+.li{padding:9px 0;border-bottom:1px solid var(--border)}
+.li:last-child{border-bottom:0}
+.li .meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:1px}
+.li .main{font-size:13.5px;font-weight:500}
+.li .sub{font-size:12px;color:var(--muted)}
+.empty{color:var(--muted);font-size:13px;text-align:center;padding:18px}
+/* timeline (linha do tempo de eventos) */
+.tl{border-left:2px solid var(--border);margin-left:8px}
 .ev{position:relative;padding:0 0 16px 26px}
 .ev::before{content:'';position:absolute;left:-8px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--bg2);border:2px solid var(--accent)}
 .ev .ico{position:absolute;left:-7px;top:1px;font-size:12px;line-height:1}
@@ -32,10 +49,8 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted
 .ev .t{font-size:13.5px;font-weight:600;margin-top:1px}
 .ev .desc{font-size:12.5px;color:var(--muted);margin-top:1px;line-height:1.4}
 .mais{display:block;margin:4px auto 0;padding:7px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--muted);cursor:pointer;font-size:12px}
-.empty{color:var(--muted);font-size:13px;text-align:center;padding:20px}
-.linkrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.linkrow a{font-size:12.5px;padding:7px 12px;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600}
-.linkrow a.sec{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.finrow{display:flex;gap:18px;flex-wrap:wrap}
+.banner{border-radius:8px;padding:10px 13px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
 </style>
 </head>
 <body>
@@ -47,18 +62,16 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted
 
 <script>
 (function(){ try{ const t=localStorage.getItem('crm-theme')||'dark'; document.documentElement.setAttribute('data-theme',t);}catch(_){document.documentElement.setAttribute('data-theme','dark');} })();
-
 let _token=null;
 for(const k of Object.keys(localStorage)){ if(k.startsWith('sb-')&&k.endsWith('-auth-token')){ try{_token=JSON.parse(localStorage.getItem(k))?.access_token;}catch(_){}}}
 if(!_token){ window.location.href='/'; throw new Error('no token'); }
-
 async function api(path){ const r=await fetch(path,{headers:{Authorization:'Bearer '+_token}}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function fmtBRL(v){return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0});}
 function fmtData(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});}
 function fmtDia(iso){ if(!iso) return '—'; return new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});}
+function fmtCheckin(ms){ const n=Number(ms); if(!n) return ''; return new Date(n).toLocaleDateString('pt-BR'); }
 
-// tipo de evento -> ícone + rótulo legível
 const EV={
   lead_criado:['🟦','Lead criado'], historico_lead_criado:['🟦','Lead criado'],
   mensagem_recebida:['💬','Mensagem recebida'], mensagem_enviada:['📤','Mensagem enviada'],
@@ -73,6 +86,11 @@ const EV={
 const id=new URLSearchParams(location.search).get('id');
 let _offset=0; const _limit=50; let _total=0;
 
+function trocarAba(nome){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.aba===nome));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.dataset.aba===nome));
+}
+
 async function init(){
   if(!id){ document.getElementById('wrap').innerHTML='<div class="empty">Lead não informado.</div>'; return; }
   let lead;
@@ -84,8 +102,7 @@ async function init(){
 
 function renderHead(l){
   const inicial=(l.nome||'?').trim().charAt(0).toUpperCase();
-  const wrap=document.getElementById('wrap');
-  wrap.innerHTML=`
+  document.getElementById('wrap').innerHTML=`
     <div class="card">
       <div class="idhead">
         <div class="avatar">${esc(inicial)}</div>
@@ -108,77 +125,81 @@ function renderHead(l){
         ${l.telefone?`<a class="sec" href="https://wa.me/55${(l.telefone||'').replace(/\\D/g,'')}" target="_blank">WhatsApp</a>`:''}
       </div>
     </div>
-    <div id="clinicorp"><div class="card"><div class="empty">Carregando dados clínicos…</div></div></div>
-    <div class="card">
-      <h2>🕒 Linha do tempo</h2>
-      <div class="tl" id="tl"></div>
-      <div id="tl-empty"></div>
-      <button class="mais" id="btn-mais" style="display:none" onclick="carregarTrajeto(false)">Carregar mais</button>
-    </div>`;
+
+    <div class="tabs">
+      <div class="tab active" data-aba="tl"   onclick="trocarAba('tl')">🕒 Linha do tempo</div>
+      <div class="tab"        data-aba="fin"  onclick="trocarAba('fin')" id="tab-fin">💰 Financeiro</div>
+      <div class="tab"        data-aba="proc" onclick="trocarAba('proc')" id="tab-proc">🦷 Procedimentos</div>
+      <div class="tab"        data-aba="ag"   onclick="trocarAba('ag')" id="tab-ag">📅 Agendamentos</div>
+    </div>
+
+    <div class="panel active" data-aba="tl">
+      <div class="card"><div class="tl" id="tl"></div><div id="tl-empty"></div>
+        <button class="mais" id="btn-mais" style="display:none" onclick="carregarTrajeto(false)">Carregar mais</button></div>
+    </div>
+    <div class="panel" data-aba="fin"><div class="card" id="panel-fin"><div class="empty">Carregando…</div></div></div>
+    <div class="panel" data-aba="proc"><div class="card" id="panel-proc"><div class="empty">Carregando…</div></div></div>
+    <div class="panel" data-aba="ag"><div class="card" id="panel-ag"><div class="empty">Carregando…</div></div></div>`;
 }
 
-function fmtCheckin(ms){ const n=Number(ms); if(!n) return ''; return new Date(n).toLocaleDateString('pt-BR'); }
+async function carregarTrajeto(reset){
+  if(reset){ _offset=0; document.getElementById('tl').innerHTML=''; }
+  let r; try{ r=await api('/api/leads/'+id+'/trajeto?offset='+_offset+'&limit='+_limit); }catch(e){ return; }
+  _total=r.total||0;
+  const evs=r.eventos||[];
+  if(reset && !evs.length){ document.getElementById('tl-empty').innerHTML='<div class="empty">Sem histórico registrado ainda.</div>'; return; }
+  document.getElementById('tl').insertAdjacentHTML('beforeend', evs.map(e=>{
+    const [ico,rot]=EV[e.tipo]||['•',e.tipo||'Evento'];
+    return `<div class="ev"><span class="ico">${ico}</span><div class="d">${fmtData(e.criado_em)}</div>
+      <div class="t">${esc(rot)}</div>${e.descricao?`<div class="desc">${esc(e.descricao)}</div>`:''}</div>`;
+  }).join(''));
+  _offset+=evs.length;
+  document.getElementById('btn-mais').style.display=(_offset<_total)?'block':'none';
+}
+
 async function carregarClinicorp(){
-  const box=document.getElementById('clinicorp');
-  let d;
-  try{ d=await api('/api/leads/'+id+'/clinicorp'); }catch(e){ box.innerHTML=''; return; }
-  if(!d || !d.vinculado){ box.innerHTML='<div class="card"><h2>🦷 Clínico & Financeiro (Clinicorp)</h2><div class="empty">Sem paciente vinculado no Clinicorp (busca por telefone).</div></div>'; return; }
-  const p=d.paciente||{}, f=d.financeiro||{}, procs=d.procedimentos||[], ags=d.agendamentos||[];
-  const inad=d.inadimplencia||{};
-  const ultVisita = ags.find(a=>a.checkin)?.checkin;
-  const inadBanner = inad.inadimplente
-    ? `<div style="background:rgba(239,68,68,.12);border:1px solid var(--red);border-radius:8px;padding:10px 13px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:18px">⚠️</span>
-        <span style="font-weight:700;color:var(--red)">Inadimplente</span>
-        <span style="font-weight:700;font-family:'DM Mono',monospace;color:var(--red)">${fmtBRL(inad.valor_vencido)} vencido</span>
-        <span style="color:var(--muted);font-size:12.5px">${inad.dias_atraso?inad.dias_atraso+' dias de atraso':''}${inad.parcelas_vencidas?' · '+inad.parcelas_vencidas+' parcela(s)':''}</span>
-      </div>`
-    : `<div style="background:rgba(34,197,94,.10);border:1px solid var(--green);border-radius:8px;padding:8px 13px;margin-bottom:12px;font-size:12.5px;color:var(--green);font-weight:600">✓ Em dia (sem pendências)</div>`;
-  const fin=`<div class="raiox" style="border:0;margin:0;padding:0">
+  let d; try{ d=await api('/api/leads/'+id+'/clinicorp'); }catch(e){ d=null; }
+  const semVinc='<div class="empty">Sem paciente vinculado no Clinicorp (busca por telefone).</div>';
+  if(!d || !d.vinculado){
+    document.getElementById('panel-fin').innerHTML='<h2>💰 Financeiro</h2>'+semVinc;
+    document.getElementById('panel-proc').innerHTML='<h2>🦷 Procedimentos</h2>'+semVinc;
+    document.getElementById('panel-ag').innerHTML='<h2>📅 Agendamentos</h2>'+semVinc;
+    return;
+  }
+  const p=d.paciente||{}, f=d.financeiro||{}, inad=d.inadimplencia||{}, procs=d.procedimentos||[], ags=d.agendamentos||[];
+  const ultVisita=ags.find(a=>a.checkin)?.checkin;
+  // contadores nas abas
+  document.getElementById('tab-proc').textContent='🦷 Procedimentos ('+procs.length+')';
+  document.getElementById('tab-ag').textContent='📅 Agendamentos ('+ags.length+')';
+
+  // Financeiro
+  const banner = inad.inadimplente
+    ? `<div class="banner" style="background:rgba(239,68,68,.12);border:1px solid var(--red)"><span style="font-size:18px">⚠️</span>
+        <b style="color:var(--red)">Inadimplente</b><b style="font-family:'DM Mono',monospace;color:var(--red)">${fmtBRL(inad.valor_vencido)} vencido</b>
+        <span style="color:var(--muted);font-size:12.5px">${inad.dias_atraso?inad.dias_atraso+' dias':''}${inad.parcelas_vencidas?' · '+inad.parcelas_vencidas+' parcela(s)':''}</span></div>`
+    : `<div class="banner" style="background:rgba(34,197,94,.10);border:1px solid var(--green);color:var(--green);font-weight:600">✓ Em dia (sem pendências)</div>`;
+  document.getElementById('panel-fin').innerHTML=`<h2>💰 Financeiro <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· ${esc(p.nome||'')}${p.plano?' · '+esc(p.plano):''}${p.prontuario?' · prontuário '+p.prontuario:''}</span></h2>
+    ${banner}
+    <div class="finrow">
       <div class="rx"><div class="l">Total pago</div><div class="v" style="color:var(--green)">${fmtBRL(f.pago)}</div></div>
       <div class="rx"><div class="l">Lançamentos</div><div class="v">${f.lancamentos||0}</div></div>
       <div class="rx"><div class="l">Último pgto</div><div class="v" style="font-size:13px">${f.ultimo_pgto?fmtDia(f.ultimo_pgto):'—'}</div></div>
       <div class="rx"><div class="l">Última visita</div><div class="v" style="font-size:13px">${ultVisita?fmtCheckin(ultVisita):'—'}</div></div>
     </div>`;
-  const procHtml = procs.length ? procs.slice(0,40).map(x=>`<div class="ev" style="padding-left:0;border:0">
-      <div class="d">${x.data?fmtDia(x.data):'—'} · ${esc(x.dentista||'')}</div>
-      <div class="t" style="font-weight:500">${esc(x.nome||'Procedimento')}${x.valor?` <span style="color:var(--muted);font-weight:400">· R$ ${Math.round(x.valor)}</span>`:''}</div>
-    </div>`).join('') : '<div class="empty">Nenhum procedimento realizado.</div>';
-  const agHtml = ags.length ? ags.slice(0,30).map(a=>`<div class="ev" style="padding-left:0;border:0">
-      <div class="t" style="font-weight:500">${a.data?fmtDia(a.data):'—'}${a.checkin?' · ✅ compareceu':''}${a.categoria?` · ${esc(a.categoria)}`:''}${a.dentista?` · ${esc(a.dentista)}`:''}</div>
-    </div>`).join('') : '<div class="empty">Nenhum agendamento.</div>';
-  box.innerHTML=`
-    <div class="card">
-      <h2>💰 Financeiro & Paciente <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· ${esc(p.nome||'')}${p.plano?' · '+esc(p.plano):''}${p.prontuario?' · prontuário '+p.prontuario:''}</span></h2>
-      ${inadBanner}${fin}
-    </div>
-    <div class="card">
-      <h2>🦷 Procedimentos realizados <span style="font-weight:400;color:var(--muted)">(${procs.length})</span></h2>
-      <div style="display:flex;flex-direction:column;gap:9px">${procHtml}</div>
-    </div>
-    <div class="card">
-      <h2>📅 Agendamentos clínicos <span style="font-weight:400;color:var(--muted)">(${ags.length})</span></h2>
-      <div style="display:flex;flex-direction:column;gap:7px">${agHtml}</div>
-    </div>`;
-}
 
-async function carregarTrajeto(reset){
-  if(reset){ _offset=0; document.getElementById('tl').innerHTML=''; }
-  let r;
-  try{ r=await api('/api/leads/'+id+'/trajeto?offset='+_offset+'&limit='+_limit); }catch(e){ return; }
-  _total=r.total||0;
-  const evs=r.eventos||[];
-  if(reset && !evs.length){ document.getElementById('tl-empty').innerHTML='<div class="empty">Sem histórico registrado ainda.</div>'; return; }
-  const html=evs.map(e=>{
-    const [ico,rot]=EV[e.tipo]||['•',e.tipo||'Evento'];
-    return `<div class="ev"><span class="ico">${ico}</span>
-      <div class="d">${fmtData(e.criado_em)}</div>
-      <div class="t">${esc(rot)}</div>
-      ${e.descricao?`<div class="desc">${esc(e.descricao)}</div>`:''}</div>`;
-  }).join('');
-  document.getElementById('tl').insertAdjacentHTML('beforeend',html);
-  _offset+=evs.length;
-  document.getElementById('btn-mais').style.display=(_offset<_total)?'block':'none';
+  // Procedimentos
+  document.getElementById('panel-proc').innerHTML=`<h2>🦷 Procedimentos realizados (${procs.length})</h2>`+
+    (procs.length ? procs.map(x=>`<div class="li">
+        <div class="meta">${x.data?fmtDia(x.data):'—'}${x.dentista?' · '+esc(x.dentista):''}</div>
+        <div class="main">${esc(x.nome||'Procedimento')}${x.valor?` <span class="sub">· R$ ${Math.round(x.valor)}</span>`:''}</div>
+      </div>`).join('') : '<div class="empty">Nenhum procedimento realizado.</div>');
+
+  // Agendamentos
+  document.getElementById('panel-ag').innerHTML=`<h2>📅 Agendamentos clínicos (${ags.length})</h2>`+
+    (ags.length ? ags.map(a=>`<div class="li">
+        <div class="main">${a.data?fmtDia(a.data):'—'}${a.checkin?' · <span style="color:var(--green)">✅ compareceu</span>':''}</div>
+        <div class="sub">${a.dentista?esc(a.dentista):'—'}${a.categoria?' · '+esc(a.categoria):''}</div>
+      </div>`).join('') : '<div class="empty">Nenhum agendamento.</div>');
 }
 
 init();
