@@ -3341,11 +3341,44 @@ async function fetchInadimplentesBackground() {
       endpoint: '/payment/list?postDate (24mo chunks)',
     });
     console.log(`[Inadimplentes] ✅ Background: ${processado.totais.pacientes} inadimplentes de ${allItems.length} registros`);
+    // Resumo financeiro POR PACIENTE (pago/vencido/futuro) — reusa os mesmos itens do /payment/list.
+    try { await atualizarPacientesFinanceiro(allItems, today); }
+    catch(e){ console.error('[pacientes_financeiro] erro:', e.message); }
   } catch(e) {
     console.error('[Inadimplentes] Background refresh erro:', e.message);
   } finally {
     _inadimplentesRefreshing = false;
   }
+}
+
+// Agrega o /payment/list por paciente: total pago (recebido), vencido, futuro e último pgto.
+// Corrige o financeiro do Perfil 360º (o list_summary não atribui boletos ao paciente).
+async function atualizarPacientesFinanceiro(items, today) {
+  const m = {};
+  for (const i of (items || [])) {
+    const id = String(i.PatientId || i.patientId || i.Patient_PersonId || '').trim();
+    if (!id) continue;
+    const recebido = i.PaymentReceived === 'X' || (i.ReceivedDate && i.ReceivedDate !== '' && i.ReceivedDate !== '0001-01-01');
+    const due = i.DueDate || i.due_date || i.PostDate || i.ScheduledDate || '';
+    const valor = Number(i.AmountWithDiscounts || i.Amount || i.TotalPostAmount || 0) || 0;
+    if (!m[id]) m[id] = { clinicorp_id: id, total_pago: 0, total_vencido: 0, total_futuro: 0, ultimo_pgto: null };
+    const p = m[id];
+    if (recebido) {
+      p.total_pago += valor;
+      const rd = (i.ReceivedDate && i.ReceivedDate !== '0001-01-01') ? i.ReceivedDate.slice(0,10) : null;
+      if (rd && (!p.ultimo_pgto || rd > p.ultimo_pgto)) p.ultimo_pgto = rd;
+    } else if (due && due < today) p.total_vencido += valor;
+    else if (due && due >= today) p.total_futuro += valor;
+  }
+  const rows = Object.values(m).map(r => ({ ...r,
+    total_pago: Math.round(r.total_pago*100)/100, total_vencido: Math.round(r.total_vencido*100)/100,
+    total_futuro: Math.round(r.total_futuro*100)/100, atualizado_em: new Date().toISOString() }));
+  if (!rows.length) return;
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase.from('pacientes_financeiro').upsert(rows.slice(i, i+500), { onConflict: 'clinicorp_id' });
+    if (error) throw new Error(error.message);
+  }
+  console.log(`[pacientes_financeiro] ${rows.length} pacientes atualizados`);
 }
 
 // ========== AGENDAMENTO CLINICORP ==========
@@ -4221,6 +4254,9 @@ async function runGuardedSync(trigger) {
       await syncFinanceiro(from, to);
       console.log('[financeiro-sync] mês corrente sincronizado');
     } catch (e) { console.error('[financeiro-sync] erro:', e.message); }
+    // Financeiro por paciente + inadimplentes (/payment/list) — diário, não só sob demanda.
+    try { await fetchInadimplentesBackground(); }
+    catch (e) { console.error('[inadimplentes-diario] erro:', e.message); }
   }
 
   setTimeout(() => verificarEExecutar().catch(() => {}), 30_000);       // logo após o boot

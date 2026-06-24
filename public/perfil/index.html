@@ -182,7 +182,7 @@ async function carregarClinicorp(){
     ${banner}
     <div class="finrow">
       <div class="rx"><div class="l">Total pago</div><div class="v" style="color:var(--green)">${fmtBRL(f.pago)}</div></div>
-      <div class="rx"><div class="l">Lançamentos</div><div class="v">${f.lancamentos||0}</div></div>
+      <div class="rx"><div class="l">A vencer</div><div class="v" style="font-size:13px">${f.futuro?fmtBRL(f.futuro):'—'}</div></div>
       <div class="rx"><div class="l">Último pgto</div><div class="v" style="font-size:13px">${f.ultimo_pgto?fmtDia(f.ultimo_pgto):'—'}</div></div>
       <div class="rx"><div class="l">Última visita</div><div class="v" style="font-size:13px">${ultVisita?fmtCheckin(ultVisita):'—'}</div></div>
     </div>`;
