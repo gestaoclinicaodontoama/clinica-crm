@@ -4516,8 +4516,7 @@ app.post('/api/admin/capi-saude/backfill-funil', requireAuth, requireAdmin, asyn
     const { data: leads, error } = await supabase.from('leads')
       .select('id, nome, telefone, email, status, valor, ctwa_clid, referral_data, wa_number_id, eventos_meta_enviados, data_agendamento, data_comparecimento, data_fechamento, importado_historico')
       .not('ctwa_clid', 'is', null)
-      .or('data_agendamento.not.is.null,data_comparecimento.not.is.null,data_fechamento.not.is.null,status.in.(Avaliação agendada,Compareceu,Fechou,Em qualificação,Em negociação)')
-      .limit(1000);
+      .limit(2000); // seleção fina é no .filter() abaixo (o .or() do PostgREST quebra com status acentuado/vírgula)
     if (error) throw error;
     const alvos = (leads || []).filter(l => {
       if (l.importado_historico) return false;
