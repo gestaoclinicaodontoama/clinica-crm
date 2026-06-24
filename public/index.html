@@ -695,6 +695,9 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
         <option value="">Todas as CRCs</option>
       </select>
+      <select id="filtro-campanha" class="filter-select" style="font-size:12px;height:32px" onchange="loadConversas()">
+        <option value="">Todas as campanhas</option>
+      </select>
       <div class="chat-view-toggle">
         <button class="ativo" id="btn-view-lista" onclick="setChatView('lista')">💬 Lista</button>
         <button id="btn-view-kanban" onclick="setChatView('kanban')">📋 Kanban</button>
@@ -2505,10 +2508,30 @@ function setChatView(mode) {
   filtrarChats();
 }
 
+let _campanhasCarregadas = false;
+async function carregarFiltroCampanhas() {
+  if (_campanhasCarregadas) return;
+  try {
+    const camps = await api('/api/disparos');
+    const sel = document.getElementById('filtro-campanha');
+    for (const c of (camps || [])) {
+      const dt = c.criado_em ? new Date(c.criado_em).toLocaleDateString('pt-BR') : '';
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.nome + (dt ? ' (' + dt + ')' : '');
+      sel.appendChild(opt);
+    }
+    _campanhasCarregadas = true;
+  } catch (e) { console.error('filtro campanhas:', e); }
+}
+
 async function loadConversas(silencioso = false) {
   try {
+    carregarFiltroCampanhas();
     const modeParam = _chatMode === 'oficial' ? '?mode=oficial' : _chatMode === 'agendamentos' ? '?mode=lead' : '';
-    const convs = await api('/api/conversas' + modeParam);
+    const campId = (document.getElementById('filtro-campanha') || {}).value || '';
+    const sep = modeParam ? '&' : '?';
+    const convs = await api('/api/conversas' + modeParam + (campId ? sep + 'campanha_id=' + encodeURIComponent(campId) : ''));
     chatLeads = convs;
     if (!silencioso) {
       const titulo = document.getElementById('conv-titulo');
