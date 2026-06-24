@@ -139,6 +139,8 @@ const { parseCsv } = require('./lib/disparos/parser');
 const { ultimos8 } = require('./lib/disparos/matching');
 const disparoRunner = require('./lib/disparos/runner');
 const { coletarLeadIds } = require('./lib/disparos/leads-da-campanha');
+const { normalizarRegra } = require('./lib/publicos/regra');
+const { montarCsv } = require('./lib/publicos/csv');
 
 // --------- APP ---------
 const app = express();
@@ -348,6 +350,7 @@ const requireDashboardAvaliacao = requireRole('gestor', 'admin', 'crc_comercial'
 // Conversas WhatsApp: mesmas roles do item de menu + 'crc' legado
 const requireConversas = requireRole('admin', 'gestor', 'crc', 'crc_leads', 'crc_comercial', 'crc_sucesso');
 const requireDisparos = requireRole('admin', 'gestor', 'crc_comercial');
+const requirePublicos = requireRole('admin', 'gestor', 'crc_comercial', 'mod_publicos');
 const requireFinanceiro = requireRole('financeiro', 'admin', 'mod_financeiro');
 const requireProducao  = requireRole('financeiro', 'admin', 'mod_financeiro', 'mod_producao');
 
@@ -1421,6 +1424,154 @@ app.post('/api/disparos/:id/retomar', requireAuth, requireDisparos, async (req, 
     disparoRunner.iniciarRunner(id, { supabase, whatsapp, logEvento });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===================== PÚBLICOS (construtor de listas) =====================
+
+// Preview: contagem + amostra. Sem rateLimit apertado (chamado com debounce).
+app.post('/api/publicos/preview', requireAuth, requirePublicos, async (req, res) => {
+  try {
+    const regra = normalizarRegra(req.body && req.body.regra);
+    const { data: totalData, error: e1 } = await supabase.rpc('publico_contar', { regra });
+    if (e1) throw e1;
+    const { data: amostra, error: e2 } = await supabase.rpc('publico_buscar', { regra, _limit: 20, _offset: 0 });
+    if (e2) throw e2;
+    res.json({ total: Number(totalData) || 0, amostra: amostra || [] });
+  } catch (e) {
+    console.error('❌ publicos/preview:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// CRUD de públicos salvos.
+app.get('/api/publicos', requireAuth, requirePublicos, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('publicos')
+      .select('id,nome,regra,criado_em,atualizado_em').order('atualizado_em', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/publicos', requireAuth, requirePublicos, async (req, res) => {
+  try {
+    const nome = sanitizeStr(req.body.nome, 120);
+    if (!nome) return res.status(400).json({ error: 'Nome obrigatório' });
+    const regra = normalizarRegra(req.body && req.body.regra);
+    const { data, error } = await supabase.from('publicos')
+      .insert({ nome, regra, criado_por: req.user.id }).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/publicos/:id', requireAuth, requirePublicos, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const nome = sanitizeStr(req.body.nome, 120);
+    if (!nome) return res.status(400).json({ error: 'Nome obrigatório' });
+    const regra = normalizarRegra(req.body && req.body.regra);
+    const { error } = await supabase.from('publicos')
+      .update({ nome, regra, atualizado_em: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/publicos/:id', requireAuth, requirePublicos, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { error } = await supabase.from('publicos').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Exportar CSV (paginando no banco para não cair no corte de 1000).
+app.post('/api/publicos/exportar', requireAuth, requirePublicos, async (req, res) => {
+  try {
+    const regra = normalizarRegra(req.body && req.body.regra);
+    const PAGINA = 1000;
+    const rows = [];
+    for (let offset = 0; ; offset += PAGINA) {
+      const { data, error } = await supabase.rpc('publico_buscar', { regra, _limit: PAGINA, _offset: offset });
+      if (error) throw error;
+      const pagina = data || [];
+      rows.push(...pagina);
+      if (pagina.length < PAGINA) break;
+    }
+    const csv = montarCsv(rows);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="publico.csv"');
+    res.send(csv);
+  } catch (e) {
+    console.error('❌ publicos/exportar:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Disparar: cria a campanha (já com lead_id resolvido) e inicia o runner.
+app.post('/api/publicos/disparar', requireAuth, requirePublicos, async (req, res) => {
+  try {
+    const nome = sanitizeStr(req.body.nome_campanha, 120);
+    const template_nome = sanitizeStr(req.body.template_nome, 100);
+    if (!nome) return res.status(400).json({ error: 'Nome da campanha obrigatório' });
+    if (!template_nome) return res.status(400).json({ error: 'Template obrigatório' });
+    if (!(await templateAprovado(template_nome))) return res.status(400).json({ error: 'Template não aprovado pela Meta' });
+
+    // Número: ausente = default (2873); presente precisa ter token.
+    const sendable = await whatsapp.getPhoneNumbers();
+    let wa_number_id = sanitizeStr(req.body.wa_number_id || '', 50);
+    if (!wa_number_id) wa_number_id = whatsapp.defaultPhoneId() || '';
+    else if (!sendable[wa_number_id]) return res.status(400).json({ error: 'Número sem credencial de envio configurada' });
+
+    // Uma campanha enviando por vez (mesma guarda do /api/disparos/:id/iniciar).
+    const { data: ativa } = await supabase.from('disparos_campanhas').select('id').eq('status', 'enviando').limit(1);
+    if (ativa && ativa.length) return res.status(409).json({ error: 'Já existe uma campanha enviando. Aguarde ou pause antes.' });
+
+    // Resolve TODOS os leads do público (paginado no banco).
+    const regra = normalizarRegra(req.body && req.body.regra);
+    const PAGINA = 1000;
+    const leads = [];
+    for (let offset = 0; ; offset += PAGINA) {
+      const { data, error } = await supabase.rpc('publico_buscar', { regra, _limit: PAGINA, _offset: offset });
+      if (error) throw error;
+      const pagina = data || [];
+      leads.push(...pagina);
+      if (pagina.length < PAGINA) break;
+    }
+    if (!leads.length) return res.status(400).json({ error: 'Público sem contatos' });
+
+    // Cria a campanha (rascunho) com o número escolhido.
+    const { data: camp, error: cErr } = await supabase.from('disparos_campanhas').insert({
+      nome, template_nome, lang: 'pt_BR', total: leads.length, wa_number_id,
+      status: 'rascunho', criado_por: req.user.id,
+    }).select().single();
+    if (cErr) throw cErr;
+
+    // Contatos já com lead_id (leads existentes — pula matching).
+    const contatos = leads.map(l => {
+      const primeiro = (l.nome || '').trim().split(/\s+/)[0] || 'tudo bem';
+      return { campanha_id: camp.id, lead_id: l.id, nome: l.nome, primeiro_nome: primeiro,
+        telefone: l.telefone, variaveis: [primeiro], status: 'pendente' };
+    });
+    for (let i = 0; i < contatos.length; i += 500) {
+      const { error: iErr } = await supabase.from('disparos_contatos').insert(contatos.slice(i, i + 500));
+      if (iErr) throw iErr;
+    }
+
+    // Marca enviando + inicia o runner (mesmo deps do /iniciar).
+    await supabase.from('disparos_campanhas')
+      .update({ status: 'enviando', iniciada_em: new Date().toISOString() }).eq('id', camp.id);
+    disparoRunner.iniciarRunner(camp.id, { supabase, whatsapp, logEvento });
+
+    res.json({ campanha_id: camp.id, total: leads.length });
+  } catch (e) {
+    console.error('❌ publicos/disparar:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/disparos/pendentes-aviso', requireAuth, requireDisparos, async (req, res) => {
