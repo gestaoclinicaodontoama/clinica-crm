@@ -7004,6 +7004,82 @@ app.post('/api/producao/imposto', requireAuth, requireProducao, async (req, res)
   }
 });
 
+// Custo real proporcional por dentista (pagamentos nas despesas × proporção horas execução)
+app.get('/api/producao/dentista/custo-real', requireAuth, requireProducao, async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios' });
+  try {
+    const { data: configs, error: eConf } = await supabase
+      .from('dentista_config')
+      .select('dentist_person_id, keyword_despesa, persona_avaliacao_id')
+      .not('keyword_despesa', 'is', null);
+    if (eConf) throw new Error(eConf.message);
+    if (!configs?.length) return res.json({ data: [] });
+
+    const results = await Promise.all(configs.map(async (c) => {
+      const allIds = [c.dentist_person_id];
+      if (c.persona_avaliacao_id) allIds.push(c.persona_avaliacao_id);
+
+      const [{ data: pagamentos, error: eP }, { data: horasRows, error: eH }] = await Promise.all([
+        supabase.from('fin_lancamentos')
+          .select('valor')
+          .eq('fluxo', 'sai')
+          .ilike('descricao', `%${c.keyword_despesa}%`)
+          .gte('data', from)
+          .lte('data', to)
+          .eq('ativo', true),
+        supabase.rpc('horas_agenda_por_personas', { p_ids: allIds, p_from: from, p_to: to }),
+      ]);
+      if (eP) throw new Error(eP.message);
+      if (eH) throw new Error(eH.message);
+
+      const pago = (pagamentos || []).reduce((s, r) => s + Number(r.valor), 0);
+
+      let horas_exec = 0, horas_aval = 0;
+      for (const r of (horasRows || [])) {
+        if (r.dentist_person_id === c.dentist_person_id) horas_exec = Number(r.horas);
+        else horas_aval += Number(r.horas);
+      }
+
+      const horas_total = horas_exec + horas_aval;
+      const custo_proporcional = horas_total > 0 ? pago * (horas_exec / horas_total) : pago;
+
+      return {
+        dentist_person_id:  c.dentist_person_id,
+        pago:               Math.round(pago * 100) / 100,
+        horas_exec:         Math.round(horas_exec * 100) / 100,
+        horas_aval:         Math.round(horas_aval * 100) / 100,
+        custo_proporcional: Math.round(custo_proporcional * 100) / 100,
+      };
+    }));
+
+    res.json({ data: results });
+  } catch (e) {
+    console.error('[producao/dentista/custo-real]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Salvar config de dentista (keyword despesas + ID persona avaliação)
+app.post('/api/producao/dentista/config', requireAuth, requireProducao, async (req, res) => {
+  const { dentist_person_id, dentist_name, keyword_despesa, persona_avaliacao_id } = req.body;
+  if (!dentist_person_id) return res.status(400).json({ error: 'dentist_person_id obrigatório' });
+  try {
+    const { error } = await supabase.from('dentista_config').upsert({
+      dentist_person_id,
+      dentist_name:         dentist_name || null,
+      keyword_despesa:      keyword_despesa || null,
+      persona_avaliacao_id: persona_avaliacao_id || null,
+      atualizado_em:        new Date().toISOString(),
+    }, { onConflict: 'dentist_person_id' });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[producao/dentista/config]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Salvar custo/hora por dentista por ano
 app.post('/api/producao/dentista/custo-hora', requireAuth, requireProducao, async (req, res) => {
   const { dentist_person_id, dentist_name, ano, custo_hora } = req.body;

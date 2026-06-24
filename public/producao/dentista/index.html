@@ -88,6 +88,10 @@ tr:hover td{background:var(--bg3)}
 .imposto-input:focus{border-color:var(--accent)}
 .liq-value{font-size:13px;color:var(--green);font-weight:600}
 .liq-label{font-size:10px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.4px}
+.ratio-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-top:10px;border:1px solid}
+.ratio-green{background:rgba(34,197,94,.12);color:var(--green);border-color:rgba(34,197,94,.3)}
+.ratio-yellow{background:rgba(245,158,11,.12);color:var(--yellow);border-color:rgba(245,158,11,.3)}
+.ratio-red{background:rgba(239,68,68,.12);color:var(--red);border-color:rgba(239,68,68,.3)}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
 </head>
@@ -145,6 +149,27 @@ tr:hover td{background:var(--bg3)}
 
 </div>
 
+<!-- Modal Config Dentista -->
+<div class="modal-overlay" id="modalConfig" style="display:none" onclick="if(event.target===this)fecharModal('modalConfig')">
+  <div class="modal">
+    <h2>Configurar Dentista</h2>
+    <input type="hidden" id="configDentId">
+    <label>Dentista</label>
+    <input type="text" id="configDentLabel" disabled>
+    <label>Palavra-chave nas despesas</label>
+    <input type="text" id="configKeyword" placeholder="Ex: Marcos Vinicius">
+    <p style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:12px">Busca em fin_lancamentos.descricao (ILIKE %keyword%)</p>
+    <label>ID persona Avaliação (opcional)</label>
+    <input type="text" id="configAvalId" placeholder="Ex: 5757301300985856">
+    <p style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:12px">Para calcular proporção execução/total</p>
+    <div class="modal-btns">
+      <button class="btn btn-ghost" onclick="fecharModal('modalConfig')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarConfig2()">Salvar</button>
+    </div>
+    <div class="modal-msg" id="configMsg"></div>
+  </div>
+</div>
+
 <!-- Modal Horas Manual -->
 <div class="modal-overlay" id="modalHoras" style="display:none" onclick="if(event.target===this)fecharModal('modalHoras')">
   <div class="modal">
@@ -190,8 +215,9 @@ let currentFrom = null;
 let currentTo   = null;
 let customOpen  = false;
 let evolChart   = null;
-let aliquota    = null;   // % de imposto global
-let custoHora   = null;   // custo/hora global da clínica
+let aliquota    = null;
+let custoHora   = null;
+let custoReal   = {};     // dentist_person_id → { pago, custo_proporcional, horas_exec, horas_aval }
 let lastResumo  = [];
 let lastEvolucao= [];
 
@@ -316,10 +342,14 @@ async function carregar() {
   lastEvolucao = [];
 
   const ano = new Date(currentFrom).getFullYear();
-  const [resumoRes] = await Promise.all([
-    fetch(`/api/producao/dentista/resumo?from=${currentFrom}&to=${currentTo}`, { headers: { Authorization: `Bearer ${token}` } }),
+  const h = { Authorization: `Bearer ${token}` };
+  const [resumoRes, , crRes] = await Promise.all([
+    fetch(`/api/producao/dentista/resumo?from=${currentFrom}&to=${currentTo}`, { headers: h }),
     carregarAliquota(ano),
+    fetch(`/api/producao/dentista/custo-real?from=${currentFrom}&to=${currentTo}`, { headers: h }).then(r => r.json()).catch(() => ({ data: [] })),
   ]);
+  custoReal = {};
+  for (const d of (crRes.data || [])) custoReal[d.dentist_person_id] = d;
 
   const resumo = await resumoRes.json();
   if (resumoRes.ok) {
@@ -383,11 +413,25 @@ function cardHtml(d) {
   }
   const resClass = resVal == null ? 'muted' : (resVal >= 0 ? 'green' : 'red');
   const manualIcon = ` <span title="${d.horas_manual_override ? 'Inclui horas manuais' : 'Sem horas manuais'}" style="${d.horas_manual_override ? 'color:var(--accent)' : 'opacity:.3'}">✏️</span>`;
+  const cr = custoReal[d.dentist_person_id];
+  let ratioBadge = '';
+  if (cr) {
+    const ratio = d.producao_total > 0 ? Math.round(cr.custo_proporcional / d.producao_total * 1000) / 10 : null;
+    if (ratio != null) {
+      const cls = ratio <= 8 ? 'ratio-green' : ratio < 15 ? 'ratio-yellow' : 'ratio-red';
+      const emoji = ratio <= 8 ? '🟢' : ratio < 15 ? '🟡' : '🔴';
+      const tooltip = `Pago proporcional: ${brl(cr.custo_proporcional)} | Exec: ${cr.horas_exec}h | Aval: ${cr.horas_aval}h`;
+      ratioBadge = `<span class="ratio-badge ${cls}" title="${esc(tooltip)}">${emoji} Custo s/ produção: ${ratio.toFixed(1)}%</span>`;
+    }
+  }
+
   return `
 <div class="dent-card" id="card-${esc(d.dentist_person_id)}">
   <div class="dent-card-header">
     <div class="dent-name">👤 ${esc(d.dentist_name)}</div>
+    <button class="btn btn-ghost btn-sm" onclick="abrirModalConfig(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})" title="Configurar keyword de despesas">⚙️</button>
   </div>
+  ${ratioBadge}
   <div class="dent-metrics">
     <div class="dent-metric">
       <span class="dent-metric-label">Produção${liq != null ? ' bruta' : ''}</span>
@@ -564,6 +608,43 @@ function renderEvolucao(rows) {
 
 // ── Modais ───────────────────────────────────────────────────────────────────
 function fecharModal(id) { document.getElementById(id).style.display = 'none'; }
+
+function abrirModalConfig(dentId, dentName) {
+  const cr = custoReal[dentId];
+  document.getElementById('configDentId').value    = dentId;
+  document.getElementById('configDentLabel').value = dentName;
+  document.getElementById('configKeyword').value   = cr?._keyword || '';
+  document.getElementById('configAvalId').value    = cr?._avaliacao_id || '';
+  document.getElementById('configMsg').textContent = '';
+  document.getElementById('modalConfig').style.display = 'flex';
+}
+
+async function salvarConfig2() {
+  const dentId  = document.getElementById('configDentId').value;
+  const keyword = document.getElementById('configKeyword').value.trim();
+  const avalId  = document.getElementById('configAvalId').value.trim();
+  const msg     = document.getElementById('configMsg');
+  if (!keyword) { msg.className = 'modal-msg err'; msg.textContent = 'Keyword obrigatória'; return; }
+  try {
+    const res = await fetch('/api/producao/dentista/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        dentist_person_id:    dentId,
+        keyword_despesa:      keyword,
+        persona_avaliacao_id: avalId || null,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    msg.className = 'modal-msg ok';
+    msg.textContent = 'Salvo!';
+    setTimeout(() => { fecharModal('modalConfig'); carregar(); }, 800);
+  } catch (e) {
+    msg.className = 'modal-msg err';
+    msg.textContent = e.message;
+  }
+}
 
 function abrirModalHoras(dentId, dentName) {
   const from = new Date(currentFrom);
