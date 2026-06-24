@@ -5770,6 +5770,26 @@ app.get('/api/leads/:id/clinicorp', requireAuth, rateLimit, async (req, res) => 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Busca de pacientes (Clinicorp) por nome/telefone/CPF; resolve lead_id por telefone
+app.get('/api/pacientes/buscar', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const q = (req.query.q || '').toString().slice(0, 80);
+    const { data, error } = await supabase.rpc('buscar_pacientes', { p_q: q });
+    if (error) throw error;
+    res.json(data || []);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// 360º de um paciente direto (sem depender de lead) — para a busca de pacientes
+app.get('/api/pacientes/:id/clinicorp', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const pid = req.params.id;
+    const { data, error } = await supabase.rpc('perfil_clinicorp_by_paciente', { p_paciente_id: pid });
+    if (error) throw error;
+    res.json(data || { vinculado: false });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const periodo = parseInt(req.query.periodo, 10) || 30;

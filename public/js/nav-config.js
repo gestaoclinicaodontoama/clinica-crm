@@ -69,6 +69,7 @@
 
     { id: 'crc-sucesso', label: 'CRC Sucesso do Cliente', icon: 'sucesso', roles: 'admin,gestor,crc_sucesso,crc_comercial', items: [
       { slug: 'pacientes', label: 'Pacientes', roles: 'crc_sucesso,crc_comercial,gestor,admin', mode: 'link', href: '/pacientes/' },
+      { slug: 'pacientes-busca', label: 'Buscar Paciente 360º', roles: 'crc_sucesso,crc_comercial,crc_leads,gestor,admin', mode: 'link', href: '/pacientes-busca/' },
     ]},
 
     { id: 'pos', label: 'CRC Pós Tratamento', icon: 'pos', roles: 'admin,gestor,crc_sucesso,crc_pos_tratamento', items: [

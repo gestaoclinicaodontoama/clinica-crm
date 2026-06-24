@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buscar Paciente 360º — CRM AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#8a93a6;--accent:#4f8ef7;--green:#22c55e;--red:#ef4444;--purple:#a855f7;}
+:root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--green:#16a34a;--red:#dc2626;--purple:#9333ea;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{max-width:780px;margin:0 auto;padding:22px 18px 60px}
+h1{font-size:20px;font-weight:700;margin-bottom:4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+.search{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:15px;font-family:inherit}
+.res{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.pac{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.pac-head{padding:12px 14px;display:flex;align-items:center;gap:12px;cursor:pointer}
+.pac-head:hover{background:var(--bg3)}
+.av{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+.pac-nome{font-weight:600;font-size:14.5px}
+.pac-meta{font-size:12px;color:var(--muted);font-family:'DM Mono',monospace}
+.chip{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;margin-left:auto;flex-shrink:0}
+.chip.lead{background:rgba(34,197,94,.15);color:var(--green)}
+.chip.nolead{background:var(--bg3);color:var(--muted)}
+.det{border-top:1px solid var(--border);padding:14px;display:none}
+.det.open{display:block}
+.banner{border-radius:8px;padding:9px 12px;margin-bottom:11px;font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.finrow{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+.rx .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.rx .v{font-size:14px;font-weight:700;font-family:'DM Mono',monospace;margin-top:1px}
+h3{font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:12px 0 7px}
+.li{padding:7px 0;border-bottom:1px solid var(--border)}
+.li:last-child{border-bottom:0}
+.li .meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+.li .main{font-size:13px;font-weight:500}
+.li .s{font-size:12px;color:var(--muted)}
+.empty{color:var(--muted);font-size:13px;text-align:center;padding:16px}
+.openlead{display:inline-block;margin-top:10px;font-size:12.5px;padding:7px 12px;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600}
+</style>
+<script src="/js/shared-nav.js" data-active="pacientes-busca" defer></script>
+</head>
+<body class="crm-shell">
+<div class="wrap">
+  <h1>🔎 Buscar Paciente 360º</h1>
+  <div class="sub">Pesquise por nome, telefone ou CPF. Clique para ver o 360º (financeiro, procedimentos, agendamentos).</div>
+  <input class="search" id="q" placeholder="Digite nome, telefone ou CPF…" autocomplete="off">
+  <div class="res" id="res"><div class="empty">Digite ao menos 2 caracteres.</div></div>
+</div>
+<script>
+(function(){ try{ const t=localStorage.getItem('crm-theme')||'dark'; document.documentElement.setAttribute('data-theme',t);}catch(_){document.documentElement.setAttribute('data-theme','dark');} })();
+let _token=null;
+for(const k of Object.keys(localStorage)){ if(k.startsWith('sb-')&&k.endsWith('-auth-token')){ try{_token=JSON.parse(localStorage.getItem(k))?.access_token;}catch(_){}}}
+if(!_token){ window.location.href='/'; throw new Error('no token'); }
+async function api(path){ const r=await fetch(path,{headers:{Authorization:'Bearer '+_token}}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fmtBRL(v){return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0});}
+function fmtDia(iso){ if(!iso) return '—'; return new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});}
+function fmtTel(t){const d=(t||'').replace(/\D/g,'');if(d.length>=10)return '('+d.slice(0,2)+') '+d.slice(2,-4)+'-'+d.slice(-4);return t||'—';}
+
+let _t=null;
+document.getElementById('q').addEventListener('input', function(){
+  clearTimeout(_t); const v=this.value.trim();
+  _t=setTimeout(()=>buscar(v), 300);
+});
+async function buscar(q){
+  const res=document.getElementById('res');
+  if(q.length<2){ res.innerHTML='<div class="empty">Digite ao menos 2 caracteres.</div>'; return; }
+  res.innerHTML='<div class="empty">Buscando…</div>';
+  let arr; try{ arr=await api('/api/pacientes/buscar?q='+encodeURIComponent(q)); }catch(e){ res.innerHTML='<div class="empty">Erro na busca.</div>'; return; }
+  if(!arr.length){ res.innerHTML='<div class="empty">Nenhum paciente encontrado.</div>'; return; }
+  res.innerHTML=arr.map(p=>`
+    <div class="pac" data-id="${esc(p.id)}" data-lead="${p.lead_id||''}">
+      <div class="pac-head" onclick="toggle(this)">
+        <div class="av">${esc((p.nome||'?').trim().charAt(0).toUpperCase())}</div>
+        <div style="flex:1;min-width:0">
+          <div class="pac-nome">${esc(p.nome||'Sem nome')}</div>
+          <div class="pac-meta">${esc(fmtTel(p.telefone))}${p.cidade?' · '+esc(p.cidade):''}${p.plano?' · '+esc(p.plano):''}</div>
+        </div>
+        <span class="chip ${p.lead_id?'lead':'nolead'}">${p.lead_id?'tem lead':'só Clinicorp'}</span>
+      </div>
+      <div class="det"></div>
+    </div>`).join('');
+}
+async function toggle(head){
+  const pac=head.closest('.pac'); const det=pac.querySelector('.det');
+  if(det.classList.contains('open')){ det.classList.remove('open'); return; }
+  document.querySelectorAll('.det.open').forEach(d=>d.classList.remove('open'));
+  det.classList.add('open');
+  if(det.dataset.loaded){ return; }
+  det.innerHTML='<div class="empty">Carregando 360º…</div>';
+  let d; try{ d=await api('/api/pacientes/'+pac.dataset.id+'/clinicorp'); }catch(e){ det.innerHTML='<div class="empty">Erro ao carregar.</div>'; return; }
+  det.dataset.loaded='1';
+  const leadId=pac.dataset.lead;
+  if(!d || !d.vinculado){ det.innerHTML='<div class="empty">Sem dados clínicos.</div>'; return; }
+  const f=d.financeiro||{}, inad=d.inadimplencia||{}, procs=d.procedimentos||[], ags=d.agendamentos||[];
+  const ultVisita=ags.find(a=>a.checkin)?.checkin;
+  const banner=inad.inadimplente
+    ? `<div class="banner" style="background:rgba(239,68,68,.12);border:1px solid var(--red)">⚠️ <b style="color:var(--red)">Inadimplente</b> <b style="font-family:'DM Mono',monospace;color:var(--red)">${fmtBRL(inad.valor_vencido)} vencido</b> <span style="color:var(--muted)">${inad.dias_atraso?inad.dias_atraso+' dias':''}</span></div>`
+    : `<div class="banner" style="background:rgba(34,197,94,.10);border:1px solid var(--green);color:var(--green);font-weight:600">✓ Em dia</div>`;
+  det.innerHTML=`
+    ${banner}
+    <div class="finrow">
+      <div class="rx"><div class="l">Total pago</div><div class="v" style="color:var(--green)">${fmtBRL(f.pago)}</div></div>
+      <div class="rx"><div class="l">Lançamentos</div><div class="v">${f.lancamentos||0}</div></div>
+      <div class="rx"><div class="l">Último pgto</div><div class="v" style="font-size:12px">${f.ultimo_pgto?fmtDia(f.ultimo_pgto):'—'}</div></div>
+    </div>
+    <h3>🦷 Procedimentos (${procs.length})</h3>
+    ${procs.length?procs.slice(0,15).map(x=>`<div class="li"><div class="meta">${x.data?fmtDia(x.data):'—'}${x.dentista?' · '+esc(x.dentista):''}</div><div class="main">${esc(x.nome||'')}${x.valor?` <span class="s">· R$ ${Math.round(x.valor)}</span>`:''}</div></div>`).join(''):'<div class="empty">Nenhum.</div>'}
+    <h3>📅 Agendamentos (${ags.length})</h3>
+    ${ags.length?ags.slice(0,15).map(a=>`<div class="li"><div class="main">${a.data?fmtDia(a.data):'—'}${a.checkin?' · <span style="color:var(--green)">✅ compareceu</span>':''}</div><div class="s">${a.dentista?esc(a.dentista):'—'}${a.categoria?' · '+esc(a.categoria):''}</div></div>`).join(''):'<div class="empty">Nenhum.</div>'}
+    ${leadId?`<a class="openlead" href="/perfil/?id=${leadId}">Abrir Perfil 360º completo (com linha do tempo) ↗</a>`:'<div class="empty" style="text-align:left;padding:10px 0 0">Este paciente não tem lead no CRM (veio antes ou por outro canal).</div>'}`;
+}
+</script>
+</body>
+</html>
