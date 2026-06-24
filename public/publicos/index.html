@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Públicos — CRM AMA</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+  :root[data-theme="dark"] {
+    --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+    --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+    --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --orange: #f97316;
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+    --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+    --green: #16a34a; --yellow: #d97706; --red: #dc2626; --orange: #ea580c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  h1 { font-size: 20px; font-weight: 700; }
+  h2 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  input, select, textarea { font-family: inherit; font-size: 13px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); width: 100%; }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .grp { margin-bottom: 14px; }
+  .chips label { display: inline-flex; align-items: center; gap: 5px; margin: 0 12px 6px 0; color: var(--text); font-size: 13px; cursor: pointer; }
+  .chips input { width: auto; }
+  .btn { font-family: inherit; font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); cursor: pointer; }
+  .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-green { background: var(--green); color: #fff; border-color: var(--green); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); align-items: center; justify-content: center; z-index: 2000; }
+  </style>
+  <script src="/js/shared-nav.js" data-active="publicos" defer></script>
+</head>
+<body class="crm-shell">
+<main style="flex:1;padding:28px 32px;overflow-y:auto;max-width:1200px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:12px;flex-wrap:wrap">
+    <h1 style="margin:0">🎯 Públicos</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="f-nome" placeholder="Nome do público" style="width:200px">
+      <button class="btn" id="btn-salvar">💾 Salvar</button>
+      <button class="btn" id="btn-exportar" disabled>⬇️ Exportar CSV</button>
+      <button class="btn btn-green" id="btn-disparar" disabled>🚀 Disparar</button>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:18px;align-items:start">
+    <!-- CONSTRUTOR -->
+    <div class="card" id="construtor">
+      <h2>Filtros</h2>
+
+      <div class="grp">
+        <label>Interesse (termo)</label>
+        <input id="f-termo" placeholder="ex: invisalign">
+        <div class="chips" style="margin-top:6px">
+          <label><input type="checkbox" id="f-em-origem" checked> origem</label>
+          <label><input type="checkbox" id="f-em-conversa" checked> conversa</label>
+          <label><input type="checkbox" id="f-em-anuncio" checked> anúncio</label>
+        </div>
+      </div>
+
+      <div class="grp">
+        <label>Status</label>
+        <div class="chips" id="f-status">
+          <label><input type="checkbox" value="Novo"> Novo</label>
+          <label><input type="checkbox" value="Em qualificação"> Em qualificação</label>
+          <label><input type="checkbox" value="Avaliação agendada"> Avaliação agendada</label>
+          <label><input type="checkbox" value="Em negociação"> Em negociação</label>
+          <label><input type="checkbox" value="Compareceu"> Compareceu</label>
+          <label><input type="checkbox" value="Fechou"> Fechou</label>
+          <label><input type="checkbox" value="Perdido"> Perdido</label>
+          <label><input type="checkbox" value="Não tem Interesse"> Não tem Interesse</label>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="grp">
+          <label>Entrou nos últimos (dias)</label>
+          <input id="f-dias" type="number" min="1" placeholder="ex: 30">
+        </div>
+        <div class="grp">
+          <label>DDD (separados por vírgula)</label>
+          <input id="f-ddd" placeholder="ex: 31, 33">
+        </div>
+      </div>
+
+      <div class="grp">
+        <label>Origem (separadas por vírgula — texto livre)</label>
+        <input id="f-origem" placeholder="ex: Facebook - Invisalign, Google Invisalign">
+      </div>
+
+      <h2 style="margin-top:6px">Engajamento WhatsApp</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="grp">
+          <label>Respondeu?</label>
+          <select id="f-respondeu"><option value="">—</option><option value="sim">Sim</option><option value="nao">Não</option></select>
+        </div>
+        <div class="grp">
+          <label>Interagiu nos últimos (dias)</label>
+          <input id="f-ui-dias" type="number" min="1" placeholder="ex: 30">
+        </div>
+        <div class="grp">
+          <label>Janela 24h aberta?</label>
+          <select id="f-janela24h"><option value="">—</option><option value="sim">Sim</option><option value="nao">Não</option></select>
+        </div>
+        <div class="grp">
+          <label>Recebeu campanha (id)</label>
+          <input id="f-recebeu-camp" type="number" min="1" placeholder="opcional">
+        </div>
+      </div>
+    </div>
+
+    <!-- RESULTADO + SALVOS -->
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <div class="card">
+        <h2>Resultado</h2>
+        <div id="preview-total" style="font-size:22px;font-weight:700;margin-bottom:10px">— contatos</div>
+        <table>
+          <thead><tr><th>Nome</th><th>Telefone</th><th>Status</th><th>Origem</th></tr></thead>
+          <tbody id="preview-amostra"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Públicos salvos</h2>
+        <ul id="publicos-salvos" style="list-style:none;font-size:13px"></ul>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL DISPARO -->
+<div class="modal-bg" id="disparo-modal">
+  <div class="card" style="width:380px;max-width:95vw">
+    <h2>Disparar público</h2>
+    <div class="grp"><label>Nome da campanha</label><input id="d-nome-camp" placeholder="ex: Invisalign Junho"></div>
+    <div class="grp"><label>Template (aprovado)</label><select id="d-template"></select></div>
+    <div class="grp"><label>Disparar pelo número</label><select id="d-numero"></select></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+      <button class="btn" onclick="document.getElementById('disparo-modal').style.display='none'">Cancelar</button>
+      <button class="btn btn-green" onclick="confirmarDisparo()">Confirmar disparo</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/publicos/api.js"></script>
+<script src="/js/publicos/app.js"></script>
+</body>
+</html>
