@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - Project Supabase: `mtqdpjhhqzvuklnlfpvi`. Migrações via MCP Supabase (`apply_migration`), ordem crescente de timestamp; verificar com `list_migrations`.
-- Deploy: após `git push` (origin/main — padrão de concorrência via worktree), deploy Easypanel CRM: `curl -s -X POST "http://2.24.94.120:3000/api/deploy/64e3f591d5f8f89c7d01ddc665d41609a5259db3bbe968e6"`.
+- **Execução = commit LOCAL apenas.** Os implementadores NÃO dão `git push` nem deploy — só `git commit` no worktree. Integração (push p/ origin/main) e **deploy** são feitos UMA vez, pelo controller, no fim (finishing-a-development-branch). Isso evita disparar build do Easypanel no meio e conflitar com deploy de outra sessão.
+- Deploy (só no fim, único): após push em origin/main, `curl -s -X POST "http://2.24.94.120:3000/api/deploy/64e3f591d5f8f89c7d01ddc665d41609a5259db3bbe968e6"`. ⚠️ Antes, confirmar que não há outro deploy em andamento (ver [[feedback_easypanel_swap_travado]]: build pode não trocar o container; coordenar para um único build do origin/main mais recente).
 - Supabase JS trunca em 1000 linhas — contagem e paginação SEMPRE no banco (`publico_contar`/`publico_buscar`); nunca somar/contar no JS.
 - Telefones com 0 à esquerda = família: NUNCA normalizar/mesclar; só prefixar `55` em números de 10–11 dígitos que não começam com `55`.
 - Interesse combina 3 sinais (OR): `origem ILIKE`, `mensagens.texto ILIKE`, `referral_data::text ILIKE`. Fontes default = `["origem","conversa","anuncio"]`.
@@ -699,11 +700,11 @@ git commit -m "feat(publicos): item de menu + registro mod_publicos no cadastro 
 
 - [ ] **Step 1: `api.js` (auth) espelhando um módulo existente**
 
-Criar `public/js/publicos/api.js` copiando o padrão de `public/js/pacientes/api.js` (busca o token `sb-{ref}-auth-token` com `k.startsWith('sb-') && k.endsWith('-auth-token')`; expõe um helper `api(path, opts)` que injeta o `Authorization: Bearer`). Ajustar só nomes se necessário; a lógica é idêntica.
+Criar `public/js/publicos/api.js` copiando o padrão de `public/js/pacientes/api.js` (busca o token `sb-{ref}-auth-token` com `k.startsWith('sb-') && k.endsWith('-auth-token')`; expõe `api(path, opts)` que injeta o `Authorization: Bearer`). **Garantir que o arquivo também exponha `getToken()`** (retorna o JWT atual) — usado no download de CSV da Task 10. Se o `pacientes/api.js` já tiver um getter equivalente, reusar o mesmo nome e ajustar a Task 10.
 
 - [ ] **Step 2: `index.html` com sidebar + layout de 2 colunas**
 
-Criar `public/publicos/index.html` seguindo o esqueleto de uma página separada (ex.: `public/atribuicao/index.html`): `<head>` com o CSS compartilhado, `<script src="/js/shared-nav.js" data-active="publicos"></script>`, depois `<script src="/js/publicos/api.js"></script>` e `<script src="/js/publicos/app.js"></script>`. Corpo: coluna esquerda = formulário do construtor com os campos:
+Criar `public/publicos/index.html` seguindo o esqueleto de uma página separada (ex.: `public/atribuicao/index.html`): `<head>` com o CSS compartilhado, `<script src="/js/shared-nav.js" data-active="publicos"></script>`, depois `<script src="/js/publicos/api.js"></script>` e `<script src="/js/publicos/app.js"></script>`. Corpo: coluna esquerda = formulário do construtor (envolver num container `id="construtor"` — os listeners de preview do `app.js` usam `e.target.closest('#construtor')`) com os campos:
 - Interesse: input `#f-termo` + 3 checkboxes `#f-em-origem`/`#f-em-conversa`/`#f-em-anuncio` (marcados por default).
 - Status: grupo de checkboxes `#f-status` (Lead, Nutrir, Em conversa - Lead Qualificado, Agendado, Compareceu, Faltou, Não tem Interesse, Reclassificar).
 - Período: `#f-dias` (número; vazio = sem filtro).
@@ -843,7 +844,7 @@ document.getElementById('btn-salvar').onclick = salvarPublico;
 ```js
 async function exportarCsv() {
   const resp = await fetch('/api/publicos/exportar', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token() },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
     body: JSON.stringify({ regra: coletarRegra() }),
   });
   if (!resp.ok) { alert('Falha ao exportar'); return; }
@@ -854,7 +855,7 @@ async function exportarCsv() {
 }
 document.getElementById('btn-exportar').onclick = exportarCsv;
 ```
-> `_token()` é o helper do `api.js` que retorna o JWT (mesmo usado no `Authorization`). Se o nome diferir, usar o do `api.js`.
+> `getToken()` é o getter exposto pelo `api.js` (Task 9 Step 1) que retorna o JWT. Se o `api.js` do projeto já usar outro nome, alinhar os dois.
 
 - [ ] **Step 4: Disparar (modal template + número, reusando o seletor)**
 
