@@ -124,7 +124,16 @@ async function carregarClinicorp(){
   try{ d=await api('/api/leads/'+id+'/clinicorp'); }catch(e){ box.innerHTML=''; return; }
   if(!d || !d.vinculado){ box.innerHTML='<div class="card"><h2>🦷 Clínico & Financeiro (Clinicorp)</h2><div class="empty">Sem paciente vinculado no Clinicorp (busca por telefone).</div></div>'; return; }
   const p=d.paciente||{}, f=d.financeiro||{}, procs=d.procedimentos||[], ags=d.agendamentos||[];
+  const inad=d.inadimplencia||{};
   const ultVisita = ags.find(a=>a.checkin)?.checkin;
+  const inadBanner = inad.inadimplente
+    ? `<div style="background:rgba(239,68,68,.12);border:1px solid var(--red);border-radius:8px;padding:10px 13px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:18px">⚠️</span>
+        <span style="font-weight:700;color:var(--red)">Inadimplente</span>
+        <span style="font-weight:700;font-family:'DM Mono',monospace;color:var(--red)">${fmtBRL(inad.valor_vencido)} vencido</span>
+        <span style="color:var(--muted);font-size:12.5px">${inad.dias_atraso?inad.dias_atraso+' dias de atraso':''}${inad.parcelas_vencidas?' · '+inad.parcelas_vencidas+' parcela(s)':''}</span>
+      </div>`
+    : `<div style="background:rgba(34,197,94,.10);border:1px solid var(--green);border-radius:8px;padding:8px 13px;margin-bottom:12px;font-size:12.5px;color:var(--green);font-weight:600">✓ Em dia (sem pendências)</div>`;
   const fin=`<div class="raiox" style="border:0;margin:0;padding:0">
       <div class="rx"><div class="l">Total pago</div><div class="v" style="color:var(--green)">${fmtBRL(f.pago)}</div></div>
       <div class="rx"><div class="l">Lançamentos</div><div class="v">${f.lancamentos||0}</div></div>
@@ -141,7 +150,7 @@ async function carregarClinicorp(){
   box.innerHTML=`
     <div class="card">
       <h2>💰 Financeiro & Paciente <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· ${esc(p.nome||'')}${p.plano?' · '+esc(p.plano):''}${p.prontuario?' · prontuário '+p.prontuario:''}</span></h2>
-      ${fin}
+      ${inadBanner}${fin}
     </div>
     <div class="card">
       <h2>🦷 Procedimentos realizados <span style="font-weight:400;color:var(--muted)">(${procs.length})</span></h2>
