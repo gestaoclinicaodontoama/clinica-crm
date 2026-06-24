@@ -61,7 +61,10 @@
       <h1>Saúde do CAPI</h1>
       <div class="sub" id="sub">carregando…</div>
     </div>
-    <button class="btn" id="recheck">Re-checar agora</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="backfill" title="Reenvia 1x os eventos de funil que faltaram (ex.: LeadQualified de quem agendou direto). Idempotente.">Backfill funil</button>
+      <button class="btn" id="recheck">Re-checar agora</button>
+    </div>
   </div>
   <div class="cards" id="cards"></div>
   <h2>Eventos por semana</h2>
@@ -193,6 +196,15 @@ btn.onclick = async () => {
   try { await api('/api/admin/capi-saude/recheck', { method:'POST' }); await new Promise(r => setTimeout(r, 1800)); await carregar(); await carregarConjuntos(); await carregarEmq(); }
   catch (e) { document.getElementById('sub').innerHTML = '<span class="erro">Erro: ' + esc(e.message) + '</span>'; }
   finally { btn.disabled = false; btn.textContent = txt; }
+};
+
+const bbf = document.getElementById('backfill');
+bbf.onclick = async () => {
+  if (!confirm('Reenviar 1x os eventos de funil que faltaram (ex.: LeadQualified de quem agendou direto)? Roda em segundo plano e é seguro repetir.')) return;
+  bbf.disabled = true; const t = bbf.textContent; bbf.textContent = 'Rodando…';
+  try { const r = await api('/api/admin/capi-saude/backfill-funil', { method:'POST' }); alert(r.msg || 'Backfill iniciado. Recarregue em alguns minutos.'); }
+  catch (e) { alert('Erro: ' + e.message); }
+  finally { bbf.disabled = false; bbf.textContent = t; }
 };
 carregar().catch(e => { document.getElementById('sub').innerHTML = '<span class="erro">Erro: ' + esc(e.message) + '</span>'; });
 carregarConjuntos();

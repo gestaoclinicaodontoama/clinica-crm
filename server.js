@@ -2581,13 +2581,30 @@ const EVENTOS_FUNIL = {
   'Perdido':            null,
 };
 
+const FUNIL_ORDEM = ['LeadSubmitted', 'LeadQualified', 'Schedule', 'Contact', 'Purchase'];
+
+// Orquestrador com CASCATA de funil: ao atingir um estágio fundo, garante também os
+// eventos anteriores (LeadQualified..alvo) que ainda não foram enviados — porque um
+// estágio fundo implica os rasos (ex.: agendou ⇒ qualificou). Evita Schedule sem
+// LeadQualified. LeadSubmitted (entrada, business_messaging) NÃO é re-enviado
+// retroativamente — só dispara quando ELE é o alvo.
 async function dispararConversaoMeta(lead, eventoCustom = null) {
+  if (lead.importado_historico) { console.log('⏭️  Lead importado #' + lead.id + ' não dispara CAPI'); return; }
+  const alvo = eventoCustom || EVENTOS_FUNIL[lead.status];
+  if (!alvo) { console.log('⏭️  Lead #' + lead.id + ' status "' + lead.status + '" não dispara CAPI'); return; }
+  const idx = FUNIL_ORDEM.indexOf(alvo);
+  const jaEnviados = new Set(lead.eventos_meta_enviados || []);
+  let aEnviar;
+  if (idx < 0) aEnviar = jaEnviados.has(alvo) ? [] : [alvo];                          // evento fora do funil
+  else if (idx === 0) aEnviar = jaEnviados.has('LeadSubmitted') ? [] : ['LeadSubmitted'];
+  else aEnviar = FUNIL_ORDEM.slice(1, idx + 1).filter(e => !jaEnviados.has(e));        // LeadQualified..alvo
+  for (const ev of aEnviar) await _enviarEventoMetaUnico(lead, ev);
+}
+
+async function _enviarEventoMetaUnico(lead, eventName) {
   let PIXEL = process.env.META_PIXEL_ID;
   const TOKEN = process.env.META_ACCESS_TOKEN;
   if (!PIXEL || !TOKEN) { console.log('⚠️  Meta CAPI não configurada'); return; }
-  if (lead.importado_historico) { console.log('⏭️  Lead importado #' + lead.id + ' não dispara CAPI'); return; }
-  const eventName = eventoCustom || EVENTOS_FUNIL[lead.status];
-  if (!eventName) { console.log('⏭️  Lead #' + lead.id + ' status "' + lead.status + '" não dispara CAPI'); return; }
   const isCTWA = !!lead.ctwa_clid;
   // action_source por evento (CTWA): a 1ª mensagem (LeadSubmitted) é ação do usuário no chat →
   // business_messaging; as fases geradas pelo CRM (Schedule/Contact/Purchase/LeadQualified) vão
@@ -2661,6 +2678,7 @@ async function dispararConversaoMeta(lead, eventoCustom = null) {
       const upd = { eventos_meta_enviados: eventos };
       if (eventName === 'Purchase') upd.enviado_meta = true;
       await supabase.from('leads').update(upd).eq('id', lead.id);
+      lead.eventos_meta_enviados = eventos; // mantém em memória p/ a cascata não sobrescrever
     } else {
       console.error('📤 Meta CAPI ✗ Lead #' + lead.id + ' | ' + eventName + ':', JSON.stringify(json).slice(0, 300));
       logEvento(lead.id, 'capi_disparado',
@@ -4303,6 +4321,48 @@ app.get('/api/admin/capi-saude/emq', requireAuth, requireGestor, async (req, res
     }
     res.json({ datasets, atualizadoEm: new Date().toISOString() });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Estágio mais fundo do funil que o lead realmente atingiu (status + datas-marco).
+function eventoMaisFundoLead(lead) {
+  if (lead.status === 'Fechou' || lead.data_fechamento) return 'Purchase';
+  if (lead.data_comparecimento || lead.status === 'Compareceu') return 'Contact';
+  if (lead.data_agendamento || lead.status === 'Avaliação agendada') return 'Schedule';
+  if (lead.status === 'Em qualificação' || lead.status === 'Em negociação') return 'LeadQualified';
+  return null;
+}
+
+// Backfill (one-off, admin): para cada lead CTWA, reenvia via cascata os eventos do
+// funil que faltaram até o estágio real dele. Idempotente (cascata pula os já enviados).
+// Objetivo: o lead_eventos passar a refletir o funil VERDADEIRO por conjunto.
+let _capiBackfillRodando = false;
+app.post('/api/admin/capi-saude/backfill-funil', requireAuth, requireAdmin, async (req, res) => {
+  if (_capiBackfillRodando) return res.json({ ok: true, running: true, msg: 'Backfill já em andamento' });
+  _capiBackfillRodando = true;
+  res.json({ ok: true, msg: 'Backfill iniciado em background — acompanhe os logs [capi-backfill]' });
+  (async () => {
+    try {
+      const { data: leads, error } = await supabase.from('leads')
+        .select('id, nome, telefone, email, status, valor, ctwa_clid, referral_data, wa_number_id, eventos_meta_enviados, data_agendamento, data_comparecimento, data_fechamento, importado_historico')
+        .not('ctwa_clid', 'is', null).limit(5000);
+      if (error) throw error;
+      let proc = 0;
+      for (const lead of (leads || [])) {
+        if (lead.importado_historico) continue;
+        const alvo = eventoMaisFundoLead(lead);
+        if (!alvo) continue;
+        const idx = FUNIL_ORDEM.indexOf(alvo);
+        const ja = new Set(lead.eventos_meta_enviados || []);
+        const faltam = FUNIL_ORDEM.slice(1, idx + 1).filter(e => !ja.has(e)); // LeadQualified..alvo
+        if (!faltam.length) continue;
+        await dispararConversaoMeta(lead, alvo); // cascata envia os que faltam
+        proc++;
+        await new Promise(r => setTimeout(r, 150)); // suave com a Meta
+      }
+      console.log('[capi-backfill] concluído:', proc, 'leads com lacuna preenchida (de', (leads || []).length, 'CTWA)');
+    } catch (e) { console.error('[capi-backfill] erro:', e.message); }
+    finally { _capiBackfillRodando = false; }
+  })();
 });
 
 // ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========
