@@ -138,6 +138,7 @@ const { chaveTelefone } = require('./lib/funil/telefone');
 const { parseCsv } = require('./lib/disparos/parser');
 const { ultimos8 } = require('./lib/disparos/matching');
 const disparoRunner = require('./lib/disparos/runner');
+const { coletarLeadIds } = require('./lib/disparos/leads-da-campanha');
 
 // --------- APP ---------
 const app = express();
@@ -2045,6 +2046,16 @@ app.get('/api/conversas', requireAuth, requireConversas, rateLimit, async (req, 
     if (broadcastId) {
       if (mode === 'oficial') rows = rows.filter(r => r.ultima_wa_number_id === broadcastId || r.wa_number_id === broadcastId);
       else if (mode === 'lead') rows = rows.filter(r => r.ultima_wa_number_id !== broadcastId && r.wa_number_id !== broadcastId);
+    }
+    const campanhaId = parseInt(req.query.campanha_id, 10);
+    if (!Number.isNaN(campanhaId)) {
+      const leadIds = await coletarLeadIds(async (offset, limit) => {
+        const { data } = await supabase.from('disparos_contatos')
+          .select('lead_id').eq('campanha_id', campanhaId).eq('status', 'enviado')
+          .not('lead_id', 'is', null).range(offset, offset + limit - 1);
+        return data || [];
+      });
+      rows = rows.filter(r => leadIds.has(r.id));
     }
     res.json(rows);
   } catch (e) {
