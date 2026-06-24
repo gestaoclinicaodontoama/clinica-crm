@@ -87,10 +87,14 @@ async function enviarTexto({ para, texto, phoneNumberId, contextWaId }) {
 }
 
 // Número 2 — template aprovado (broadcast, fora da janela)
-async function enviarBroadcast({ para, templateName, lang = 'pt_BR', variaveis = [] }) {
-  if (!temBroadcast()) throw new Error('Número de broadcast não configurado');
+// phoneNumberId opcional: dispara por outro número configurado (ex.: 2873).
+// Sem ele, usa o número de broadcast padrão (8700).
+async function enviarBroadcast({ para, templateName, lang = 'pt_BR', variaveis = [], phoneNumberId }) {
+  const pid = phoneNumberId || WA_BROADCAST_PHONE_ID;
+  const token = _tokenForPhone(pid);
+  if (!pid || !token) throw new Error('Número de envio (template) não configurado');
   const numero = limparNumero(para);
-  return _post(WA_BROADCAST_PHONE_ID, WA_BROADCAST_TOKEN, {
+  return _post(pid, token, {
     messaging_product: 'whatsapp', to: numero,
     type: 'template',
     template: {
