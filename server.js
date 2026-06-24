@@ -2639,7 +2639,7 @@ async function _enviarEventoMetaUnico(lead, eventName) {
     user_data.ctwa_clid = lead.ctwa_clid;
     // Prefere a Página resolvida pelo próprio anúncio; cai para o fallback por env.
     const adId = (lead.referral_data || {}).source_id || '';
-    const pageId = (await resolveAdPageId(adId)) || pageIdFallback(lead);
+    const pageId = (await resolveAdPageId(adId).catch(() => null)) || pageIdFallback(lead);
     if (pageId) {
       user_data.page_id = pageId;
       // Roteamento de dataset por Página: o Events Manager só permite 1 Página
@@ -4374,8 +4374,8 @@ app.post('/api/admin/capi-saude/backfill-funil', requireAuth, requireAdmin, asyn
         const ja = new Set(lead.eventos_meta_enviados || []);
         const faltam = FUNIL_ORDEM.slice(1, idx + 1).filter(e => !ja.has(e)); // LeadQualified..alvo
         if (!faltam.length) continue;
-        await dispararConversaoMeta(lead, alvo); // cascata envia os que faltam
-        proc++;
+        try { await dispararConversaoMeta(lead, alvo); proc++; } // erro de 1 lead não derruba o lote
+        catch (e) { console.error('[capi-backfill] lead', lead.id, 'falhou:', e.message); }
         await new Promise(r => setTimeout(r, 150)); // suave com a Meta
       }
       console.log('[capi-backfill] concluído:', proc, 'leads com lacuna preenchida (de', (leads || []).length, 'CTWA)');
