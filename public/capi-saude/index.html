@@ -202,7 +202,7 @@ const bbf = document.getElementById('backfill');
 bbf.onclick = async () => {
   if (!confirm('Reenviar 1x os eventos de funil que faltaram (ex.: LeadQualified de quem agendou direto)? Roda em segundo plano e é seguro repetir.')) return;
   bbf.disabled = true; const t = bbf.textContent; bbf.textContent = 'Rodando…';
-  try { const r = await api('/api/admin/capi-saude/backfill-funil', { method:'POST' }); alert(r.msg || 'Backfill iniciado. Recarregue em alguns minutos.'); }
+  try { const r = await api('/api/admin/capi-saude/backfill-funil', { method:'POST' }); alert(r.msg || ('Backfill: ' + (r.alvos ?? '?') + ' alvos. Recarregue em alguns minutos.')); }
   catch (e) { alert('Erro: ' + e.message); }
   finally { bbf.disabled = false; bbf.textContent = t; }
 };

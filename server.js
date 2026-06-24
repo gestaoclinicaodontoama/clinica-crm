@@ -4354,34 +4354,44 @@ function eventoMaisFundoLead(lead) {
 // Backfill (one-off, admin): para cada lead CTWA, reenvia via cascata os eventos do
 // funil que faltaram até o estágio real dele. Idempotente (cascata pula os já enviados).
 // Objetivo: o lead_eventos passar a refletir o funil VERDADEIRO por conjunto.
-let _capiBackfillRodando = false;
+let _capiBackfillEm = 0; // timestamp do início; 0 = parado. Auto-libera após 10min (anti-trava).
 app.post('/api/admin/capi-saude/backfill-funil', requireAuth, requireAdmin, async (req, res) => {
-  if (_capiBackfillRodando) return res.json({ ok: true, running: true, msg: 'Backfill já em andamento' });
-  _capiBackfillRodando = true;
-  res.json({ ok: true, msg: 'Backfill iniciado em background — acompanhe os logs [capi-backfill]' });
-  (async () => {
-    try {
-      const { data: leads, error } = await supabase.from('leads')
-        .select('id, nome, telefone, email, status, valor, ctwa_clid, referral_data, wa_number_id, eventos_meta_enviados, data_agendamento, data_comparecimento, data_fechamento, importado_historico')
-        .not('ctwa_clid', 'is', null).limit(5000);
-      if (error) throw error;
+  if (_capiBackfillEm && (Date.now() - _capiBackfillEm) < 10 * 60_000) {
+    return res.json({ ok: true, running: true, msg: 'Backfill já em andamento (há ' + Math.round((Date.now() - _capiBackfillEm) / 1000) + 's)' });
+  }
+  _capiBackfillEm = Date.now();
+  try {
+    // Alvos filtrados no banco: CTWA, não importados, em estágio >= qualificado, SEM LeadQualified enviado.
+    const { data: leads, error } = await supabase.from('leads')
+      .select('id, nome, telefone, email, status, valor, ctwa_clid, referral_data, wa_number_id, eventos_meta_enviados, data_agendamento, data_comparecimento, data_fechamento, importado_historico')
+      .not('ctwa_clid', 'is', null)
+      .or('data_agendamento.not.is.null,data_comparecimento.not.is.null,data_fechamento.not.is.null,status.in.(Avaliação agendada,Compareceu,Fechou,Em qualificação,Em negociação)')
+      .limit(1000);
+    if (error) throw error;
+    const alvos = (leads || []).filter(l => {
+      if (l.importado_historico) return false;
+      const alvo = eventoMaisFundoLead(l);
+      if (!alvo) return false;
+      const idx = FUNIL_ORDEM.indexOf(alvo);
+      const ja = new Set(l.eventos_meta_enviados || []);
+      return FUNIL_ORDEM.slice(1, idx + 1).some(e => !ja.has(e));
+    });
+    res.json({ ok: true, alvos: alvos.length, msg: alvos.length + ' lead(s) a preencher — rodando em background.' });
+    (async () => {
       let proc = 0;
-      for (const lead of (leads || [])) {
-        if (lead.importado_historico) continue;
+      for (const lead of alvos) {
         const alvo = eventoMaisFundoLead(lead);
-        if (!alvo) continue;
-        const idx = FUNIL_ORDEM.indexOf(alvo);
-        const ja = new Set(lead.eventos_meta_enviados || []);
-        const faltam = FUNIL_ORDEM.slice(1, idx + 1).filter(e => !ja.has(e)); // LeadQualified..alvo
-        if (!faltam.length) continue;
-        try { await dispararConversaoMeta(lead, alvo); proc++; } // erro de 1 lead não derruba o lote
+        try { await dispararConversaoMeta(lead, alvo); proc++; }
         catch (e) { console.error('[capi-backfill] lead', lead.id, 'falhou:', e.message); }
-        await new Promise(r => setTimeout(r, 150)); // suave com a Meta
+        await new Promise(r => setTimeout(r, 120));
       }
-      console.log('[capi-backfill] concluído:', proc, 'leads com lacuna preenchida (de', (leads || []).length, 'CTWA)');
-    } catch (e) { console.error('[capi-backfill] erro:', e.message); }
-    finally { _capiBackfillRodando = false; }
-  })();
+      console.log('[capi-backfill] concluído:', proc, '/', alvos.length, 'leads preenchidos');
+      _capiBackfillEm = 0;
+    })().catch(e => { console.error('[capi-backfill] loop:', e.message); _capiBackfillEm = 0; });
+  } catch (e) {
+    _capiBackfillEm = 0;
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
 });
 
 // ========== AVALIAÇÃO DENTISTA (PRs 4, 6, 7) ==========
