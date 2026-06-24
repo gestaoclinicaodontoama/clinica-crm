@@ -853,13 +853,14 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
               <div id="painel-anuncio" style="font-size:11.5px;background:var(--bg3);border-radius:6px;padding:6px 8px;word-break:break-all;color:var(--text);display:none"></div>
             </div>
             <div>
-              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Perfil DISC</div>
-              <div style="display:flex;gap:5px">
-                <button class="disc-btn" id="disc-D" onclick="painelDisc('D')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#ef4444">D</button>
-                <button class="disc-btn" id="disc-I" onclick="painelDisc('I')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#f59e0b">I</button>
-                <button class="disc-btn" id="disc-S" onclick="painelDisc('S')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#22c55e">S</button>
-                <button class="disc-btn" id="disc-C" onclick="painelDisc('C')" style="flex:1;padding:5px 0;border-radius:6px;border:1px solid var(--border);background:none;cursor:pointer;font-weight:700;color:#3b82f6">C</button>
-              </div>
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Carteira</div>
+              <select id="painel-carteira" class="filter-select" style="width:100%;font-size:12px" onchange="painelSalvar('carteira',this.value)">
+                <option>Comercial</option><option>Dra. Izabela</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Etiquetas</div>
+              <div id="painel-tags" style="display:flex;flex-wrap:wrap;gap:5px"></div>
             </div>
             <div>
               <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Agendamento Clinicorp</div>
@@ -2779,12 +2780,8 @@ function _initPainel(lead) {
   document.getElementById('painel-proximo-contato-wrap').style.display =
     _chatMode === 'avaliacao' ? '' : 'none';
 
-  const disc = lead.perfil_disc || '';
-  ['D','I','S','C'].forEach(d => {
-    const btn = document.getElementById('disc-' + d);
-    btn.style.opacity = (!disc || disc === d) ? '1' : '0.3';
-    btn.style.fontWeight = disc === d ? '900' : '700';
-  });
+  document.getElementById('painel-carteira').value = lead.carteira || 'Comercial';
+  renderPainelTags();
 
   // Agendamento Clinicorp
   const agInfo = document.getElementById('painel-ag-info');
@@ -2867,7 +2864,7 @@ async function painelNotasSalvar(valor, campo) {
 
 async function painelSalvar(campo, valor) {
   if (!chatLeadAtual) return;
-  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','perfil_disc']);
+  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','perfil_disc','carteira']);
   if (!CAMPOS_PAINEL.has(campo)) return;
   const body = { [campo]: valor };
   try {
@@ -2902,6 +2899,26 @@ async function carregarPainelCrc(lead) {
   sel.innerHTML = '<option value="">— sem responsável —</option>' +
     _crcsLead.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.nome)}</option>`).join('');
   sel.value = lead.crc_agendamento_id || '';
+}
+
+function renderPainelTags() {
+  const el = document.getElementById('painel-tags');
+  if (!el || !chatLeadAtual) return;
+  const atuais = chatLeadAtual.etiquetas || [];
+  const all = [...new Set([...ETIQUETAS_PADRAO, ...atuais])];
+  el.innerHTML = all.map(t =>
+    `<span class="tag-pill ${atuais.includes(t) ? 'active' : ''}" data-tag="${escHtml(t)}" onclick="togglePainelTag(this.dataset.tag)">${escHtml(t)}</span>`
+  ).join('');
+}
+async function togglePainelTag(t) {
+  if (!chatLeadAtual) return;
+  let atuais = chatLeadAtual.etiquetas || [];
+  atuais = atuais.includes(t) ? atuais.filter(x => x !== t) : [...atuais, t];
+  chatLeadAtual.etiquetas = atuais;
+  renderPainelTags();
+  try {
+    await api('/api/leads/' + chatLeadAtual.id, { method: 'PATCH', body: JSON.stringify({ etiquetas: atuais }) });
+  } catch(e) { toast('❌ Erro ao salvar etiqueta', true); }
 }
 
 async function painelSalvarCrc(crcId, sel) {
