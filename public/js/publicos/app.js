@@ -50,7 +50,7 @@ function preencherFormulario(regra) {
 let _previewTimer = null;
 function agendarPreview() { clearTimeout(_previewTimer); _previewTimer = setTimeout(atualizarPreview, 400); }
 
-function _esc(s) { return String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+function _esc(s) { return String(s == null ? '' : s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 async function atualizarPreview() {
   const total = document.getElementById('preview-total');
