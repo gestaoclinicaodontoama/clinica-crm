@@ -7101,7 +7101,7 @@ app.get('/api/producao/dentista/custo-real', requireAuth, requireProducao, async
   try {
     const { data: configs, error: eConf } = await supabase
       .from('dentista_config')
-      .select('dentist_person_id, keyword_despesa, persona_avaliacao_id')
+      .select('dentist_person_id, keyword_despesa, persona_avaliacao_id, horas_semana_exec, horas_semana_aval')
       .not('keyword_despesa', 'is', null);
     if (eConf) throw new Error(eConf.message);
     if (!configs?.length) return res.json({ data: [] });
@@ -7131,15 +7131,39 @@ app.get('/api/producao/dentista/custo-real', requireAuth, requireProducao, async
         if (r.dentist_person_id === c.dentist_person_id) horas_exec = Number(r.horas);
         else horas_aval += Number(r.horas);
       }
-
       const horas_total = horas_exec + horas_aval;
-      const custo_proporcional = horas_total > 0 ? pago * (horas_exec / horas_total) : pago;
+
+      // Rateio do salário: se há escala fixa configurada (horas/semana de execução
+      // e avaliação), usa essa proporção estável. Senão, cai nas horas realmente
+      // agendadas. Sem persona de avaliação → custo é o pago integral.
+      const esc_exec = Number(c.horas_semana_exec) || 0;
+      const esc_aval = Number(c.horas_semana_aval) || 0;
+      const esc_total = esc_exec + esc_aval;
+
+      let proporcao_exec, base_rateio;
+      if (c.persona_avaliacao_id && esc_total > 0) {
+        proporcao_exec = esc_exec / esc_total;
+        base_rateio = 'escala';
+      } else if (c.persona_avaliacao_id && horas_total > 0) {
+        proporcao_exec = horas_exec / horas_total;
+        base_rateio = 'agendadas';
+      } else {
+        proporcao_exec = 1;
+        base_rateio = 'integral';
+      }
+      const custo_proporcional = pago * proporcao_exec;
 
       return {
         dentist_person_id:  c.dentist_person_id,
+        _keyword:           c.keyword_despesa || '',
+        _avaliacao_id:      c.persona_avaliacao_id || '',
         pago:               Math.round(pago * 100) / 100,
         horas_exec:         Math.round(horas_exec * 100) / 100,
         horas_aval:         Math.round(horas_aval * 100) / 100,
+        horas_semana_exec:  esc_exec || null,
+        horas_semana_aval:  esc_aval || null,
+        base_rateio,
+        proporcao_exec:     Math.round(proporcao_exec * 1000) / 10,
         custo_proporcional: Math.round(custo_proporcional * 100) / 100,
         pagamentos:         (pagamentos || []).map(p => ({
           descricao: p.descricao,
@@ -7158,7 +7182,8 @@ app.get('/api/producao/dentista/custo-real', requireAuth, requireProducao, async
 
 // Salvar config de dentista (keyword despesas + ID persona avaliação)
 app.post('/api/producao/dentista/config', requireAuth, requireProducao, async (req, res) => {
-  const { dentist_person_id, dentist_name, keyword_despesa, persona_avaliacao_id } = req.body;
+  const { dentist_person_id, dentist_name, keyword_despesa, persona_avaliacao_id,
+          horas_semana_exec, horas_semana_aval } = req.body;
   if (!dentist_person_id) return res.status(400).json({ error: 'dentist_person_id obrigatório' });
   try {
     const { error } = await supabase.from('dentista_config').upsert({
@@ -7166,6 +7191,8 @@ app.post('/api/producao/dentista/config', requireAuth, requireProducao, async (r
       dentist_name:         dentist_name || null,
       keyword_despesa:      keyword_despesa || null,
       persona_avaliacao_id: persona_avaliacao_id || null,
+      horas_semana_exec:    (horas_semana_exec === '' || horas_semana_exec == null) ? null : Number(horas_semana_exec),
+      horas_semana_aval:    (horas_semana_aval === '' || horas_semana_aval == null) ? null : Number(horas_semana_aval),
       atualizado_em:        new Date().toISOString(),
     }, { onConflict: 'dentist_person_id' });
     if (error) throw new Error(error.message);

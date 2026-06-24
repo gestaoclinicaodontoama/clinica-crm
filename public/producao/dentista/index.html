@@ -172,8 +172,16 @@ tr:hover td{background:var(--bg3)}
     <input type="text" id="configKeyword" placeholder="Ex: Marcos Vinicius">
     <p style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:12px">Busca em fin_lancamentos.descricao (ILIKE %keyword%)</p>
     <label>ID persona Avaliação (opcional)</label>
-    <input type="text" id="configAvalId" placeholder="Ex: 5757301300985856">
+    <input type="text" id="configAvalId" placeholder="Ex: 5757301300985856" oninput="toggleEscalaWrap()">
     <p style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:12px">Para calcular proporção execução/total</p>
+    <div id="configEscalaWrap" style="display:none">
+      <label>Horas de escala por semana (rateio do salário)</label>
+      <div style="display:flex;gap:8px">
+        <input type="number" id="configHorasExec" placeholder="Execução (ex: 8)" step="0.5" min="0" style="flex:1">
+        <input type="number" id="configHorasAval" placeholder="Avaliação (ex: 36)" step="0.5" min="0" style="flex:1">
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px;margin-bottom:12px">Proporção fixa da escala. Se vazio, usa as horas realmente agendadas no período.</p>
+    </div>
     <div class="modal-btns">
       <button class="btn btn-ghost" onclick="fecharModal('modalConfig')">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarConfig2()">Salvar</button>
@@ -432,7 +440,9 @@ function cardHtml(d) {
     if (ratio != null) {
       const cls = ratio <= 8 ? 'ratio-green' : ratio < 15 ? 'ratio-yellow' : 'ratio-red';
       const emoji = ratio <= 8 ? '🟢' : ratio < 15 ? '🟡' : '🔴';
-      const tooltip = `Pago proporcional: ${brl(cr.custo_proporcional)} | Exec: ${cr.horas_exec}h | Aval: ${cr.horas_aval}h`;
+      const tooltip = cr._avaliacao_id
+        ? `Custo proporcional execução: ${brl(cr.custo_proporcional)} (${cr.proporcao_exec}% do salário ${brl(cr.pago)}, base ${cr.base_rateio})`
+        : `Pago no período: ${brl(cr.pago)}`;
       ratioBadge = `<span class="ratio-badge ${cls}" title="${esc(tooltip)}">${emoji} Custo s/ produção: ${ratio.toFixed(1)}%</span>`;
     }
   }
@@ -501,7 +511,7 @@ function cardHtml(d) {
           </tr>`).join('')}
         </tbody>
       </table>
-      ${cr.horas_aval > 0 ? `<div class="pgto-prop">Custo proporcional execução: <strong>${brl(cr.custo_proporcional)}</strong> (exec ${cr.horas_exec}h / total ${Math.round((cr.horas_exec+cr.horas_aval)*10)/10}h)</div>` : ''}
+      ${cr._avaliacao_id ? `<div class="pgto-prop">Custo proporcional execução: <strong>${brl(cr.custo_proporcional)}</strong> — ${cr.proporcao_exec}% do salário${cr.base_rateio === 'escala' ? ` (escala fixa: ${cr.horas_semana_exec}h exec / ${cr.horas_semana_exec + cr.horas_semana_aval}h semana)` : ` (horas agendadas: ${cr.horas_exec}h exec / ${Math.round((cr.horas_exec+cr.horas_aval)*10)/10}h)`}</div>` : ''}
     </div>
   </div>` : (cr && cr.pago === 0 ? `<div class="pgto-section" style="font-size:12px;color:var(--muted);padding-top:10px;border-top:1px solid var(--border)">💰 Nenhum pagamento encontrado no período</div>` : '')}
 </div>`;
@@ -656,14 +666,25 @@ function abrirModalConfig(dentId, dentName) {
   document.getElementById('configDentLabel').value = dentName;
   document.getElementById('configKeyword').value   = cr?._keyword || '';
   document.getElementById('configAvalId').value    = cr?._avaliacao_id || '';
+  document.getElementById('configHorasExec').value = cr?.horas_semana_exec ?? '';
+  document.getElementById('configHorasAval').value = cr?.horas_semana_aval ?? '';
+  toggleEscalaWrap();
   document.getElementById('configMsg').textContent = '';
   document.getElementById('modalConfig').style.display = 'flex';
+}
+
+// Campos de escala só fazem sentido quando há persona de avaliação (dentista com 2 agendas)
+function toggleEscalaWrap() {
+  const tem = document.getElementById('configAvalId').value.trim() !== '';
+  document.getElementById('configEscalaWrap').style.display = tem ? 'block' : 'none';
 }
 
 async function salvarConfig2() {
   const dentId  = document.getElementById('configDentId').value;
   const keyword = document.getElementById('configKeyword').value.trim();
   const avalId  = document.getElementById('configAvalId').value.trim();
+  const hExec   = document.getElementById('configHorasExec').value.trim();
+  const hAval   = document.getElementById('configHorasAval').value.trim();
   const msg     = document.getElementById('configMsg');
   if (!keyword) { msg.className = 'modal-msg err'; msg.textContent = 'Keyword obrigatória'; return; }
   try {
@@ -674,6 +695,8 @@ async function salvarConfig2() {
         dentist_person_id:    dentId,
         keyword_despesa:      keyword,
         persona_avaliacao_id: avalId || null,
+        horas_semana_exec:    avalId ? (hExec || null) : null,
+        horas_semana_aval:    avalId ? (hAval || null) : null,
       }),
     });
     const json = await res.json();
