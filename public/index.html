@@ -914,6 +914,10 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
         <label>Template (aprovado)</label>
         <select id="disp-template"><option value="">Carregando...</option></select>
       </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Disparar pelo número</label>
+        <select id="disp-numero"><option value="">Carregando...</option></select>
+      </div>
     </div>
 
     <div class="form-group" style="margin-bottom:8px">
@@ -3926,6 +3930,14 @@ async function dispCarregarTemplates() {
       ? aprovados.map(t => `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}</option>`).join('')
       : '<option value="">Nenhum template aprovado</option>';
   } catch (e) { sel.innerHTML = '<option value="">Erro ao carregar</option>'; }
+  try {
+    const cfg = await api('/api/config/wa');
+    const selN = document.getElementById('disp-numero');
+    const ids = (cfg.sendable && cfg.sendable.length) ? cfg.sendable : Object.keys(cfg.numbers || {});
+    selN.innerHTML = ids.map(id =>
+      `<option value="${id}">${(cfg.numbers && cfg.numbers[id]) || id}</option>`).join('');
+    if (cfg.defaultPhoneId && ids.includes(cfg.defaultPhoneId)) selN.value = cfg.defaultPhoneId;
+  } catch (e) { console.error('disp numeros:', e); }
 }
 
 function dispArquivoEscolhido(ev) {
@@ -3975,7 +3987,8 @@ async function dispCriarEIniciar(btn) {
   if (!confirm(`Disparar "${template_nome}" para esta lista? Os envios começam agora.`)) return;
   btn.disabled = true; btn.textContent = 'Criando...';
   try {
-    const r = await api('/api/disparos/criar', { method: 'POST', body: JSON.stringify({ nome, template_nome, texto }) });
+    const wa_number_id = document.getElementById('disp-numero').value;
+    const r = await api('/api/disparos/criar', { method: 'POST', body: JSON.stringify({ nome, template_nome, texto, wa_number_id }) });
     if (r.error) { toast('❌ ' + r.error, true); return; }
     const ini = await api(`/api/disparos/${r.campanha_id}/iniciar`, { method: 'POST', body: '{}' });
     if (ini.error) { toast('❌ ' + ini.error, true); return; }
