@@ -216,7 +216,8 @@ app.get('/api/config/wa', requireAuth, async (req, res) => {
           || Object.keys(numbers)[0] || '';
       }
     }
-    res.json({ numbers, defaultPhoneId });
+    const sendable = Object.keys(await whatsapp.getPhoneNumbers());
+    res.json({ numbers, defaultPhoneId, sendable });
   } catch (e) {
     res.json({ numbers: {}, defaultPhoneId: '' });
   }
@@ -1337,6 +1338,13 @@ app.post('/api/disparos/criar', requireAuth, requireDisparos, _upload.single('fi
     const nome = sanitizeStr(req.body.nome, 120);
     const template_nome = sanitizeStr(req.body.template_nome, 100);
     const lang = sanitizeStr(req.body.lang || 'pt_BR', 12);
+    // Número de envio: ausente = default (compat); presente precisa ter token (2873/8700).
+    const sendable = await whatsapp.getPhoneNumbers();
+    let wa_number_id = sanitizeStr(req.body.wa_number_id || '', 50);
+    if (!wa_number_id) wa_number_id = whatsapp.defaultPhoneId() || '';
+    else if (!sendable[wa_number_id]) {
+      return res.status(400).json({ error: 'Número sem credencial de envio configurada' });
+    }
     if (!nome) return res.status(400).json({ error: 'Nome da campanha obrigatório' });
     if (!template_nome) return res.status(400).json({ error: 'Template obrigatório' });
     if (!(await templateAprovado(template_nome))) return res.status(400).json({ error: 'Template não aprovado pela Meta' });
@@ -1347,7 +1355,7 @@ app.post('/api/disparos/criar', requireAuth, requireDisparos, _upload.single('fi
     if (contatos.length > DISPARO_MAX_CONTATOS) return res.status(413).json({ error: 'Lista muito grande (máximo ' + DISPARO_MAX_CONTATOS + ' contatos)' });
 
     const { data: camp, error: cErr } = await supabase.from('disparos_campanhas').insert({
-      nome, template_nome, lang, total: contatos.length,
+      nome, template_nome, lang, total: contatos.length, wa_number_id,
       status: 'rascunho', criado_por: req.user.id,
     }).select().single();
     if (cErr) throw cErr;
