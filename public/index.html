@@ -3934,6 +3934,7 @@ async function dispCarregarTemplates() {
     const cfg = await api('/api/config/wa');
     const selN = document.getElementById('disp-numero');
     const ids = (cfg.sendable && cfg.sendable.length) ? cfg.sendable : Object.keys(cfg.numbers || {});
+    if (!ids.length) { console.error('disp numeros: lista vazia'); return; }
     selN.innerHTML = ids.map(id =>
       `<option value="${id}">${(cfg.numbers && cfg.numbers[id]) || id}</option>`).join('');
     if (cfg.defaultPhoneId && ids.includes(cfg.defaultPhoneId)) selN.value = cfg.defaultPhoneId;
@@ -3984,10 +3985,11 @@ async function dispCriarEIniciar(btn) {
   if (!nome) { toast('Dê um nome à campanha', true); return; }
   if (!template_nome) { toast('Escolha um template aprovado', true); return; }
   if (!texto) { toast('Cole a lista ou escolha um CSV', true); return; }
+  const wa_number_id = document.getElementById('disp-numero').value;
+  if (!wa_number_id) { toast('Selecione o número de disparo', true); return; }
   if (!confirm(`Disparar "${template_nome}" para esta lista? Os envios começam agora.`)) return;
   btn.disabled = true; btn.textContent = 'Criando...';
   try {
-    const wa_number_id = document.getElementById('disp-numero').value;
     const r = await api('/api/disparos/criar', { method: 'POST', body: JSON.stringify({ nome, template_nome, texto, wa_number_id }) });
     if (r.error) { toast('❌ ' + r.error, true); return; }
     const ini = await api(`/api/disparos/${r.campanha_id}/iniciar`, { method: 'POST', body: '{}' });
