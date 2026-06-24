@@ -5598,6 +5598,17 @@ app.get('/api/leads/:id/trajeto', requireAuth, requireRole('admin', 'gestor', 'c
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Perfil 360º — dados do Clinicorp (financeiro, procedimentos, agendamentos) vinculados por telefone
+app.get('/api/leads/:id/clinicorp', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { data, error } = await supabase.rpc('perfil_clinicorp', { p_lead_id: id });
+    if (error) throw error;
+    res.json(data || { vinculado: false });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const periodo = parseInt(req.query.periodo, 10) || 30;

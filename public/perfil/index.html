@@ -79,6 +79,7 @@ async function init(){
   try{ lead=await api('/api/leads/'+id); }catch(e){ document.getElementById('wrap').innerHTML='<div class="empty">Não foi possível abrir este perfil.</div>'; return; }
   renderHead(lead);
   carregarTrajeto(true);
+  carregarClinicorp();
 }
 
 function renderHead(l){
@@ -107,11 +108,48 @@ function renderHead(l){
         ${l.telefone?`<a class="sec" href="https://wa.me/55${(l.telefone||'').replace(/\\D/g,'')}" target="_blank">WhatsApp</a>`:''}
       </div>
     </div>
+    <div id="clinicorp"><div class="card"><div class="empty">Carregando dados clínicos…</div></div></div>
     <div class="card">
       <h2>🕒 Linha do tempo</h2>
       <div class="tl" id="tl"></div>
       <div id="tl-empty"></div>
       <button class="mais" id="btn-mais" style="display:none" onclick="carregarTrajeto(false)">Carregar mais</button>
+    </div>`;
+}
+
+function fmtCheckin(ms){ const n=Number(ms); if(!n) return ''; return new Date(n).toLocaleDateString('pt-BR'); }
+async function carregarClinicorp(){
+  const box=document.getElementById('clinicorp');
+  let d;
+  try{ d=await api('/api/leads/'+id+'/clinicorp'); }catch(e){ box.innerHTML=''; return; }
+  if(!d || !d.vinculado){ box.innerHTML='<div class="card"><h2>🦷 Clínico & Financeiro (Clinicorp)</h2><div class="empty">Sem paciente vinculado no Clinicorp (busca por telefone).</div></div>'; return; }
+  const p=d.paciente||{}, f=d.financeiro||{}, procs=d.procedimentos||[], ags=d.agendamentos||[];
+  const ultVisita = ags.find(a=>a.checkin)?.checkin;
+  const fin=`<div class="raiox" style="border:0;margin:0;padding:0">
+      <div class="rx"><div class="l">Total pago</div><div class="v" style="color:var(--green)">${fmtBRL(f.pago)}</div></div>
+      <div class="rx"><div class="l">Lançamentos</div><div class="v">${f.lancamentos||0}</div></div>
+      <div class="rx"><div class="l">Último pgto</div><div class="v" style="font-size:13px">${f.ultimo_pgto?fmtDia(f.ultimo_pgto):'—'}</div></div>
+      <div class="rx"><div class="l">Última visita</div><div class="v" style="font-size:13px">${ultVisita?fmtCheckin(ultVisita):'—'}</div></div>
+    </div>`;
+  const procHtml = procs.length ? procs.slice(0,40).map(x=>`<div class="ev" style="padding-left:0;border:0">
+      <div class="d">${x.data?fmtDia(x.data):'—'} · ${esc(x.dentista||'')}</div>
+      <div class="t" style="font-weight:500">${esc(x.nome||'Procedimento')}${x.valor?` <span style="color:var(--muted);font-weight:400">· R$ ${Math.round(x.valor)}</span>`:''}</div>
+    </div>`).join('') : '<div class="empty">Nenhum procedimento realizado.</div>';
+  const agHtml = ags.length ? ags.slice(0,30).map(a=>`<div class="ev" style="padding-left:0;border:0">
+      <div class="t" style="font-weight:500">${a.data?fmtDia(a.data):'—'}${a.checkin?' · ✅ compareceu':''}${a.categoria?` · ${esc(a.categoria)}`:''}${a.dentista?` · ${esc(a.dentista)}`:''}</div>
+    </div>`).join('') : '<div class="empty">Nenhum agendamento.</div>';
+  box.innerHTML=`
+    <div class="card">
+      <h2>💰 Financeiro & Paciente <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· ${esc(p.nome||'')}${p.plano?' · '+esc(p.plano):''}${p.prontuario?' · prontuário '+p.prontuario:''}</span></h2>
+      ${fin}
+    </div>
+    <div class="card">
+      <h2>🦷 Procedimentos realizados <span style="font-weight:400;color:var(--muted)">(${procs.length})</span></h2>
+      <div style="display:flex;flex-direction:column;gap:9px">${procHtml}</div>
+    </div>
+    <div class="card">
+      <h2>📅 Agendamentos clínicos <span style="font-weight:400;color:var(--muted)">(${ags.length})</span></h2>
+      <div style="display:flex;flex-direction:column;gap:7px">${agHtml}</div>
     </div>`;
 }
 
