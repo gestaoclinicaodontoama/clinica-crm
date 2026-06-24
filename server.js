@@ -4071,11 +4071,25 @@ app.get('/api/admin/capi-saude', requireAuth, requireGestor, async (req, res) =>
   try {
     const agora = new Date();
     const rows = await capiCarregarRows(21);
+    // Erros recentes (7d): subcode -> contagem + última ocorrência + página(s) afetada(s)
+    const corte7 = new Date(agora - 7 * 86400000);
+    const errosMap = {};
+    for (const r of rows) {
+      if (r.sucesso || !r.subcode || r.ts < corte7) continue;
+      const e = errosMap[r.subcode] || (errosMap[r.subcode] = { subcode: r.subcode, count: 0, ultima: null, paginas: new Set() });
+      e.count++;
+      if (!e.ultima || r.ts > e.ultima) e.ultima = r.ts;
+      if (r.pageId) e.paginas.add(r.pageId);
+    }
+    const erros = Object.values(errosMap)
+      .map(e => ({ subcode: e.subcode, count: e.count, ultima: e.ultima ? e.ultima.toISOString() : null, paginas: [...e.paginas] }))
+      .sort((a, b) => b.count - a.count);
     res.json({
       semana: capiHealth.contagensPorSemana(rows, agora),
       cobertura: capiHealth.coberturaMatch(rows.filter(r => r.ts >= new Date(agora - 7 * 86400000))),
       totais7d: capiHealth.totais7d(rows, agora),
       gatilhos: capiHealth.avaliarGatilhos(rows, agora),
+      erros,
       atualizadoEm: agora.toISOString(),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -4170,34 +4184,79 @@ async function capiEnviarResumo(slot, force = false) {
   console.log('[capi-monitor] scheduler de resumos 8h/18h ativo');
 })();
 
-// Conjuntos de anúncio rumo aos 50/semana (limiar da fase de aprendizado do Meta,
-// que é POR CONJUNTO). Conversas iniciadas por adset nos últimos 7 dias, direto das
-// insights da Meta — mesmo action_type usado em /api/meta-insights.
-app.get('/api/admin/capi-saude/adsets', requireAuth, requireGestor, async (req, res) => {
+// Conjuntos de anúncio: cruza CONVERSAS (Meta, evento de otimização atual) com o que o
+// NOSSO CAPI registrou de volta por conjunto (eventos do funil com SUCESSO). Expõe os
+// conjuntos que recebem conversa mas NÃO retornam pelo CAPI (ex.: página não conectada
+// ao dataset). O limiar 50/sem vale só no evento de otimização (hoje = conversa). 7 dias.
+const CAPI_EVENTOS_FUNIL = ['LeadSubmitted', 'LeadQualified', 'Schedule', 'Contact', 'Purchase'];
+app.get('/api/admin/capi-saude/conjuntos', requireAuth, requireGestor, async (req, res) => {
   try {
     const TOKEN = process.env.META_ACCESS_TOKEN;
-    if (!TOKEN) return res.json({ sem_token: true, conjuntos: [], meta: 50 });
-    const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-    const timeRange = JSON.stringify({ since: ymd(new Date(Date.now() - 7 * 86400000)), until: ymd(new Date()) });
-    const filtering = JSON.stringify([{ field: 'adset.effective_status', operator: 'IN', value: ['ACTIVE'] }]);
-    const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
-      '/insights?level=adset&fields=adset_id,adset_name,campaign_name,actions' +
-      '&filtering=' + encodeURIComponent(filtering) +
-      '&time_range=' + encodeURIComponent(timeRange) + '&limit=200';
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 25000);
-    let r;
-    try { r = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN }, signal: ctrl.signal }); }
-    finally { clearTimeout(to); }
-    const json = await r.json();
-    if (json.error) return res.json({ erro_meta: json.error.message || 'Erro Meta', conjuntos: [], meta: 50 });
-    const conjuntos = (json.data || []).map(row => {
-      const conv = (row.actions || []).find(a => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
-      return { adset_id: row.adset_id, adset_name: row.adset_name, campaign_name: row.campaign_name, conversas: conv ? parseInt(conv.value, 10) : 0 };
-    }).filter(c => c.conversas > 0).sort((a, b) => b.conversas - a.conversas);
-    res.json({ conjuntos, meta: 50, atualizadoEm: new Date().toISOString() });
+    const desde = new Date(Date.now() - 7 * 86400000);
+    // 1) Meta insights nível ANÚNCIO: mapeia ad_id -> conjunto e soma conversas por conjunto
+    const adsetInfo = {};   // adset_id -> { adset_name, campaign_name, conversas }
+    const adToAdset = {};   // ad_id -> adset_id
+    let metaErro = TOKEN ? null : 'sem_token';
+    if (TOKEN) {
+      const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const timeRange = JSON.stringify({ since: ymd(desde), until: ymd(new Date()) });
+      const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
+        '/insights?level=ad&fields=ad_id,adset_id,adset_name,campaign_name,actions' +
+        '&time_range=' + encodeURIComponent(timeRange) + '&limit=500';
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 25000);
+      let r;
+      try { r = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN }, signal: ctrl.signal }); }
+      finally { clearTimeout(to); }
+      const json = await r.json();
+      if (json.error) metaErro = json.error.message || 'Erro Meta';
+      else (json.data || []).forEach(row => {
+        const conv = (row.actions || []).find(a => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+        adToAdset[row.ad_id] = row.adset_id;
+        if (!adsetInfo[row.adset_id]) adsetInfo[row.adset_id] = { adset_name: row.adset_name, campaign_name: row.campaign_name, conversas: 0 };
+        adsetInfo[row.adset_id].conversas += conv ? parseInt(conv.value, 10) : 0;
+      });
+    }
+    // 2) Nosso CAPI: eventos (7d) -> ad_id do lead (lead.campanha) -> sucesso/falha por conjunto
+    const eventos = [];
+    let from = 0; const passo = 1000;
+    while (true) {
+      const { data, error } = await supabase.from('lead_eventos')
+        .select('lead_id, metadata').eq('tipo', 'capi_disparado').gte('criado_em', desde.toISOString())
+        .order('criado_em', { ascending: false }).range(from, from + passo - 1);
+      if (error) throw error;
+      eventos.push(...(data || []));
+      if (!data || data.length < passo) break;
+      from += passo;
+    }
+    const leadIds = [...new Set(eventos.map(e => e.lead_id).filter(Boolean))];
+    const leadAd = {};
+    for (let i = 0; i < leadIds.length; i += 300) {
+      const { data } = await supabase.from('leads').select('id, campanha').in('id', leadIds.slice(i, i + 300));
+      (data || []).forEach(l => { if (l.campanha && /^\d{6,}$/.test(l.campanha)) leadAd[l.id] = l.campanha; });
+    }
+    const capiByAdset = {}; // adset_id -> { EVENTO: {ok,fail} }
+    for (const ev of eventos) {
+      const adId = leadAd[ev.lead_id]; if (!adId) continue;
+      const adset = adToAdset[adId]; if (!adset) continue;
+      const m = ev.metadata || {}; if (!CAPI_EVENTOS_FUNIL.includes(m.evento)) continue;
+      const ok = m.sucesso === true || m.sucesso === 'true';
+      capiByAdset[adset] = capiByAdset[adset] || {};
+      capiByAdset[adset][m.evento] = capiByAdset[adset][m.evento] || { ok: 0, fail: 0 };
+      ok ? capiByAdset[adset][m.evento].ok++ : capiByAdset[adset][m.evento].fail++;
+    }
+    // 3) monta as linhas (conjuntos com conversa>0 OU com algum evento CAPI)
+    const ids = new Set([...Object.keys(adsetInfo).filter(id => adsetInfo[id].conversas > 0), ...Object.keys(capiByAdset)]);
+    const conjuntos = [...ids].map(id => {
+      const info = adsetInfo[id] || { adset_name: '(conjunto fora do período)', campaign_name: '', conversas: 0 };
+      const eventos = {};
+      for (const e of CAPI_EVENTOS_FUNIL) eventos[e] = (capiByAdset[id] && capiByAdset[id][e]) || { ok: 0, fail: 0 };
+      const capiRetorna = eventos.LeadSubmitted.ok > 0;
+      return { adset_id: id, adset_name: info.adset_name, campaign_name: info.campaign_name, conversas: info.conversas, eventos, capiRetorna };
+    }).sort((a, b) => b.conversas - a.conversas);
+    res.json({ conjuntos, meta: 50, eventoOtimizacao: 'conversa', eventosFunil: CAPI_EVENTOS_FUNIL, metaErro, atualizadoEm: new Date().toISOString() });
   } catch (e) {
-    if (e.name === 'AbortError') return res.json({ erro_meta: 'Meta não respondeu a tempo', conjuntos: [], meta: 50 });
+    if (e.name === 'AbortError') return res.json({ metaErro: 'Meta não respondeu a tempo', conjuntos: [], meta: 50 });
     res.status(500).json({ error: e.message });
   }
 });
