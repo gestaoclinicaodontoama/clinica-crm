@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perfil — CRM AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#8a93a6;--accent:#4f8ef7;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444;--purple:#a855f7;--cyan:#06b6d4;}
+:root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--green:#16a34a;--yellow:#d97706;--red:#dc2626;--purple:#9333ea;--cyan:#0891b2;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:0 0 40px}
+.top{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:10}
+.back{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--text);text-decoration:none;font-size:13px;font-weight:600;cursor:pointer}
+.wrap{max-width:920px;margin:0 auto;padding:20px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.idhead{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.avatar{width:48px;height:48px;border-radius:50%;background:var(--green);color:#062b16;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px}
+.nome{font-size:19px;font-weight:700}
+.tel{color:var(--muted);font-family:'DM Mono',monospace;font-size:13px}
+.badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:5px;background:var(--bg3);color:var(--text)}
+.raiox{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.rx{min-width:90px}
+.rx .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.rx .v{font-size:15px;font-weight:700;font-family:'DM Mono',monospace;margin-top:2px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:6px 0 12px}
+.tl{border-left:2px solid var(--border);margin-left:8px;padding-left:0}
+.ev{position:relative;padding:0 0 16px 26px}
+.ev::before{content:'';position:absolute;left:-8px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--bg2);border:2px solid var(--accent)}
+.ev .ico{position:absolute;left:-7px;top:1px;font-size:12px;line-height:1}
+.ev .d{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+.ev .t{font-size:13.5px;font-weight:600;margin-top:1px}
+.ev .desc{font-size:12.5px;color:var(--muted);margin-top:1px;line-height:1.4}
+.mais{display:block;margin:4px auto 0;padding:7px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--muted);cursor:pointer;font-size:12px}
+.empty{color:var(--muted);font-size:13px;text-align:center;padding:20px}
+.linkrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.linkrow a{font-size:12.5px;padding:7px 12px;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600}
+.linkrow a.sec{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+</style>
+</head>
+<body>
+<div class="top">
+  <a class="back" href="/?page=leads">← Voltar</a>
+  <strong style="font-size:14px">Perfil 360º</strong>
+</div>
+<div class="wrap" id="wrap"><div class="empty">Carregando…</div></div>
+
+<script>
+(function(){ try{ const t=localStorage.getItem('crm-theme')||'dark'; document.documentElement.setAttribute('data-theme',t);}catch(_){document.documentElement.setAttribute('data-theme','dark');} })();
+
+let _token=null;
+for(const k of Object.keys(localStorage)){ if(k.startsWith('sb-')&&k.endsWith('-auth-token')){ try{_token=JSON.parse(localStorage.getItem(k))?.access_token;}catch(_){}}}
+if(!_token){ window.location.href='/'; throw new Error('no token'); }
+
+async function api(path){ const r=await fetch(path,{headers:{Authorization:'Bearer '+_token}}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fmtBRL(v){return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0});}
+function fmtData(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});}
+function fmtDia(iso){ if(!iso) return '—'; return new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});}
+
+// tipo de evento -> ícone + rótulo legível
+const EV={
+  lead_criado:['🟦','Lead criado'], historico_lead_criado:['🟦','Lead criado'],
+  mensagem_recebida:['💬','Mensagem recebida'], mensagem_enviada:['📤','Mensagem enviada'],
+  historico_agendado:['📅','Agendou avaliação'], status_mudou:['🔄','Mudança de etapa'],
+  historico_compareceu:['🟣','Compareceu'], historico_orcamento:['📄','Orçamento'],
+  historico_fechou:['💰','Fechou'], ligacao:['📞','Ligação'], pixel_pagina:['👀','Visitou o site'],
+  disparo_massa:['📢','Disparo em massa'], nota_sdr_editada:['📝','Nota editada'],
+  capi_disparado:['📊','Evento enviado à Meta'], leads_mesclados:['🔗','Cadastros mesclados'],
+  mensagem_falhou:['⚠️','Mensagem não entregue'],
+};
+
+const id=new URLSearchParams(location.search).get('id');
+let _offset=0; const _limit=50; let _total=0;
+
+async function init(){
+  if(!id){ document.getElementById('wrap').innerHTML='<div class="empty">Lead não informado.</div>'; return; }
+  let lead;
+  try{ lead=await api('/api/leads/'+id); }catch(e){ document.getElementById('wrap').innerHTML='<div class="empty">Não foi possível abrir este perfil.</div>'; return; }
+  renderHead(lead);
+  carregarTrajeto(true);
+}
+
+function renderHead(l){
+  const inicial=(l.nome||'?').trim().charAt(0).toUpperCase();
+  const wrap=document.getElementById('wrap');
+  wrap.innerHTML=`
+    <div class="card">
+      <div class="idhead">
+        <div class="avatar">${esc(inicial)}</div>
+        <div style="flex:1;min-width:180px">
+          <div class="nome">${esc(l.nome||'Sem nome')}</div>
+          <div class="tel">${esc(l.telefone||'—')}${l.email?' · '+esc(l.email):''}</div>
+        </div>
+        <span class="badge" style="background:rgba(79,142,247,.15);color:var(--accent)">${esc(l.status||'—')}</span>
+        ${l.carteira&&l.carteira!=='Comercial'?`<span class="badge" style="background:rgba(168,85,247,.15);color:var(--purple)">${esc(l.carteira)}</span>`:''}
+      </div>
+      <div class="raiox">
+        <div class="rx"><div class="l">Valor</div><div class="v" style="color:var(--green)">${l.valor?fmtBRL(l.valor):'—'}</div></div>
+        <div class="rx"><div class="l">Lead desde</div><div class="v">${fmtDia(l.criado_em)}</div></div>
+        <div class="rx"><div class="l">Compareceu</div><div class="v">${l.data_comparecimento?fmtDia(l.data_comparecimento):'—'}</div></div>
+        <div class="rx"><div class="l">Orçamento</div><div class="v">${l.data_orcamento?fmtDia(l.data_orcamento):'—'}</div></div>
+        <div class="rx"><div class="l">Origem</div><div class="v" style="font-size:13px">${esc(l.origem||'—')}</div></div>
+      </div>
+      <div class="linkrow">
+        <a href="/?abrir_lead=${l.id}">Abrir no CRM / conversa</a>
+        ${l.telefone?`<a class="sec" href="https://wa.me/55${(l.telefone||'').replace(/\\D/g,'')}" target="_blank">WhatsApp</a>`:''}
+      </div>
+    </div>
+    <div class="card">
+      <h2>🕒 Linha do tempo</h2>
+      <div class="tl" id="tl"></div>
+      <div id="tl-empty"></div>
+      <button class="mais" id="btn-mais" style="display:none" onclick="carregarTrajeto(false)">Carregar mais</button>
+    </div>`;
+}
+
+async function carregarTrajeto(reset){
+  if(reset){ _offset=0; document.getElementById('tl').innerHTML=''; }
+  let r;
+  try{ r=await api('/api/leads/'+id+'/trajeto?offset='+_offset+'&limit='+_limit); }catch(e){ return; }
+  _total=r.total||0;
+  const evs=r.eventos||[];
+  if(reset && !evs.length){ document.getElementById('tl-empty').innerHTML='<div class="empty">Sem histórico registrado ainda.</div>'; return; }
+  const html=evs.map(e=>{
+    const [ico,rot]=EV[e.tipo]||['•',e.tipo||'Evento'];
+    return `<div class="ev"><span class="ico">${ico}</span>
+      <div class="d">${fmtData(e.criado_em)}</div>
+      <div class="t">${esc(rot)}</div>
+      ${e.descricao?`<div class="desc">${esc(e.descricao)}</div>`:''}</div>`;
+  }).join('');
+  document.getElementById('tl').insertAdjacentHTML('beforeend',html);
+  _offset+=evs.length;
+  document.getElementById('btn-mais').style.display=(_offset<_total)?'block':'none';
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1345,6 +1345,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 <div class="modal">
   <div class="modal-header">
     <div class="modal-titulo" id="modal-titulo">Lead</div>
+    <button type="button" onclick="abrirPerfil360()" style="margin-left:auto;margin-right:8px;padding:6px 12px;border:1px solid var(--accent);border-radius:8px;background:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Perfil 360º ↗</button>
     <button class="modal-close" onclick="fecharModal()">×</button>
   </div>
 
@@ -2080,6 +2081,10 @@ function setTab(name, btn) {
 function fecharModal() {
   document.getElementById('modal-bg').classList.remove('open');
   leadAtual = null;
+}
+
+function abrirPerfil360() {
+  if (leadAtual) window.open('/perfil/?id=' + leadAtual.id, '_blank');
 }
 
 function abrirModalNovoLead() {
