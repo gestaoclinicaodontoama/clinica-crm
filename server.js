@@ -7101,12 +7101,13 @@ app.get('/api/producao/dentista/custo-real', requireAuth, requireProducao, async
 
       const [{ data: pagamentos, error: eP }, { data: horasRows, error: eH }] = await Promise.all([
         supabase.from('fin_lancamentos')
-          .select('valor')
+          .select('descricao, valor, data')
           .eq('fluxo', 'sai')
           .ilike('descricao', `%${c.keyword_despesa}%`)
           .gte('data', from)
           .lte('data', to)
-          .eq('ativo', true),
+          .eq('ativo', true)
+          .order('data', { ascending: true }),
         supabase.rpc('horas_agenda_por_personas', { p_ids: allIds, p_from: from, p_to: to }),
       ]);
       if (eP) throw new Error(eP.message);
@@ -7129,6 +7130,11 @@ app.get('/api/producao/dentista/custo-real', requireAuth, requireProducao, async
         horas_exec:         Math.round(horas_exec * 100) / 100,
         horas_aval:         Math.round(horas_aval * 100) / 100,
         custo_proporcional: Math.round(custo_proporcional * 100) / 100,
+        pagamentos:         (pagamentos || []).map(p => ({
+          descricao: p.descricao,
+          valor:     Math.round(Number(p.valor) * 100) / 100,
+          data:      p.data,
+        })),
       };
     }));
 

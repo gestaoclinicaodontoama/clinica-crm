@@ -92,6 +92,18 @@ tr:hover td{background:var(--bg3)}
 .ratio-green{background:rgba(34,197,94,.12);color:var(--green);border-color:rgba(34,197,94,.3)}
 .ratio-yellow{background:rgba(245,158,11,.12);color:var(--yellow);border-color:rgba(245,158,11,.3)}
 .ratio-red{background:rgba(239,68,68,.12);color:var(--red);border-color:rgba(239,68,68,.3)}
+.pgto-section{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}
+.pgto-header{display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:6px 0;font-size:13px;font-weight:600;color:var(--text);user-select:none}
+.pgto-header:hover{color:var(--accent)}
+.pgto-total{color:var(--text)}
+.pgto-toggle{font-size:10px;color:var(--muted);transition:transform .2s}
+.pgto-toggle.open{transform:rotate(180deg)}
+.pgto-body{display:none;margin-top:8px}
+.pgto-table{width:100%;border-collapse:collapse;font-size:12px}
+.pgto-table th{text-align:left;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px;padding:3px 4px;border-bottom:1px solid var(--border)}
+.pgto-table td{padding:4px 4px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top}
+.pgto-table td:last-child{text-align:right;white-space:nowrap;font-weight:600}
+.pgto-prop{margin-top:8px;font-size:11px;color:var(--muted);padding:4px 6px;background:rgba(255,255,255,.04);border-radius:6px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
 </head>
@@ -472,7 +484,36 @@ function cardHtml(d) {
     <div class="top-procs-title">Top 5 procedimentos</div>
     <div id="top-${esc(d.dentist_person_id)}"><span class="spinner"></span></div>
   </div>
+  ${cr && cr.pagamentos && cr.pagamentos.length > 0 ? `
+  <div class="pgto-section">
+    <div class="pgto-header" onclick="togglePagamentos(${JSON.stringify(d.dentist_person_id)})">
+      <span class="pgto-total">💰 Pago no período: ${brl(cr.pago)}</span>
+      <span class="pgto-toggle open" id="pgto-toggle-${esc(d.dentist_person_id)}">▼</span>
+    </div>
+    <div class="pgto-body" id="pgto-body-${esc(d.dentist_person_id)}" style="display:block">
+      <table class="pgto-table">
+        <thead><tr><th>Data</th><th>Descrição</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${cr.pagamentos.map(p => `<tr>
+            <td style="white-space:nowrap;color:var(--muted)">${p.data ? p.data.slice(0,10) : '—'}</td>
+            <td>${esc(p.descricao || '')}</td>
+            <td>${brl(p.valor)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${cr.horas_aval > 0 ? `<div class="pgto-prop">Custo proporcional execução: <strong>${brl(cr.custo_proporcional)}</strong> (exec ${cr.horas_exec}h / total ${Math.round((cr.horas_exec+cr.horas_aval)*10)/10}h)</div>` : ''}
+    </div>
+  </div>` : (cr && cr.pago === 0 ? `<div class="pgto-section" style="font-size:12px;color:var(--muted);padding-top:10px;border-top:1px solid var(--border)">💰 Nenhum pagamento encontrado no período</div>` : '')}
 </div>`;
+}
+
+function togglePagamentos(dentId) {
+  const body   = document.getElementById('pgto-body-'   + dentId);
+  const toggle = document.getElementById('pgto-toggle-' + dentId);
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display   = open ? 'none' : 'block';
+  if (toggle) toggle.classList.toggle('open', !open);
 }
 
 async function carregarTopProcs(dentId) {
