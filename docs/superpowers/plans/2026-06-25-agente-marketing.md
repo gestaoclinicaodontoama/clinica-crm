@@ -143,6 +143,8 @@ git commit -m "feat(mkt): extrai paciente_id nos REVENUE (faturamento por pacien
 
 A RPC retorna **uma linha por `ad_id`** (o backend agrupa por campanha com o nome vindo da Meta). Lente `safra` = filtra leads por `criado_em` no período e soma faturamento all-time; lente `caixa` = soma RECEIVED por `data` no período.
 
+> ⚠️ **Simplificação consciente do desempate de família (vs spec seção 2):** a spec ideal atribui a receita ao lead Meta criado *mais perto-antes* do 1º pagamento. O RPC usa **"lead mais recente"** (`row_number() ... order by criado_em desc`, `rn=1`) e marca **incerto** quando o paciente casa com leads de >1 campanha distinta (`n_camp > 1`). Para o volume atual (~25 leads) é equivalente na prática e bem mais simples. Se o volume crescer e a causalidade temporal importar, evoluir o `owner` para considerar a data do 1º REVENUE do paciente (v1.1).
+
 - [ ] **Step 1: Escrever a migração (config + RPC principal)**
 
 Criar `supabase/migrations/20260625120100_mkt_config_e_rpcs.sql`:
@@ -467,7 +469,8 @@ app.get('/api/marketing/campanhas', requireAuth, requireRole('admin', 'gestor'),
       const diasRecente = c.lead_recente ? (hoje - new Date(c.lead_recente).getTime()) / 86400000 : 9999;
       if (lente === 'caixa') {
         c.selo = 'caixa';
-      } else if (c.cobertura !== null && c.cobertura < Number(cfg.cobertura_minima)) {
+      } else if (c.leads_casados === 0 || c.cobertura === null || c.cobertura < Number(cfg.cobertura_minima)) {
+        // Sem receita rastreável o suficiente -> NUNCA mostrar Cortar (seria falso vermelho).
         c.selo = 'cobertura_baixa';
       } else if (diasRecente < Number(cfg.maturacao_dias)) {
         c.selo = 'observar';
@@ -475,8 +478,10 @@ app.get('/api/marketing/campanhas', requireAuth, requireRole('admin', 'gestor'),
         c.selo = 'observar';
       } else if (c.roas !== null && c.roas >= Number(cfg.meta_roas)) {
         c.selo = 'escalar';
+      } else if (c.roas !== null) {
+        c.selo = 'cortar';   // cobertura OK + maduro + gasto relevante + ROAS abaixo da meta
       } else {
-        c.selo = 'cortar';
+        c.selo = 'observar'; // gasto 0 / sem como julgar
       }
       return c;
     }).filter(c => c.spend > 0 || c.leads_total > 0 || c.caixa > 0)
