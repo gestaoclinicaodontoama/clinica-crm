@@ -4439,7 +4439,7 @@ app.get('/api/admin/capi-saude/conjuntos', requireAuth, requireGestor, async (re
       const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
       const timeRange = JSON.stringify({ since: ymd(desde), until: ymd(new Date()) });
       const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
-        '/insights?level=ad&fields=ad_id,adset_id,adset_name,campaign_name,actions' +
+        '/insights?level=ad&fields=ad_id,adset_id,adset_name,campaign_name,actions,spend' +
         '&time_range=' + encodeURIComponent(timeRange) + '&limit=500';
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 25000);
@@ -4451,8 +4451,9 @@ app.get('/api/admin/capi-saude/conjuntos', requireAuth, requireGestor, async (re
       else (json.data || []).forEach(row => {
         const conv = (row.actions || []).find(a => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
         adToAdset[row.ad_id] = row.adset_id;
-        if (!adsetInfo[row.adset_id]) adsetInfo[row.adset_id] = { adset_name: row.adset_name, campaign_name: row.campaign_name, conversas: 0 };
+        if (!adsetInfo[row.adset_id]) adsetInfo[row.adset_id] = { adset_name: row.adset_name, campaign_name: row.campaign_name, conversas: 0, spend7d: 0 };
         adsetInfo[row.adset_id].conversas += conv ? parseInt(conv.value, 10) : 0;
+        adsetInfo[row.adset_id].spend7d += parseFloat(row.spend) || 0;
       });
     }
     // 2) Nosso CAPI: eventos (7d) -> ad_id do lead (lead.campanha) -> sucesso/falha por conjunto
@@ -4485,14 +4486,28 @@ app.get('/api/admin/capi-saude/conjuntos', requireAuth, requireGestor, async (re
     }
     // 3) monta as linhas (conjuntos com conversa>0 OU com algum evento CAPI)
     const ids = new Set([...Object.keys(adsetInfo).filter(id => adsetInfo[id].conversas > 0), ...Object.keys(capiByAdset)]);
+    const META_SEM = 50;
     const conjuntos = [...ids].map(id => {
-      const info = adsetInfo[id] || { adset_name: '(conjunto fora do período)', campaign_name: '', conversas: 0 };
+      const info = adsetInfo[id] || { adset_name: '(conjunto fora do período)', campaign_name: '', conversas: 0, spend7d: 0 };
       const eventos = {};
       for (const e of CAPI_EVENTOS_FUNIL) eventos[e] = (capiByAdset[id] && capiByAdset[id][e]) || { ok: 0, fail: 0 };
       const capiRetorna = eventos.LeadSubmitted.ok > 0;
-      return { adset_id: id, adset_name: info.adset_name, campaign_name: info.campaign_name, conversas: info.conversas, eventos, capiRetorna };
+      const spend7d = info.spend7d || 0;
+      const diaAtual = spend7d / 7;
+      // Verba diária sugerida p/ bater META_SEM por semana de cada etapa do funil
+      // (estimativa LINEAR: assume custo por evento constante ao escalar — vale p/ saltos
+      // moderados; o custo real tende a subir). Só estimável com gasto>0 e evento>0.
+      const verba = {};
+      for (const e of CAPI_EVENTOS_FUNIL) {
+        const n = eventos[e].ok;
+        if (spend7d <= 0 || n <= 0) { verba[e] = null; continue; }     // sem base p/ estimar
+        if (n >= META_SEM) { verba[e] = { ok: true, diaAtual: Math.round(diaAtual) }; continue; }
+        const novoDia = META_SEM * spend7d / (7 * n);                  // R$/dia p/ chegar a 50/sem
+        verba[e] = { ok: false, add: Math.round(novoDia - diaAtual), novoDia: Math.round(novoDia), diaAtual: Math.round(diaAtual) };
+      }
+      return { adset_id: id, adset_name: info.adset_name, campaign_name: info.campaign_name, conversas: info.conversas, spend7d: Math.round(spend7d), diaAtual: Math.round(diaAtual), eventos, capiRetorna, verba };
     }).sort((a, b) => b.conversas - a.conversas);
-    res.json({ conjuntos, meta: 50, eventoOtimizacao: 'conversa', eventosFunil: CAPI_EVENTOS_FUNIL, metaErro, atualizadoEm: new Date().toISOString() });
+    res.json({ conjuntos, meta: META_SEM, eventoFoco: 'LeadQualified', eventosFunil: CAPI_EVENTOS_FUNIL, metaErro, atualizadoEm: new Date().toISOString() });
   } catch (e) {
     if (e.name === 'AbortError') return res.json({ metaErro: 'Meta não respondeu a tempo', conjuntos: [], meta: 50 });
     res.status(500).json({ error: e.message });

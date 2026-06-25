@@ -13,7 +13,10 @@
   /* shared-nav move este <main> para dentro do .crm-content (flex:1) que ele
      cria; então main é só um bloco normal com padding/largura — NÃO mexer no
      .crm-content (a versão atual do shared-nav o usa como host do conteúdo). */
-  main { padding:24px; max-width:1100px; min-width:0; }
+  main { padding:24px; max-width:1280px; min-width:0; }
+  #tab-conjuntos { font-size:12px; }
+  #tab-conjuntos th, #tab-conjuntos td { padding:6px 7px; text-align:center; }
+  #tab-conjuntos th:first-child, #tab-conjuntos td:first-child { text-align:left; max-width:230px; }
   h1 { font-size:20px; margin-bottom:4px; }
   .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
   h2 { font-size:14px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:22px 0 10px; }
@@ -77,7 +80,7 @@
   <div class="gat" id="gatilhos"></div>
   <h2>Erros recentes <span style="text-transform:none;font-weight:400;color:var(--muted);font-size:11.5px">últimos 7 dias</span></h2>
   <div class="gat" id="erros"></div>
-  <h2>Conjuntos → 50/semana <span style="text-transform:none;font-weight:400;color:var(--muted);font-size:11.5px">conversa = evento de otimização (vale o /50) · demais colunas = retorno do nosso CAPI (sucesso, 7d)</span></h2>
+  <h2>Conjuntos → 50/semana <span style="text-transform:none;font-weight:400;color:var(--muted);font-size:11.5px">foco ★ <b>Qualif.</b> → depois Agend. · nº = retorno do nosso CAPI (7d) · <span style="color:var(--yellow)">+R$</span> = aumento/dia estimado p/ bater 50/sem (linear, ↑ ao escalar)</span></h2>
   <div class="tabela-wrap"><table id="tab-conjuntos"><tr><td class="muted" style="padding:10px">carregando…</td></tr></table></div>
 </main>
 <script>
@@ -171,19 +174,33 @@ async function carregarConjuntos() {
     if (d.metaErro === 'sem_token') return vazio('Token Meta não configurado.');
     if (!d.conjuntos || !d.conjuntos.length) return vazio('Sem conjuntos no período.' + (d.metaErro ? (' (Meta: ' + esc(d.metaErro) + ')') : ''));
     const FUN = d.eventosFunil || ['LeadSubmitted','LeadQualified','Schedule','Contact','Purchase'];
-    let h = '<tr><th>Conjunto</th><th>Conversa /' + esc(d.meta) + '</th>' + FUN.map(e => '<th>' + esc(e) + '</th>').join('') + '</tr>';
+    const LBL = { LeadSubmitted:'Lead', LeadQualified:'Qualif.', Schedule:'Agend.', Contact:'Compar.', Purchase:'Venda' };
+    const FOCO = d.eventoFoco || 'LeadQualified';
+    const meta = d.meta;
+    let h = '<tr><th>Conjunto</th><th>Conv</th>' + FUN.map(e =>
+      `<th${e===FOCO?' style="color:var(--accent)"':''}>${esc(LBL[e]||e)}${e===FOCO?' ★':''}<div style="font-weight:400;font-size:9px;color:var(--muted)">/${esc(meta)} · +R$/dia</div></th>`).join('') + '</tr>';
     for (const c of d.conjuntos) {
-      const ok50 = c.conversas >= d.meta;
       const semRetorno = c.conversas > 0 && !c.capiRetorna;
-      const convCell = `${esc(c.conversas)}/${esc(d.meta)} ` + (ok50 ? '✅' : '<span style="color:var(--yellow)">' + Math.min(100, Math.round(c.conversas / d.meta * 100)) + '%</span>');
+      const ok50conv = c.conversas >= meta;
+      const convCell = `<b>${esc(c.conversas)}</b>/${esc(meta)}` + (ok50conv ? ' ✅' : ` <span style="color:var(--yellow)">${Math.round(c.conversas/meta*100)}%</span>`);
       const evCells = FUN.map(e => {
         const v = c.eventos[e] || { ok: 0, fail: 0 };
-        const cor = (e === 'LeadSubmitted' && c.conversas > 0 && v.ok === 0) ? 'var(--red)' : 'inherit';
-        const failTxt = v.fail ? ` <span style="color:var(--muted)">(${esc(v.fail)}✗)</span>` : '';
-        return `<td style="color:${cor}">${esc(v.ok)}${failTxt}</td>`;
+        const vb = (c.verba && c.verba[e]) || null;
+        const zeroBug = (e === 'LeadSubmitted' && c.conversas > 0 && v.ok === 0);
+        const corNum = zeroBug ? 'var(--red)' : (v.ok >= meta ? 'var(--green)' : 'inherit');
+        // linha de verba (embaixo): quanto aumentar/dia p/ bater 50/sem nesta etapa
+        let sub;
+        if (semRetorno && v.ok === 0) sub = '<span style="color:var(--red)">tracking</span>';
+        else if (!vb) sub = '<span style="color:var(--muted)">—</span>';
+        else if (vb.ok) sub = '<span style="color:var(--green)">✅ ok</span>';
+        else sub = `<span style="color:var(--yellow)">+R$${esc(vb.add)}</span>`;
+        const failTxt = v.fail ? `<span style="color:var(--muted);font-size:10px"> (${esc(v.fail)}✗)</span>` : '';
+        const bg = e===FOCO ? ' style="background:rgba(79,142,247,.06)"' : '';
+        return `<td${bg}><div style="color:${corNum};font-weight:600">${esc(v.ok)}${failTxt}</div><div style="font-size:10px">${sub}</div></td>`;
       }).join('');
-      h += `<tr${semRetorno ? ' style="background:rgba(239,68,68,.06)"' : ''}>`
-        + `<td><div>${esc(c.adset_name)}</div><div style="color:var(--muted);font-size:10.5px">${esc(c.campaign_name || '')}${semRetorno ? ' · ⚠️ conversa entra mas CAPI não retorna' : ''}</div></td>`
+      h += `<tr${semRetorno ? ' style="background:rgba(239,68,68,.05)"' : ''}>`
+        + `<td><div style="font-weight:600">${esc(c.adset_name)}</div>`
+        + `<div style="color:var(--muted);font-size:9.5px">R$${esc(c.diaAtual)}/dia${c.campaign_name?(' · '+esc(c.campaign_name)):''}${semRetorno ? ' · ⚠️ CAPI não retorna' : ''}</div></td>`
         + `<td>${convCell}</td>` + evCells + '</tr>';
     }
     tab.innerHTML = h;
