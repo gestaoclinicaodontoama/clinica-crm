@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agente de Marketing</title>
+  <style>
+    .mkt-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .mkt-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+    .mkt-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-bottom: 10px; background: #fff; }
+    .mkt-selo { font-weight: 600; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+    .selo-escalar { background:#dcfce7; color:#166534; }
+    .selo-cortar { background:#fee2e2; color:#991b1b; }
+    .selo-observar { background:#fef9c3; color:#854d0e; }
+    .selo-cobertura_baixa { background:#f1f5f9; color:#475569; }
+    .selo-caixa { background:#dbeafe; color:#1e40af; }
+    .mkt-num { font-variant-numeric: tabular-nums; }
+    .mkt-drill { margin-top:10px; padding-top:10px; border-top:1px dashed #e2e8f0; font-size:13px; }
+    .mkt-cobertura { font-size:12px; color:#64748b; }
+    .mkt-clickable { cursor:pointer; text-decoration:underline dotted; }
+  </style>
+</head>
+<body>
+  <div id="app" class="mkt-wrap">
+    <h1>📊 Agente de Marketing</h1>
+    <p class="mkt-cobertura">Read-only · cruza gasto Meta × faturamento/caixa real do Clinicorp. Cada número é clicável até o paciente.</p>
+    <div class="mkt-controls">
+      <label>Lente:
+        <select id="lente"><option value="safra">Faturamento (safra)</option><option value="caixa">Caixa (entradas)</option></select>
+      </label>
+      <label>Período:
+        <select id="periodo"><option value="30">30 dias</option><option value="90">90 dias</option><option value="365">12 meses</option></select>
+      </label>
+      <button id="atualizar">🔄 Atualizar</button>
+      <button id="btn-config">⚙️ Parâmetros</button>
+    </div>
+    <div id="resumo"></div>
+    <div id="lista"></div>
+  </div>
+  <script src="/js/marketing-agente/api.js"></script>
+  <script src="/js/marketing-agente/app.js"></script>
+  <script src="/js/shared-nav.js" data-active="marketing-agente"></script>
+</body>
+</html>
