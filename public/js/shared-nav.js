@@ -165,10 +165,22 @@
     }
 
     // ── LOGOUT ─────────────────────────────────────────────────────────────────
-    window._sharedNavLogout = function () {
+    window._sharedNavLogout = async function () {
       try {
         const k = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-        if (k) localStorage.removeItem(k);
+        if (k) {
+          const token = JSON.parse(localStorage.getItem(k))?.access_token;
+          if (token) {
+            await fetch('https://mtqdpjhhqzvuklnlfpvi.supabase.co/auth/v1/logout?scope=global', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token,
+                'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw',
+              },
+            }).catch(() => {});
+          }
+          localStorage.removeItem(k);
+        }
       } catch (_) {}
       window.location.href = '/';
     };
