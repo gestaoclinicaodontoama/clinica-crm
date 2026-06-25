@@ -678,7 +678,7 @@ async function patchLead(req, res) {
       'proximo_contato','ultimo_contato',
       'crc_comercial_id','crc_comercial_nome',
       'crc_agendamento_id','crc_agendamento_nome',
-      'carteira','motivo_perda','etapa_negociacao',
+      'carteira','motivo_perda','etapa_negociacao','data_compromisso','data_fechamento',
     ];
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const agora = new Date().toISOString();
@@ -696,7 +696,7 @@ async function patchLead(req, res) {
         // Entrou em negociação sem D definido → começa em D0; saiu de negociação → limpa o D.
         if (v === 'Em negociação' && !lead.etapa_negociacao && req.body.etapa_negociacao == null) patch.etapa_negociacao = 'D0';
         if (v !== 'Em negociação' && lead.etapa_negociacao) patch.etapa_negociacao = null;
-        if (v === 'Fechou' && !lead.data_fechamento) patch.data_fechamento = agora;
+        if (v === 'Fechou' && !lead.data_fechamento && req.body.data_fechamento == null) patch.data_fechamento = agora;
       }
       if (k === 'carteira' && !CARTEIRAS.includes(v)) return res.status(400).json({ error: 'Carteira inválida' });
       if (k === 'etapa_negociacao') {
@@ -726,7 +726,7 @@ async function patchLead(req, res) {
           if (dup) return res.status(409).json({ error: 'Telefone já cadastrado em outro lead' });
         }
       }
-      if (k === 'proximo_contato' || k === 'ultimo_contato') {
+      if (k === 'proximo_contato' || k === 'ultimo_contato' || k === 'data_compromisso' || k === 'data_fechamento') {
         if (!v) { patch[k] = null; continue; }
         if (typeof v === 'string' && Number.isNaN(Date.parse(v))) continue;
       }
@@ -3487,10 +3487,13 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
     const clinicorp_appointment_id = apt?.id || null;
 
     // 4. Salvar no lead (incluindo CRC responsável)
-    const dataAgendamento = new Date(data + 'T' + hora_inicio + ':00-03:00').toISOString();
+    // data_agendamento = ATO de agendar (agora); data_compromisso = dia/hora da consulta.
+    const dataCompromisso = new Date(data + 'T' + hora_inicio + ':00-03:00').toISOString();
     const crcNome = req.user?.profile?.name || req.user?.email || null;
     await supabase.from('leads').update({
-      status: 'Avaliação agendada', data_agendamento: dataAgendamento,
+      status: 'Avaliação agendada',
+      data_agendamento: new Date().toISOString(),
+      data_compromisso: dataCompromisso,
       clinicorp_appointment_id,
       crc_agendamento_id: req.user?.id || null,
       crc_agendamento_nome: crcNome,

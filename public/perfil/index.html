@@ -116,6 +116,7 @@ function renderHead(l){
       <div class="raiox">
         <div class="rx"><div class="l">Valor</div><div class="v" style="color:var(--green)">${l.valor?fmtBRL(l.valor):'—'}</div></div>
         <div class="rx"><div class="l">Lead desde</div><div class="v">${fmtDia(l.criado_em)}</div></div>
+        <div class="rx"><div class="l">Consulta</div><div class="v">${l.data_compromisso?fmtDia(l.data_compromisso):'—'}</div></div>
         <div class="rx"><div class="l">Compareceu</div><div class="v">${l.data_comparecimento?fmtDia(l.data_comparecimento):'—'}</div></div>
         <div class="rx"><div class="l">Orçamento</div><div class="v">${l.data_orcamento?fmtDia(l.data_orcamento):'—'}</div></div>
         <div class="rx"><div class="l">Origem</div><div class="v" style="font-size:13px">${esc(l.origem||'—')}</div></div>

@@ -2200,6 +2200,30 @@ function pedirMotivoPerda(lead) {
   });
 }
 
+// Popup de data (Fechou / dia do compromisso). Retorna YYYY-MM-DD ou null.
+function _hojeYMD(){ return new Date().toLocaleDateString('en-CA'); }
+function pedirData(titulo, sub, defaultYMD) {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center';
+    const box=document.createElement('div');
+    box.style.cssText='background:var(--card,#fff);color:var(--text,#1a1d29);border-radius:12px;padding:18px;max-width:330px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3)';
+    box.innerHTML=`<div style="font-weight:700;font-size:15px;margin-bottom:4px">${titulo}</div>
+      <div style="font-size:12px;color:var(--muted,#6b7280);margin-bottom:12px">${sub||''}</div>
+      <input type="date" id="pd-input" value="${defaultYMD||''}" style="width:100%;padding:9px;border:1px solid var(--border,#e5e7eb);border-radius:8px;font-size:14px;background:var(--bg3,#f9fafb);color:var(--text,#1a1d29)">
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button id="pd-ok" style="flex:1;padding:9px;border:none;border-radius:8px;background:var(--accent,#3b82f6);color:#fff;font-weight:700;cursor:pointer">Confirmar</button>
+        <button id="pd-cancel" style="padding:9px 14px;border:1px solid var(--border,#e5e7eb);background:none;border-radius:8px;cursor:pointer;color:var(--muted,#6b7280)">Cancelar</button>
+      </div>`;
+    ov.appendChild(box); document.body.appendChild(ov);
+    const close=v=>{document.body.removeChild(ov);resolve(v);};
+    box.querySelector('#pd-ok').onclick=()=>{const val=box.querySelector('#pd-input').value; if(!val)return; close(val);};
+    box.querySelector('#pd-cancel').onclick=()=>close(null);
+    ov.onclick=e=>{if(e.target===ov)close(null);};
+    setTimeout(()=>{const el=box.querySelector('#pd-input'); if(el)el.focus();},50);
+  });
+}
+
 async function salvarLead(btn) {
   if (!leadAtual) return;
   const body = {
@@ -2234,6 +2258,18 @@ async function salvarLead(btn) {
     } else {
       body.motivo_perda = document.getElementById('m-motivo-perda').value || leadAtual.motivo_perda || '';
     }
+  }
+  // Fechou → pergunta a data do fechamento
+  if (body.status === 'Fechou' && leadAtual.status !== 'Fechou') {
+    const d = await pedirData('Data do fechamento', 'Quando esta venda foi fechada?', _hojeYMD());
+    if (!d) return; // cancelou
+    body.data_fechamento = d;
+  }
+  // Avaliação agendada (manual) → pergunta o dia do compromisso (o ato fica = agora no servidor)
+  if (body.status === 'Avaliação agendada' && leadAtual.status !== 'Avaliação agendada') {
+    const d = await pedirData('Dia da consulta', 'Para que dia o paciente ficou agendado?', '');
+    if (!d) return; // cancelou
+    body.data_compromisso = d;
   }
 
   if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
@@ -2960,15 +2996,24 @@ async function painelSalvar(campo, valor) {
   const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','perfil_disc','carteira']);
   if (!CAMPOS_PAINEL.has(campo)) return;
   const body = { [campo]: valor };
+  const _revertSel = () => { const sel = document.getElementById('painel-status'); if (sel) sel.value = chatLeadAtual.status || 'Novo'; };
   // Perdido exige motivo (popup obrigatório); cancelar reverte o select
   if (campo === 'status' && valor === 'Perdido' && chatLeadAtual.status !== 'Perdido') {
     const motivo = await pedirMotivoPerda(chatLeadAtual);
-    if (!motivo) {
-      const sel = document.getElementById('painel-status');
-      if (sel) sel.value = chatLeadAtual.status || 'Novo';
-      return;
-    }
+    if (!motivo) { _revertSel(); return; }
     body.motivo_perda = motivo;
+  }
+  // Fechou → data do fechamento
+  if (campo === 'status' && valor === 'Fechou' && chatLeadAtual.status !== 'Fechou') {
+    const d = await pedirData('Data do fechamento', 'Quando esta venda foi fechada?', _hojeYMD());
+    if (!d) { _revertSel(); return; }
+    body.data_fechamento = d;
+  }
+  // Avaliação agendada (manual) → dia do compromisso
+  if (campo === 'status' && valor === 'Avaliação agendada' && chatLeadAtual.status !== 'Avaliação agendada') {
+    const d = await pedirData('Dia da consulta', 'Para que dia o paciente ficou agendado?', '');
+    if (!d) { _revertSel(); return; }
+    body.data_compromisso = d;
   }
   try {
     await api('/api/leads/' + chatLeadAtual.id, { method: 'PATCH', body: JSON.stringify(body) });
