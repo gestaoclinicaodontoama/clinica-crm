@@ -87,6 +87,10 @@
     nav.innerHTML = `
       <div class="logo"><span>CRM <span>AMA</span></span></div>
       ${window.CRMNav.buildItemsHTML('link', activePage)}
+      <button class="nav-btn nav-logout" onclick="window._sharedNavLogout()">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sair
+      </button>
       <button class="nav-btn theme-btn" onclick="window._sharedNavToggleTheme()">
         <span id="shared-theme-icon">🌙</span>
         <span id="shared-theme-label">Modo escuro</span>
@@ -159,6 +163,15 @@
         } else if (tries++ < 40) { setTimeout(go, 50); }
       })();
     }
+
+    // ── LOGOUT ─────────────────────────────────────────────────────────────────
+    window._sharedNavLogout = function () {
+      try {
+        const k = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+        if (k) localStorage.removeItem(k);
+      } catch (_) {}
+      window.location.href = '/';
+    };
 
     applyRoles();
 
