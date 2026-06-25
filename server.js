@@ -4269,6 +4269,8 @@ app.post('/api/admin/sync-clinicorp', requireAuth, async (req, res) => {
   if (_syncRunning) return res.json({ ok: true, running: true, msg: 'Sync já em andamento' });
   res.json({ ok: true, msg: 'Sync iniciado em background — acompanhe o status' });
   runGuardedSync('manual').catch(e => console.error('[sync-manual] erro:', e.message));
+  // Financeiro por paciente + inadimplentes (/payment/list) — guarda própria evita rodar 2x.
+  fetchInadimplentesBackground().catch(e => console.error('[inadimplentes-manual] erro:', e.message));
 });
 
 // GET /api/admin/sync-status — última execução registrada + se há sync rodando agora
