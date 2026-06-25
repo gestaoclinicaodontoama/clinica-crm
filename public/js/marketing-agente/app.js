@@ -1,7 +1,19 @@
 const SELO_LABEL = { escalar:'🟢 Escalar', cortar:'🔴 Cortar/revisar', observar:'🟡 Observar', cobertura_baixa:'⚪ Cobertura baixa', caixa:'💰 Caixa' };
 const fmt = n => (Number(n)||0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
 const pct = n => n == null ? '—' : Math.round(n*100) + '%';
+// Escapa qualquer string vinda de sistema externo (nome de lead/paciente do WhatsApp,
+// descrição do Clinicorp, nome de campanha do Meta) antes de ir pro innerHTML — anti-XSS.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+// Selo/vínculo vêm de enums do backend; ainda assim restringimos a um conjunto conhecido
+// antes de usar em nome de classe CSS (defesa em profundidade).
+const SELO_OK = new Set(['escalar','cortar','observar','cobertura_baixa','caixa']);
+const seloClass = s => SELO_OK.has(s) ? s : 'cobertura_baixa';
 let _state = { desde:null, ate:null, lente:'safra' };
+
+function erro(el, msg) {
+  const p = document.createElement('p'); p.style.color = '#b91c1c'; p.textContent = 'Erro: ' + msg;
+  el.replaceChildren(p);
+}
 
 async function carregar() {
   const lente = document.getElementById('lente').value;
@@ -12,13 +24,13 @@ async function carregar() {
     const d = await mktApi(`/api/marketing/campanhas?lente=${lente}&periodo=${periodo}`);
     _state.desde = d.desde; _state.ate = d.ate;
     renderResumo(d); renderLista(d);
-  } catch (e) { document.getElementById('lista').innerHTML = '<p style="color:#b91c1c">Erro: '+e.message+'</p>'; }
+  } catch (e) { erro(document.getElementById('lista'), e.message); }
 }
 
 function renderResumo(d) {
   const t = d.totais, rec = d.lente === 'caixa' ? t.caixa : t.faturamento;
   document.getElementById('resumo').innerHTML = `<div class="mkt-card">
-    <b>Resumo ${d.desde} → ${d.ate}</b> ${d.sem_token ? '· ⚠️ sem META_ACCESS_TOKEN (gasto = 0)' : ''}<br>
+    <b>Resumo ${esc(d.desde)} → ${esc(d.ate)}</b> ${d.sem_token ? '· ⚠️ sem META_ACCESS_TOKEN (gasto = 0)' : ''}<br>
     Gasto: <span class="mkt-num">${fmt(t.spend)}</span> ·
     ${d.lente==='caixa'?'Caixa':'Faturamento'}: <span class="mkt-num">${fmt(rec)}</span> ·
     ROAS: <b>${t.roas==null?'—':t.roas.toFixed(2)+'x'}</b> ·
@@ -30,7 +42,7 @@ function renderLista(d) {
   document.getElementById('lista').innerHTML = d.campanhas.map((c, idx) => {
     const rec = d.lente==='caixa' ? c.caixa : c.faturamento;
     return `<div class="mkt-card">
-      <div><span class="mkt-selo selo-${c.selo}">${SELO_LABEL[c.selo]}</span> <b>${c.campanha}</b></div>
+      <div><span class="mkt-selo selo-${seloClass(c.selo)}">${esc(SELO_LABEL[c.selo] || c.selo)}</span> <b>${esc(c.campanha)}</b></div>
       <div class="mkt-num">Gasto ${fmt(c.spend)} · ${d.lente==='caixa'?'Caixa':'Faturamento'}
         <span class="mkt-clickable" data-drill="${idx}">${fmt(rec)}</span>
         · ROAS ${c.roas==null?'—':c.roas.toFixed(2)+'x'}</div>
@@ -50,24 +62,27 @@ async function abrirDrill(camp, idx) {
     const d = await mktApi(`/api/marketing/drill/leads?ad_ids=${encodeURIComponent(adIds)}&lente=${_state.lente}&desde=${_state.desde}&ate=${_state.ate}`);
     box.innerHTML = d.leads.length ? d.leads.map(l => {
       const cls = l.vinculo==='casado' ? 'escalar' : (l.vinculo==='incerto' ? 'observar' : 'cobertura_baixa');
-      return `<div>• ${l.nome||'(sem nome)'} — <span class="mkt-selo selo-${cls}">${l.vinculo}</span>
-      ${l.paciente_nome?`→ ${l.paciente_nome}`:''} · fat ${fmt(l.faturamento)}
-      ${l.vinculo!=='sem_paciente'?`<span class="mkt-clickable" data-lead="${l.lead_id}">ver pagamentos</span>`:''}</div>`;
+      const leadId = encodeURIComponent(l.lead_id);
+      return `<div>• ${esc(l.nome || '(sem nome)')} — <span class="mkt-selo selo-${cls}">${esc(l.vinculo)}</span>
+      ${l.paciente_nome?`→ ${esc(l.paciente_nome)}`:''} · fat ${fmt(l.faturamento)}
+      ${l.vinculo!=='sem_paciente'?`<span class="mkt-clickable" data-lead="${leadId}">ver pagamentos</span>`:''}</div>`;
     }).join('') : '<i>Sem leads.</i>';
     box.querySelectorAll('[data-lead]').forEach(el => el.onclick = () => verPaciente(el.dataset.lead, box));
-  } catch (e) { box.innerHTML = 'Erro: '+e.message; }
+  } catch (e) { erro(box, e.message); }
 }
 
 async function verPaciente(leadId, box) {
-  const d = await mktApi(`/api/marketing/drill/paciente?lead_id=${leadId}`);
   const div = document.createElement('div'); div.style.margin = '6px 0 6px 16px';
-  if (!d.vinculado) { div.innerHTML = '<i>sem paciente vinculado</i>'; box.appendChild(div); return; }
-  const f = d.financeiro || {};
-  const lanc = d.lancamentos && d.lancamentos.length
-    ? d.lancamentos.map(x => `${x.data} · ${x.tipo} · ${fmt(x.valor)} · ${x.descricao}`).join('<br>')
-    : '<i>sem lançamentos</i>';
-  div.innerHTML = `<b>${d.paciente.nome}</b> — pago ${fmt(f.pago)} · futuro ${fmt(f.futuro)}<br>${lanc}`;
   box.appendChild(div);
+  try {
+    const d = await mktApi(`/api/marketing/drill/paciente?lead_id=${encodeURIComponent(leadId)}`);
+    if (!d.vinculado) { div.innerHTML = '<i>sem paciente vinculado</i>'; return; }
+    const f = d.financeiro || {};
+    const lanc = d.lancamentos && d.lancamentos.length
+      ? d.lancamentos.map(x => `${esc(x.data)} · ${esc(x.tipo)} · ${fmt(x.valor)} · ${esc(x.descricao)}`).join('<br>')
+      : '<i>sem lançamentos</i>';
+    div.innerHTML = `<b>${esc(d.paciente.nome)}</b> — pago ${fmt(f.pago)} · vencido ${fmt(f.vencido)} · futuro ${fmt(f.futuro)}<br>${lanc}`;
+  } catch (e) { div.textContent = 'Erro: ' + e.message; }
 }
 
 document.getElementById('atualizar').onclick = carregar;

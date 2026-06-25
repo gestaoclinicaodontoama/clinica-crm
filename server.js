@@ -6098,8 +6098,11 @@ app.get('/api/marketing/drill/paciente', requireAuth, requireRole('admin', 'gest
 });
 
 app.get('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
-  const { data } = await supabase.from('marketing_config').select('*').eq('id', 1).maybeSingle();
-  res.json(data || {});
+  try {
+    const { data, error } = await supabase.from('marketing_config').select('*').eq('id', 1).maybeSingle();
+    if (error) throw new Error(error.message);
+    res.json(data || {});
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
