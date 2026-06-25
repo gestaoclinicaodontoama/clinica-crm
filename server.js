@@ -300,7 +300,7 @@ app.patch('/api/me/threec-agent-id', requireAuth, async (req, res) => {
 const NAV_SLUGS = new Set([
   'dashboard','leads','funil','conv-agendamentos','conv-avaliacao','disparos',
   'notas-fiscais','inadimplentes','usuarios','tarefas-gestor','config',
-  'avaliacao-dentista','atribuicao','ligacoes',
+  'avaliacao-dentista','ligacoes',
   'aniversariantes','recall','vips',
 ]);
 app.patch('/api/me/nav-prefs', requireAuth, async (req, res) => {
