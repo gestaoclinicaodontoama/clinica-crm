@@ -191,3 +191,10 @@ Consultas reais no banco (`mtqdpjhhqzvuklnlfpvi`) antes do plano:
 - Dos 441: **25 casam paciente**, **3 já têm venda** (R$49,9k faturado / R$27k caixa).
 - ⚠️ Implicação: o painel **começa quase vazio** e enriquece sozinho conforme os leads de junho fecham/pagam. É esperado, não é bug. A cobertura honesta deixa isso explícito.
 - ⚠️ Os selos (Escalar/Cortar) raramente vão disparar no começo (quase tudo cai em 🟡 imaturo / ⚪ cobertura baixa) — correto, dado o volume.
+
+## 11. Desvios descobertos NA execução (2026-06-25) — implementado assim
+
+1. **Caixa NÃO usa `fin_lancamentos` RECEIVED.** Os RECEIVED não casam o paciente (usam `RelatedPersonId` = responsável financeiro). A lente **Caixa usa `pacientes_financeiro.total_pago`** (recebido all-time por paciente, fonte confiável — a mesma do Perfil 360). Validado: Carmelita pago R$11.990 = bate com o Perfil 360.
+2. **Período = safra do lead nas DUAS lentes.** O seletor de período filtra `leads.criado_em` para Faturamento e Caixa. Caixa-por-período-de-recebimento fica **v1.1** (depende de mapear RECEIVED→paciente).
+3. **Faturamento (REVENUE) destravado por backfill**: `paciente_id` extraído de `raw->>'PersonId'` (era NULL). 26.795/26.795 linhas. Validação ponta-a-ponta: campanha top faturamento R$28.790 (lançamento de tratamento da Carmelita, 12/06).
+4. **Bug de SQL corrigido no build**: `count(distinct ...) OVER ()` não existe no Postgres → `n_camp` movido p/ CTE `pac_ncamp`.
