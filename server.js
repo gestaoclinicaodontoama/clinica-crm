@@ -5988,6 +5988,133 @@ app.get('/api/meta-insights', requireAuth, requireRole('admin', 'gestor'), rateL
   }
 });
 
+// ===== AGENTE DE MARKETING =====
+app.get('/api/marketing/campanhas', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const lente = req.query.lente === 'caixa' ? 'caixa' : 'safra';
+    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    const periodo = parseInt(req.query.periodo, 10) || 30;
+    const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
+    const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
+    const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+    const { data: cfgRow } = await supabase.from('marketing_config').select('*').eq('id', 1).maybeSingle();
+    const cfg = cfgRow || { meta_roas: 3.0, gasto_minimo: 200, maturacao_dias: 21, cobertura_minima: 0.60 };
+
+    const insights = {};
+    const TOKEN = process.env.META_ACCESS_TOKEN;
+    if (TOKEN) {
+      const timeRange = JSON.stringify({ since: ymd(dDesde), until: ymd(dAte) });
+      const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
+        '/insights?level=ad&fields=ad_id,ad_name,campaign_name,spend&time_range=' + encodeURIComponent(timeRange) + '&limit=500';
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN }, signal: ctrl.signal });
+        const j = await r.json();
+        (j.data || []).forEach(row => { insights[row.ad_id] = { ad_name: row.ad_name, campaign_name: row.campaign_name || '(sem nome)', spend: parseFloat(row.spend) || 0 }; });
+      } catch (_) { /* segue sem gasto */ } finally { clearTimeout(to); }
+    }
+
+    const { data: rpc, error } = await supabase.rpc('marketing_campanhas', { p_desde: ymd(dDesde), p_ate: ymd(dAte), p_lente: lente });
+    if (error) throw new Error(error.message);
+    const receita = {};
+    (rpc || []).forEach(row => { receita[row.ad_id] = row; });
+
+    const adIds = new Set([...Object.keys(insights), ...Object.keys(receita)]);
+    const camps = {};
+    for (const adId of adIds) {
+      const i = insights[adId] || { ad_name: '(anúncio fora do período)', campaign_name: '(sem campanha Meta)', spend: 0 };
+      const r = receita[adId] || { leads_total: 0, leads_casados: 0, incertos: 0, faturamento: 0, total_contratado: 0, caixa: 0, lead_recente: null };
+      const nome = i.campaign_name;
+      if (!camps[nome]) camps[nome] = { campanha: nome, spend: 0, leads_total: 0, leads_casados: 0, incertos: 0, faturamento: 0, total_contratado: 0, caixa: 0, lead_recente: null, anuncios: [] };
+      const c = camps[nome];
+      c.spend += i.spend; c.leads_total += r.leads_total; c.leads_casados += r.leads_casados;
+      c.incertos += r.incertos; c.faturamento += Number(r.faturamento) || 0;
+      c.total_contratado += Number(r.total_contratado) || 0; c.caixa += Number(r.caixa) || 0;
+      if (r.lead_recente && (!c.lead_recente || r.lead_recente > c.lead_recente)) c.lead_recente = r.lead_recente;
+      c.anuncios.push({ ad_id: adId, ad_name: i.ad_name, spend: i.spend, ...r });
+    }
+
+    const hoje = Date.now();
+    const campanhas = Object.values(camps).map(c => {
+      const receitaLente = lente === 'caixa' ? c.caixa : c.faturamento;
+      c.roas = c.spend > 0 ? receitaLente / c.spend : null;
+      c.cobertura = c.leads_total > 0 ? c.leads_casados / c.leads_total : null;
+      const diasRecente = c.lead_recente ? (hoje - new Date(c.lead_recente).getTime()) / 86400000 : 9999;
+      if (lente === 'caixa') {
+        c.selo = 'caixa';
+      } else if (c.leads_casados === 0 || c.cobertura === null || c.cobertura < Number(cfg.cobertura_minima)) {
+        c.selo = 'cobertura_baixa';
+      } else if (diasRecente < Number(cfg.maturacao_dias)) {
+        c.selo = 'observar';
+      } else if (c.spend < Number(cfg.gasto_minimo)) {
+        c.selo = 'observar';
+      } else if (c.roas !== null && c.roas >= Number(cfg.meta_roas)) {
+        c.selo = 'escalar';
+      } else if (c.roas !== null) {
+        c.selo = 'cortar';
+      } else {
+        c.selo = 'observar';
+      }
+      return c;
+    }).filter(c => c.spend > 0 || c.leads_total > 0 || c.caixa > 0)
+      .sort((a, b) => (lente === 'caixa' ? b.caixa - a.caixa : b.spend - a.spend));
+
+    const totais = campanhas.reduce((t, c) => {
+      t.spend += c.spend; t.leads_total += c.leads_total; t.leads_casados += c.leads_casados;
+      t.faturamento += c.faturamento; t.caixa += c.caixa; return t;
+    }, { spend: 0, leads_total: 0, leads_casados: 0, faturamento: 0, caixa: 0 });
+    totais.cobertura = totais.leads_total > 0 ? totais.leads_casados / totais.leads_total : null;
+    totais.roas = totais.spend > 0 ? (lente === 'caixa' ? totais.caixa : totais.faturamento) / totais.spend : null;
+
+    res.json({ campanhas, totais, lente, cfg, desde: ymd(dDesde), ate: ymd(dAte), sem_token: !TOKEN });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/marketing/drill/leads', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const adIds = String(req.query.ad_ids || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!adIds.length) return res.json({ leads: [] });
+    const lente = req.query.lente === 'caixa' ? 'caixa' : 'safra';
+    const ymd = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const desde = req.query.desde ? ymd(req.query.desde) : ymd(Date.now() - 30 * 86400000);
+    const ate = req.query.ate ? ymd(req.query.ate) : ymd(Date.now());
+    const { data, error } = await supabase.rpc('marketing_drill_leads', { p_ad_ids: adIds, p_desde: desde, p_ate: ate, p_lente: lente });
+    if (error) throw new Error(error.message);
+    res.json({ leads: data || [] });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+app.get('/api/marketing/drill/paciente', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const leadId = parseInt(req.query.lead_id, 10);
+    if (!leadId) return res.status(400).json({ error: 'lead_id obrigatório' });
+    const { data, error } = await supabase.rpc('marketing_drill_paciente', { p_lead_id: leadId });
+    if (error) throw new Error(error.message);
+    res.json(data || { vinculado: false });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+app.get('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+  const { data } = await supabase.from('marketing_config').select('*').eq('id', 1).maybeSingle();
+  res.json(data || {});
+});
+
+app.put('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = { id: 1, atualizado_em: new Date().toISOString() };
+    for (const k of ['meta_roas', 'gasto_minimo', 'maturacao_dias', 'cobertura_minima']) {
+      if (b[k] != null && !isNaN(Number(b[k]))) patch[k] = Number(b[k]);
+    }
+    const { error } = await supabase.from('marketing_config').upsert(patch, { onConflict: 'id' });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
 // Cache de thumbnails de anúncios (em memória, TTL 6h)
 const _thumbCache = new Map();
 app.get('/api/anuncio-thumb/:adId', requireAuth, rateLimit, async (req, res) => {
