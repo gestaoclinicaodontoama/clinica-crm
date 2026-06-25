@@ -170,3 +170,24 @@ Guardados em tabela `marketing_config` (1 linha, editável por admin na própria
 - Selos por regra com parâmetros editáveis (`marketing_config`).
 - Drill-down 3 níveis (campanha → anúncio → lead → paciente/pagamentos) funcionando e batendo com o Clinicorp numa conferência manual de pelo menos 1 campanha.
 - Regra de desempate de família aplicada; vínculos incertos visíveis e fora do ROAS.
+
+---
+
+## 10. Validação de dados (2026-06-25) — fundação confirmada e corrigida
+
+Consultas reais no banco (`mtqdpjhhqzvuklnlfpvi`) antes do plano:
+
+**Faturamento por paciente É recuperável (confirmado):**
+- `fin_lancamentos` REVENUE: 26.795 linhas, R$8,73M, **mas `paciente_id` está NULL em todas**. Porém o `raw` jsonb tem `PersonId` + `PatientName` + `TreatmentId` + `EntryType` (`INSURANCE_PLAN_CLAIM` = convênio) + `Date` (competência). → **Correção de fundação:** extrair `paciente_id = raw->>'PersonId'` nos REVENUE (backfill + no `mapear-lancamento` p/ frente).
+- `pacientes_financeiro` (de /payment/list): 952 pacientes, **pago+vencido+futuro = R$5,98M = total da venda** (4,15M pago + 0,28M vencido + 1,54M futuro). Fonte de conferência.
+- **Decisão (Luiz): lente Faturamento usa REVENUE/competência como principal + total contratado (pacientes_financeiro) como cruzamento ao lado.**
+- `fin_lancamentos.paciente_id` casa com `pacientes.clinicorp_id` em 99,7% (1.619/1.623). Join key OK.
+- Lente Caixa = `fin_lancamentos` RECEIVED por `data` (22.137 linhas já têm `paciente_id`).
+
+**Match telefone (espelhar do `perfil_clinicorp`):** `right(regexp_replace(tel,'\D','','g'),8)` entre `leads.telefone` e `pacientes.telefone_celular`, exigindo `length>=8`; desempate `order by pacientes.atualizado_em desc`.
+
+**Tamanho dos dados HOJE (aceito pelo Luiz — CRM começou em junho/2026):**
+- 15.859 leads; **441 com ad_id** (`campanha ~ '^\d{6,}$'`), **95% de junho/2026**; `fbclid`=0; `ctwa_clid`=402; `origem~meta`=9.962 (canal sabido, campanha não).
+- Dos 441: **25 casam paciente**, **3 já têm venda** (R$49,9k faturado / R$27k caixa).
+- ⚠️ Implicação: o painel **começa quase vazio** e enriquece sozinho conforme os leads de junho fecham/pagam. É esperado, não é bug. A cobertura honesta deixa isso explícito.
+- ⚠️ Os selos (Escalar/Cortar) raramente vão disparar no começo (quase tudo cai em 🟡 imaturo / ⚪ cobertura baixa) — correto, dado o volume.
