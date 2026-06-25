@@ -4550,11 +4550,14 @@ app.post('/api/admin/capi-saude/backfill-funil', requireAuth, requireAdmin, asyn
   }
   _capiBackfillEm = Date.now();
   try {
-    // Alvos filtrados no banco: CTWA, não importados, em estágio >= qualificado, SEM LeadQualified enviado.
+    // CTWA NÃO importados (há ~15k CTWA importados históricos que encheriam o limite e
+    // deixariam os reais de fora). Ordena por id desc (recentes primeiro). Seleção fina no .filter().
     const { data: leads, error } = await supabase.from('leads')
       .select('id, nome, telefone, email, status, valor, ctwa_clid, referral_data, wa_number_id, eventos_meta_enviados, data_agendamento, data_comparecimento, data_fechamento, importado_historico')
       .not('ctwa_clid', 'is', null)
-      .limit(2000); // seleção fina é no .filter() abaixo (o .or() do PostgREST quebra com status acentuado/vírgula)
+      .not('importado_historico', 'is', true)
+      .order('id', { ascending: false })
+      .limit(2000);
     if (error) throw error;
     const alvos = (leads || []).filter(l => {
       if (l.importado_historico) return false;
