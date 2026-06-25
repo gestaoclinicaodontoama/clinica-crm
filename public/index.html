@@ -1411,6 +1411,10 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
         <option>Clareamento</option><option>Limpeza</option><option>Prótese</option><option>Outros</option>
       </select>
     </div>
+    <div class="form-group" id="area-motivo" style="display:none">
+      <label>Motivo da perda</label>
+      <select id="m-motivo-perda"></select>
+    </div>
     <div class="form-group">
       <label>Etiquetas</label>
       <div class="tags-row" id="tags-row"></div>
@@ -2143,6 +2147,20 @@ function updateValorVisibility() {
   const s = document.getElementById('m-status').value;
   document.getElementById('area-valor').style.display = s === 'Fechou' ? 'block' : 'none';
   document.getElementById('area-tipo').style.display = s === 'Fechou' ? 'block' : 'none';
+  document.getElementById('area-motivo').style.display = s === 'Perdido' ? 'block' : 'none';
+  if (s === 'Perdido') renderMotivoPerdaSelect();
+}
+
+function renderMotivoPerdaSelect() {
+  const sel = document.getElementById('m-motivo-perda');
+  if (!sel) return;
+  const comOrc = !!(leadAtual && leadAtual.data_orcamento);
+  const base = comOrc ? MOTIVOS_COM_ORC : MOTIVOS_SEM_ORC;
+  const atual = leadAtual?.motivo_perda || '';
+  // Inclui o motivo salvo mesmo se for custom ("Outro" digitado antes)
+  const opts = [...new Set([...(atual ? [atual] : []), ...base])];
+  sel.innerHTML = '<option value="">— selecione —</option>' +
+    opts.map(m => `<option ${m === atual ? 'selected' : ''}>${escHtml(m)}</option>`).join('');
 }
 
 document.getElementById('m-status').addEventListener('change', function() {
@@ -2207,11 +2225,15 @@ async function salvarLead(btn) {
   body.valor = v !== '' ? parseFloat(v) : '';
   body.tipo_trat = document.getElementById('m-tipo').value;
 
-  // Perdido exige motivo (popup obrigatório)
-  if (body.status === 'Perdido' && leadAtual.status !== 'Perdido') {
-    const motivo = await pedirMotivoPerda(leadAtual);
-    if (!motivo) return; // cancelou — não salva
-    body.motivo_perda = motivo;
+  // Perdido exige motivo: muda PRA Perdido → popup obrigatório; já Perdido → usa o seletor da ficha
+  if (body.status === 'Perdido') {
+    if (leadAtual.status !== 'Perdido') {
+      const motivo = await pedirMotivoPerda(leadAtual);
+      if (!motivo) return; // cancelou — não salva
+      body.motivo_perda = motivo;
+    } else {
+      body.motivo_perda = document.getElementById('m-motivo-perda').value || leadAtual.motivo_perda || '';
+    }
   }
 
   if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }

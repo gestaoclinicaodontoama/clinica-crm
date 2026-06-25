@@ -409,7 +409,7 @@ function fmtDate(iso) {
 
 function abrirLead(id) {
   const l = _leadMap[id];
-  if (!l) { window.open('/?abrir_lead=' + id, '_blank'); return; }
+  if (!l) { window.open('/perfil/?id=' + id, '_blank'); return; }
   document.getElementById('km-nome').textContent = l.nome || 'Sem nome';
   document.getElementById('km-phone').textContent = fmtTel(l.telefone || '');
   const fields = [
@@ -430,7 +430,7 @@ function abrirLead(id) {
   const safeId = encodeURIComponent(String(id));
   document.getElementById('km-actions').innerHTML =
     (tel ? `<button class="km-btn km-btn-green" onclick="window.open('https://wa.me/55${tel}','_blank')">💬 WhatsApp</button>` : '') +
-    `<button class="km-btn km-btn-primary" onclick="window.open('/?abrir_lead=${safeId}','_blank')">Abrir perfil completo</button>` +
+    `<button class="km-btn km-btn-primary" onclick="window.open('/perfil/?id=${safeId}','_blank')">Abrir Perfil 360º</button>` +
     `<button class="km-btn km-btn-secondary" onclick="fecharModal()">Fechar</button>`;
   document.getElementById('kb-modal-bg').classList.add('open');
 }
