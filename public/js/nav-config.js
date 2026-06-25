@@ -39,6 +39,8 @@
     financeiro:    '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
     producao:      '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
     config:        '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    marketing:     '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>',
+    equipe:        '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   };
   const ARROW = '<svg class="nav-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg>';
   function ic(name) {
@@ -48,27 +50,33 @@
   // ── ESTRUTURA CANÔNICA DO MENU ─────────────────────────────────────────────
   const ALL = 'admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento';
   const CRM_NAV = [
-    { slug: 'dashboard', label: 'Dashboard', icon: 'dashboard', roles: ALL, mode: 'spa' },
 
     { id: 'crc-leads', label: 'CRC de Leads', icon: 'kanban', roles: 'admin,gestor,crc_leads,crc_comercial', items: [
       { slug: 'kanban-leads',      label: 'Kanban Leads',       roles: 'admin,crc,crc_leads,crc_comercial,mod_kanban_leads', mode: 'link', href: '/kanban-leads/' },
       { slug: 'conv-agendamentos', label: 'WhatsApp CRC Lead',  roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso',    mode: 'spa' },
-      { slug: 'conv-oficial',      label: 'WhatsApp API Oficial', roles: 'admin,gestor',                                       mode: 'spa' },
       { slug: 'monitor-crc',       label: 'Monitor Diário',     roles: 'admin,gestor,crc_leads',                              mode: 'link', href: '/monitor-crc/' },
-      { slug: 'capi-saude',        label: 'Saúde do CAPI',      roles: 'admin,gestor',                                        mode: 'link', href: '/capi-saude/' },
     ]},
 
     { id: 'crc-comercial', label: 'CRC Comercial', icon: 'comercial', roles: 'admin,gestor,crc_comercial', items: [
-      { slug: 'comercial',           label: 'Comercial',             roles: 'admin,gestor,crc_comercial',           mode: 'link', href: '/comercial/' },
-      { slug: 'comercial-dashboard', label: 'Dashboard',             roles: 'admin,gestor,crc_comercial',           mode: 'link', href: '/comercial/dashboard.html' },
-      { slug: 'comercial-monitor',   label: 'Monitor CRM Novo',      roles: 'admin,gestor,crc_comercial',           mode: 'link', href: '/comercial/monitor.html' },
-      { slug: 'kanban-comercial',    label: 'Kanban Comercial',      roles: 'admin,crc,crc_comercial,mod_kanban_comercial', mode: 'link', href: '/kanban-comercial/' },
-      { slug: 'conv-avaliacao',      label: 'WhatsApp CRC Comercial', roles: 'admin,gestor,crc_comercial,crc_sucesso', mode: 'spa' },
-      { slug: 'conferencia',         label: 'Conferência',           roles: 'admin,gestor,crc_comercial',           mode: 'link', href: '/comercial/conferencia/' },
+      { slug: 'kanban-comercial',  label: 'Kanban Comercial',       roles: 'admin,crc,crc_comercial,mod_kanban_comercial', mode: 'link', href: '/kanban-comercial/' },
+      { slug: 'comercial',         label: 'Comercial',              roles: 'admin,gestor,crc_comercial',                   mode: 'link', href: '/comercial/' },
+      { slug: 'conferencia',       label: 'Conferência',            roles: 'admin,gestor,crc_comercial',                   mode: 'link', href: '/comercial/conferencia/' },
+      { slug: 'comercial-monitor', label: 'Monitor CRM Novo',       roles: 'admin,gestor,crc_comercial',                   mode: 'link', href: '/comercial/monitor.html' },
+      { slug: 'conv-avaliacao',    label: 'WhatsApp CRC Comercial', roles: 'admin,gestor,crc_comercial,crc_sucesso',        mode: 'spa' },
+    ]},
+
+    { id: 'marketing', label: 'Marketing', icon: 'marketing', roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso,mod_publicos', items: [
+      { slug: 'funil',               label: 'Funil',                roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso', mode: 'spa' },
+      { slug: 'comercial-dashboard', label: 'Dashboard Comercial',  roles: 'admin,gestor,crc_comercial',                      mode: 'link', href: '/comercial/dashboard.html' },
+      { slug: 'disparos',            label: 'Disparos',             roles: 'admin,gestor,crc_comercial',                      mode: 'spa', badge: { id: 'nav-disp-badge', inline: true } },
+      { slug: 'conv-oficial',        label: 'WhatsApp API Oficial', roles: 'admin,gestor',                                    mode: 'spa' },
+      { slug: 'publicos',            label: 'Públicos',             roles: 'admin,gestor,crc_comercial,mod_publicos',          mode: 'link', href: '/publicos/' },
+      { slug: 'capi-saude',          label: 'Saúde do CAPI',        roles: 'admin,gestor',                                    mode: 'link', href: '/capi-saude/' },
+      { slug: 'atribuicao',          label: 'Atribuição',           roles: 'admin,gestor',                                    mode: 'link', href: '/atribuicao/' },
     ]},
 
     { id: 'crc-sucesso', label: 'CRC Sucesso do Cliente', icon: 'sucesso', roles: 'admin,gestor,crc_sucesso,crc_comercial', items: [
-      { slug: 'pacientes', label: 'Pacientes', roles: 'crc_sucesso,crc_comercial,gestor,admin', mode: 'link', href: '/pacientes/' },
+      { slug: 'pacientes',      label: 'Pacientes',            roles: 'crc_sucesso,crc_comercial,gestor,admin',          mode: 'link', href: '/pacientes/' },
       { slug: 'pacientes-busca', label: 'Buscar Paciente 360º', roles: 'crc_sucesso,crc_comercial,crc_leads,gestor,admin', mode: 'link', href: '/pacientes-busca/' },
     ]},
 
@@ -78,38 +86,31 @@
       { slug: 'vips',            label: 'VIPs',            roles: 'admin,gestor,crc_sucesso,crc_pos_tratamento', mode: 'link', href: '/pos-tratamento/vips.html' },
     ]},
 
-    { divider: true, roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso' },
+    { divider: true, roles: 'admin,gestor,financeiro,mod_financeiro,mod_producao,dentista,mod_avaliacao_dentista,crc_comercial' },
 
-    { slug: 'funil',    label: 'Funil',    icon: 'funil',    roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso', mode: 'spa' },
-    { slug: 'disparos', label: 'Disparos', icon: 'disparos', roles: 'admin,gestor,crc_comercial',                       mode: 'spa', badge: { id: 'nav-disp-badge', inline: true } },
-    { slug: 'publicos', label: 'Públicos', icon: 'publicos', roles: 'admin,gestor,crc_comercial,mod_publicos',          mode: 'link', href: '/publicos/' },
-
-    { divider: true, roles: 'admin,gestor,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes' },
-
-    { id: 'admin', label: 'Administrativo', icon: 'admin', roles: 'admin,gestor,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes', items: [
-      { slug: 'inadimplentes', label: 'Inadimplentes', roles: 'admin,gestor,auxiliar_adm,mod_inadimplentes', mode: 'spa', badge: { id: 'badge-inadimplentes', cls: 'inad-nav-badge' } },
-      { slug: 'notas-fiscais', label: 'Notas Fiscais', roles: 'admin,gestor,auxiliar_adm,mod_notas_fiscais', mode: 'spa' },
+    { id: 'producao', label: 'Clínica / Produção', icon: 'producao', roles: 'admin,gestor,financeiro,mod_financeiro,mod_producao,dentista,mod_avaliacao_dentista,crc_comercial', items: [
+      { slug: 'avaliacao-dentista', label: 'Avaliação Dentista',   roles: 'gestor,dentista,admin,mod_avaliacao_dentista,crc_comercial', mode: 'link', href: '/avaliacao-dentista/' },
+      { slug: 'producao',           label: 'Receita × Entrega',    roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/' },
+      { slug: 'producao-dentista',  label: 'Análise por Dentista', roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/dentista/' },
     ]},
 
-    { id: 'dentistas', label: 'Dentistas', icon: 'dentista', roles: 'admin,gestor,dentista,mod_avaliacao_dentista,crc_comercial', items: [
-      { slug: 'avaliacao-dentista', label: 'Avaliação Dentista', roles: 'gestor,dentista,admin,mod_avaliacao_dentista,crc_comercial', mode: 'link', href: '/avaliacao-dentista/' },
+    { id: 'financeiro-sec', label: 'Financeiro', icon: 'financeiro', roles: 'admin,gestor,financeiro,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes,mod_financeiro', items: [
+      { slug: 'financeiro',    label: 'Financeiro (DRE)', roles: 'financeiro,mod_financeiro',                      mode: 'link', href: '/financeiro/' },
+      { slug: 'inadimplentes', label: 'Inadimplentes',    roles: 'admin,gestor,auxiliar_adm,mod_inadimplentes',    mode: 'spa', badge: { id: 'badge-inadimplentes', cls: 'inad-nav-badge' } },
+      { slug: 'notas-fiscais', label: 'Notas Fiscais',    roles: 'admin,gestor,auxiliar_adm,mod_notas_fiscais',    mode: 'spa' },
     ]},
 
-    { id: 'relatorios', label: 'Relatórios', icon: 'relatorios', roles: 'admin,gestor', items: [
-      { slug: 'ligacoes',   label: 'Ligações',   roles: 'gestor,admin', mode: 'link', href: '/ligacoes' },
-      { slug: 'atribuicao', label: 'Atribuição', roles: 'admin,gestor', mode: 'link', href: '/atribuicao/' },
+    { divider: true, roles: ALL },
+
+    { id: 'equipe', label: 'Equipe / Operação', icon: 'equipe', roles: ALL, items: [
+      { slug: 'tarefas',        label: 'Tarefas',           roles: ALL,            mode: 'link', href: '/tarefas/' },
+      { slug: 'tarefas-gestao', label: 'Gestão de Tarefas', roles: 'admin,gestor', mode: 'link', href: '/tarefas/gestao.html' },
+      { slug: 'ligacoes',       label: 'Ligações',          roles: 'gestor,admin', mode: 'link', href: '/ligacoes' },
     ]},
 
-    { slug: 'tarefas',         label: 'Tarefas',           icon: 'tarefas',       roles: ALL,            mode: 'link', href: '/tarefas/' },
-    { slug: 'tarefas-gestao',  label: 'Gestão de Tarefas', icon: 'tarefasGestao', roles: 'admin,gestor', mode: 'link', href: '/tarefas/gestao.html' },
-    { slug: 'financeiro',      label: 'Financeiro',        icon: 'financeiro',    roles: 'financeiro,mod_financeiro', mode: 'link', href: '/financeiro/' },
+    { divider: true, roles: 'admin,gestor' },
 
-    { id: 'producao', label: 'Receita × Entrega', icon: 'producao', roles: 'financeiro,mod_financeiro,mod_producao', items: [
-      { slug: 'producao',          label: 'Visão Geral',         roles: 'financeiro,mod_financeiro,mod_producao', mode: 'link', href: '/producao/' },
-      { slug: 'producao-dentista', label: 'Análise por Dentista', roles: 'financeiro,mod_financeiro,mod_producao', mode: 'link', href: '/producao/dentista/' },
-    ]},
-
-    { id: 'config-geral', label: 'Configurações Gerais', icon: 'config', roles: 'admin,gestor', items: [
+    { id: 'config-geral', label: 'Configurações', icon: 'config', roles: 'admin,gestor', items: [
       { slug: 'config',   label: 'Configurações', roles: 'admin,gestor', mode: 'spa' },
       { slug: 'usuarios', label: 'Usuários',      roles: 'admin',        mode: 'spa', id: 'nav-usuarios' },
       { slug: 'funcoes',  label: 'Funções',       roles: 'admin',        mode: 'link', href: '/admin/funcoes/' },
