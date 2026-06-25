@@ -11,10 +11,10 @@ create table if not exists marketing_config (
 insert into marketing_config (id) values (1) on conflict (id) do nothing;
 
 -- 2) RPC principal: receita por ad_id, atribuída à safra (coorte) do lead.
--- Faturamento = REVENUE all-time (competência). Caixa = pacientes_financeiro.total_pago
--- (recebido all-time por paciente; fonte confiável, mesma do Perfil 360 — o RECEIVED de
--- fin_lancamentos usa RelatedPersonId/responsável e não casa o paciente). p_lente é mantido
--- na assinatura para compat, mas o filtro de coorte vale para as duas lentes (período = safra).
+-- Faturamento = REVENUE all-time (competência). Caixa = pacientes_financeiro.total_pago.
+-- COORTE filtrada já no meta_leads (em America/Sao_Paulo) — assim rn=1 e n_camp valem
+-- DENTRO da janela (não pega lead histórico fora do período). p_lente mantido p/ compat
+-- (a lente é decidida no Node; o filtro de coorte vale para as duas).
 create or replace function marketing_campanhas(p_desde date, p_ate date, p_lente text)
 returns json
 language sql stable security definer
@@ -25,6 +25,8 @@ as $function$
            length(regexp_replace(l.telefone,'\D','','g')) as tlen
     from leads l
     where l.campanha ~ '^\d{6,}$'
+      and (l.criado_em at time zone 'America/Sao_Paulo')::date >= p_desde
+      and (l.criado_em at time zone 'America/Sao_Paulo')::date <= p_ate
   ),
   pares as (
     select ml.lead_id, ml.ad_id, ml.criado_em, p.clinicorp_id as cid,
@@ -37,17 +39,17 @@ as $function$
   pac_ncamp as (
     select cid, count(distinct ad_id) as n_camp from pares group by cid
   ),
-  owner as (  -- 1 paciente -> 1 lead dono (mais recente), dentro da coorte; incerto se >1 campanha
+  owner as (  -- 1 paciente -> 1 lead dono (mais recente DENTRO da coorte); incerto se >1 campanha
     select pr.lead_id, pr.ad_id, pr.criado_em, pr.cid, (pn.n_camp > 1) as incerto
     from pares pr join pac_ncamp pn on pn.cid = pr.cid
     where pr.rn = 1
-      and pr.criado_em >= p_desde and pr.criado_em < (p_ate + 1)
   ),
   cohort as (
     select campanha as ad_id, count(*) as leads_total, max(criado_em) as lead_recente
     from leads
     where campanha ~ '^\d{6,}$'
-      and criado_em >= p_desde and criado_em < (p_ate + 1)
+      and (criado_em at time zone 'America/Sao_Paulo')::date >= p_desde
+      and (criado_em at time zone 'America/Sao_Paulo')::date <= p_ate
     group by campanha
   ),
   receita as (
