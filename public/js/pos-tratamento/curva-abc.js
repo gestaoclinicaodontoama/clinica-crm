@@ -7,6 +7,17 @@ let paginaAtual = 1, totalRegistros = 0;
 let filtroClasse = null, filtroDays = null, filtroSemAgenda = false, buscaTexto = "";
 let classTabFilter = "todos";
 let sortCol = "total_receita", sortAsc = false;
+let catPrev = "todas"; // 'todas' | 'adulto' | 'infantil'
+const prevCol = () => catPrev === "adulto" ? "ultima_prevencao_adulto"
+                    : catPrev === "infantil" ? "ultima_prevencao_infantil"
+                    : "ultima_prevencao";
+function statusPrev(dateStr) {
+  if (!dateStr) return { txt: "Nunca", cls: "st-nunca" };
+  const dias = Math.floor((Date.now() - new Date(dateStr)) / 86400000);
+  if (dias > 180) return { txt: `${dias}d`, cls: "st-vencido" };
+  if (dias >= 150) return { txt: `${dias}d`, cls: "st-perto" };
+  return { txt: `${dias}d`, cls: "st-emdia" };
+}
 let stats = {};
 let tmpl;
 let paginaRows = [];
@@ -132,6 +143,15 @@ function setupListeners() {
     document.querySelector(".abc-tab[data-filter='todos']").classList.add("abc-tab--active");
     paginaAtual = 1; syncClearBtn(); carregar();
   });
+
+  document.getElementById("prev-cat-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest(".prev-cat"); if (!b) return;
+    document.querySelectorAll(".prev-cat").forEach(x => x.classList.remove("prev-cat--active"));
+    b.classList.add("prev-cat--active");
+    catPrev = b.dataset.cat;
+    if (sortCol.startsWith("ultima_prevencao")) sortCol = prevCol(); // segue ordenando por prevenção
+    paginaAtual = 1; carregar();
+  });
 }
 
 function syncClearBtn() {
@@ -143,8 +163,8 @@ async function carregar() {
   const from = (paginaAtual - 1) * PAGE_SIZE, to = from + PAGE_SIZE - 1;
 
   let q = sb.from("pacientes_abc")
-    .select("paciente_id, clinicorp_id, nome, classe, total_receita, ultima_visita, dias_sem_visita, proxima_consulta, telefone, pacientes!inner(id, telefone_celular)", { count: "exact" })
-    .order(sortCol, { ascending: sortAsc })
+    .select("paciente_id, clinicorp_id, nome, classe, total_receita, ultima_visita, dias_sem_visita, proxima_consulta, telefone, ultima_prevencao, ultima_prevencao_adulto, ultima_prevencao_infantil, pacientes!inner(id, telefone_celular)", { count: "exact" })
+    .order(sortCol, { ascending: sortAsc, nullsFirst: sortCol.startsWith("ultima_prevencao") ? false : undefined })
     .range(from, to);
 
   if (classTabFilter !== "todos") q = q.eq("classe", classTabFilter);
@@ -184,6 +204,8 @@ function renderTabela(rows) {
         <th class="sortable-th" data-col="total_receita">FATURAMENTO${sortInd("total_receita")}</th>
         <th class="sortable-th" data-col="dias_sem_visita">ÚLTIMO ATEND.${sortInd("dias_sem_visita")}</th>
         <th class="sortable-th" data-col="proxima_consulta">PRÓXIMA AGENDA${sortInd("proxima_consulta")}</th>
+        <th class="sortable-th" data-col="${prevCol()}">ÚLTIMA PREVENÇÃO${sortInd(prevCol())}</th>
+        <th>STATUS</th>
         <th>WHATSAPP</th>
       </tr></thead>
       <tbody>${rows.map((p, idx) => {
@@ -208,6 +230,8 @@ function renderTabela(rows) {
           <td class="abc-receita">${fmtK(Number(p.total_receita||0))}</td>
           <td><span class="badge ${daysColor}">${p.dias_sem_visita != null ? p.dias_sem_visita + " dias" : "—"}</span></td>
           <td><div class="abc-agenda-cell">${agendaHtml}</div></td>
+          <td>${p[prevCol()] ? formatarData(p[prevCol()]) : '—'}</td>
+          <td><span class="prev-status ${statusPrev(p[prevCol()]).cls}">${statusPrev(p[prevCol()]).txt}</span></td>
           <td><button class="abc-wa-btn" data-idx="${idx}" title="WhatsApp">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.556 4.12 1.529 5.854L0 24l6.335-1.52A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.797 9.797 0 01-5.032-1.386l-.36-.214-3.73.894.952-3.645-.234-.374A9.788 9.788 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182c5.43 0 9.818 4.388 9.818 9.818 0 5.43-4.388 9.818-9.818 9.818z"/></svg>
           </button></td>
