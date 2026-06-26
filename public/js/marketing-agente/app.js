@@ -8,6 +8,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&l
 // antes de usar em nome de classe CSS (defesa em profundidade).
 const SELO_OK = new Set(['escalar','cortar','observar','cobertura_baixa','caixa']);
 const seloClass = s => SELO_OK.has(s) ? s : 'cobertura_baixa';
+const SELO_PILL = { escalar:'pill-green', cortar:'pill-red', observar:'pill-yellow', cobertura_baixa:'pill-muted', caixa:'pill-green' };
+const seloPill = s => SELO_PILL[s] || 'pill-muted';
 let _state = { desde:null, ate:null, lente:'safra' };
 let _q = { dados: null }; // cache da resposta de qualidade-lead
 
@@ -72,7 +74,7 @@ function renderLista(d) {
   document.getElementById('lista').innerHTML = d.campanhas.map((c, idx) => {
     const rec = d.lente==='caixa' ? c.caixa : c.faturamento;
     return `<div class="mkt-card">
-      <div><span class="mkt-selo selo-${seloClass(c.selo)}">${esc(SELO_LABEL[c.selo] || c.selo)}</span> <b>${esc(c.campanha)}</b></div>
+      <div><span class="pill ${seloPill(c.selo)}">${esc(SELO_LABEL[c.selo] || c.selo)}</span> <b>${esc(c.campanha)}</b></div>
       <div class="mkt-num">Gasto ${fmt(c.spend)} · ${d.lente==='caixa'?'Caixa':'Faturamento'}
         <span class="mkt-clickable" data-drill="${idx}">${fmt(rec)}</span>
         · ROAS ${c.roas==null?'—':c.roas.toFixed(2)+'x'}</div>
@@ -93,7 +95,7 @@ async function abrirDrill(camp, idx) {
     box.innerHTML = d.leads.length ? d.leads.map(l => {
       const cls = l.vinculo==='casado' ? 'escalar' : (l.vinculo==='incerto' ? 'observar' : 'cobertura_baixa');
       const leadId = encodeURIComponent(l.lead_id);
-      return `<div>• ${esc(l.nome || '(sem nome)')} — <span class="mkt-selo selo-${cls}">${esc(l.vinculo)}</span>
+      return `<div>• ${esc(l.nome || '(sem nome)')} — <span class="pill ${cls === 'escalar' ? 'pill-green' : cls === 'observar' ? 'pill-yellow' : 'pill-muted'}">${esc(l.vinculo)}</span>
       ${l.paciente_nome?`→ ${esc(l.paciente_nome)}`:''} · fat ${fmt(l.faturamento)}
       ${l.vinculo!=='sem_paciente'?`<span class="mkt-clickable" data-lead="${leadId}">ver pagamentos</span>`:''}</div>`;
     }).join('') : '<i>Sem leads.</i>';
@@ -184,13 +186,25 @@ async function abrirQDrill(camp, idx, metricaKey) {
 document.getElementById('atualizar').onclick = carregar;
 document.getElementById('lente').onchange = carregar;
 document.getElementById('periodo').onchange = carregar;
+const cfgBg = document.getElementById('cfg-modal-bg');
 document.getElementById('btn-config').onclick = async () => {
   const cfg = await mktApi('/api/marketing/config');
-  const roas = prompt('Meta de ROAS (x):', cfg.meta_roas); if (roas === null) return;
-  const gasto = prompt('Gasto mínimo (R$):', cfg.gasto_minimo); if (gasto === null) return;
-  const mat = prompt('Maturação (dias):', cfg.maturacao_dias); if (mat === null) return;
-  const cob = prompt('Cobertura mínima (0–1):', cfg.cobertura_minima); if (cob === null) return;
-  await mktApi('/api/marketing/config', { method:'PUT', body: JSON.stringify({ meta_roas:roas, gasto_minimo:gasto, maturacao_dias:mat, cobertura_minima:cob }) });
+  document.getElementById('cfg-roas').value = cfg.meta_roas;
+  document.getElementById('cfg-gasto').value = cfg.gasto_minimo;
+  document.getElementById('cfg-mat').value = cfg.maturacao_dias;
+  document.getElementById('cfg-cob').value = cfg.cobertura_minima;
+  cfgBg.classList.add('open');
+};
+document.getElementById('cfg-cancelar').onclick = () => cfgBg.classList.remove('open');
+cfgBg.onclick = (e) => { if (e.target === cfgBg) cfgBg.classList.remove('open'); };
+document.getElementById('cfg-salvar').onclick = async () => {
+  await mktApi('/api/marketing/config', { method: 'PUT', body: JSON.stringify({
+    meta_roas: document.getElementById('cfg-roas').value,
+    gasto_minimo: document.getElementById('cfg-gasto').value,
+    maturacao_dias: document.getElementById('cfg-mat').value,
+    cobertura_minima: document.getElementById('cfg-cob').value,
+  }) });
+  cfgBg.classList.remove('open');
   carregar();
 };
 document.getElementById('aba-roas').onclick = () => trocarAba('roas');
