@@ -283,6 +283,20 @@ app.patch('/api/me/threec-agent-token', requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// Login antecipado do agente na campanha manual (chamado pelo front quando o
+// softfone conecta) — deixa o agente "ocioso/pronto" e elimina o atraso do
+// login-na-hora-de-discar na 1ª ligação.
+app.post('/api/me/3c-login', requireAuth, async (req, res) => {
+  try {
+    const p = await loadProfile(req);
+    if (!p?.threec_agent_token) return res.json({ ok: false, motivo: 'sem token' });
+    const ok = await threec.loginManual(p.threec_agent_token);
+    res.json({ ok });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 // alias legado
 app.patch('/api/me/threec-agent-id', requireAuth, async (req, res) => {
   try {

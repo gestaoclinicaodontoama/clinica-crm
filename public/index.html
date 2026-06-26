@@ -6062,12 +6062,21 @@ window.SoftphoneSDK = (function () {
     return 'conectando';
   }
 
+  let eagerLoginDone = false;
+  function maybeEagerLogin() {
+    if (eagerLoginDone || estado() !== 'pronto') return;
+    eagerLoginDone = true;
+    // Loga o agente na campanha manual assim que o softfone fica pronto, pra 1ª
+    // ligação não ter o atraso do login-na-hora-de-discar.
+    if (typeof api === 'function') api('/api/me/3c-login', { method: 'POST' }).catch(() => {});
+  }
   function render() {
     const e = estado();
     if (e === 'em_ligacao') setPill('#16a34a', 'Em ligação', false);
     else if (e === 'pronto') setPill('#16a34a', 'Softphone conectado', false);
     else if (e === 'desconectado') setPill('#dc2626', 'Desconectado', true);
     else setPill('#d97706', 'Reconectando…', false);
+    maybeEagerLogin();
   }
 
   function loadIframe() {
