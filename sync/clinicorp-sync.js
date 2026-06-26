@@ -12,6 +12,7 @@ const ClinicorpApi     = require('./clinicorp-api');
 const { normalizarTelefone } = require('../lib/funil/telefone');
 const { planejarNovosPacientes } = require('../lib/sync/planejar-novos-pacientes');
 const { classificarOrcamento } = require('../lib/funil/orcamento');
+const { classificar, normalizarNome } = require('../lib/prevencao/classificacao');
 
 const FUNIL_DIAS = 180; // janela de coleta do funil comercial
 
@@ -732,6 +733,143 @@ async function notificarPendentes() {
   return pend.length;
 }
 
+const PREVENCAO_DIAS = 45; // sync diário: reprocessa últimos 45d de prevenção
+
+/** Catálogo de procedimentos: PriceId(string) → { nome, expertise }. */
+async function loadProcedureCatalog() {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const raw = await api.get('/procedures/list', { from: '2020-01-01', to: hoje });
+  const all = Array.isArray(raw) ? raw : Object.values(raw).flat();
+  const map = new Map();
+  for (const p of all) {
+    if (p.id != null) map.set(String(p.id), { nome: p.ProcedureName || p.Name || '', expertise: p.ProcedureExpertiseName || null });
+  }
+  return map;
+}
+
+/**
+ * Coleta procedimentos de prevenção realizados (estimates/list, Executed=X),
+ * classifica adulto/infantil, grava prevencao_eventos, insere pacientes faltantes
+ * e recomputa os agregados em pacientes_abc.
+ */
+async function syncPrevencao(janelaDias = PREVENCAO_DIAS) {
+  const catalog = await loadProcedureCatalog();
+  const estimates = await fetchRangeChunked('/estimates/list', janelaDias);
+
+  const eventos = [];
+  const naoClass = new Map();
+  const infoMap = new Map();
+  for (const est of estimates) {
+    for (const p of (est.ProcedureList || [])) {
+      if (p.Executed !== 'X') continue;
+      const data = (p.ExecutedDate || p.z_LastChange_Date || '').slice(0, 10);
+      const cid  = p.Patient_PersonId || est.PatientId;
+      if (!data || !cid) continue;
+      if (!infoMap.has(Number(cid))) infoMap.set(Number(cid), { nome: est.PatientName || `Paciente ${cid}`, telefone: est.PatientMobilePhone || null });
+      const priceId = p.PriceId != null ? String(p.PriceId) : null;
+      const info = priceId ? catalog.get(priceId) : null;
+      const nome = info?.nome || '';
+      const expertise = info?.expertise || null;
+      const profissional = p.ProfessionalName || p.DentistName || null;
+
+      const categoria = classificar({ nome, expertise, profissional });
+      if (!categoria) {
+        const nn = normalizarNome(nome);
+        if (nn) {
+          const cur = naoClass.get(nn) || { exemplo_nome: nome, expertise, ocorrencias: 0, ultima_vez: data };
+          cur.ocorrencias++; if (data > cur.ultima_vez) cur.ultima_vez = data;
+          naoClass.set(nn, cur);
+        }
+        continue;
+      }
+      eventos.push({
+        clinicorp_id: Number(cid), data, categoria,
+        procedimento: nome, expertise,
+        dentist_person_id: p.Dentist_PersonId ? Number(p.Dentist_PersonId) : null,
+        profissional, bill_type: p.BillType || null,
+        treatment_id: est.TreatmentId ? Number(est.TreatmentId) : null,
+      });
+    }
+  }
+
+  const seen = new Set();
+  const dedup = eventos.filter(e => {
+    const k = `${e.clinicorp_id}|${e.data}|${e.categoria}|${e.treatment_id}`;
+    if (seen.has(k)) return false; seen.add(k); return true;
+  });
+
+  for (let i = 0; i < dedup.length; i += 500) {
+    const { error } = await supabase.from('prevencao_eventos')
+      .upsert(dedup.slice(i, i + 500), { onConflict: 'clinicorp_id,data,categoria,treatment_id' });
+    if (error) log(`ERRO upsert prevencao_eventos: ${error.message}`);
+  }
+  log(`Prevenção: ${dedup.length} eventos (de ${eventos.length} brutos)`);
+
+  const naoRows = [...naoClass.entries()].map(([nome_norm, v]) => ({ nome_norm, ...v, atualizado_em: new Date().toISOString() }));
+  for (let i = 0; i < naoRows.length; i += 500) {
+    await supabase.from('prevencao_nao_classificados').upsert(naoRows.slice(i, i + 500), { onConflict: 'nome_norm' });
+  }
+
+  await recomputarPrevencaoAbc(infoMap);
+  return { eventos: dedup.length, nao_classificados: naoRows.length };
+}
+
+/** Recalcula ultima_prevencao* na pacientes_abc a partir de prevencao_eventos,
+ *  inserindo pacientes que ainda não existem (convênio-only). */
+async function recomputarPrevencaoAbc(infoMap = new Map()) {
+  const eventos = await selectAll('prevencao_eventos', 'clinicorp_id, data, categoria, procedimento');
+  const agg = new Map();
+  for (const e of eventos) {
+    const a = agg.get(e.clinicorp_id) || { adulto: null, infantil: null };
+    if (e.data > (a[e.categoria] || '')) a[e.categoria] = e.data;
+    agg.set(e.clinicorp_id, a);
+  }
+
+  const cids = [...agg.keys()];
+  const idMap = new Map();
+  async function carregarIds(lista) {
+    for (let i = 0; i < lista.length; i += 1000) {
+      const { data } = await supabase.from('pacientes').select('id, clinicorp_id').in('clinicorp_id', lista.slice(i, i + 1000));
+      (data || []).forEach(p => idMap.set(Number(p.clinicorp_id), p.id));
+    }
+  }
+  await carregarIds(cids);
+
+  const faltantes = cids.filter(c => !idMap.has(c));
+  if (faltantes.length) {
+    const novos = faltantes.map(c => ({
+      clinicorp_id: c,
+      nome: infoMap.get(c)?.nome || `Paciente ${c}`,
+      telefone_celular: infoMap.get(c)?.telefone || null,
+      inserido_em: new Date().toISOString(),
+    }));
+    for (let i = 0; i < novos.length; i += 500) {
+      await supabase.from('pacientes').upsert(novos.slice(i, i + 500), { onConflict: 'clinicorp_id', ignoreDuplicates: true });
+    }
+    await carregarIds(faltantes);
+    log(`Prevenção: ${novos.length} pacientes convênio-only inseridos`);
+  }
+
+  const rows = [];
+  for (const [cid, a] of agg) {
+    const ultima = [a.adulto, a.infantil].filter(Boolean).sort().slice(-1)[0] || null;
+    rows.push({
+      clinicorp_id: cid,
+      paciente_id: idMap.get(cid) || null,
+      ultima_prevencao: ultima,
+      ultima_prevencao_adulto: a.adulto,
+      ultima_prevencao_infantil: a.infantil,
+      dias_sem_prevencao: ultima ? daysSince(ultima) : null,
+    });
+  }
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase.from('pacientes_abc')
+      .upsert(rows.slice(i, i + 500), { onConflict: 'clinicorp_id' });
+    if (error) log(`ERRO upsert prevencao em pacientes_abc: ${error.message}`);
+  }
+  log(`Prevenção: agregados de ${rows.length} pacientes atualizados`);
+}
+
 // ─── entrada principal ───────────────────────────────────────────────────────
 
 async function runSync(trigger = 'agendado') {
@@ -803,6 +941,12 @@ async function runSync(trigger = 'agendado') {
     result.steps.producao = r.count;
   });
 
+  // Fase 7d: prevenção realizada (estimates Executed=X, classificada)
+  await step('prevencao', async () => {
+    const r = await syncPrevencao();
+    result.steps.prevencao = r.eventos;
+  });
+
   // Fase 7c: agenda de consultas (para análise por dentista, janela 90d)
   await step('agenda', async () => {
     const r = await syncAgenda();
@@ -851,4 +995,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes, syncPrevencao };
