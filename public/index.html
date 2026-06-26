@@ -6025,6 +6025,93 @@ async function submitNewPassword() {
   <span id="sip-status-text">Conectando…</span>
   <button id="sip-reconnect-btn" title="Reconectar" style="display:none;background:none;border:none;color:#fff;cursor:pointer;font-size:15px;padding:0 2px">↻</button>
 </div>
+<script>
+// Softphone modo SDK — padrão do SDK oficial 3C (github.com/wosiak/3cplus-sdk):
+// iframe SIP oculto + socket.io para estado do agente + reconexão automática.
+// Estado por flags (evita chicken-and-egg: o agente só loga em campanha no discar,
+// então "pronto" = socket conectado + iframe SIP carregado, sem logout pendente).
+window.SoftphoneSDK = (function () {
+  const BACKOFF = [1000, 3000, 10000, 30000];
+  let socket = null, token = null;
+  let socketConnected = false, iframeLoaded = false, loggedOut = false, inCall = false;
+  let reconnectAttempt = 0, reconnectTimer = null;
+
+  function setPill(cor, label, showBtn) {
+    const dot = document.getElementById('sip-status-dot');
+    const txt = document.getElementById('sip-status-text');
+    const btn = document.getElementById('sip-reconnect-btn');
+    if (dot) dot.style.color = cor;
+    if (txt) txt.textContent = label;
+    if (btn) btn.style.display = showBtn ? 'inline-block' : 'none';
+  }
+
+  function estado() {
+    if (inCall) return 'em_ligacao';
+    if (loggedOut) return 'desconectado';
+    if (socketConnected && iframeLoaded) return 'pronto';
+    return 'conectando';
+  }
+
+  function render() {
+    const e = estado();
+    if (e === 'em_ligacao') setPill('#16a34a', 'Em ligação', false);
+    else if (e === 'pronto') setPill('#16a34a', 'Softphone conectado', false);
+    else if (e === 'desconectado') setPill('#dc2626', 'Desconectado', true);
+    else setPill('#d97706', 'Reconectando…', false);
+  }
+
+  function loadIframe() {
+    const iframe = document.getElementById('sip-extension-frame');
+    if (!iframe || !token) return;
+    iframeLoaded = false;
+    iframe.src = 'https://clnicaama.3c.plus/extension?api_token=' + encodeURIComponent(token);
+  }
+
+  function connectSocket() {
+    if (typeof io === 'undefined') { console.warn('[sip] socket.io não carregado'); return; }
+    if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
+    socketConnected = false;
+    socket = io('https://socket.3c.plus', { transports: ['websocket'], query: { token } });
+    socket.on('connect', () => { socketConnected = true; loggedOut = false; render(); console.log('[sip] socket conectado'); });
+    socket.on('disconnect', () => { socketConnected = false; render(); agendarReconexao(); });
+    socket.on('agent-is-connected', () => { loggedOut = false; render(); });
+    socket.on('agent-is-idle', () => { if (!inCall) { loggedOut = false; render(); } });
+    socket.on('call-was-connected', () => { inCall = true; render(); });
+    ['call-was-finished', 'call-was-not-answered', 'call-was-failed'].forEach(ev =>
+      socket.on(ev, () => { inCall = false; render(); }));
+    socket.on('agent-was-logged-out', () => { loggedOut = true; render(); reconnect(); });
+    socket.on('error', (e) => console.warn('[sip] socket error', e));
+    socket.on('exception', (e) => console.warn('[sip] socket exception', e));
+  }
+
+  function agendarReconexao() {
+    if (reconnectTimer) return;
+    const delay = BACKOFF[Math.min(reconnectAttempt, BACKOFF.length - 1)];
+    reconnectAttempt++;
+    reconnectTimer = setTimeout(() => { reconnectTimer = null; reconnect(); }, delay);
+  }
+
+  function reconnect() {
+    render();
+    loadIframe();
+    connectSocket();
+  }
+
+  function init(agentToken) {
+    token = agentToken;
+    reconnectAttempt = 0;
+    const pill = document.getElementById('sip-status-pill');
+    if (pill) pill.style.display = 'flex';
+    const btn = document.getElementById('sip-reconnect-btn');
+    if (btn) btn.onclick = () => { reconnectAttempt = 0; reconnect(); };
+    const iframe = document.getElementById('sip-extension-frame');
+    if (iframe) iframe.addEventListener('load', () => { iframeLoaded = true; render(); console.log('[sip] iframe SIP carregado'); });
+    reconnect();
+  }
+
+  return { init, isPronto: () => estado() === 'pronto' || estado() === 'em_ligacao', getEstado: estado, reconnect };
+})();
+</script>
 
 <script>
 let _softphoneInited = false;
