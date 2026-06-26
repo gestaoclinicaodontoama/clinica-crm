@@ -5723,7 +5723,10 @@ async function loadCurrentUser() {
   }
 }
 
-const _esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// var (não const) de propósito: já existe um `function _esc` global em outro
+// bloco <script>; const+function colidem no escopo global (SyntaxError que
+// derrubava o bloco do softphone). var+function coexistem. Ambos escapam HTML.
+var _esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 const _ROLE_LABELS = {
   admin:'Admin', gestor:'Gestor', auxiliar_adm:'Auxiliar Adm',
