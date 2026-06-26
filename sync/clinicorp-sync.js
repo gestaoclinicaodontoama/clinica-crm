@@ -852,19 +852,24 @@ async function recomputarPrevencaoAbc(infoMap = new Map()) {
 
   const rows = [];
   for (const [cid, a] of agg) {
+    const pid = idMap.get(cid);
+    if (!pid) continue; // sem vínculo em pacientes → não há como escrever (o único é paciente_id)
     const ultima = [a.adulto, a.infantil].filter(Boolean).sort().slice(-1)[0] || null;
     rows.push({
       clinicorp_id: cid,
-      paciente_id: idMap.get(cid) || null,
+      paciente_id: pid,
       ultima_prevencao: ultima,
       ultima_prevencao_adulto: a.adulto,
       ultima_prevencao_infantil: a.infantil,
       dias_sem_prevencao: ultima ? daysSince(ultima) : null,
     });
   }
+  // pacientes_abc tem único em paciente_id (não em clinicorp_id). Upsert por paciente_id:
+  // atualiza só as colunas de prevenção (mantém classe/receita) e insere linha nova
+  // (classe=NULL) p/ paciente de prevenção que ainda não tinha ABC.
   for (let i = 0; i < rows.length; i += 500) {
     const { error } = await supabase.from('pacientes_abc')
-      .upsert(rows.slice(i, i + 500), { onConflict: 'clinicorp_id' });
+      .upsert(rows.slice(i, i + 500), { onConflict: 'paciente_id' });
     if (error) log(`ERRO upsert prevencao em pacientes_abc: ${error.message}`);
   }
   log(`Prevenção: agregados de ${rows.length} pacientes atualizados`);
