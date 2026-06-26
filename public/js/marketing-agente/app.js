@@ -20,25 +20,24 @@ function trocarAba(qual) {
   if (!roas && !_q.dados) carregarQualidade();
 }
 
-// Reimplementa o ranking do lib/marketing/qualidade.js no cliente (8 linhas; o backend
-// envia `metricas[]` como fonte de verdade do mapeamento status→etapa).
+// Soma as contagens dos status de uma métrica (o backend manda metricas[] como fonte de verdade).
 function _valorMetrica(porStatus, metrica) {
   return (metrica.status || []).reduce((s, st) => s + ((porStatus && porStatus[st]) || 0), 0);
 }
-function _rank(campanhas, metrica, ordenarPor, minLeads) {
-  let rows = (campanhas || []).map(c => {
-    const valor = _valorMetrica(c.por_status, metrica);
-    return Object.assign({}, c, { valor, taxa: c.total > 0 ? valor / c.total : 0 });
-  }).filter(r => r.valor > 0);
-  if (ordenarPor === 'taxa') rows = rows.filter(r => r.total >= minLeads).sort((a, b) => (b.taxa - a.taxa) || (b.valor - a.valor));
-  else rows.sort((a, b) => (b.valor - a.valor) || (b.taxa - a.taxa));
-  return rows;
-}
-function _metricaAtual() {
-  const key = document.getElementById('q-metrica').value;
-  const ms = (_q.dados && _q.dados.metricas) || [];
-  return ms.find(m => m.key === key) || ms[0] || { key: 'sem_interesse', label: 'Sem interesse', status: ['Perdido', 'Não tem Interesse'], tom: 'ruim' };
-}
+// Colunas da matriz (etapas do funil), na ordem do funil. A contagem de cada coluna vem
+// dos status que a métrica agrupa (definição em metricas[] do backend).
+const Q_COLS = [
+  { key: 'sem_interesse', label: 'Perdidos', tom: 'ruim' },
+  { key: 'qualificacao', label: 'Qualificados', tom: 'bom' },
+  { key: 'agendada', label: 'Agendados', tom: 'bom' },
+  { key: 'compareceu', label: 'Compareceu', tom: 'bom' },
+  { key: 'negociacao', label: 'Em negociação', tom: 'bom' },
+  { key: 'fechou', label: 'Fechou', tom: 'bom' },
+];
+let _qSort = 'total';   // coluna de ordenação: 'total' ou uma key de Q_COLS
+let _qExpand = {};       // campanha_id -> bool (linha expandida mostrando os anúncios)
+function _qMetrica(key) { const ms = (_q.dados && _q.dados.metricas) || []; return ms.find(m => m.key === key) || { key, status: [] }; }
+function _qVal(porStatus, key) { return _valorMetrica(porStatus, _qMetrica(key)); }
 
 function erro(el, msg) {
   const p = document.createElement('p'); p.style.color = '#b91c1c'; p.textContent = 'Erro: ' + msg;
@@ -118,66 +117,107 @@ async function verPaciente(leadId, box) {
 async function carregarQualidade() {
   const periodo = document.getElementById('q-periodo').value;
   document.getElementById('q-lista').innerHTML = 'Carregando…';
+  document.getElementById('q-drill').innerHTML = '';
   try {
     const d = await mktApi(`/api/marketing/qualidade-lead?periodo=${periodo}`);
-    _q.dados = d;
-    const sel = document.getElementById('q-metrica');
-    if (!sel.options.length) {
-      sel.innerHTML = d.metricas.map(m => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
-    }
+    _q.dados = d; _qExpand = {};
     renderQualidade();
   } catch (e) { erro(document.getElementById('q-lista'), e.message); }
 }
 
-function renderQualidade() {
-  const d = _q.dados; if (!d) return;
-  const metrica = _metricaAtual();
-  const ordenarPor = document.getElementById('q-ordenar').value;
-  const minLeads = parseInt(document.getElementById('q-minleads').value, 10) || 1;
-  const rows = _rank(d.campanhas, metrica, ordenarPor, minLeads);
-  const pillCls = metrica.tom === 'ruim' ? 'pill-red' : 'pill-green';
-
-  // Cobertura da etapa: quantos leads da etapa têm campanha identificada.
-  const comCamp = d.campanhas.reduce((s, c) => s + _valorMetrica(c.por_status, metrica), 0);
-  const semCamp = _valorMetrica(d.sem_campanha.por_status, metrica);
-  const totalEtapa = comCamp + semCamp;
-  document.getElementById('q-cobertura').innerHTML = totalEtapa
-    ? `${Math.round(100 * comCamp / totalEtapa)}% dos leads de "${esc(metrica.label)}" têm campanha identificada (${comCamp} de ${totalEtapa})` + (d.sem_token ? ' · ⚠️ sem token Meta: mostrando IDs' : '')
-    : `Nenhum lead em "${esc(metrica.label)}" no período.`;
-
-  document.getElementById('q-lista').innerHTML = rows.length ? rows.map((c, idx) => `
-    <div class="mkt-card">
-      <div><span class="pill ${pillCls}">${c.valor} ${esc(metrica.label)}</span>
-        <b>${esc(c.campanha_nome)}</b>${c.resolvido ? '' : ' <span class="mkt-cobertura">(ID não resolvido)</span>'}</div>
-      <div class="mkt-cobertura mkt-num">${Math.round(c.taxa * 100)}% dos ${c.total} leads da campanha ·
-        <span class="mkt-clickable" data-qcamp="${idx}">ver leads</span></div>
-      <div class="mkt-drill" id="qdrill-${idx}" style="display:none"></div>
-    </div>`).join('') : '<p>Nenhuma campanha nessa etapa/critério.</p>';
-  document.querySelectorAll('[data-qcamp]').forEach(el => el.onclick = () => abrirQDrill(rows[el.dataset.qcamp], el.dataset.qcamp, metrica.key));
-
-  const sc = d.sem_campanha; const scVal = _valorMetrica(sc.por_status, metrica);
-  document.getElementById('q-semcamp').innerHTML = scVal ? `
-    <div class="mkt-card" style="opacity:.7">
-      <span class="pill pill-muted">${scVal}</span> <b>(sem campanha)</b>
-      <span class="mkt-cobertura"> · leads sem origem de campanha (orgânico/manual) · </span>
-      <span class="mkt-clickable" data-qcamp-none="1">ver leads</span>
-      <div class="mkt-drill" id="qdrill-none" style="display:none"></div>
-    </div>` : '';
-  const noneEl = document.querySelector('[data-qcamp-none]');
-  if (noneEl) noneEl.onclick = () => abrirQDrill({ campanha_id: '__none__' }, 'none', metrica.key);
+function _qSortRows(campanhas) {
+  return (campanhas || []).slice().sort((a, b) => {
+    const va = _qSort === 'total' ? a.total : _qVal(a.por_status, _qSort);
+    const vb = _qSort === 'total' ? b.total : _qVal(b.por_status, _qSort);
+    return (vb - va) || (b.total - a.total);
+  });
 }
 
-async function abrirQDrill(camp, idx, metricaKey) {
-  const box = document.getElementById('qdrill-' + idx);
-  if (box.style.display === 'block') { box.style.display = 'none'; return; }
-  box.style.display = 'block'; box.innerHTML = 'Carregando leads…';
+// Uma célula numérica clicável. `target` (JSON) diz o que abrir no drill.
+function _qCell(porStatus, total, col, target) {
+  const v = _qVal(porStatus, col.key);
+  const tcls = col.tom === 'ruim' ? ' q-bad' : '';
+  if (!v) return `<td class="q-num${tcls}"><span class="q-zero">·</span></td>`;
+  const pctTxt = col.key === 'sem_interesse' && total > 0 ? `<span class="q-pct">${Math.round(100 * v / total)}%</span>` : '';
+  return `<td class="q-num${tcls}"><span class="q-cell" data-drill='${target}' data-mkey="${col.key}">${v}${pctTxt}</span></td>`;
+}
+
+function renderQualidade() {
+  const d = _q.dados; if (!d) return;
+  const rows = _qSortRows(d.campanhas);
+  _q.rows = rows;
+  const sc = d.sem_campanha || { total: 0, por_status: {} };
+
+  const naoResolvidas = rows.filter(c => !c.resolvido).length;
+  document.getElementById('q-cobertura').innerHTML =
+    `${rows.length} campanha(s) no período` + (naoResolvidas ? ` · ${naoResolvidas} sem nome identificado (anúncio antigo/sem acesso)` : '') +
+    (d.sem_token ? ' · ⚠️ sem token Meta — mostrando IDs' : '');
+
+  if (!rows.length && !sc.total) { document.getElementById('q-lista').innerHTML = '<p>Nenhum lead no período.</p>'; document.getElementById('q-semcamp').innerHTML = ''; return; }
+
+  const th = (key, label, cls) => `<th class="${cls || ''}${_qSort === key ? ' q-sorted' : ''}" data-sort="${esc(key)}" title="Ordenar por ${esc(label)}">${esc(label)}</th>`;
+  let html = `<div class="q-tablewrap"><table class="q-matrix"><thead><tr>
+    <th class="q-th-camp">Campanha</th>
+    ${th('total', 'Leads', 'q-num')}
+    ${Q_COLS.map(c => th(c.key, c.label, 'q-num' + (c.tom === 'ruim' ? ' q-bad-h' : ''))).join('')}
+  </tr></thead><tbody>`;
+
+  rows.forEach((c, ci) => {
+    const exp = !!_qExpand[c.campanha_id];
+    html += `<tr class="q-row">
+      <td class="q-camp"><span class="q-caret" data-exp="${ci}">${exp ? '▾' : '▸'}</span><span class="q-name" title="${esc(c.campanha_nome)}">${esc(c.campanha_nome)}</span></td>
+      <td class="q-num q-total">${c.total}</td>
+      ${Q_COLS.map(col => _qCell(c.por_status, c.total, col, JSON.stringify({ ci }))).join('')}
+    </tr>`;
+    if (exp) (c.anuncios || []).forEach((a, ai) => {
+      html += `<tr class="q-adrow">
+        <td class="q-camp q-ad"><span class="q-name" title="${esc(a.ad_name)}">↳ ${esc(a.ad_name)}</span></td>
+        <td class="q-num q-total">${a.total}</td>
+        ${Q_COLS.map(col => _qCell(a.por_status, a.total, col, JSON.stringify({ ci, ai }))).join('')}
+      </tr>`;
+    });
+  });
+
+  if (sc.total) html += `<tr class="q-row q-semcamp">
+    <td class="q-camp"><span class="q-name">(sem campanha · orgânico/manual)</span></td>
+    <td class="q-num q-total">${sc.total}</td>
+    ${Q_COLS.map(col => _qCell(sc.por_status, sc.total, col, JSON.stringify({ none: true }))).join('')}
+  </tr>`;
+
+  html += `</tbody></table></div>`;
+  document.getElementById('q-lista').innerHTML = html;
+  document.getElementById('q-semcamp').innerHTML = '';
+
+  document.querySelectorAll('.q-matrix th[data-sort]').forEach(el => el.onclick = () => { _qSort = el.dataset.sort; renderQualidade(); });
+  document.querySelectorAll('.q-caret').forEach(el => el.onclick = () => { const c = rows[el.dataset.exp]; _qExpand[c.campanha_id] = !_qExpand[c.campanha_id]; renderQualidade(); });
+  document.querySelectorAll('.q-cell').forEach(el => el.onclick = () => abrirQDrill(JSON.parse(el.dataset.drill), el.dataset.mkey));
+}
+
+async function abrirQDrill(target, metricaKey) {
+  const box = document.getElementById('q-drill');
   const periodo = document.getElementById('q-periodo').value;
+  const col = Q_COLS.find(c => c.key === metricaKey); const label = (col && col.label) || metricaKey;
+  let url, titulo;
+  if (target.none) {
+    url = `/api/marketing/qualidade-lead/drill?campanha_id=__none__&metrica=${encodeURIComponent(metricaKey)}&periodo=${periodo}`;
+    titulo = `(sem campanha) · ${label}`;
+  } else {
+    const c = _q.rows[target.ci];
+    let adIds, nome;
+    if (target.ai != null) { const a = c.anuncios[target.ai]; adIds = [a.ad_id]; nome = a.ad_name; }
+    else { adIds = (c.anuncios || []).map(a => a.ad_id); nome = c.campanha_nome; }
+    url = `/api/marketing/qualidade-lead/drill?ad_ids=${encodeURIComponent(adIds.join(','))}&metrica=${encodeURIComponent(metricaKey)}&periodo=${periodo}`;
+    titulo = `${nome} · ${label}`;
+  }
+  box.innerHTML = '<div class="mkt-card">Carregando leads…</div>';
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   try {
-    const d = await mktApi(`/api/marketing/qualidade-lead/drill?campanha_id=${encodeURIComponent(camp.campanha_id)}&metrica=${encodeURIComponent(metricaKey)}&periodo=${periodo}`);
-    box.innerHTML = d.leads.length ? d.leads.map(l =>
-      `<div>• <a class="mkt-clickable" href="/?abrir_lead=${encodeURIComponent(l.lead_id)}" target="_blank" rel="noopener">${esc(l.nome || '(sem nome)')}</a>
-        <span class="mkt-cobertura">— ${esc(l.status)} · ${esc((l.criado_em || '').slice(0, 10))}</span></div>`
-    ).join('') : '<i>Sem leads.</i>';
+    const r = await mktApi(url);
+    const lista = r.leads.length ? r.leads.map(l =>
+      `<div class="q-leadrow">• <a class="mkt-clickable" href="/?abrir_lead=${encodeURIComponent(l.lead_id)}" target="_blank" rel="noopener">${esc(l.nome || '(sem nome)')}</a>
+        <span class="mkt-cobertura">— ${esc(l.status)} · ${esc((l.criado_em || '').slice(0, 10))}</span></div>`).join('') : '<i>Sem leads.</i>';
+    box.innerHTML = `<div class="mkt-card"><div class="q-drill-head"><b>${esc(titulo)}</b> <span class="mkt-cobertura">(${r.leads.length})</span> <span class="mkt-clickable" id="q-drill-close">fechar ✕</span></div>${lista}</div>`;
+    const cl = document.getElementById('q-drill-close'); if (cl) cl.onclick = () => { box.innerHTML = ''; };
   } catch (e) { erro(box, e.message); }
 }
 
@@ -209,5 +249,4 @@ document.getElementById('aba-roas').onclick = () => trocarAba('roas');
 document.getElementById('aba-qualidade').onclick = () => trocarAba('qualidade');
 document.getElementById('q-atualizar').onclick = carregarQualidade;
 document.getElementById('q-periodo').onchange = carregarQualidade;
-['q-metrica', 'q-ordenar', 'q-minleads'].forEach(id => document.getElementById(id).addEventListener('change', renderQualidade));
 carregar();

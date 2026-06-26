@@ -29,6 +29,34 @@
     .mkt-drill { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); font-size:13px; }
     .mkt-cobertura { font-size:12px; color:var(--muted); }
     .mkt-clickable { cursor:pointer; text-decoration:underline dotted; color:var(--accent); }
+    /* Matriz de qualidade de lead por campanha */
+    .q-tablewrap { overflow-x:auto; border:1px solid var(--border); border-radius:12px; background:var(--bg2); }
+    .q-matrix { width:100%; border-collapse:collapse; font-size:13px; }
+    .q-matrix th, .q-matrix td { padding:9px 11px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    .q-matrix tbody tr:last-child td { border-bottom:none; }
+    .q-matrix thead th { position:sticky; top:0; background:var(--bg3); color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; cursor:pointer; user-select:none; }
+    .q-matrix thead th:hover { color:var(--text); }
+    .q-matrix th.q-sorted { color:var(--text); }
+    .q-matrix th.q-sorted::after { content:" ▾"; }
+    .q-matrix th.q-th-camp, .q-matrix td.q-camp { text-align:left; }
+    .q-th-camp { min-width:230px; }
+    .q-bad-h { color:var(--red); }
+    .q-name { display:inline-block; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+    .q-ad .q-name { max-width:280px; color:var(--muted); }
+    .q-caret { cursor:pointer; color:var(--muted); margin-right:7px; display:inline-block; width:10px; }
+    .q-caret:hover { color:var(--accent); }
+    .q-row:hover { background:var(--bg3); }
+    .q-adrow { background:color-mix(in srgb, var(--bg3) 45%, transparent); font-size:12px; }
+    .q-num { font-variant-numeric:tabular-nums; }
+    .q-total { font-weight:600; }
+    .q-zero { color:var(--muted); }
+    td.q-bad .q-cell { color:var(--red); }
+    .q-cell { cursor:pointer; padding:2px 6px; border-radius:6px; display:inline-block; }
+    .q-cell:hover { background:var(--accent); color:#fff; }
+    .q-pct { font-size:10px; opacity:.8; margin-left:4px; }
+    .q-semcamp .q-name { color:var(--muted); font-style:italic; }
+    .q-drill-head { display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+    .q-leadrow { padding:3px 0; font-size:13px; }
     .mkt-modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:50; }
     .mkt-modal-bg.open { display:flex; }
     .mkt-modal { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:18px; width:320px; max-width:92vw; }
@@ -64,17 +92,16 @@
 
     <section id="tab-qualidade" style="display:none">
       <div class="mkt-controls">
-        <label>Etapa: <select id="q-metrica"></select></label>
         <label>Período:
           <select id="q-periodo"><option value="30">30 dias</option><option value="90" selected>90 dias</option><option value="365">12 meses</option></select>
         </label>
-        <label>Ordenar: <select id="q-ordenar"><option value="volume">Volume</option><option value="taxa">Taxa (%)</option></select></label>
-        <label>Mín. leads: <input id="q-minleads" type="number" min="1" value="5" style="width:64px"></label>
         <button class="btn" id="q-atualizar">🔄 Atualizar</button>
+        <span class="mkt-cobertura">Clique no número de uma célula para ver os leads · clique no ▸ para abrir os anúncios da campanha · clique no cabeçalho para ordenar</span>
       </div>
       <div id="q-cobertura" class="mkt-cobertura" style="margin-bottom:10px"></div>
       <div id="q-lista"></div>
-      <div id="q-semcamp" style="margin-top:14px"></div>
+      <div id="q-semcamp"></div>
+      <div id="q-drill" style="margin-top:12px"></div>
     </section>
   </div>
 

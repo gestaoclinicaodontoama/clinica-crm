@@ -6126,36 +6126,50 @@ app.get('/api/marketing/qualidade-lead', requireAuth, requireRole('admin', 'gest
     const { data: rpc, error } = await supabase.rpc('marketing_qualidade_lead', { p_desde: ymd(dDesde), p_ate: ymd(dAte) });
     if (error) throw new Error(error.message);
 
-    // Resolve id da campanha Meta -> nome legível (1 chamada; cai pro ID se faltar token/nome).
-    const nomes = {};
-    let semToken = true;
+    // leads.campanha guarda o ID do ANÚNCIO (CTWA), não da campanha. Resolvemos cada
+    // ad_id -> { ad_name, campaign_id, campaign_name } em lote via Graph ?ids= (até 50 por
+    // chamada; resolve por id, então funciona mesmo p/ anúncio de outra conta) e
+    // re-agregamos por campanha real.
     const TOKEN = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
-    if (TOKEN) {
-      semToken = false;
-      const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
-        '/campaigns?fields=id,name&limit=500';
-      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
-      try {
-        const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN }, signal: ctrl.signal });
-        const j = await r.json();
-        (j.data || []).forEach(c => { nomes[c.id] = c.name; });
-      } catch (_) { /* segue com IDs crus */ } finally { clearTimeout(to); }
+    const semToken = !TOKEN;
+    const adInfo = {}; // ad_id -> { ad_name, campaign_id, campaign_name }
+    const adIds = (rpc || []).map(r => r.campanha_id).filter(id => id != null);
+    if (TOKEN && adIds.length) {
+      for (let i = 0; i < adIds.length; i += 50) {
+        const chunk = adIds.slice(i, i + 50);
+        const url = 'https://graph.facebook.com/' + META_API_VERSION +
+          '/?ids=' + encodeURIComponent(chunk.join(',')) + '&fields=id,name,campaign{id,name}';
+        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+        try {
+          const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN }, signal: ctrl.signal });
+          const j = await r.json();
+          Object.keys(j || {}).forEach(id => {
+            const o = j[id]; if (!o || o.error) return;
+            adInfo[id] = { ad_name: o.name || id, campaign_id: o.campaign && o.campaign.id, campaign_name: o.campaign && o.campaign.name };
+          });
+        } catch (_) { /* segue com o que tiver resolvido */ } finally { clearTimeout(to); }
+      }
     }
 
-    const campanhas = [];
+    const mergeStatus = (dst, src) => { Object.keys(src || {}).forEach(k => { dst[k] = (dst[k] || 0) + Number(src[k] || 0); }); };
+    const campMap = {};
     let semCampanha = { total: 0, por_status: {} };
     (rpc || []).forEach(row => {
       if (row.campanha_id == null) { semCampanha = { total: Number(row.total) || 0, por_status: row.por_status || {} }; return; }
-      const nome = nomes[row.campanha_id];
-      campanhas.push({
-        campanha_id: row.campanha_id,
-        campanha_nome: nome || row.campanha_id,
-        resolvido: !!nome,
-        total: Number(row.total) || 0,
-        por_status: row.por_status || {},
-      });
+      const adId = row.campanha_id;
+      const info = adInfo[adId] || {};
+      // Sem campanha resolvida → agrupa o anúncio como sua própria pseudo-campanha,
+      // rotulada pelo nome do anúncio (se houver) ou pelo ID cru.
+      const campId = info.campaign_id || ('ad:' + adId);
+      const campNome = info.campaign_name || info.ad_name || adId;
+      if (!campMap[campId]) campMap[campId] = { campanha_id: campId, campanha_nome: campNome, resolvido: !!info.campaign_name, total: 0, por_status: {}, anuncios: [] };
+      const c = campMap[campId];
+      c.total += Number(row.total) || 0;
+      mergeStatus(c.por_status, row.por_status);
+      c.anuncios.push({ ad_id: adId, ad_name: info.ad_name || adId, total: Number(row.total) || 0, por_status: row.por_status || {} });
     });
-    campanhas.sort((a, b) => b.total - a.total);
+    const campanhas = Object.values(campMap).sort((a, b) => b.total - a.total);
+    campanhas.forEach(c => c.anuncios.sort((a, b) => b.total - a.total));
 
     res.json({
       desde: ymd(dDesde), ate: ymd(dAte), sem_token: semToken,
@@ -6178,6 +6192,8 @@ app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin',
     // metrica vinda do cliente é validada contra a lista conhecida (nunca status cru no filtro).
     const metrica = mktMetricaPorKey(String(req.query.metrica || 'sem_interesse'));
     const campId = String(req.query.campanha_id || '');
+    // ad_ids = conjunto de anúncios de uma campanha (drill por campanha). leads.campanha guarda o ad_id.
+    const adIds = String(req.query.ad_ids || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 300);
 
     let q = supabase.from('leads')
       .select('id, nome, status, criado_em')
@@ -6187,6 +6203,7 @@ app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin',
       .order('criado_em', { ascending: false })
       .limit(200);
     if (campId === '__none__') q = q.or('campanha.is.null,campanha.eq.');
+    else if (adIds.length) q = q.in('campanha', adIds);
     else q = q.eq('campanha', campId);
 
     const { data, error } = await q;
