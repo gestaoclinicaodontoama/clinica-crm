@@ -6002,7 +6002,9 @@ app.get('/api/marketing/campanhas', requireAuth, requireRole('admin', 'gestor'),
     const cfg = cfgRow || { meta_roas: 3.0, gasto_minimo: 200, maturacao_dias: 21, cobertura_minima: 0.60 };
 
     const insights = {};
-    const TOKEN = process.env.META_ACCESS_TOKEN;
+    // Gasto de anúncio exige ads_read — usa o token dedicado de ads quando houver
+    // (mesmo padrão dos thumbnails), caindo para o token geral do CAPI.
+    const TOKEN = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
     if (TOKEN) {
       const timeRange = JSON.stringify({ since: ymd(dDesde), until: ymd(dAte) });
       const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
