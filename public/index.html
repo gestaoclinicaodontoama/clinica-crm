@@ -6123,11 +6123,12 @@ window.SoftphoneSDK = (function () {
 <script>
 let _softphoneInited = false;
 let _softphoneSdkMode = false;
+let _softphoneInitTries = 0;
 async function initSoftphone() {
   if (_softphoneInited) return;
   try {
     const me = await api('/api/me');
-    if (!me?.threec_agent_token) return;
+    if (!me?.threec_agent_token) { _softphoneAgendarRetry(); return; }
     _softphoneInited = true;
     if (me.softphone_modo === 'sdk') {
       _softphoneSdkMode = true;
@@ -6145,7 +6146,16 @@ async function initSoftphone() {
     iframe.addEventListener('load', () => {
       document.getElementById('softphone-status').textContent = 'Softphone ativo';
     });
-  } catch {}
+  } catch (e) { _softphoneAgendarRetry(); }
+}
+
+// Boot resiliente: se o /api/me der soluço no boot (sessão de login ainda não
+// pronta) ou vier sem token transitoriamente, re-tenta em vez de desistir calado.
+// Para quando conecta (_softphoneInited) ou após 5 tentativas (~10s).
+function _softphoneAgendarRetry() {
+  if (_softphoneInited || _softphoneInitTries >= 5) return;
+  _softphoneInitTries++;
+  setTimeout(() => { initSoftphone().catch(() => {}); }, 2000);
 }
 
 let _softphoneArrastou = false;
