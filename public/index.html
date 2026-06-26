@@ -6079,14 +6079,14 @@ window.SoftphoneSDK = (function () {
     if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
     socketConnected = false;
     socket = io('https://socket.3c.plus', { transports: ['websocket'], query: { token } });
-    socket.on('connect', () => { socketConnected = true; loggedOut = false; render(); console.log('[sip] socket conectado'); });
+    socket.on('connect', () => { socketConnected = true; loggedOut = false; reconnectAttempt = 0; render(); console.log('[sip] socket conectado'); });
     socket.on('disconnect', () => { socketConnected = false; render(); agendarReconexao(); });
     socket.on('agent-is-connected', () => { loggedOut = false; render(); });
     socket.on('agent-is-idle', () => { if (!inCall) { loggedOut = false; render(); } });
     socket.on('call-was-connected', () => { inCall = true; render(); });
     ['call-was-finished', 'call-was-not-answered', 'call-was-failed'].forEach(ev =>
       socket.on(ev, () => { inCall = false; render(); }));
-    socket.on('agent-was-logged-out', () => { loggedOut = true; render(); reconnect(); });
+    socket.on('agent-was-logged-out', () => { loggedOut = true; render(); agendarReconexao(); });
     socket.on('error', (e) => console.warn('[sip] socket error', e));
     socket.on('exception', (e) => console.warn('[sip] socket exception', e));
   }
