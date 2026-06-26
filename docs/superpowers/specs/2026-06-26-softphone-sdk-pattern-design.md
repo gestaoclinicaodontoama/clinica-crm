@@ -63,8 +63,10 @@ A pílula reflete o estado: 🟢 "Softphone conectado", 🟡 "Reconectando…", 
 - Em `agent-was-logged-out`, `disconnect` do socket, ou `error`/`exception`: reagenda reconexão com backoff (ex.: 1s, 3s, 10s, depois a cada 30s) — recarrega o `src` do iframe e reconecta o socket.
 - Botão manual "reconectar" na pílula força a reconexão na hora.
 
-### 4. Checagem real antes de discar
+### 4. Checagem de prontidão antes de discar
 - `_garantirSoftfoneAberto()` passa a checar o **estado da máquina** (`pronto`/`em_ligacao`), não o texto do iframe.
+- **Definição de `pronto`:** socket conectado **e** iframe SIP carregado **e** sem `agent-was-logged-out` pendente. O login em campanha continua sendo feito pelo servidor no momento do discar (`ligar()` já faz enter→login→retry), então a prontidão do botão NÃO exige estar logado numa campanha — exige o caminho de áudio vivo.
+- ⚠️ O sinal exato de "**SIP registrado**" (áudio pronto) não está confirmado: a lista de eventos do socket cobre `agent-*` e `call-*`, mas não um `sip-registered` explícito; o demo do SDK usa um *timer de fallback* após o `onload` do iframe. **A definir na validação** (teste 2): confirmar qual sinal indica SIP registrado (evento de socket, `postMessage` do iframe, ou timer). Até confirmar, usamos `onload` do iframe + socket conectado como aproximação e tratamos a falha de discagem como o sinal de fallback.
 - Se não estiver pronto: dispara reconexão e mostra toast com motivo claro ("Softphone reconectando, aguarde o 🟢 e tente de novo"). **Não** chama a API de discar.
 
 ### 5. Iframe oculto persistente
@@ -89,7 +91,7 @@ A pílula reflete o estado: 🟢 "Softphone conectado", 🟡 "Reconectando…", 
 
 ## Testes / validação (com a Paola)
 1. **Autenticação do socket** (risco #1): a conexão `io(..., {query:{token: <api_token estático>}})` autentica? → ver evento `agent-is-connected` no console. Se rejeitar, acionar o plano B (Riscos #1).
-2. **Detecção de registro:** ao abrir o CRM, a pílula vira 🟢 só após `agent-is-connected`.
+2. **Detecção de registro:** ao abrir o CRM, a pílula vira 🟢 quando o caminho de áudio está vivo. Confirmar **qual sinal** indica SIP registrado (evento de socket / `postMessage` do iframe / timer de fallback) e ajustar a definição de `pronto` conforme o observado.
 3. **Discagem:** clicar "Ligar" num lead → telefone toca → `call-was-connected` recebido.
 4. **Recuperação:** navegar para uma página separada e voltar (ou F5) → pílula reconecta sozinha em segundos; "Ligar" volta a funcionar sem ação manual.
 5. **Bloqueio correto:** com o softphone 🔴, clicar "Ligar" não dispara a API e mostra motivo.
