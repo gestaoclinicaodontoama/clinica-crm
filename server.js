@@ -248,6 +248,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
       roles: profile?.roles || metaRoles || ['crc_leads'],
       threec_agent_token: profile?.threec_agent_token || null,
       threec_agent_ramal: profile?.threec_agent_ramal || null,
+      softphone_modo: profile?.softphone_modo || 'iframe',
       nav_prefs: profile?.nav_prefs || null,
     });
   } catch (e) {
@@ -326,7 +327,7 @@ app.patch('/api/me/nav-prefs', requireAuth, async (req, res) => {
 async function loadProfile(req) {
   if (req.user.profile) return req.user.profile;
   const { data } = await supabase.from('profiles')
-    .select('id, nome, roles, threec_agent_token, threec_agent_ramal, threec_agent_id').eq('id', req.user.id).maybeSingle();
+    .select('id, nome, roles, threec_agent_token, threec_agent_ramal, threec_agent_id, softphone_modo').eq('id', req.user.id).maybeSingle();
   req.user.profile = data || { roles: [] };
   return req.user.profile;
 }
