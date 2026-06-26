@@ -10,6 +10,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
 const ClinicorpApi     = require('./clinicorp-api');
 const { normalizarTelefone } = require('../lib/funil/telefone');
+const { planejarNovosPacientes } = require('../lib/sync/planejar-novos-pacientes');
 const { classificarOrcamento } = require('../lib/funil/orcamento');
 
 const FUNIL_DIAS = 180; // janela de coleta do funil comercial
@@ -69,11 +70,19 @@ async function fetchAppointments() {
 
   const byId = {}; // clinicorp_id → dados
 
+  // Captura nome+telefone do agendamento (a /appointment/list já traz) — usado para
+  // inserir no cadastro `pacientes` quem agendou/compareceu mas ainda não pagou.
+  const capturarContato = (a, id) => {
+    if (!byId[id].nome && (a.PatientName || a.patientName)) byId[id].nome = a.PatientName || a.patientName;
+    if (!byId[id].telefone && (a.MobilePhone || a.Phone)) byId[id].telefone = a.MobilePhone || a.Phone;
+  };
+
   for (const a of pastArr) {
     const id   = a.PatientId || a.patientId || a.Patient_PersonId;
     if (!id) continue;
     const date = toDate(a.Date || a.date || a.AppointmentDate || a.ScheduleDate);
     if (!byId[id]) byId[id] = {};
+    capturarContato(a, id);
     if (date && (!byId[id].ultima_visita || date > byId[id].ultima_visita)) {
       byId[id].ultima_visita = date;
     }
@@ -85,6 +94,7 @@ async function fetchAppointments() {
     const date = toDate(a.Date || a.date || a.AppointmentDate || a.ScheduleDate);
     const doc  = a.ProfessionalName || a.professionalName || a.DoctorName || '';
     if (!byId[id]) byId[id] = {};
+    capturarContato(a, id);
     if (date && (!byId[id].proxima_consulta || date < byId[id].proxima_consulta)) {
       byId[id].proxima_consulta  = date;
       byId[id].proximo_dentista  = doc;
@@ -166,33 +176,55 @@ async function getPatientUuids(clinicorpIds) {
 }
 
 /**
- * Insere pacientes novos detectados via pagamentos que não estão em pacientes.
- * Chama /patient/get para obter dados completos (nome, telefone, email, nascimento).
+ * Insere pacientes NOVOS no cadastro a partir de pagamentos E agendamentos.
+ * - Pagamentos: enriquece via /patient/get (nascimento, email, etc.).
+ * - Agendamentos (quem agendou/compareceu mas ainda NÃO pagou): insere direto com
+ *   nome+telefone que a /appointment/list já retorna — barato, sem chamada extra.
+ * Conserta o buraco em que leads convertidos (avaliação/comparecimento) nunca entravam
+ * no cadastro e por isso não casavam com o lead (match por telefone).
  */
-async function insertNewPatients(payMap) {
-  const clinicorpIds = Object.keys(payMap).map(Number);
-  if (!clinicorpIds.length) return;
+async function insertNewPatients(payMap, apptMap = {}) {
+  const unionIds = [...new Set([...Object.keys(payMap), ...Object.keys(apptMap)])].map(Number);
+  if (!unionIds.length) return;
 
-  const { data: existing } = await supabase
-    .from('pacientes')
-    .select('clinicorp_id')
-    .in('clinicorp_id', clinicorpIds);
+  // Quais já existem (chunked — o .in() não deve receber listas gigantes).
+  const existingSet = new Set();
+  for (let i = 0; i < unionIds.length; i += 500) {
+    const { data } = await supabase.from('pacientes')
+      .select('clinicorp_id').in('clinicorp_id', unionIds.slice(i, i + 500));
+    (data || []).forEach(r => existingSet.add(String(r.clinicorp_id)));
+  }
 
-  const existingSet = new Set((existing || []).map(r => String(r.clinicorp_id)));
-  const novos = clinicorpIds.filter(id => !existingSet.has(String(id)));
+  const { viaPagamento, viaAgendamento } = planejarNovosPacientes(payMap, apptMap, existingSet);
 
-  if (!novos.length) { log('Nenhum paciente novo detectado'); return; }
-  log(`${novos.length} pacientes novos — buscando dados via /patient/get...`);
+  // 1) Agendamento-only: insert direto em lote (nome+telefone já vêm do agendamento).
+  if (viaAgendamento.length) {
+    const rows = viaAgendamento.map(p => ({
+      clinicorp_id:     p.clinicorp_id,
+      nome:             p.nome || `Paciente ${p.clinicorp_id}`,
+      telefone_celular: p.telefone || null,
+      inserido_em:      new Date().toISOString(),
+    }));
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await supabase.from('pacientes')
+        .upsert(rows.slice(i, i + 500), { onConflict: 'clinicorp_id', ignoreDuplicates: true });
+      if (error) log(`ERRO insert agendamento-only: ${error.message}`);
+    }
+    log(`Pacientes novos de agendamento (ainda sem pagar): ${rows.length}`);
+  }
+
+  // 2) Pagamento: enriquece via /patient/get (com fallback nos dados do pagamento).
+  if (!viaPagamento.length) { log('Nenhum paciente novo via pagamento'); return; }
+  log(`${viaPagamento.length} pacientes novos via pagamento — buscando dados via /patient/get...`);
 
   const today = new Date().toISOString().slice(0, 10);
   let inserted = 0;
-
-  for (const id of novos) {
+  for (const idStr of viaPagamento) {
+    const id = Number(idStr);
     try {
       // Cada /patient/get consome 1 requisição — o rate limiter pausa automaticamente
       const p = await api.get('/patient/get', { id: String(id) });
       if (!p || !p.Name) {
-        // Fallback: insere com dados básicos do pagamento
         await supabase.from('pacientes').upsert({
           clinicorp_id:     id,
           nome:             payMap[id]?.nome || `Paciente ${id}`,
@@ -220,7 +252,7 @@ async function insertNewPatients(payMap) {
     }
   }
 
-  log(`Novos pacientes inseridos: ${inserted}/${novos.length}`);
+  log(`Novos pacientes via pagamento inseridos: ${inserted}/${viaPagamento.length}`);
 }
 
 /**
@@ -752,7 +784,7 @@ async function runSync(trigger = 'agendado') {
   });
 
   // Fase 4: inserir novos pacientes detectados
-  await step('novos_pacientes', () => insertNewPatients(payMap));
+  await step('novos_pacientes', () => insertNewPatients(payMap, apptMap));
 
   // Fase 5: upsert em pacientes_abc
   await step('pacientes_abc', () => upsertAbcData(apptMap, payMap));
