@@ -36,6 +36,7 @@ function _finMesCorrente() {
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
 const capiHealth = require('./lib/capi/health');
+const { METRICAS: MKT_METRICAS, metricaPorKey: mktMetricaPorKey } = require('./lib/marketing/qualidade');
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
     'mailto:gestao.clinicaodontoama@gmail.com',
@@ -6112,6 +6113,88 @@ app.get('/api/marketing/drill/paciente', requireAuth, requireRole('admin', 'gest
     if (error) throw new Error(error.message);
     res.json(data || { vinculado: false });
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+app.get('/api/marketing/qualidade-lead', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    const periodo = parseInt(req.query.periodo, 10) || 30;
+    const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
+    const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
+    const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+    const { data: rpc, error } = await supabase.rpc('marketing_qualidade_lead', { p_desde: ymd(dDesde), p_ate: ymd(dAte) });
+    if (error) throw new Error(error.message);
+
+    // Resolve id da campanha Meta -> nome legível (1 chamada; cai pro ID se faltar token/nome).
+    const nomes = {};
+    let semToken = true;
+    const TOKEN = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+    if (TOKEN) {
+      semToken = false;
+      const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
+        '/campaigns?fields=id,name&limit=500';
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN }, signal: ctrl.signal });
+        const j = await r.json();
+        (j.data || []).forEach(c => { nomes[c.id] = c.name; });
+      } catch (_) { /* segue com IDs crus */ } finally { clearTimeout(to); }
+    }
+
+    const campanhas = [];
+    let semCampanha = { total: 0, por_status: {} };
+    (rpc || []).forEach(row => {
+      if (row.campanha_id == null) { semCampanha = { total: Number(row.total) || 0, por_status: row.por_status || {} }; return; }
+      const nome = nomes[row.campanha_id];
+      campanhas.push({
+        campanha_id: row.campanha_id,
+        campanha_nome: nome || row.campanha_id,
+        resolvido: !!nome,
+        total: Number(row.total) || 0,
+        por_status: row.por_status || {},
+      });
+    });
+    campanhas.sort((a, b) => b.total - a.total);
+
+    res.json({
+      desde: ymd(dDesde), ate: ymd(dAte), sem_token: semToken,
+      metricas: MKT_METRICAS.map(m => ({ key: m.key, label: m.label, status: m.status, tom: m.tom })),
+      campanhas, sem_campanha: semCampanha,
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    const periodo = parseInt(req.query.periodo, 10) || 30;
+    const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
+    const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
+    const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+    // metrica vinda do cliente é validada contra a lista conhecida (nunca status cru no filtro).
+    const metrica = mktMetricaPorKey(String(req.query.metrica || 'sem_interesse'));
+    const campId = String(req.query.campanha_id || '');
+
+    let q = supabase.from('leads')
+      .select('id, nome, status, criado_em')
+      .in('status', metrica.status)
+      .gte('criado_em', ymd(dDesde) + 'T00:00:00-03:00')
+      .lt('criado_em', ymd(dAte) + 'T23:59:59-03:00')
+      .order('criado_em', { ascending: false })
+      .limit(200);
+    if (campId === '__none__') q = q.is('campanha', null);
+    else q = q.eq('campanha', campId);
+
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    res.json({ leads: (data || []).map(l => ({ lead_id: l.id, nome: l.nome, status: l.status, criado_em: l.criado_em })) });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
 });
 
 app.get('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
