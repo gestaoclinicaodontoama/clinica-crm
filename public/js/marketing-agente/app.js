@@ -9,6 +9,36 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&l
 const SELO_OK = new Set(['escalar','cortar','observar','cobertura_baixa','caixa']);
 const seloClass = s => SELO_OK.has(s) ? s : 'cobertura_baixa';
 let _state = { desde:null, ate:null, lente:'safra' };
+let _q = { dados: null }; // cache da resposta de qualidade-lead
+
+function trocarAba(qual) {
+  const roas = qual === 'roas';
+  document.getElementById('tab-roas').style.display = roas ? '' : 'none';
+  document.getElementById('tab-qualidade').style.display = roas ? 'none' : '';
+  document.getElementById('aba-roas').classList.toggle('active', roas);
+  document.getElementById('aba-qualidade').classList.toggle('active', !roas);
+  if (!roas && !_q.dados) carregarQualidade();
+}
+
+// Reimplementa o ranking do lib/marketing/qualidade.js no cliente (8 linhas; o backend
+// envia `metricas[]` como fonte de verdade do mapeamento status→etapa).
+function _valorMetrica(porStatus, metrica) {
+  return (metrica.status || []).reduce((s, st) => s + ((porStatus && porStatus[st]) || 0), 0);
+}
+function _rank(campanhas, metrica, ordenarPor, minLeads) {
+  let rows = (campanhas || []).map(c => {
+    const valor = _valorMetrica(c.por_status, metrica);
+    return Object.assign({}, c, { valor, taxa: c.total > 0 ? valor / c.total : 0 });
+  }).filter(r => r.valor > 0);
+  if (ordenarPor === 'taxa') rows = rows.filter(r => r.total >= minLeads).sort((a, b) => (b.taxa - a.taxa) || (b.valor - a.valor));
+  else rows.sort((a, b) => (b.valor - a.valor) || (b.taxa - a.taxa));
+  return rows;
+}
+function _metricaAtual() {
+  const key = document.getElementById('q-metrica').value;
+  const ms = (_q.dados && _q.dados.metricas) || [];
+  return ms.find(m => m.key === key) || ms[0] || { key: 'sem_interesse', label: 'Sem interesse', status: ['Perdido', 'Não tem Interesse'], tom: 'ruim' };
+}
 
 function erro(el, msg) {
   const p = document.createElement('p'); p.style.color = '#b91c1c'; p.textContent = 'Erro: ' + msg;
@@ -85,6 +115,72 @@ async function verPaciente(leadId, box) {
   } catch (e) { div.textContent = 'Erro: ' + e.message; }
 }
 
+async function carregarQualidade() {
+  const periodo = document.getElementById('q-periodo').value;
+  document.getElementById('q-lista').innerHTML = 'Carregando…';
+  try {
+    const d = await mktApi(`/api/marketing/qualidade-lead?periodo=${periodo}`);
+    _q.dados = d;
+    const sel = document.getElementById('q-metrica');
+    if (!sel.options.length) {
+      sel.innerHTML = d.metricas.map(m => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
+    }
+    renderQualidade();
+  } catch (e) { erro(document.getElementById('q-lista'), e.message); }
+}
+
+function renderQualidade() {
+  const d = _q.dados; if (!d) return;
+  const metrica = _metricaAtual();
+  const ordenarPor = document.getElementById('q-ordenar').value;
+  const minLeads = parseInt(document.getElementById('q-minleads').value, 10) || 1;
+  const rows = _rank(d.campanhas, metrica, ordenarPor, minLeads);
+  const pillCls = metrica.tom === 'ruim' ? 'pill-red' : 'pill-green';
+
+  // Cobertura da etapa: quantos leads da etapa têm campanha identificada.
+  const comCamp = d.campanhas.reduce((s, c) => s + _valorMetrica(c.por_status, metrica), 0);
+  const semCamp = _valorMetrica(d.sem_campanha.por_status, metrica);
+  const totalEtapa = comCamp + semCamp;
+  document.getElementById('q-cobertura').innerHTML = totalEtapa
+    ? `${Math.round(100 * comCamp / totalEtapa)}% dos leads de "${esc(metrica.label)}" têm campanha identificada (${comCamp} de ${totalEtapa})` + (d.sem_token ? ' · ⚠️ sem token Meta: mostrando IDs' : '')
+    : `Nenhum lead em "${esc(metrica.label)}" no período.`;
+
+  document.getElementById('q-lista').innerHTML = rows.length ? rows.map((c, idx) => `
+    <div class="mkt-card">
+      <div><span class="pill ${pillCls}">${c.valor} ${esc(metrica.label)}</span>
+        <b>${esc(c.campanha_nome)}</b>${c.resolvido ? '' : ' <span class="mkt-cobertura">(ID não resolvido)</span>'}</div>
+      <div class="mkt-cobertura mkt-num">${Math.round(c.taxa * 100)}% dos ${c.total} leads da campanha ·
+        <span class="mkt-clickable" data-qcamp="${idx}">ver leads</span></div>
+      <div class="mkt-drill" id="qdrill-${idx}" style="display:none"></div>
+    </div>`).join('') : '<p>Nenhuma campanha nessa etapa/critério.</p>';
+  document.querySelectorAll('[data-qcamp]').forEach(el => el.onclick = () => abrirQDrill(rows[el.dataset.qcamp], el.dataset.qcamp, metrica.key));
+
+  const sc = d.sem_campanha; const scVal = _valorMetrica(sc.por_status, metrica);
+  document.getElementById('q-semcamp').innerHTML = scVal ? `
+    <div class="mkt-card" style="opacity:.7">
+      <span class="pill pill-muted">${scVal}</span> <b>(sem campanha)</b>
+      <span class="mkt-cobertura"> · leads sem origem de campanha (orgânico/manual) · </span>
+      <span class="mkt-clickable" data-qcamp-none="1">ver leads</span>
+      <div class="mkt-drill" id="qdrill-none" style="display:none"></div>
+    </div>` : '';
+  const noneEl = document.querySelector('[data-qcamp-none]');
+  if (noneEl) noneEl.onclick = () => abrirQDrill({ campanha_id: '__none__' }, 'none', metrica.key);
+}
+
+async function abrirQDrill(camp, idx, metricaKey) {
+  const box = document.getElementById('qdrill-' + idx);
+  if (box.style.display === 'block') { box.style.display = 'none'; return; }
+  box.style.display = 'block'; box.innerHTML = 'Carregando leads…';
+  const periodo = document.getElementById('q-periodo').value;
+  try {
+    const d = await mktApi(`/api/marketing/qualidade-lead/drill?campanha_id=${encodeURIComponent(camp.campanha_id)}&metrica=${encodeURIComponent(metricaKey)}&periodo=${periodo}`);
+    box.innerHTML = d.leads.length ? d.leads.map(l =>
+      `<div>• <a class="mkt-clickable" href="/?abrir_lead=${encodeURIComponent(l.lead_id)}" target="_blank" rel="noopener">${esc(l.nome || '(sem nome)')}</a>
+        <span class="mkt-cobertura">— ${esc(l.status)} · ${esc((l.criado_em || '').slice(0, 10))}</span></div>`
+    ).join('') : '<i>Sem leads.</i>';
+  } catch (e) { erro(box, e.message); }
+}
+
 document.getElementById('atualizar').onclick = carregar;
 document.getElementById('lente').onchange = carregar;
 document.getElementById('periodo').onchange = carregar;
@@ -97,4 +193,9 @@ document.getElementById('btn-config').onclick = async () => {
   await mktApi('/api/marketing/config', { method:'PUT', body: JSON.stringify({ meta_roas:roas, gasto_minimo:gasto, maturacao_dias:mat, cobertura_minima:cob }) });
   carregar();
 };
+document.getElementById('aba-roas').onclick = () => trocarAba('roas');
+document.getElementById('aba-qualidade').onclick = () => trocarAba('qualidade');
+document.getElementById('q-atualizar').onclick = carregarQualidade;
+document.getElementById('q-periodo').onchange = carregarQualidade;
+['q-metrica', 'q-ordenar', 'q-minleads'].forEach(id => document.getElementById(id).addEventListener('change', renderQualidade));
 carregar();
