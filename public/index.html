@@ -2438,6 +2438,13 @@ async function analisarLigacao(id) {
 // Checa o STATUS (texto), não a visibilidade do corpo — a conexão WebRTC
 // existe mesmo com o painel colapsado, desde que "Softphone ativo" apareça na barra.
 function _garantirSoftfoneAberto() {
+  if (_softphoneSdkMode) {
+    if (SoftphoneSDK.isPronto()) return true;
+    SoftphoneSDK.reconnect();
+    toast('📞 Softfone reconectando. Aguarde o indicador ficar verde e tente de novo.', true);
+    return false;
+  }
+  // --- lógica legada do widget abaixo, inalterada ---
   const widget = document.getElementById('softphone-widget');
   if (!widget || widget.style.display === 'none') return true; // sem token — servidor explica
   const status = document.getElementById('softphone-status')?.textContent || '';
@@ -6115,12 +6122,19 @@ window.SoftphoneSDK = (function () {
 
 <script>
 let _softphoneInited = false;
+let _softphoneSdkMode = false;
 async function initSoftphone() {
   if (_softphoneInited) return;
   try {
     const me = await api('/api/me');
     if (!me?.threec_agent_token) return;
     _softphoneInited = true;
+    if (me.softphone_modo === 'sdk') {
+      _softphoneSdkMode = true;
+      SoftphoneSDK.init(me.threec_agent_token);
+      return;
+    }
+    // --- caminho legado (iframe widget) abaixo, inalterado ---
     const widget = document.getElementById('softphone-widget');
     const iframe  = document.getElementById('softphone-iframe');
     // URL correta do domínio da clínica: clnicaama (sem 'i')
