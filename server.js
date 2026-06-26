@@ -6183,10 +6183,10 @@ app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin',
       .select('id, nome, status, criado_em')
       .in('status', metrica.status)
       .gte('criado_em', ymd(dDesde) + 'T00:00:00-03:00')
-      .lt('criado_em', ymd(dAte) + 'T23:59:59-03:00')
+      .lt('criado_em', ymd(new Date(dAte.getTime() + 86400000)) + 'T00:00:00-03:00')
       .order('criado_em', { ascending: false })
       .limit(200);
-    if (campId === '__none__') q = q.is('campanha', null);
+    if (campId === '__none__') q = q.or('campanha.is.null,campanha.eq.');
     else q = q.eq('campanha', campId);
 
     const { data, error } = await q;

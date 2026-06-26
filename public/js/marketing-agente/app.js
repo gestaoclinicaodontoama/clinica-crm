@@ -6,8 +6,6 @@ const pct = n => n == null ? '—' : Math.round(n*100) + '%';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 // Selo/vínculo vêm de enums do backend; ainda assim restringimos a um conjunto conhecido
 // antes de usar em nome de classe CSS (defesa em profundidade).
-const SELO_OK = new Set(['escalar','cortar','observar','cobertura_baixa','caixa']);
-const seloClass = s => SELO_OK.has(s) ? s : 'cobertura_baixa';
 const SELO_PILL = { escalar:'pill-green', cortar:'pill-red', observar:'pill-yellow', cobertura_baixa:'pill-muted', caixa:'pill-green' };
 const seloPill = s => SELO_PILL[s] || 'pill-muted';
 let _state = { desde:null, ate:null, lente:'safra' };
