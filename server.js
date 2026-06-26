@@ -6214,6 +6214,95 @@ app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin',
   }
 });
 
+// Visão unificada por campanha: funde gasto Meta + receita Clinicorp + funil de leads.
+// Tudo casa por campanha real (leads.campanha = ad_id → campanha via Graph).
+app.get('/api/marketing/visao-geral', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
+  try {
+    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    const periodo = parseInt(req.query.periodo, 10) || 30;
+    const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
+    const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
+    const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const TOKEN = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+    const semToken = !TOKEN;
+
+    // 1. Insights por anúncio: gasto + mapa ad_id → campanha (id/nome).
+    const adInfo = {}; // ad_id -> { ad_name, campaign_id, campaign_name, spend }
+    if (TOKEN) {
+      const timeRange = JSON.stringify({ since: ymd(dDesde), until: ymd(dAte) });
+      const url = 'https://graph.facebook.com/' + META_API_VERSION + '/act_' + META_AD_ACCOUNT_ID +
+        '/insights?level=ad&fields=ad_id,ad_name,campaign_id,campaign_name,spend&time_range=' + encodeURIComponent(timeRange) + '&limit=500';
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN }, signal: ctrl.signal });
+        const j = await r.json();
+        (j.data || []).forEach(row => { adInfo[row.ad_id] = { ad_name: row.ad_name, campaign_id: row.campaign_id, campaign_name: row.campaign_name, spend: parseFloat(row.spend) || 0 }; });
+      } catch (_) { /* segue sem gasto */ } finally { clearTimeout(to); }
+    }
+
+    // 2. Receita por anúncio (faturamento + caixa).
+    const { data: rpcRev, error: eRev } = await supabase.rpc('marketing_campanhas', { p_desde: ymd(dDesde), p_ate: ymd(dAte), p_lente: 'safra' });
+    if (eRev) throw new Error(eRev.message);
+    const receita = {};
+    (rpcRev || []).forEach(r => { receita[r.ad_id] = r; });
+
+    // 3. Funil por anúncio (status). campanha_id null = balde sem anúncio.
+    const { data: rpcQ, error: eQ } = await supabase.rpc('marketing_qualidade_lead', { p_desde: ymd(dDesde), p_ate: ymd(dAte) });
+    if (eQ) throw new Error(eQ.message);
+    const quali = {};
+    let semCampanha = { total: 0, por_status: {} };
+    (rpcQ || []).forEach(r => { if (r.campanha_id == null) semCampanha = { total: Number(r.total) || 0, por_status: r.por_status || {} }; else quali[r.campanha_id] = r; });
+
+    // 4. Resolve ad→campanha p/ anúncios que têm lead/receita mas não vieram nos insights
+    // (sem entrega no período) via Graph ?ids= (lote de 50; resolve por id).
+    const conhecidos = new Set(Object.keys(adInfo));
+    const faltam = [...new Set([...Object.keys(receita), ...Object.keys(quali)])].filter(id => !conhecidos.has(id));
+    if (TOKEN && faltam.length) {
+      for (let i = 0; i < faltam.length; i += 50) {
+        const chunk = faltam.slice(i, i + 50);
+        const url = 'https://graph.facebook.com/' + META_API_VERSION + '/?ids=' + encodeURIComponent(chunk.join(',')) + '&fields=id,name,campaign{id,name}';
+        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+        try {
+          const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN }, signal: ctrl.signal });
+          const j = await r.json();
+          Object.keys(j || {}).forEach(id => { const o = j[id]; if (!o || o.error) return; adInfo[id] = { ad_name: o.name || id, campaign_id: o.campaign && o.campaign.id, campaign_name: o.campaign && o.campaign.name, spend: 0 }; });
+        } catch (_) { /* segue */ } finally { clearTimeout(to); }
+      }
+    }
+
+    // 5. Agrega tudo por campanha.
+    const mergeStatus = (dst, src) => { Object.keys(src || {}).forEach(k => { dst[k] = (dst[k] || 0) + Number(src[k] || 0); }); };
+    const campMap = {};
+    const allAdIds = new Set([...Object.keys(adInfo), ...Object.keys(receita), ...Object.keys(quali)]);
+    allAdIds.forEach(adId => {
+      const info = adInfo[adId] || {}, rev = receita[adId] || {}, q = quali[adId] || { total: 0, por_status: {} };
+      const campId = info.campaign_id || ('ad:' + adId);
+      const campNome = info.campaign_name || info.ad_name || adId;
+      if (!campMap[campId]) campMap[campId] = { campanha_id: campId, campanha_nome: campNome, resolvido: !!info.campaign_name, spend: 0, faturamento: 0, caixa: 0, total: 0, por_status: {}, anuncios: [] };
+      const c = campMap[campId];
+      c.spend += info.spend || 0;
+      c.faturamento += Number(rev.faturamento) || 0;
+      c.caixa += Number(rev.caixa) || 0;
+      c.total += Number(q.total) || 0;
+      mergeStatus(c.por_status, q.por_status);
+      c.anuncios.push({ ad_id: adId, ad_name: info.ad_name || adId, spend: info.spend || 0, faturamento: Number(rev.faturamento) || 0, caixa: Number(rev.caixa) || 0, total: Number(q.total) || 0, por_status: q.por_status || {} });
+    });
+    const campanhas = Object.values(campMap)
+      .map(c => { c.roas = c.spend > 0 ? c.faturamento / c.spend : null; return c; })
+      .filter(c => c.spend > 0 || c.total > 0 || c.faturamento > 0 || c.caixa > 0)
+      .sort((a, b) => b.total - a.total);
+    campanhas.forEach(c => c.anuncios.sort((a, b) => b.total - a.total));
+
+    res.json({
+      desde: ymd(dDesde), ate: ymd(dAte), sem_token: semToken,
+      metricas: MKT_METRICAS.map(m => ({ key: m.key, label: m.label, status: m.status, tom: m.tom })),
+      campanhas, sem_campanha: semCampanha,
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 app.get('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
   try {
     const { data, error } = await supabase.from('marketing_config').select('*').eq('id', 1).maybeSingle();

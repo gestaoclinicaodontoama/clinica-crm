@@ -53,6 +53,11 @@
     td.q-bad .q-cell { color:var(--red); }
     .q-cell { cursor:pointer; padding:2px 6px; border-radius:6px; display:inline-block; }
     .q-cell:hover { background:var(--accent); color:#fff; }
+    .q-money { color:var(--muted); }
+    .q-matrix td.q-money, .q-matrix th.q-money { background:color-mix(in srgb, var(--bg3) 30%, transparent); }
+    .q-sep { border-left:2px solid var(--border); }
+    .q-roas-bom { color:var(--green); font-weight:600; }
+    .q-roas-ruim { color:var(--red); font-weight:600; }
     .q-pct { font-size:10px; opacity:.8; margin-left:4px; }
     .q-semcamp .q-name { color:var(--muted); font-style:italic; }
     .q-drill-head { display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
@@ -68,41 +73,28 @@
 <body>
   <div id="app" class="mkt-wrap">
     <h1>📊 Agente de Marketing</h1>
-    <p class="sub">Read-only · cruza gasto Meta × resultado real do Clinicorp e mostra a qualidade do lead por campanha.</p>
+    <p class="sub">Read-only · por campanha: gasto Meta × receita real do Clinicorp × qualidade do funil de leads. Cada número é clicável até o lead.</p>
 
-    <div class="mkt-tabs">
-      <button class="mkt-tab active" id="aba-roas">ROAS</button>
-      <button class="mkt-tab" id="aba-qualidade">Qualidade de Lead</button>
+    <div class="mkt-controls">
+      <label>Período:
+        <select id="q-periodo">
+          <option value="7">7 dias</option>
+          <option value="30">30 dias</option>
+          <option value="90" selected>90 dias</option>
+          <option value="365">12 meses</option>
+          <option value="custom">Personalizado</option>
+        </select>
+      </label>
+      <span id="q-customrange" style="display:none">
+        <input type="date" id="q-desde"> <span class="mkt-cobertura">até</span> <input type="date" id="q-ate">
+      </span>
+      <button class="btn" id="q-atualizar">🔄 Atualizar</button>
+      <button class="btn" id="btn-config">⚙️ Parâmetros</button>
     </div>
-
-    <section id="tab-roas">
-      <div class="mkt-controls">
-        <label>Lente:
-          <select id="lente"><option value="safra">Faturamento (safra)</option><option value="caixa">Caixa (entradas)</option></select>
-        </label>
-        <label>Período:
-          <select id="periodo"><option value="30">30 dias</option><option value="90">90 dias</option><option value="365">12 meses</option></select>
-        </label>
-        <button class="btn" id="atualizar">🔄 Atualizar</button>
-        <button class="btn" id="btn-config">⚙️ Parâmetros</button>
-      </div>
-      <div id="resumo"></div>
-      <div id="lista"></div>
-    </section>
-
-    <section id="tab-qualidade" style="display:none">
-      <div class="mkt-controls">
-        <label>Período:
-          <select id="q-periodo"><option value="30">30 dias</option><option value="90" selected>90 dias</option><option value="365">12 meses</option></select>
-        </label>
-        <button class="btn" id="q-atualizar">🔄 Atualizar</button>
-        <span class="mkt-cobertura">Clique no número de uma célula para ver os leads · clique no ▸ para abrir os anúncios da campanha · clique no cabeçalho para ordenar</span>
-      </div>
-      <div id="q-cobertura" class="mkt-cobertura" style="margin-bottom:10px"></div>
-      <div id="q-lista"></div>
-      <div id="q-semcamp"></div>
-      <div id="q-drill" style="margin-top:12px"></div>
-    </section>
+    <div class="mkt-cobertura" style="margin-bottom:6px">Cabeçalho ordena · ▸ abre os anúncios · clique numa etapa do funil → leads · clique em Faturam./Caixa → leads→pagamentos</div>
+    <div id="q-cobertura" class="mkt-cobertura" style="margin-bottom:10px"></div>
+    <div id="q-lista"></div>
+    <div id="q-drill" style="margin-top:12px"></div>
   </div>
 
   <!-- Modal de parâmetros (substitui os prompt()) -->
