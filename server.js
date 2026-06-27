@@ -45,10 +45,13 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
+// Converte QUALQUER áudio (webm do Chrome, mp4/AAC do iOS, mp3/m4a de upload) para
+// ogg/opus — único formato que o WhatsApp renderiza como mensagem de voz NATIVA.
+// ffmpeg detecta o formato de entrada sozinho (pipe:0). -ac 1 (mono) garante a UI de voz.
 // Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
-function _webmToOgg(buffer) {
+function _audioParaOggOpus(buffer) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-f', 'ogg', 'pipe:1']);
+    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-f', 'ogg', 'pipe:1']);
     const out = [];
     p.stdout.on('data', c => out.push(c));
     p.stderr.resume(); // descarta stderr para o processo não travar com o pipe cheio
@@ -1982,16 +1985,19 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLim
     if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
     if (!(await janela24hAberta(lead.id))) return res.status(400).json({ error: MSG_JANELA_FECHADA });
     let { buffer, mimetype, originalname } = req.file;
-    // Chrome grava como audio/webm — converter para audio/ogg (opus) que o WhatsApp aceita
-    if (mimetype.startsWith('audio/webm')) {
-      buffer = await _webmToOgg(buffer);
-      mimetype = 'audio/ogg';
-      originalname = originalname.replace(/\.webm$/, '.ogg');
-    }
     let tipo = 'document';
     if (mimetype.startsWith('image/')) tipo = 'image';
     else if (mimetype.startsWith('audio/')) tipo = 'audio';
     else if (mimetype.startsWith('video/')) tipo = 'video';
+    // WhatsApp só toca como áudio de voz NATIVO se for OGG/Opus. Chrome grava webm,
+    // iPhone/Safari grava mp4(AAC) e uploads vêm como mp3/m4a — qualquer um desses,
+    // enviado cru, faz o destinatário ver "Este áudio não está mais disponível" e o
+    // player aparecer como não-nativo. Por isso convertemos TODO áudio não-ogg.
+    if (tipo === 'audio' && !mimetype.startsWith('audio/ogg')) {
+      buffer = await _audioParaOggOpus(buffer);
+      mimetype = 'audio/ogg';
+      originalname = originalname.replace(/\.[a-z0-9]+$/i, '') + '.ogg';
+    }
     const caption = sanitizeStr(req.body.caption || '', 500);
     // Mídia livre segue a mesma política do texto: sempre pelo número SDR (2873)
     const mediaPid = whatsapp.defaultPhoneId() || undefined;
