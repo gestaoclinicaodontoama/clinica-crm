@@ -1,6 +1,6 @@
-# Retorno de Prevenção — Fase 1.5: Segmentação (Perio + VIP) — Design
+# Retorno de Prevenção — Fase 1.5: Segmentação + Contagem (Perio conta · Convênio · VIP) — Design
 
-**Data:** 2026-06-26
+**Data:** 2026-06-26 (consolidada 2026-06-27)
 **Status:** Aprovado no brainstorm, pendente revisão da spec escrita
 **Pré-requisito de:** Agente de Retorno (conversacional) — esta fase fecha as réguas antes do agente.
 **Relaciona:** `2026-06-15-retorno-prevencao-design.md` (Fase 1), `project_retorno_prevencao`, `project_agentes`.
@@ -9,26 +9,38 @@
 
 ## 1. Objetivo
 
-A Fase 1 entregou a lista de prevenção vencida (180d) por Adulto/Infantil (513 vencidos). Faltam **duas segmentações** antes de o agente conversacional disparar com a mensagem/régua certas:
+A Fase 1 entregou a lista de prevenção vencida (180d) por Adulto/Infantil (513 vencidos). Esta fase fecha a **segmentação e a contagem** antes do agente conversacional. **Deconflito (2026-06-27):** este é o ÚNICO dono de prevenção/Retorno — absorve os achados do outro terminal (contagem por convênio); o outro terminal volta pra Recuperação (orçou e não fechou).
 
-1. **Selo Perio** — identificar pacientes de tratamento periodontal (para rotear a mensagem ao periodontista). **Mesmo intervalo de 180d** — é só um marcador, não muda o prazo.
-2. **Régua VIP** — pacientes do pacote (PPAMA) têm intervalo de retorno **mais curto e que varia por paciente** (de mensal a 4-em-4-meses). É o único prazo diferente do padrão de 180d.
+O que entra:
+1. **Categoria Perio** — sub-gengival/alisamento **passa a CONTAR** como prevenção (3ª categoria) + marca o paciente como perio (rota periodontista). 180d. (§2)
+2. **Convênio (`bill_type`)** — gravar o convênio nos eventos + regra "particular=1 / convênio=por paciente/dia". (§2b)
+3. **Régua VIP** — pacientes do pacote (PPAMA) têm intervalo **mais curto e por-paciente** (mensal a 4-em-4-meses) — o único prazo diferente dos 180d. (§3)
 
-Decisão do Luiz: o intervalo é **180d para todos** (adulto/criança/perio); só os **VIPs** têm tempo diferente (por isso a lista VIP existe). Periodontia surgiu como necessidade de **mensagem/profissional diferentes**, não de prazo.
+Decisão do Luiz: intervalo é **180d para todos** (adulto/criança/perio); só os **VIPs** têm tempo diferente.
 
 ---
 
-## 2. Selo Perio
+## 2. Categoria Perio — sub-gengival CONTA como prevenção (+ selo)
 
-**Quem é perio:** paciente com histórico de **raspagem sub-gengival / alisamento radicular** (NÃO inclui cirurgias periodontais pontuais — retalho/enxerto/gengivectomia ficam fora, decisão do Luiz). Volume atual: **40 pacientes**.
+⚠️ **Reconciliação (2026-06-27, deconflito dos 2 terminais):** a Fase 1 excluía sub-gengival **de propósito**, mas o Luiz confirmou: **sub-gengival É a prevenção do periodontista → deve CONTAR**. Então perio deixa de ser "só selo" e vira a **3ª categoria de prevenção** (adulto / infantil / **perio**), unificando as duas visões:
 
-**Como detectar:** na `syncPrevencao` (que já varre `producao_procedimentos`), além de classificar prevenção, marca-se perio quando `normalizar(procedure_name)` casa **(`sub` E `gengiv`)** OU `alisamento radicular`. (O classificador de prevenção já exclui sub-gengival de propósito — esta é uma checagem paralela, no mesmo loop.)
+- **O que é perio:** raspagem **sub-gengival / alisamento radicular**. Cirurgias pontuais (retalho/enxerto/gengivectomia) ficam fora. ~40 pacientes.
+- **Conta como prevenção:** `syncPrevencao` passa a classificar sub-gengival/alisamento como `categoria='perio'` (em vez de descartar) → o evento entra no `ultima_prevencao` do paciente (a manutenção periodontal É o retorno dele).
+- **Também é selo:** paciente com qualquer evento perio fica `pacientes_abc.perio=true` → badge "Perio" + rota pro periodontista (no agente).
+- **Intervalo segue 180d** (prazo só muda p/ VIP).
+- **Mudança no classificador (`lib/prevencao/classificacao.js`):** tirar a regra que retorna `null` p/ sub-gengival e passar a retornar `'perio'` p/ sub-gengival/alisamento radicular.
+- **Colunas:** `pacientes_abc.ultima_prevencao_perio DATE` (consistente com adulto/infantil) + `perio BOOLEAN DEFAULT false`. Paciente só-perio (sem profilaxia) entra na lista com badge Perio e `ultima_prevencao` = a data perio.
 
-**Onde guarda:** nova coluna `pacientes_abc.perio BOOLEAN DEFAULT false`. A `syncPrevencao` (rebuild completo) define `perio` para todo paciente casado: `true` se tem procedimento perio, senão `false`.
+---
 
-**Pacientes só-perio (sem prevenção):** um paciente que só fez sub-gengival (nenhuma profilaxia) não entra hoje no agregado de prevenção. Para aparecer na lista (com "Última Prevenção = Nunca" + badge Perio), a `syncPrevencao` inclui esses pacientes no upsert de `pacientes_abc` (já estão casados a um `paciente_id` pelo nome), com `ultima_prevencao=null, perio=true`.
+## 2b. Convênio (`bill_type`) + regra de contagem (absorve o achado do outro terminal)
 
-**Uso:** badge "Perio" na lista; e o agente (fase seguinte) usa o selo para mandar a mensagem/rota do periodontista. **NÃO muda o intervalo (180d).**
+O outro terminal descobriu (ver [[reference_prevencao_convenios]]) que falta gravar o convênio e definiu a regra de contagem. Absorvido aqui:
+
+- **Gravar `bill_type` nos eventos:** `producao_procedimentos.bill_type` existe → `syncPrevencao` passa a gravar `prevencao_eventos.bill_type` (hoje NULL). Habilita segmentar **convênio × particular** e por convênio (Cenibra/Vale/CEF).
+- **Regra de contagem (confirmada pelo Luiz):** **particular = 1 procedimento já basta**; **convênio = por paciente/dia** (≥1 procedimento de prevenção no dia = 1 prevenção). Isso é ~o que a `syncPrevencao` atual já faz (dedup por `clinicorp_id|data|categoria`) — **não muda a contagem**, só passa a registrar o convênio.
+- **Conjuntos por convênio (Cenibra/Vale/CEF) = documentação/auditoria**, NÃO validação rígida (a regra é "por paciente/dia", não "conjunto completo"). Match por código (os códigos vêm embutidos no nome). Fica como referência p/ um futuro selo "prevenção completa vs incompleta" — fora do escopo desta fase.
+- **Convênio-only na lista:** a `syncPrevencao` (abordagem por `producao_procedimentos`, já em produção) casa o paciente por nome → cobre convênio-only que tenham cadastro. (Resolve o gap de ~12% que o outro terminal notou.)
 
 ---
 
@@ -78,8 +90,9 @@ A config de "qual dentista é periodontista/odontopediatra" é problema do agent
 
 ## 7. Arquitetura / arquivos
 
-- **Migração (MCP):** `pacientes_abc.perio BOOLEAN DEFAULT false`; `vip_pacientes.intervalo_dias INTEGER`.
-- **`sync/clinicorp-sync.js`** (`syncPrevencao`): detecção perio no loop + incluir perio no upsert de `pacientes_abc` + incluir pacientes só-perio.
+- **Migração (MCP):** `pacientes_abc.perio BOOLEAN DEFAULT false`, `pacientes_abc.ultima_prevencao_perio DATE`; `vip_pacientes.intervalo_dias INTEGER`.
+- **`lib/prevencao/classificacao.js`:** sub-gengival/alisamento radicular → `'perio'` (em vez de `null`).
+- **`sync/clinicorp-sync.js`** (`syncPrevencao`): categoria `perio` no agregado (entra no `ultima_prevencao`) + setar `perio`/`ultima_prevencao_perio` + gravar `bill_type` (de `producao_procedimentos`) nos eventos + incluir pacientes só-perio no upsert.
 - **`public/js/pos-tratamento/curva-abc.js`**: carregar VIP map; badges Perio/VIP; status por intervalo efetivo; filtro cohorte; marcar/desmarcar VIP + intervalo inline; busca-adicionar-VIP.
 - **`public/pos-tratamento/curva-abc.html`**: chips de cohorte + UI de busca/marcação VIP (reusa estilos de `vips.html`).
 - **`public/js/nav-config.js`**: remover item `vips`.
@@ -97,7 +110,8 @@ A config de "qual dentista é periodontista/odontopediatra" é problema do agent
 
 ## 9. Critérios de pronto
 
-- `syncPrevencao` marca `perio` correto (~40 pacientes) e inclui só-perio na lista.
+- Sub-gengival/alisamento agora **conta** como prevenção (categoria `perio`) e entra no `ultima_prevencao`; `perio` flag correto (~40 pacientes); só-perio aparece na lista.
+- `bill_type` (convênio) gravado nos `prevencao_eventos` (antes 100% NULL).
 - VIP marcável inline na Curva ABC (marcar/desmarcar + intervalo) e por busca; página VIPs fora do menu.
 - Coluna Status reflete o intervalo efetivo (VIP vence mais cedo; perio segue 180d).
 - Badges Perio/VIP e filtro por cohorte funcionando.
