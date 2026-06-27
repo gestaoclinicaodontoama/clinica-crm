@@ -2531,6 +2531,35 @@ app.get('/api/admin/wa-webhook-diag', requireAuth, requireAdmin, async (req, res
   res.json(out);
 });
 
+// ===== DIAGNÓSTICO TEMPORÁRIO (jun/2026): assinar campos de eco do webhook =====
+// Faz o app passar a receber as mensagens enviadas pelo agente/IA (ecos). A chamada
+// SUBSTITUI a lista de campos — por isso sempre inclui 'messages' junto, senão
+// pararíamos de receber as mensagens dos clientes. Re-supre o callback/verify_token
+// atuais (já verificados) para não derrubar o webhook. Remover após estabilizar.
+app.post('/api/admin/wa-webhook-subscribe', requireAuth, requireAdmin, async (req, res) => {
+  const V = 'v21.0';
+  const TOKEN = process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN || '';
+  const APP_SECRET = process.env.META_APP_SECRET || '';
+  const VERIFY = process.env.WHATSAPP_VERIFY_TOKEN || '';
+  const CALLBACK = 'https://plataformaama-plataforma.uc5as5.easypanel.host/webhooks/whatsapp';
+  const fields = String(req.query.fields || 'messages,message_echoes,smb_message_echoes');
+  if (!TOKEN || !APP_SECRET) return res.status(503).json({ error: 'WhatsApp/app não configurado' });
+  if (!/(^|,)messages(,|$)/.test(fields)) return res.status(400).json({ error: 'fields DEVE incluir messages' });
+  const j = async (url, opts) => {
+    try { const r = await fetch(url, { ...opts, signal: AbortSignal.timeout(10_000) }); return await r.json().catch(() => ({ _parseError: true })); }
+    catch (e) { return { _error: e.message }; }
+  };
+  const dbg = await j(`https://graph.facebook.com/${V}/debug_token?input_token=${encodeURIComponent(TOKEN)}&access_token=${encodeURIComponent(TOKEN)}`);
+  const appId = dbg?.data?.app_id;
+  if (!appId) return res.status(500).json({ error: 'não derivou app_id', dbg });
+  const appToken = appId + '|' + APP_SECRET;
+  const body = new URLSearchParams({ object: 'whatsapp_business_account', callback_url: CALLBACK, verify_token: VERIFY, fields, access_token: appToken });
+  const subscribe = await j(`https://graph.facebook.com/${V}/${appId}/subscriptions`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const after = await j(`https://graph.facebook.com/${V}/${appId}/subscriptions?access_token=${encodeURIComponent(appToken)}`);
+  const fieldsAtuais = (after?.data?.[0]?.fields || []).map(f => (f && typeof f === 'object' && f.name) ? f.name : f);
+  res.json({ pediu: fields, subscribe, fieldsAtuais });
+});
+
 app.post('/webhooks/whatsapp', async (req, res) => {
   const APP_SECRET = process.env.META_APP_SECRET;
   if (APP_SECRET) {
