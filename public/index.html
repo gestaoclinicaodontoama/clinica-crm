@@ -782,6 +782,14 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       </div>
       <div class="chat-window" id="chat-window" style="display:none">
         <div class="chat-header" id="chat-header"></div>
+        <!-- Observação interna: aviso rápido fixado na conversa, só a equipe vê -->
+        <div id="chat-obs-bar" style="display:flex;align-items:center;gap:8px;padding:5px 14px;background:rgba(245,200,66,.10);border-bottom:1px solid var(--border);flex-shrink:0">
+          <span title="Observação interna — só a equipe vê" style="flex-shrink:0;font-size:13px">📌</span>
+          <input id="chat-obs-input" type="text" maxlength="4000" autocomplete="off"
+            placeholder="Observação interna (só a equipe vê) — ex.: cliente prefere manhã"
+            onblur="salvarObsInterna(this.value)"
+            style="flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:12.5px;padding:2px 0">
+        </div>
         <div style="display:flex;flex:1;min-height:0">
           <!-- Mensagens -->
           <div style="display:flex;flex-direction:column;flex:1;min-width:0">
@@ -3001,9 +3009,16 @@ async function painelNotasSalvar(valor, campo) {
   await painelSalvar(campo || 'notas_sdr', valor);
 }
 
+// Observação interna fixada na conversa (campo próprio, separado das Anotações SDR)
+async function salvarObsInterna(valor) {
+  if (!chatLeadAtual) return;
+  if ((valor || '') === (chatLeadAtual.observacao_interna || '')) return; // sem mudança → não faz PATCH
+  await painelSalvar('observacao_interna', valor);
+}
+
 async function painelSalvar(campo, valor) {
   if (!chatLeadAtual) return;
-  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','perfil_disc','carteira']);
+  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','observacao_interna','status','origem','perfil_disc','carteira']);
   if (!CAMPOS_PAINEL.has(campo)) return;
   const body = { [campo]: valor };
   const _revertSel = () => { const sel = document.getElementById('painel-status'); if (sel) sel.value = chatLeadAtual.status || 'Novo'; };
@@ -3334,6 +3349,8 @@ function voltarListaChat() {
 async function abrirChat(leadId) {
   chatLeadAtual = chatLeads.find(l => l.id === leadId);
   if (!chatLeadAtual) return;
+  const _obsEl = document.getElementById('chat-obs-input');
+  if (_obsEl) _obsEl.value = chatLeadAtual.observacao_interna || '';
   const _gen = ++_chatGen;
   // Revogar blob URLs da conversa anterior para liberar memória
   _midiaCache.forEach(url => URL.revokeObjectURL(url));

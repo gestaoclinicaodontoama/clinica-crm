@@ -692,7 +692,7 @@ async function patchLead(req, res) {
     const leadAntes = { status: lead.status, notas_sdr: lead.notas_sdr };
     const ALLOWED = [
       'nome','telefone','email','origem','status','valor','tipo_trat',
-      'notas_sdr','notas_avaliacao','notas_comercial',
+      'notas_sdr','notas_avaliacao','notas_comercial','observacao_interna',
       'score_interesse','perfil_disc','etiquetas',
       'proximo_contato','ultimo_contato',
       'crc_comercial_id','crc_comercial_nome',
