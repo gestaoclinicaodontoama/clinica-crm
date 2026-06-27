@@ -8,12 +8,12 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 // Colunas do funil (na ordem do funil). A contagem de cada coluna vem dos status que a
 // métrica agrupa (metricas[] do backend é a fonte de verdade).
 const Q_COLS = [
-  { key: 'sem_interesse', label: 'Perdidos', tom: 'ruim' },
-  { key: 'qualificacao', label: 'Qualificados', tom: 'bom' },
-  { key: 'agendada', label: 'Agendados', tom: 'bom' },
-  { key: 'compareceu', label: 'Compareceu', tom: 'bom' },
-  { key: 'negociacao', label: 'Em negociação', tom: 'bom' },
-  { key: 'fechou', label: 'Fechou', tom: 'bom' },
+  { key: 'sem_interesse', label: 'Perdidos', short: 'Perdidos', tom: 'ruim' },
+  { key: 'qualificacao', label: 'Qualificados', short: 'Qualif.', tom: 'bom' },
+  { key: 'agendada', label: 'Agendados', short: 'Agend.', tom: 'bom' },
+  { key: 'compareceu', label: 'Compareceu', short: 'Compar.', tom: 'bom' },
+  { key: 'negociacao', label: 'Em negociação', short: 'Negoc.', tom: 'bom' },
+  { key: 'fechou', label: 'Fechou', short: 'Fechou', tom: 'bom' },
 ];
 
 let _data = null;     // resposta de /visao-geral
@@ -68,7 +68,8 @@ function _cellFunil(o, col, target) {
   const tcls = col.tom === 'ruim' ? ' q-bad' : '';
   if (!v) return `<td class="q-num${tcls}"><span class="q-zero">·</span></td>`;
   const pctTxt = col.key === 'sem_interesse' && o.total > 0 ? `<span class="q-pct">${Math.round(100 * v / o.total)}%</span>` : '';
-  return `<td class="q-num${tcls}"><span class="q-cell" data-fdrill='${target}' data-mkey="${col.key}">${v}${pctTxt}</span></td>`;
+  const custo = o.spend > 0 ? `<div class="q-sub" title="custo por ${esc(col.label.toLowerCase())}">${fmtK(o.spend / v)}</div>` : '';
+  return `<td class="q-num${tcls}"><span class="q-cell" data-fdrill='${target}' data-mkey="${col.key}">${v}${pctTxt}</span>${custo}</td>`;
 }
 // Célula de receita (clicável → leads → pagamentos).
 function _cellReceita(valor, target) {
@@ -96,15 +97,17 @@ function render() {
 
   if (!rows.length && !sc.total) { document.getElementById('q-lista').innerHTML = '<p>Nenhum dado no período.</p>'; return; }
 
-  const th = (key, label, cls) => `<th class="${cls || ''}${_sort === key ? ' q-sorted' : ''}" data-sort="${esc(key)}" title="Ordenar por ${esc(label)}">${esc(label)}</th>`;
+  const th = (key, label, cls, title) => `<th class="${cls || ''}${_sort === key ? ' q-sorted' : ''}" data-sort="${esc(key)}" title="${esc(title || ('Ordenar por ' + label))}">${esc(label)}</th>`;
+  // Célula da coluna Leads: total + custo por lead (CPL) embaixo.
+  const leadsCell = o => `<td class="q-num q-total q-sep">${o.total}${o.spend > 0 && o.total > 0 ? `<div class="q-sub" title="custo por lead">${fmtK(o.spend / o.total)}</div>` : ''}</td>`;
   let html = `<div class="q-tablewrap"><table class="q-matrix"><thead><tr>
     <th class="q-th-camp">Campanha</th>
     ${th('spend', 'Gasto', 'q-num q-money q-sep')}
-    ${th('faturamento', 'Faturam.', 'q-num q-money')}
-    ${th('caixa', 'Caixa', 'q-num q-money')}
+    ${th('faturamento', 'Fat.', 'q-num q-money', 'Faturamento (safra) — Ordenar')}
+    ${th('caixa', 'Caixa', 'q-num q-money', 'Caixa (entradas) — Ordenar')}
     ${th('roas', 'ROAS', 'q-num q-money')}
-    ${th('total', 'Leads', 'q-num q-sep')}
-    ${Q_COLS.map(c => th(c.key, c.label, 'q-num' + (c.tom === 'ruim' ? ' q-bad-h' : ''))).join('')}
+    ${th('total', 'Leads', 'q-num q-sep', 'Total de leads (e custo por lead) — Ordenar')}
+    ${Q_COLS.map(c => th(c.key, c.short, 'q-num' + (c.tom === 'ruim' ? ' q-bad-h' : ''), c.label + ' (e custo por ' + c.label.toLowerCase() + ') — Ordenar')).join('')}
   </tr></thead><tbody>`;
 
   const moneyCells = (o, target) => `
@@ -118,14 +121,14 @@ function render() {
     html += `<tr class="q-row">
       <td class="q-camp"><span class="q-caret" data-exp="${ci}">${exp ? '▾' : '▸'}</span><span class="q-name" title="${esc(c.campanha_nome)}">${esc(c.campanha_nome)}</span></td>
       ${moneyCells(c, JSON.stringify({ ci }))}
-      <td class="q-num q-total q-sep">${c.total}</td>
+      ${leadsCell(c)}
       ${Q_COLS.map(col => _cellFunil(c, col, JSON.stringify({ ci }))).join('')}
     </tr>`;
     if (exp) (c.anuncios || []).forEach((a, ai) => {
       html += `<tr class="q-adrow">
         <td class="q-camp q-ad"><span class="q-name" title="${esc(a.ad_name)}">↳ ${esc(a.ad_name)}</span></td>
         ${moneyCells(a, JSON.stringify({ ci, ai }))}
-        <td class="q-num q-total q-sep">${a.total}</td>
+        ${leadsCell(a)}
         ${Q_COLS.map(col => _cellFunil(a, col, JSON.stringify({ ci, ai }))).join('')}
       </tr>`;
     });

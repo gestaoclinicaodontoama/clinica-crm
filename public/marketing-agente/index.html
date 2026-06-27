@@ -8,7 +8,7 @@
     :root { --bg:#0f1115; --bg2:#171a21; --bg3:#1f2330; --border:#2a2f3d; --text:#e8eaf0; --muted:#8b93a7; --accent:#4f8ef7; --green:#22c55e; --red:#ef4444; --yellow:#f59e0b; }
     [data-theme="light"] { --bg:#f5f6f8; --bg2:#fff; --bg3:#eef0f4; --border:#dde1e8; --text:#1a1d26; --muted:#6b7280; --accent:#2563eb; --green:#16a34a; --red:#dc2626; --yellow:#d97706; }
     body { font-family:system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
-    .mkt-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .mkt-wrap { max-width: 1600px; margin: 0 auto; padding: 16px; }
     h1 { font-size:20px; margin-bottom:4px; }
     .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
     h2 { font-size:14px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:22px 0 10px; }
@@ -31,18 +31,20 @@
     .mkt-clickable { cursor:pointer; text-decoration:underline dotted; color:var(--accent); }
     /* Matriz de qualidade de lead por campanha */
     .q-tablewrap { overflow-x:auto; border:1px solid var(--border); border-radius:12px; background:var(--bg2); }
-    .q-matrix { width:100%; border-collapse:collapse; font-size:13px; }
-    .q-matrix th, .q-matrix td { padding:9px 11px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    .q-matrix { width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed; }
+    .q-matrix th, .q-matrix td { padding:5px 6px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    .q-sub { font-size:9.5px; line-height:1.1; color:var(--muted); margin-top:1px; font-weight:400; }
+    td.q-bad .q-sub { color:color-mix(in srgb, var(--red) 70%, var(--muted)); }
     .q-matrix tbody tr:last-child td { border-bottom:none; }
     .q-matrix thead th { position:sticky; top:0; background:var(--bg3); color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; cursor:pointer; user-select:none; }
     .q-matrix thead th:hover { color:var(--text); }
     .q-matrix th.q-sorted { color:var(--text); }
     .q-matrix th.q-sorted::after { content:" ▾"; }
     .q-matrix th.q-th-camp, .q-matrix td.q-camp { text-align:left; }
-    .q-th-camp { min-width:230px; }
+    .q-th-camp { width:240px; }
     .q-bad-h { color:var(--red); }
-    .q-name { display:inline-block; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
-    .q-ad .q-name { max-width:280px; color:var(--muted); }
+    .q-name { display:inline-block; max-width:205px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+    .q-ad .q-name { max-width:190px; color:var(--muted); }
     .q-caret { cursor:pointer; color:var(--muted); margin-right:7px; display:inline-block; width:10px; }
     .q-caret:hover { color:var(--accent); }
     .q-row:hover { background:var(--bg3); }
