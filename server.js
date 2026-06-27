@@ -2491,6 +2491,46 @@ app.get('/webhooks/whatsapp', (req, res) => {
   res.sendStatus(403);
 });
 
+// ===== DIAGNÓSTICO TEMPORÁRIO (jun/2026): assinaturas de webhook do WhatsApp =====
+// READ-ONLY. Descobre app_id + WABA id (via debug_token), lista os campos de webhook
+// que o app assina e os apps inscritos na WABA — para saber por que as mensagens da
+// IA não chegam (provável falta de 'message_echoes'/'smb_message_echoes' + Coexistência).
+// Não retorna o token. Remover junto com o resto do diagnóstico da IA.
+app.get('/api/admin/wa-webhook-diag', requireAuth, requireAdmin, async (req, res) => {
+  const V = 'v21.0';
+  const TOKEN = process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN || '';
+  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+  const APP_SECRET = process.env.META_APP_SECRET || '';
+  if (!TOKEN || !PHONE_ID) return res.status(503).json({ error: 'WhatsApp não configurado' });
+  const out = {};
+  const g = async (label, url) => {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      out[label] = await r.json().catch(() => ({ _parseError: true }));
+    } catch (e) { out[label] = { _error: e.message }; }
+  };
+  // 1) debug_token (auto): revela app_id, scopes e WABA (granular_scopes.target_ids)
+  await g('debug_token', `https://graph.facebook.com/${V}/debug_token?input_token=${encodeURIComponent(TOKEN)}&access_token=${encodeURIComponent(TOKEN)}`);
+  // 2) info do número (platform_type indica Cloud API / coexistência)
+  await g('phone', `https://graph.facebook.com/${V}/${PHONE_ID}?fields=id,display_phone_number,verified_name,platform_type,quality_rating,name_status,code_verification_status&access_token=${encodeURIComponent(TOKEN)}`);
+  const dt = out.debug_token?.data || {};
+  const appId = dt.app_id || '';
+  let wabaId = '';
+  for (const s of (Array.isArray(dt.granular_scopes) ? dt.granular_scopes : [])) {
+    if (/whatsapp_business/.test(s.scope || '') && Array.isArray(s.target_ids) && s.target_ids.length) { wabaId = s.target_ids[0]; break; }
+  }
+  out._derivado = { appId, wabaId, scopes: dt.scopes || [] };
+  // 3) campos de webhook assinados pelo APP (precisa app access token)
+  if (appId && APP_SECRET) {
+    await g('app_subscriptions', `https://graph.facebook.com/${V}/${appId}/subscriptions?access_token=${encodeURIComponent(appId + '|' + APP_SECRET)}`);
+  } else out.app_subscriptions = { _skip: 'sem app_id ou app_secret' };
+  // 4) apps inscritos na WABA (+ override callback)
+  if (wabaId) {
+    await g('waba_subscribed_apps', `https://graph.facebook.com/${V}/${wabaId}/subscribed_apps?access_token=${encodeURIComponent(TOKEN)}`);
+  } else out.waba_subscribed_apps = { _skip: 'WABA id não derivado' };
+  res.json(out);
+});
+
 app.post('/webhooks/whatsapp', async (req, res) => {
   const APP_SECRET = process.env.META_APP_SECRET;
   if (APP_SECRET) {
