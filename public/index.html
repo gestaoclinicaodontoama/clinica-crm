@@ -2543,7 +2543,11 @@ const COMERCIAL_STATUSES   = new Set(['Em negociação','Fechou','Perdido']);
 function _statusParaModo()  { return _chatMode === 'avaliacao' ? KANBAN_AVALIACAO : _chatMode === 'oficial' ? KANBAN_OFICIAL : KANBAN_AGENDAMENTOS; }
 function _filtrarParaModo(leads) {
   const s = new Set(_statusParaModo());
-  return leads.filter(l => s.has(l.status));
+  // No fluxo de leads (não no Comercial), também mostra quem mandou mensagem nova
+  // mas está fora do funil do modo — ex.: lead "Perdido" que reengajou. Senão a
+  // conversa some da caixa e a SDR nunca vê a mensagem recebida.
+  const incluirPendentes = _chatMode !== 'avaliacao';
+  return leads.filter(l => s.has(l.status) || (incluirPendentes && l.ultima_mensagem_direcao === 'recebida'));
 }
 
 function _brt(iso) {
