@@ -2524,6 +2524,18 @@ app.post('/webhooks/whatsapp', async (req, res) => {
           { wa_id: st.wa_id, erro: st.erro || '' });
       }
     }
+    // DIAGNÓSTICO TEMPORÁRIO (jun/2026): registra eventos de webhook que NÃO são
+    // mensagem recebida nem status — é onde caem os ecos do agente/app da Meta
+    // (smb_message_echoes / message_echoes / Business Agent). Objetivo: descobrir se
+    // as mensagens da IA já chegam no webhook. Fire-and-forget p/ não atrasar o 200.
+    try {
+      const evts = whatsapp.coletarEventosDebug(req.body);
+      if (evts.length) {
+        supabase.from('webhook_wa_debug').insert(
+          evts.map(e => ({ field: e.field, value_keys: e.value_keys, phone_number_id: e.phone_number_id, payload: e.payload }))
+        ).then(({ error }) => { if (error) console.error('webhook_wa_debug:', error.message); });
+      }
+    } catch (e) { console.error('webhook debug log:', e.message); }
     const m = whatsapp.parseMensagemRecebida(req.body);
     if (!m) return res.status(200).send('ok');
     // Match exato primeiro (caminho comum: lead criado pelo próprio webhook).
