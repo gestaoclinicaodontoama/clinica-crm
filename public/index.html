@@ -285,7 +285,7 @@ textarea { resize: vertical; min-height: 80px; }
 .msg-action-btn:hover { color: var(--accent); border-color: var(--accent); }
 .msg-action-btn.del:hover { color: var(--red); border-color: var(--red); }
 .chat-input-area { padding: 12px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; align-items: flex-end; }
-.chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 42vh; min-height: 40px; line-height: 1.4; overflow-y: hidden; }
+.chat-textarea { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit; resize: none; max-height: 42vh; min-height: 40px; line-height: 1.4; overflow-y: auto; }
 .chat-textarea:focus { outline: none; border-color: var(--accent); }
 .ctwa-badge { background: rgba(79,142,247,.15); color: var(--accent); border-radius: 6px; font-size: 10.5px; font-weight: 600; padding: 2px 7px; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
@@ -782,6 +782,14 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       </div>
       <div class="chat-window" id="chat-window" style="display:none">
         <div class="chat-header" id="chat-header"></div>
+        <!-- Observação interna: aviso rápido fixado na conversa, só a equipe vê -->
+        <div id="chat-obs-bar" style="display:flex;align-items:center;gap:8px;padding:5px 14px;background:rgba(245,200,66,.10);border-bottom:1px solid var(--border);flex-shrink:0">
+          <span title="Observação interna — só a equipe vê" style="flex-shrink:0;font-size:13px">📌</span>
+          <input id="chat-obs-input" type="text" maxlength="4000" autocomplete="off"
+            placeholder="Observação interna (só a equipe vê) — ex.: cliente prefere manhã"
+            onblur="salvarObsInterna(this.value)"
+            style="flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:12.5px;padding:2px 0">
+        </div>
         <div style="display:flex;flex:1;min-height:0">
           <!-- Mensagens -->
           <div style="display:flex;flex-direction:column;flex:1;min-width:0">
@@ -2535,7 +2543,11 @@ const COMERCIAL_STATUSES   = new Set(['Em negociação','Fechou','Perdido']);
 function _statusParaModo()  { return _chatMode === 'avaliacao' ? KANBAN_AVALIACAO : _chatMode === 'oficial' ? KANBAN_OFICIAL : KANBAN_AGENDAMENTOS; }
 function _filtrarParaModo(leads) {
   const s = new Set(_statusParaModo());
-  return leads.filter(l => s.has(l.status));
+  // No fluxo de leads (não no Comercial), também mostra quem mandou mensagem nova
+  // mas está fora do funil do modo — ex.: lead "Perdido" que reengajou. Senão a
+  // conversa some da caixa e a SDR nunca vê a mensagem recebida.
+  const incluirPendentes = _chatMode !== 'avaliacao';
+  return leads.filter(l => s.has(l.status) || (incluirPendentes && l.ultima_mensagem_direcao === 'recebida'));
 }
 
 function _brt(iso) {
@@ -3001,9 +3013,16 @@ async function painelNotasSalvar(valor, campo) {
   await painelSalvar(campo || 'notas_sdr', valor);
 }
 
+// Observação interna fixada na conversa (campo próprio, separado das Anotações SDR)
+async function salvarObsInterna(valor) {
+  if (!chatLeadAtual) return;
+  if ((valor || '') === (chatLeadAtual.observacao_interna || '')) return; // sem mudança → não faz PATCH
+  await painelSalvar('observacao_interna', valor);
+}
+
 async function painelSalvar(campo, valor) {
   if (!chatLeadAtual) return;
-  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','status','origem','perfil_disc','carteira']);
+  const CAMPOS_PAINEL = new Set(['notas_sdr','notas_comercial','observacao_interna','status','origem','perfil_disc','carteira']);
   if (!CAMPOS_PAINEL.has(campo)) return;
   const body = { [campo]: valor };
   const _revertSel = () => { const sel = document.getElementById('painel-status'); if (sel) sel.value = chatLeadAtual.status || 'Novo'; };
@@ -3334,6 +3353,8 @@ function voltarListaChat() {
 async function abrirChat(leadId) {
   chatLeadAtual = chatLeads.find(l => l.id === leadId);
   if (!chatLeadAtual) return;
+  const _obsEl = document.getElementById('chat-obs-input');
+  if (_obsEl) _obsEl.value = chatLeadAtual.observacao_interna || '';
   const _gen = ++_chatGen;
   // Revogar blob URLs da conversa anterior para liberar memória
   _midiaCache.forEach(url => URL.revokeObjectURL(url));

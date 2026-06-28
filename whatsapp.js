@@ -252,6 +252,35 @@ function parseStatuses(body) {
   }
 }
 
+// --------- DIAGNÓSTICO: eventos de webhook hoje descartados ----------
+// A rota só trata mensagem recebida (value.messages) e status (value.statuses).
+// Qualquer outro change cai aqui: é onde a Meta entrega os ECOS do agente/app
+// (smb_message_echoes / message_echoes) e eventos do Meta Business Agent. Coleta
+// esses changes p/ descobrir, empiricamente, se a IA já chega no webhook.
+// TEMPORÁRIO (jun/2026) — remover junto com a tabela webhook_wa_debug.
+function coletarEventosDebug(body) {
+  const out = [];
+  try {
+    const entries = Array.isArray(body?.entry) ? body.entry : [];
+    for (const entry of entries) {
+      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+      for (const change of changes) {
+        const v = change?.value || {};
+        const temMsg = Array.isArray(v.messages) && v.messages.length > 0;
+        const temStatus = Array.isArray(v.statuses) && v.statuses.length > 0;
+        if (temMsg || temStatus) continue; // tráfego normal, já tratado
+        out.push({
+          field: change?.field || '',
+          value_keys: Object.keys(v),
+          phone_number_id: v?.metadata?.phone_number_id || '',
+          payload: change,
+        });
+      }
+    }
+  } catch { /* nunca quebra o webhook */ }
+  return out;
+}
+
 // --------- Info dos números configurados (cache 1h) ----------
 let _phoneCache = null;
 let _phoneCacheTime = 0;
@@ -308,6 +337,7 @@ module.exports = {
   verifyToken,
   parseMensagemRecebida,
   parseStatuses,
+  coletarEventosDebug,
   limparNumero,
   getPhoneNumbers,
   defaultPhoneId,

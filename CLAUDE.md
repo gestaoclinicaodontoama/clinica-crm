@@ -7,6 +7,25 @@
 - **Deploy:** Easypanel — `http://2.24.94.120:3000`
 - **URL pública:** `https://plataformaama-plataforma.uc5as5.easypanel.host`
 
+## Antes de escrever código — escada de decisão (less is more)
+
+> A melhor linha de código é a que não se escreve. Preguiça na solução, **nunca** no
+> entendimento: leia o código existente a fundo antes de decidir. Percorra os degraus
+> nesta ordem e pare no primeiro que resolver:
+
+1. **Precisa existir?** Se não agrega, não faça (YAGNI).
+2. **Já existe no projeto?** Reuse — `server.js`, helpers em `public/js/`, módulos
+   atuais. Este CRM já reconstruiu features do zero por engano (ex.: Central de
+   Tarefas tinha módulo legado vazio). Faça `grep` por rota/tabela/UI antes de criar.
+3. **Stdlib / Postgres resolve?** Prefira SQL no Supabase a somar/filtrar em JS
+   (lembrar do limite de 1000 linhas do client).
+4. **Recurso nativo da plataforma?** HTML/CSS/Web API antes de lib nova (front é
+   vanilla, sem framework — manter assim).
+5. **Dependência já instalada faz?** Veja `package.json` antes de adicionar pacote.
+6. **Dá em uma linha?** Escreva em uma linha.
+7. **Só então:** o mínimo que funciona — sem abrir mão de validação, tratamento de
+   erro, segurança e roles.
+
 ## Fluxo de deploy
 Após `git push`, executar imediatamente (sem perguntar):
 ```

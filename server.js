@@ -45,10 +45,13 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
+// Converte QUALQUER áudio (webm do Chrome, mp4/AAC do iOS, mp3/m4a de upload) para
+// ogg/opus — único formato que o WhatsApp renderiza como mensagem de voz NATIVA.
+// ffmpeg detecta o formato de entrada sozinho (pipe:0). -ac 1 (mono) garante a UI de voz.
 // Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
-function _webmToOgg(buffer) {
+function _audioParaOggOpus(buffer) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-f', 'ogg', 'pipe:1']);
+    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-f', 'ogg', 'pipe:1']);
     const out = [];
     p.stdout.on('data', c => out.push(c));
     p.stderr.resume(); // descarta stderr para o processo não travar com o pipe cheio
@@ -689,7 +692,7 @@ async function patchLead(req, res) {
     const leadAntes = { status: lead.status, notas_sdr: lead.notas_sdr };
     const ALLOWED = [
       'nome','telefone','email','origem','status','valor','tipo_trat',
-      'notas_sdr','notas_avaliacao','notas_comercial',
+      'notas_sdr','notas_avaliacao','notas_comercial','observacao_interna',
       'score_interesse','perfil_disc','etiquetas',
       'proximo_contato','ultimo_contato',
       'crc_comercial_id','crc_comercial_nome',
@@ -1982,16 +1985,19 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLim
     if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
     if (!(await janela24hAberta(lead.id))) return res.status(400).json({ error: MSG_JANELA_FECHADA });
     let { buffer, mimetype, originalname } = req.file;
-    // Chrome grava como audio/webm — converter para audio/ogg (opus) que o WhatsApp aceita
-    if (mimetype.startsWith('audio/webm')) {
-      buffer = await _webmToOgg(buffer);
-      mimetype = 'audio/ogg';
-      originalname = originalname.replace(/\.webm$/, '.ogg');
-    }
     let tipo = 'document';
     if (mimetype.startsWith('image/')) tipo = 'image';
     else if (mimetype.startsWith('audio/')) tipo = 'audio';
     else if (mimetype.startsWith('video/')) tipo = 'video';
+    // WhatsApp só toca como áudio de voz NATIVO se for OGG/Opus. Chrome grava webm,
+    // iPhone/Safari grava mp4(AAC) e uploads vêm como mp3/m4a — qualquer um desses,
+    // enviado cru, faz o destinatário ver "Este áudio não está mais disponível" e o
+    // player aparecer como não-nativo. Por isso convertemos TODO áudio não-ogg.
+    if (tipo === 'audio' && !mimetype.startsWith('audio/ogg')) {
+      buffer = await _audioParaOggOpus(buffer);
+      mimetype = 'audio/ogg';
+      originalname = originalname.replace(/\.[a-z0-9]+$/i, '') + '.ogg';
+    }
     const caption = sanitizeStr(req.body.caption || '', 500);
     // Mídia livre segue a mesma política do texto: sempre pelo número SDR (2873)
     const mediaPid = whatsapp.defaultPhoneId() || undefined;
@@ -2485,6 +2491,75 @@ app.get('/webhooks/whatsapp', (req, res) => {
   res.sendStatus(403);
 });
 
+// ===== DIAGNÓSTICO TEMPORÁRIO (jun/2026): assinaturas de webhook do WhatsApp =====
+// READ-ONLY. Descobre app_id + WABA id (via debug_token), lista os campos de webhook
+// que o app assina e os apps inscritos na WABA — para saber por que as mensagens da
+// IA não chegam (provável falta de 'message_echoes'/'smb_message_echoes' + Coexistência).
+// Não retorna o token. Remover junto com o resto do diagnóstico da IA.
+app.get('/api/admin/wa-webhook-diag', requireAuth, requireAdmin, async (req, res) => {
+  const V = 'v21.0';
+  const TOKEN = process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN || '';
+  const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+  const APP_SECRET = process.env.META_APP_SECRET || '';
+  if (!TOKEN || !PHONE_ID) return res.status(503).json({ error: 'WhatsApp não configurado' });
+  const out = {};
+  const g = async (label, url) => {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      out[label] = await r.json().catch(() => ({ _parseError: true }));
+    } catch (e) { out[label] = { _error: e.message }; }
+  };
+  // 1) debug_token (auto): revela app_id, scopes e WABA (granular_scopes.target_ids)
+  await g('debug_token', `https://graph.facebook.com/${V}/debug_token?input_token=${encodeURIComponent(TOKEN)}&access_token=${encodeURIComponent(TOKEN)}`);
+  // 2) info do número (platform_type indica Cloud API / coexistência)
+  await g('phone', `https://graph.facebook.com/${V}/${PHONE_ID}?fields=id,display_phone_number,verified_name,platform_type,quality_rating,name_status,code_verification_status&access_token=${encodeURIComponent(TOKEN)}`);
+  const dt = out.debug_token?.data || {};
+  const appId = dt.app_id || '';
+  let wabaId = '';
+  for (const s of (Array.isArray(dt.granular_scopes) ? dt.granular_scopes : [])) {
+    if (/whatsapp_business/.test(s.scope || '') && Array.isArray(s.target_ids) && s.target_ids.length) { wabaId = s.target_ids[0]; break; }
+  }
+  out._derivado = { appId, wabaId, scopes: dt.scopes || [] };
+  // 3) campos de webhook assinados pelo APP (precisa app access token)
+  if (appId && APP_SECRET) {
+    await g('app_subscriptions', `https://graph.facebook.com/${V}/${appId}/subscriptions?access_token=${encodeURIComponent(appId + '|' + APP_SECRET)}`);
+  } else out.app_subscriptions = { _skip: 'sem app_id ou app_secret' };
+  // 4) apps inscritos na WABA (+ override callback)
+  if (wabaId) {
+    await g('waba_subscribed_apps', `https://graph.facebook.com/${V}/${wabaId}/subscribed_apps?access_token=${encodeURIComponent(TOKEN)}`);
+  } else out.waba_subscribed_apps = { _skip: 'WABA id não derivado' };
+  res.json(out);
+});
+
+// ===== DIAGNÓSTICO TEMPORÁRIO (jun/2026): assinar campos de eco do webhook =====
+// Faz o app passar a receber as mensagens enviadas pelo agente/IA (ecos). A chamada
+// SUBSTITUI a lista de campos — por isso sempre inclui 'messages' junto, senão
+// pararíamos de receber as mensagens dos clientes. Re-supre o callback/verify_token
+// atuais (já verificados) para não derrubar o webhook. Remover após estabilizar.
+app.post('/api/admin/wa-webhook-subscribe', requireAuth, requireAdmin, async (req, res) => {
+  const V = 'v21.0';
+  const TOKEN = process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN || '';
+  const APP_SECRET = process.env.META_APP_SECRET || '';
+  const VERIFY = process.env.WHATSAPP_VERIFY_TOKEN || '';
+  const CALLBACK = 'https://plataformaama-plataforma.uc5as5.easypanel.host/webhooks/whatsapp';
+  const fields = String(req.query.fields || 'messages,message_echoes,smb_message_echoes');
+  if (!TOKEN || !APP_SECRET) return res.status(503).json({ error: 'WhatsApp/app não configurado' });
+  if (!/(^|,)messages(,|$)/.test(fields)) return res.status(400).json({ error: 'fields DEVE incluir messages' });
+  const j = async (url, opts) => {
+    try { const r = await fetch(url, { ...opts, signal: AbortSignal.timeout(10_000) }); return await r.json().catch(() => ({ _parseError: true })); }
+    catch (e) { return { _error: e.message }; }
+  };
+  const dbg = await j(`https://graph.facebook.com/${V}/debug_token?input_token=${encodeURIComponent(TOKEN)}&access_token=${encodeURIComponent(TOKEN)}`);
+  const appId = dbg?.data?.app_id;
+  if (!appId) return res.status(500).json({ error: 'não derivou app_id', dbg });
+  const appToken = appId + '|' + APP_SECRET;
+  const body = new URLSearchParams({ object: 'whatsapp_business_account', callback_url: CALLBACK, verify_token: VERIFY, fields, access_token: appToken });
+  const subscribe = await j(`https://graph.facebook.com/${V}/${appId}/subscriptions`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const after = await j(`https://graph.facebook.com/${V}/${appId}/subscriptions?access_token=${encodeURIComponent(appToken)}`);
+  const fieldsAtuais = (after?.data?.[0]?.fields || []).map(f => (f && typeof f === 'object' && f.name) ? f.name : f);
+  res.json({ pediu: fields, subscribe, fieldsAtuais });
+});
+
 app.post('/webhooks/whatsapp', async (req, res) => {
   const APP_SECRET = process.env.META_APP_SECRET;
   if (APP_SECRET) {
@@ -2518,6 +2593,18 @@ app.post('/webhooks/whatsapp', async (req, res) => {
           { wa_id: st.wa_id, erro: st.erro || '' });
       }
     }
+    // DIAGNÓSTICO TEMPORÁRIO (jun/2026): registra eventos de webhook que NÃO são
+    // mensagem recebida nem status — é onde caem os ecos do agente/app da Meta
+    // (smb_message_echoes / message_echoes / Business Agent). Objetivo: descobrir se
+    // as mensagens da IA já chegam no webhook. Fire-and-forget p/ não atrasar o 200.
+    try {
+      const evts = whatsapp.coletarEventosDebug(req.body);
+      if (evts.length) {
+        supabase.from('webhook_wa_debug').insert(
+          evts.map(e => ({ field: e.field, value_keys: e.value_keys, phone_number_id: e.phone_number_id, payload: e.payload }))
+        ).then(({ error }) => { if (error) console.error('webhook_wa_debug:', error.message); });
+      }
+    } catch (e) { console.error('webhook debug log:', e.message); }
     const m = whatsapp.parseMensagemRecebida(req.body);
     if (!m) return res.status(200).send('ok');
     // Match exato primeiro (caminho comum: lead criado pelo próprio webhook).
