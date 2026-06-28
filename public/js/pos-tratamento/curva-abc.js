@@ -7,15 +7,18 @@ let paginaAtual = 1, totalRegistros = 0;
 let filtroClasse = null, filtroDays = null, filtroSemAgenda = false, buscaTexto = "";
 let classTabFilter = "todos";
 let sortCol = "total_receita", sortAsc = false;
-let catPrev = "todas"; // 'todas' | 'adulto' | 'infantil'
+let catPrev = "todas"; // 'todas' | 'adulto' | 'infantil' | 'perio' | 'vip'
+let vipMap = new Map(); // paciente_id -> intervalo_dias
+const intervaloEfetivo = p => vipMap.has(p.paciente_id) ? (vipMap.get(p.paciente_id) || 120) : 180;
 const prevCol = () => catPrev === "adulto" ? "ultima_prevencao_adulto"
                     : catPrev === "infantil" ? "ultima_prevencao_infantil"
+                    : catPrev === "perio" ? "ultima_prevencao_perio"
                     : "ultima_prevencao";
-function statusPrev(dateStr) {
+function statusPrev(dateStr, intervalo = 180) {
   if (!dateStr) return { txt: "Nunca", cls: "st-nunca" };
   const dias = Math.floor((Date.now() - new Date(dateStr)) / 86400000);
-  if (dias > 180) return { txt: `${dias}d`, cls: "st-vencido" };
-  if (dias >= 150) return { txt: `${dias}d`, cls: "st-perto" };
+  if (dias > intervalo) return { txt: `${dias}d`, cls: "st-vencido" };
+  if (dias >= intervalo - 30) return { txt: `${dias}d`, cls: "st-perto" };
   return { txt: `${dias}d`, cls: "st-emdia" };
 }
 let stats = {};
@@ -29,7 +32,13 @@ async function init() {
 
   await carregarStats();
   setupListeners();
+  await carregarVips();
   await carregar();
+}
+
+async function carregarVips() {
+  const { data } = await sb.from("vip_pacientes").select("paciente_id, intervalo_dias");
+  vipMap = new Map((data || []).map(v => [v.paciente_id, v.intervalo_dias]));
 }
 
 async function carregarStats() {
@@ -163,7 +172,7 @@ async function carregar() {
   const from = (paginaAtual - 1) * PAGE_SIZE, to = from + PAGE_SIZE - 1;
 
   let q = sb.from("pacientes_abc")
-    .select("paciente_id, clinicorp_id, nome, classe, total_receita, ultima_visita, dias_sem_visita, proxima_consulta, telefone, ultima_prevencao, ultima_prevencao_adulto, ultima_prevencao_infantil, pacientes!inner(id, telefone_celular)", { count: "exact" })
+    .select("paciente_id, clinicorp_id, nome, classe, total_receita, ultima_visita, dias_sem_visita, proxima_consulta, telefone, ultima_prevencao, ultima_prevencao_adulto, ultima_prevencao_infantil, ultima_prevencao_perio, perio, pacientes!inner(id, telefone_celular)", { count: "exact" })
     .order(sortCol, { ascending: sortAsc, nullsFirst: sortCol.startsWith("ultima_prevencao") ? false : undefined })
     .range(from, to);
 
@@ -172,6 +181,11 @@ async function carregar() {
   if (filtroDays) q = q.gte("dias_sem_visita", filtroDays);
   if (filtroSemAgenda) q = q.is("proxima_consulta", null);
   if (buscaTexto) q = q.ilike("nome", "%" + buscaTexto + "%");
+  if (catPrev === "perio") q = q.eq("perio", true);
+  else if (catPrev === "vip") {
+    const ids = [...vipMap.keys()];
+    q = q.in("paciente_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+  }
 
   const { data, count, error } = await q;
   if (error) { console.error(error); return; }
@@ -221,7 +235,11 @@ function renderTabela(rows) {
             <div class="abc-patient-cell">
               <div class="abc-avatar abc-avatar--${(p.classe||"c").toLowerCase()}">${initials}</div>
               <div>
-                <div class="abc-patient-name">${p.nome||"—"}</div>
+                <div class="abc-patient-name">${p.nome||"—"}
+                  ${p.perio ? `<span class="cohorte-badge cb-perio">Perio</span>` : ""}
+                  ${vipMap.has(p.paciente_id) ? `<span class="cohorte-badge cb-vip">⭐VIP ${vipMap.get(p.paciente_id) || 120}d</span>` : ""}
+                  <button class="vip-toggle" data-pid="${p.paciente_id}" data-nome="${(p.nome||'').replace(/"/g,'&quot;')}" title="${vipMap.has(p.paciente_id) ? 'Remover VIP' : 'Marcar VIP'}">${vipMap.has(p.paciente_id) ? '★' : '☆'}</button>
+                </div>
                 ${p.clinicorp_id ? `<div class="abc-patient-id">#${p.clinicorp_id}</div>` : ""}
               </div>
             </div>
@@ -231,7 +249,7 @@ function renderTabela(rows) {
           <td><span class="badge ${daysColor}">${p.dias_sem_visita != null ? p.dias_sem_visita + " dias" : "—"}</span></td>
           <td><div class="abc-agenda-cell">${agendaHtml}</div></td>
           <td>${p[prevCol()] ? formatarData(p[prevCol()]) : '—'}</td>
-          <td><span class="prev-status ${statusPrev(p[prevCol()]).cls}">${statusPrev(p[prevCol()]).txt}</span></td>
+          <td><span class="prev-status ${statusPrev(p[prevCol()], intervaloEfetivo(p)).cls}">${statusPrev(p[prevCol()], intervaloEfetivo(p)).txt}</span></td>
           <td><button class="abc-wa-btn" data-idx="${idx}" title="WhatsApp">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.556 4.12 1.529 5.854L0 24l6.335-1.52A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.797 9.797 0 01-5.032-1.386l-.36-.214-3.73.894.952-3.645-.234-.374A9.788 9.788 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182c5.43 0 9.818 4.388 9.818 9.818 0 5.43-4.388 9.818-9.818 9.818z"/></svg>
           </button></td>
@@ -261,6 +279,29 @@ function renderTabela(rows) {
       if (!p) return;
       const tel = p.pacientes?.telefone_celular || p.telefone || "";
       abrirWhatsApp(tel, tmpl?.getCorpo() || "", p.nome || "");
+    });
+  });
+
+  wrap.querySelectorAll(".vip-toggle").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const pid = btn.dataset.pid, nome = btn.dataset.nome;
+      if (vipMap.has(pid)) {
+        if (!confirm(`Remover ${nome} dos VIPs?`)) return;
+        const { error } = await sb.from("vip_pacientes").delete().eq("paciente_id", pid);
+        if (error) { toast("Erro: " + error.message, "error"); return; }
+        toast(`${nome} removido dos VIPs`);
+      } else {
+        const v = prompt(`Intervalo de retorno do VIP ${nome} (dias):`, "120");
+        if (v === null) return;
+        const intervalo = parseInt(v, 10);
+        if (isNaN(intervalo) || intervalo < 1) { toast("Intervalo inválido", "error"); return; }
+        const { data: { user } } = await sb.auth.getUser();
+        const { error } = await sb.from("vip_pacientes").insert({ paciente_id: pid, adicionado_por: user?.id || null, intervalo_dias: intervalo, obs: "PPAMA" });
+        if (error) { toast("Erro: " + error.message, "error"); return; }
+        toast(`${nome} marcado como VIP (${intervalo}d)`);
+      }
+      await carregarVips();
+      await carregar();
     });
   });
 }

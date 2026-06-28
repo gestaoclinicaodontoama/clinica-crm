@@ -1193,3 +1193,7 @@ html, body {
 .st-perto{background:#fef3c7;color:#92400e}
 .st-emdia{background:#dcfce7;color:#166534}
 .st-nunca{background:#eee;color:#666}
+.cohorte-badge{font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;margin-left:6px;vertical-align:middle}
+.cb-perio{background:#e0e7ff;color:#3730a3}
+.cb-vip{background:#fef3c7;color:#92400e}
+.vip-toggle{background:none;border:none;cursor:pointer;font-size:14px;color:#d97706;margin-left:4px;vertical-align:middle}

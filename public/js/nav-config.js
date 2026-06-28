@@ -83,7 +83,6 @@
     { id: 'pos', label: 'CRC Pós Tratamento', icon: 'pos', roles: 'admin,gestor,crc_sucesso,crc_pos_tratamento', items: [
       { slug: 'aniversariantes', label: 'Aniversariantes', roles: 'admin,gestor,crc_sucesso,crc_pos_tratamento', mode: 'link', href: '/pos-tratamento/aniversariantes.html', badge: { id: 'badge-aniv', cls: 'badge-nav badge-nav--green' } },
       { slug: 'curva-abc',       label: 'Curva ABC / Prevenção', roles: 'admin,gestor,crc_sucesso,crc_pos_tratamento', mode: 'link', href: '/pos-tratamento/curva-abc.html' },
-      { slug: 'vips',            label: 'VIPs',            roles: 'admin,gestor,crc_sucesso,crc_pos_tratamento', mode: 'link', href: '/pos-tratamento/vips.html' },
     ]},
 
     { divider: true, roles: 'admin,gestor,financeiro,mod_financeiro,mod_producao,dentista,mod_avaliacao_dentista,crc_comercial' },
