@@ -28,7 +28,7 @@ Decisão do Luiz: intervalo é **180d para todos** (adulto/criança/perio); só 
 - **Conta como prevenção:** `syncPrevencao` passa a classificar sub-gengival/alisamento como `categoria='perio'` (em vez de descartar) → o evento entra no `ultima_prevencao` do paciente (a manutenção periodontal É o retorno dele).
 - **Também é selo:** paciente com qualquer evento perio fica `pacientes_abc.perio=true` → badge "Perio" + rota pro periodontista (no agente).
 - **Intervalo segue 180d** (prazo só muda p/ VIP).
-- **Mudança no classificador (`lib/prevencao/classificacao.js`):** tirar a regra que retorna `null` p/ sub-gengival e passar a retornar `'perio'` p/ sub-gengival/alisamento radicular.
+- **Mudança no classificador (`lib/prevencao/classificacao.js`):** a linha que hoje retorna `null` p/ sub-gengival passa a retornar **`'perio'`** quando `(n inclui 'sub' E 'gengiv')` **OU** `n inclui 'alisamento radicular'`. Retorno **cedo** (antes do override infantil — perio não vira infantil). ⚠️ **Atualizar `classificacao.test.js`:** o caso `'85300039 - Raspagem sub-gengival/alisamento radicular'` hoje espera `null` → passa a esperar `'perio'` (mover do teste "NÃO contam" p/ um teste novo "sub-gengival conta como perio"). "Manutenção periodontal" segue `null` (não casa as regras perio).
 - **Colunas:** `pacientes_abc.ultima_prevencao_perio DATE` (consistente com adulto/infantil) + `perio BOOLEAN DEFAULT false`. Paciente só-perio (sem profilaxia) entra na lista com badge Perio e `ultima_prevencao` = a data perio.
 
 ---
