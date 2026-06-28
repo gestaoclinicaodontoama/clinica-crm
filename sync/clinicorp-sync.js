@@ -748,7 +748,7 @@ function normPaciente(s) {
  */
 async function syncPrevencao() {
   const [procs, pacientes] = await Promise.all([
-    selectAll('producao_procedimentos', 'procedure_name, executed_date, paciente_nome, dentist_name'),
+    selectAll('producao_procedimentos', 'procedure_name, executed_date, paciente_nome, dentist_name, bill_type'),
     selectAll('pacientes', 'id, clinicorp_id, nome'),
   ]);
 
@@ -782,9 +782,9 @@ async function syncPrevencao() {
     const k = `${cidStr}|${data}|${categoria}`;
     if (!seen.has(k)) {
       seen.add(k);
-      eventos.push({ clinicorp_id: cidStr, data, categoria, procedimento: pr.procedure_name, profissional: pr.dentist_name || null });
+      eventos.push({ clinicorp_id: cidStr, data, categoria, procedimento: pr.procedure_name, profissional: pr.dentist_name || null, bill_type: pr.bill_type || null });
     }
-    const a = aggByPac.get(pac.id) || { clinicorp_id: cidStr, adulto: null, infantil: null };
+    const a = aggByPac.get(pac.id) || { clinicorp_id: cidStr, adulto: null, infantil: null, perio: null };
     if (data > (a[categoria] || '')) a[categoria] = data;
     aggByPac.set(pac.id, a);
   }
@@ -800,12 +800,14 @@ async function syncPrevencao() {
   // de prevenção (mantém classe/receita) e cria linha (classe=NULL) p/ quem só tem prevenção.
   const rows = [];
   for (const [paciente_id, a] of aggByPac) {
-    const ultima = [a.adulto, a.infantil].filter(Boolean).sort().slice(-1)[0] || null;
+    const ultima = [a.adulto, a.infantil, a.perio].filter(Boolean).sort().slice(-1)[0] || null;
     rows.push({
       paciente_id, clinicorp_id: a.clinicorp_id,
       ultima_prevencao: ultima,
       ultima_prevencao_adulto: a.adulto,
       ultima_prevencao_infantil: a.infantil,
+      ultima_prevencao_perio: a.perio,
+      perio: a.perio != null,
       dias_sem_prevencao: ultima ? daysSince(ultima) : null,
     });
   }
