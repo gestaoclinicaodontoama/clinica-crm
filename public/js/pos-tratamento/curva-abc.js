@@ -9,7 +9,8 @@ let classTabFilter = "todos";
 let sortCol = "total_receita", sortAsc = false;
 let catPrev = "todas"; // 'todas' | 'adulto' | 'infantil' | 'perio' | 'vip'
 let vipMap = new Map(); // paciente_id -> intervalo_dias
-const intervaloEfetivo = p => vipMap.has(p.paciente_id) ? (vipMap.get(p.paciente_id) || 120) : 180;
+const VIP_INTERVALO_PADRAO = 120; // dias — fallback p/ VIP sem intervalo definido
+const intervaloEfetivo = p => vipMap.has(p.paciente_id) ? (vipMap.get(p.paciente_id) || VIP_INTERVALO_PADRAO) : 180;
 const prevCol = () => catPrev === "adulto" ? "ultima_prevencao_adulto"
                     : catPrev === "infantil" ? "ultima_prevencao_infantil"
                     : catPrev === "perio" ? "ultima_prevencao_perio"
@@ -37,7 +38,8 @@ async function init() {
 }
 
 async function carregarVips() {
-  const { data } = await sb.from("vip_pacientes").select("paciente_id, intervalo_dias");
+  const { data, error } = await sb.from("vip_pacientes").select("paciente_id, intervalo_dias");
+  if (error) { console.error("carregarVips:", error); return; }
   vipMap = new Map((data || []).map(v => [v.paciente_id, v.intervalo_dias]));
 }
 
@@ -237,7 +239,7 @@ function renderTabela(rows) {
               <div>
                 <div class="abc-patient-name">${p.nome||"—"}
                   ${p.perio ? `<span class="cohorte-badge cb-perio">Perio</span>` : ""}
-                  ${vipMap.has(p.paciente_id) ? `<span class="cohorte-badge cb-vip">⭐VIP ${vipMap.get(p.paciente_id) || 120}d</span>` : ""}
+                  ${vipMap.has(p.paciente_id) ? `<span class="cohorte-badge cb-vip">⭐VIP ${vipMap.get(p.paciente_id) || VIP_INTERVALO_PADRAO}d</span>` : ""}
                   <button class="vip-toggle" data-pid="${p.paciente_id}" data-nome="${(p.nome||'').replace(/"/g,'&quot;')}" title="${vipMap.has(p.paciente_id) ? 'Remover VIP' : 'Marcar VIP'}">${vipMap.has(p.paciente_id) ? '★' : '☆'}</button>
                 </div>
                 ${p.clinicorp_id ? `<div class="abc-patient-id">#${p.clinicorp_id}</div>` : ""}
@@ -291,7 +293,7 @@ function renderTabela(rows) {
         if (error) { toast("Erro: " + error.message, "error"); return; }
         toast(`${nome} removido dos VIPs`);
       } else {
-        const v = prompt(`Intervalo de retorno do VIP ${nome} (dias):`, "120");
+        const v = prompt(`Intervalo de retorno do VIP ${nome} (dias):`, String(VIP_INTERVALO_PADRAO));
         if (v === null) return;
         const intervalo = parseInt(v, 10);
         if (isNaN(intervalo) || intervalo < 1) { toast("Intervalo inválido", "error"); return; }
