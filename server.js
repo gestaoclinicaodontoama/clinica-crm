@@ -97,11 +97,25 @@ function logEvento(leadId, tipo, descricao, metadata = {}, usuarioId = null) {
 }
 
 // --------- AUTH MIDDLEWARE ---------
+// Cache de sessão/perfil em memória para reduzir egress no Supabase.
+// O front dispara várias chamadas em rajada por ação (cada uma revalidava a
+// sessão e recarregava o perfil). Aqui guardamos o resultado por ~60s.
+// Trade-off aceitável p/ CRM interno: um logout demora até 60s p/ invalidar.
+const AUTH_TTL = 60_000;
+const _userCache = new Map();    // token  -> { user, exp }
+const _profileCache = new Map(); // userId -> { profile, exp }
+function _bustProfile(userId) { if (userId) _profileCache.delete(userId); }
+
 async function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
+  const now = Date.now();
+  const cached = _userCache.get(token);
+  if (cached && cached.exp > now) { req.user = cached.user; return next(); }
   const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
+  if (error || !user) { _userCache.delete(token); return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' }); }
+  if (_userCache.size > 5000) _userCache.clear(); // sweep simples contra crescimento sem limite
+  _userCache.set(token, { user, exp: now + AUTH_TTL });
   req.user = user;
   next();
 }
@@ -282,6 +296,7 @@ app.patch('/api/me/threec-agent-token', requireAuth, async (req, res) => {
 
     const { error } = await supabase.from('profiles').update(patch).eq('id', req.user.id);
     if (error) throw error;
+    _bustProfile(req.user.id);
     res.json({ ok: true, threec_agent_id: patch.threec_agent_id || null });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -309,6 +324,7 @@ app.patch('/api/me/threec-agent-id', requireAuth, async (req, res) => {
     const val = threec_agent_id.trim().slice(0, 100);
     const { error } = await supabase.from('profiles').update({ threec_agent_id: val || null }).eq('id', req.user.id);
     if (error) throw error;
+    _bustProfile(req.user.id);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -344,10 +360,15 @@ app.patch('/api/me/nav-prefs', requireAuth, async (req, res) => {
 // ========== ROLE MIDDLEWARES ==========
 async function loadProfile(req) {
   if (req.user.profile) return req.user.profile;
+  const now = Date.now();
+  const c = _profileCache.get(req.user.id);
+  if (c && c.exp > now) { req.user.profile = c.profile; return c.profile; }
   const { data } = await supabase.from('profiles')
     .select('id, nome, roles, threec_agent_token, threec_agent_ramal, threec_agent_id, softphone_modo').eq('id', req.user.id).maybeSingle();
-  req.user.profile = data || { roles: [] };
-  return req.user.profile;
+  const profile = data || { roles: [] };
+  _profileCache.set(req.user.id, { profile, exp: now + AUTH_TTL });
+  req.user.profile = profile;
+  return profile;
 }
 
 function requireRole(...allowed) {
@@ -492,6 +513,7 @@ app.patch('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
     });
     if (error) throw error;
     if (data?.error) return res.status(400).json({ error: data.error });
+    _bustProfile(req.params.id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
