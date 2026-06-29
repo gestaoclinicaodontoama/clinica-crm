@@ -2048,6 +2048,20 @@ app.get('/api/leads/:id/mensagens', requireAuth, requireConversas, rateLimit, as
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
+    // Modo incremental (?after=N): evita rebaixar a thread inteira a cada poll.
+    // Retorna só as mensagens novas (id>N) + um resumo de status das 25 mais
+    // recentes (p/ refletir ✓✓ de entrega, fixar/desafixar e apagar, que mudam
+    // em mensagens já existentes). Corta drasticamente o egress de aba aberta.
+    const after = parseInt(req.query.after, 10);
+    if (!Number.isNaN(after) && after > 0) {
+      const [novasR, recentesR] = await Promise.all([
+        supabase.from('mensagens').select('*').eq('lead_id', id).gt('id', after).order('id', { ascending: true }),
+        supabase.from('mensagens').select('id, wa_status, wa_erro, fixada, editada_em, texto')
+          .eq('lead_id', id).order('id', { ascending: false }).limit(25),
+      ]);
+      if (novasR.error) throw novasR.error;
+      return res.json({ incremental: true, novas: novasR.data || [], recentes: recentesR.data || [] });
+    }
     const { data, error } = await supabase.from('mensagens').select('*').eq('lead_id', id).order('id', { ascending: true });
     if (error) throw error;
     res.json(data || []);
@@ -2177,11 +2191,14 @@ app.delete('/api/agendamentos/:id', requireAuth, requireConversas, rateLimit, as
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Cron: dispara mensagens agendadas a cada 30s
+// Cron: dispara mensagens agendadas a cada 60s.
+// Egress: seleciona só as colunas usadas no envio (antes era select('*') +
+// join leads(wa_number_id) que nem era lido). leads!inner(id) mantém o filtro
+// de "lead existe" sem trazer dados do lead.
 setInterval(async () => {
   try {
     const { data } = await supabase.from('mensagens_agendadas')
-      .select('*, leads!inner(wa_number_id)')
+      .select('id, lead_id, telefone, texto, agendado_para, leads!inner(id)')
       .is('enviada_em', null).is('erro', null)
       .lte('agendado_para', new Date().toISOString()).limit(10);
     if (!data?.length) return;
@@ -2223,7 +2240,7 @@ setInterval(async () => {
       }
     }
   } catch (_) {}
-}, 30000);
+}, 60000);
 
 app.get('/api/conversas', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {

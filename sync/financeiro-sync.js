@@ -47,12 +47,31 @@ async function syncPeriodo(from, to) {
   const itens = (r.values || []);
   const { cat, idByCod } = await carregarCategorizador();
 
+  // Em lote (antes era 1 SELECT + 1 upsert por item = ~2N viagens ao banco).
+  // 1) mapeia e descarta itens sem data; 2) busca os existentes em poucas
+  // consultas IN; 3) monta as linhas; 4) grava em lotes. Egress cai de ~2N
+  // requisições para um punhado.
+  const CHUNK = 500;
+  const mapeados = itens.map(mapear).filter(m => m.data);
+
+  // dedupe por clinicorp_id (último vence) — evita erro de upsert que afeta a
+  // mesma linha duas vezes no mesmo lote e espelha o comportamento do loop.
+  const porId = new Map();
+  for (const m of mapeados) porId.set(m.clinicorp_id, m);
+  const ids = [...porId.keys()];
+
+  // existentes (id + override_manual) em consultas IN paginadas
+  const existentes = new Map();
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data: ex } = await supabase.from('fin_lancamentos')
+      .select('clinicorp_id,override_manual').in('clinicorp_id', ids.slice(i, i + CHUNK));
+    for (const r of (ex || [])) existentes.set(r.clinicorp_id, r);
+  }
+
+  const rows = [];
   let novos = 0;
-  for (const e of itens) {
-    const m = mapear(e);
-    if (!m.data) continue;
-    const { data: existente } = await supabase.from('fin_lancamentos')
-      .select('id,override_manual').eq('clinicorp_id', m.clinicorp_id).maybeSingle();
+  for (const m of porId.values()) {
+    const existente = existentes.get(m.clinicorp_id);
     let conta_id = null, metodo = null;
     if (m.fluxo === 'sai') { const c = cat(m.descricao); conta_id = c.conta_codigo ? idByCod.get(c.conta_codigo) : null; metodo = c.metodo; }
     // Receita: SÓ RECEIVED (regime de caixa) entra na DRE. REVENUE (competência/faturamento) e
@@ -66,9 +85,13 @@ async function syncPeriodo(from, to) {
       empresa: m.empresa, paciente_id: m.paciente_id, raw: m.raw, ativo: true, visto_em: inicio,
     };
     if (!existente?.override_manual) { row.conta_id = conta_id; row.classificacao_metodo = metodo; }
-    const { error } = await supabase.from('fin_lancamentos').upsert(row, { onConflict: 'clinicorp_id' });
-    if (error) throw new Error(error.message);
+    rows.push(row);
     if (!existente) novos++;
+  }
+
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await supabase.from('fin_lancamentos').upsert(rows.slice(i, i + CHUNK), { onConflict: 'clinicorp_id' });
+    if (error) throw new Error(error.message);
   }
 
   const { data: inativados } = await supabase.from('fin_lancamentos')

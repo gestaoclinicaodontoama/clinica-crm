@@ -2526,6 +2526,8 @@ function toast(msg, erro=false) {
 // ============ CONVERSAS ============
 let chatLeadAtual = null;
 let _chatMsgsSig = '';
+let _chatMsgs = [];     // array da conversa aberta (p/ atualização incremental)
+let _chatLastId = 0;    // maior id já carregado (p/ ?after=)
 const _midiaCache = new Map();
 let chatLeads = [];
 let chatPollInterval = null;
@@ -2533,6 +2535,12 @@ let _convListInterval = null;
 let _chatGen = 0; // geração do abrirChat — previne double interval em cliques rápidos
 let _chatViewMode = 'lista';
 let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
+// Ao voltar para a aba, atualiza uma vez na hora (o polling fica pausado em 2º plano)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (chatPollInterval && chatLeadAtual) carregarMensagensChat(chatLeadAtual.id, true);
+  if (_convListInterval) loadConversas(true);
+});
 let _kanbanDragging = false;
 
 const KANBAN_AGENDAMENTOS  = ['Novo','Em qualificação','Avaliação agendada','Compareceu'];
@@ -2636,7 +2644,7 @@ async function loadConversas(silencioso = false) {
 
 function _iniciarConvListInterval() {
   if (_convListInterval) clearInterval(_convListInterval);
-  _convListInterval = setInterval(() => loadConversas(true), 30000);
+  _convListInterval = setInterval(() => { if (!document.hidden) loadConversas(true); }, 30000);
 }
 
 async function carregarMetaAgendamentos() {
@@ -3360,6 +3368,7 @@ async function abrirChat(leadId) {
   _midiaCache.forEach(url => URL.revokeObjectURL(url));
   _midiaCache.clear();
   _chatMsgsSig = '';
+  _chatMsgs = []; _chatLastId = 0;   // zera estado incremental ao trocar de conversa
   _chatUltimaRecebida = null;
   const _jb = document.getElementById('chat-janela-bar');
   if (_jb) _jb.style.display = 'none';
@@ -3414,6 +3423,7 @@ async function abrirChat(leadId) {
   await carregarMensagensChat(leadId);
   if (_gen !== _chatGen) return; // invocação obsoleta — outro abrirChat disparou depois
   chatPollInterval = setInterval(() => {
+    if (document.hidden) return; // aba em 2º plano não consome egress
     if (chatLeadAtual) { _markRead(chatLeadAtual.id); carregarMensagensChat(chatLeadAtual.id, true); }
   }, 4000);
   document.getElementById('chat-input').focus();
@@ -3450,7 +3460,27 @@ function _bolhaMsgHtml(m) {
 
 async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0) {
   try {
-    const msgs = await api(`/api/leads/${leadId}/mensagens`);
+    let msgs;
+    // Poll silencioso de conversa já carregada → busca incremental (só novas +
+    // status das 25 últimas), em vez de rebaixar a thread inteira.
+    if (silencioso && _chatLastId && chatLeadAtual && leadId === chatLeadAtual.id) {
+      const inc = await api(`/api/leads/${leadId}/mensagens?after=${_chatLastId}`);
+      if (inc && inc.incremental) {
+        if (inc.novas && inc.novas.length) _chatMsgs.push(...inc.novas);
+        if (inc.recentes && inc.recentes.length) {
+          const byId = new Map(inc.recentes.map(r => [r.id, r]));
+          _chatMsgs = _chatMsgs.map(m => byId.has(m.id) ? { ...m, ...byId.get(m.id) } : m);
+        }
+        msgs = _chatMsgs;
+      } else {                                   // servidor antigo → resposta = array
+        msgs = Array.isArray(inc) ? inc : _chatMsgs;
+        _chatMsgs = msgs;
+      }
+    } else {
+      msgs = await api(`/api/leads/${leadId}/mensagens`);
+      _chatMsgs = Array.isArray(msgs) ? msgs : [];
+    }
+    _chatLastId = _chatMsgs.length ? _chatMsgs[_chatMsgs.length - 1].id : 0;
     const el = document.getElementById('chat-msgs');
     // A assinatura precisa incluir fixadas e status de entrega: nada disso muda
     // qtd nem último id, e sem isso o reload silencioso cai no early-return
