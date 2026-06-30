@@ -276,6 +276,8 @@ textarea { resize: vertical; min-height: 80px; }
 .msg-bubble { max-width: 68%; padding: 9px 13px; border-radius: 14px; font-size: 13px; line-height: 1.5; word-break: break-word; }
 .msg-bubble.in { background: var(--bg3); border-bottom-left-radius: 3px; }
 .msg-bubble.out { background: var(--accent); color: white; border-bottom-right-radius: 3px; }
+.msg-bubble.msg-hit { outline: 2px solid rgba(245,200,66,.85); outline-offset: 1px; }
+.msg-bubble.msg-hit-active { outline: 2px solid #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.35); }
 .msg-time { font-size: 10.5px; color: var(--muted); margin-top: 3px; padding: 0 4px; }
 .msg-actions { display:flex; gap:3px; margin-bottom:2px; opacity:0; transition:opacity .15s; }
 .msg-wrap:hover .msg-actions { opacity: 1; }
@@ -694,7 +696,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <button id="btn-filtro-nao-lidas" title="Mostrar apenas não lidas" onclick="toggleFiltroNaoLidas()" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">🔔</button>
       <button id="btn-filtro-vencendo" onclick="toggleFiltroVencendo()" title="Mostrar apenas janelas vencendo" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">⏳</button>
       <button id="btn-filtro-sem-crc" onclick="toggleFiltroSemCrc()" title="Sem CRC responsável" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">👤</button>
-      <input class="search-input" style="width:150px;margin:0" placeholder="🔍 Buscar..." id="chat-search" oninput="filtrarChats()">
+      <input class="search-input" style="width:170px;margin:0" placeholder="🔍 Nome, número ou texto" id="chat-search" oninput="filtrarChats()" title="Busca por nome, telefone ou pelo texto da última mensagem">
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
         <option value="">Todas as CRCs</option>
       </select>
@@ -795,6 +797,16 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
           <div style="display:flex;flex-direction:column;flex:1;min-width:0">
             <div id="chat-anuncio-banner" style="display:none"></div>
             <div id="chat-fixadas" style="display:none"></div>
+            <div id="chat-busca-bar" style="display:none;align-items:center;gap:6px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0">
+              <span style="flex-shrink:0;font-size:13px">🔍</span>
+              <input id="chat-busca-input" type="text" autocomplete="off" placeholder="Buscar nesta conversa..."
+                oninput="buscarNaConversa()" onkeydown="if(event.key==='Enter'){event.preventDefault();navBuscaConversa(event.shiftKey?-1:1)}if(event.key==='Escape'){fecharBuscaConversa()}"
+                style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--text);font-size:13px;padding:2px 0">
+              <span id="chat-busca-count" style="font-size:11px;color:var(--muted);white-space:nowrap"></span>
+              <button onclick="navBuscaConversa(-1)" title="Anterior (Shift+Enter)" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:15px;padding:0 4px;line-height:1">▲</button>
+              <button onclick="navBuscaConversa(1)" title="Próxima (Enter)" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:15px;padding:0 4px;line-height:1">▼</button>
+              <button onclick="fecharBuscaConversa()" title="Fechar (Esc)" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:17px;padding:0 4px;line-height:1">×</button>
+            </div>
             <div class="chat-msgs" id="chat-msgs"></div>
             <div id="chat-janela-bar" style="display:none;padding:5px 12px;font-size:11.5px;font-weight:600;border-top:1px solid var(--border)"></div>
             <div id="chat-composer" class="chat-input-area" style="flex-direction:column;gap:6px">
@@ -2706,7 +2718,7 @@ function filtrarChats() {
   const q = (document.getElementById('chat-search').value || '').toLowerCase();
   const crcFiltro = document.getElementById('filtro-crc').value;
   let base = _filtrarParaModo(chatLeads);
-  if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q));
+  if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q) || (l.ultima_mensagem||'').toLowerCase().includes(q));
   if (crcFiltro) base = base.filter(l => _chatMode === 'avaliacao' ? l.crc_comercial_id === crcFiltro : l.crc_agendamento_id === crcFiltro);
   if (_filtroNaoLidas) base = base.filter(l => _isUnread(l));
   if (_filtroVencendo && typeof estadoJanela === 'function') base = base.filter(l => estadoJanela(l.ultima_recebida_em).estado === 'fechando');
@@ -2912,6 +2924,82 @@ function toggleBannerAnuncio(btn) {
   btn.setAttribute('aria-expanded', abrir ? 'true' : 'false');
   const caret = btn.querySelector('.banner-caret');
   if (caret) caret.style.transform = abrir ? 'rotate(180deg)' : '';
+}
+
+// Resolve o ID do anúncio (lead.campanha) para o NOME do anúncio/campanha via Meta
+// (endpoint /api/anuncio-thumb, com cache de 6h no servidor) e mostra no selo do
+// cabeçalho da conversa — pra equipe saber de qual anúncio o lead veio.
+function _carregarNomeAnuncio(lead, gen) {
+  if (!lead || !lead.ctwa_clid) return;
+  const adId = /^\d{6,}$/.test(String(lead.campanha || '').trim()) ? String(lead.campanha).trim() : null;
+  if (!adId) return;
+  api('/api/anuncio-thumb/' + adId).then(t => {
+    if (!t || !t.nome) return;
+    if (typeof _chatGen !== 'undefined' && gen !== _chatGen) return; // outra conversa abriu
+    if (!chatLeadAtual || chatLeadAtual.id !== lead.id) return;
+    const el = document.getElementById('chat-anuncio-rotulo');
+    if (!el) return;
+    const canal = _canalMeta(lead.referral_data);
+    el.textContent = '📍 ' + t.nome + (canal ? ' · ' + canal : '');
+    el.setAttribute('title',
+      'Anúncio: ' + t.nome +
+      (t.campanha_nome ? '\nCampanha: ' + t.campanha_nome : '') +
+      (t.adset_nome ? '\nConjunto: ' + t.adset_nome : ''));
+  }).catch(() => {});
+}
+
+// ===== Busca dentro da conversa aberta (C2) =====
+let _buscaHits = [], _buscaIdx = -1;
+function toggleBuscaConversa() {
+  const bar = document.getElementById('chat-busca-bar');
+  if (!bar) return;
+  if (bar.style.display === 'none' || !bar.style.display) {
+    bar.style.display = 'flex';
+    const inp = document.getElementById('chat-busca-input');
+    if (inp) { inp.value = ''; inp.focus(); }
+    buscarNaConversa();
+  } else {
+    fecharBuscaConversa();
+  }
+}
+function fecharBuscaConversa() {
+  const bar = document.getElementById('chat-busca-bar');
+  if (bar) bar.style.display = 'none';
+  const inp = document.getElementById('chat-busca-input');
+  if (inp) inp.value = '';
+  document.querySelectorAll('#chat-msgs .msg-hit, #chat-msgs .msg-hit-active')
+    .forEach(n => n.classList.remove('msg-hit', 'msg-hit-active'));
+  _buscaHits = []; _buscaIdx = -1;
+  const c = document.getElementById('chat-busca-count'); if (c) c.textContent = '';
+}
+function buscarNaConversa() {
+  const q = (document.getElementById('chat-busca-input')?.value || '').trim().toLowerCase();
+  document.querySelectorAll('#chat-msgs .msg-hit, #chat-msgs .msg-hit-active')
+    .forEach(n => n.classList.remove('msg-hit', 'msg-hit-active'));
+  _buscaHits = []; _buscaIdx = -1;
+  const c = document.getElementById('chat-busca-count');
+  if (!q) { if (c) c.textContent = ''; return; }
+  document.querySelectorAll('#chat-msgs .msg-bubble').forEach(b => {
+    if ((b.textContent || '').toLowerCase().includes(q)) { b.classList.add('msg-hit'); _buscaHits.push(b); }
+  });
+  if (!_buscaHits.length) { if (c) c.textContent = '0 resultados'; return; }
+  _buscaIdx = _buscaHits.length - 1; // começa na ocorrência mais recente (fim da conversa)
+  _marcarBuscaAtiva();
+}
+function _marcarBuscaAtiva() {
+  _buscaHits.forEach(b => b.classList.remove('msg-hit-active'));
+  const alvo = _buscaHits[_buscaIdx];
+  if (alvo) {
+    alvo.classList.add('msg-hit-active');
+    alvo.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+  const c = document.getElementById('chat-busca-count');
+  if (c) c.textContent = (_buscaIdx + 1) + ' de ' + _buscaHits.length;
+}
+function navBuscaConversa(dir) {
+  if (!_buscaHits.length) return;
+  _buscaIdx = (_buscaIdx + dir + _buscaHits.length) % _buscaHits.length;
+  _marcarBuscaAtiva();
 }
 
 function _initPainel(lead) {
@@ -3396,13 +3484,14 @@ async function abrirChat(leadId) {
         </span>
         <span class="badge ${classBadge(chatLeadAtual.status)}" style="font-size:10px">${chatLeadAtual.status}</span>
         ${_waLabel ? `<span style="background:rgba(16,185,129,.12);color:#10b981;border:1px solid rgba(16,185,129,.3);border-radius:6px;font-size:10.5px;font-weight:600;padding:2px 7px" title="Número do WhatsApp da clínica nesta conversa">💬 via ${escHtml(_waLabel)}</span>` : ''}
-        ${chatLeadAtual.ctwa_clid ? `<span class="ctwa-badge">📍 veio de anúncio${_canalMeta(chatLeadAtual.referral_data) ? ' · ' + _canalMeta(chatLeadAtual.referral_data) : ''}</span>` : ''}
+        ${chatLeadAtual.ctwa_clid ? `<span class="ctwa-badge" id="chat-anuncio-rotulo" title="Anúncio de origem">📍 veio de anúncio${_canalMeta(chatLeadAtual.referral_data) ? ' · ' + _canalMeta(chatLeadAtual.referral_data) : ''}</span>` : ''}
         ${chatLeadAtual.ctwa_clid && !((chatLeadAtual.eventos_meta_enviados) || []).includes('LeadSubmitted') ? `<span title="Evento CAPI deste lead não confirmado pela Meta. Abra o Trajeto para ver o erro." style="background:rgba(220,38,38,.12);color:#dc2626;border:1px solid rgba(220,38,38,.35);border-radius:6px;font-size:10px;font-weight:700;padding:2px 6px;cursor:help">⚠️ CAPI</span>` : ''}
       </div>
     </div>
     ${chatLeadAtual.telefone ? `<button class="btn btn-call" style="font-size:12px;flex-shrink:0" onclick="ligarChatLead()" title="Ligar via 3CPlus">📞 Ligar</button>` : ''}
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModalTemplate()">📢 Template</button>
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="abrirModal(${chatLeadAtual.id})">Ver perfil</button>
+    <button class="btn btn-ghost" style="font-size:14px;flex-shrink:0" onclick="toggleBuscaConversa()" title="Buscar nesta conversa">🔍</button>
     <button class="btn btn-ghost" style="font-size:12px;flex-shrink:0" onclick="marcarNaoLida()" title="Marcar como não lida">🔔</button>
   `;
 
@@ -3420,6 +3509,8 @@ async function abrirChat(leadId) {
     _bannerEl.innerHTML = _bannerHtml;
     _bannerEl.style.display = _bannerHtml ? 'block' : 'none';
   }
+  _carregarNomeAnuncio(chatLeadAtual, _gen);
+  fecharBuscaConversa();
   await carregarMensagensChat(leadId);
   if (_gen !== _chatGen) return; // invocação obsoleta — outro abrirChat disparou depois
   chatPollInterval = setInterval(() => {

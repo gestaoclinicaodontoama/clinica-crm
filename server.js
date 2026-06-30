@@ -6550,16 +6550,17 @@ app.get('/api/anuncio-thumb/:adId', requireAuth, rateLimit, async (req, res) => 
 
   try {
     const url = 'https://graph.facebook.com/' + META_API_VERSION + '/' + adId +
-      '?fields=name,creative{thumbnail_url,image_url}';
+      '?fields=name,campaign{name},adset{name},creative{thumbnail_url,image_url}';
     const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
     const json = await r.json();
     if (json.error) {
-      const data = { thumbnail_url: null, nome: null, indisponivel: true };
+      const data = { thumbnail_url: null, nome: null, campanha_nome: null, adset_nome: null, indisponivel: true };
       _thumbCache.set(adId, { data, exp: Date.now() + 3600000 }); // 1h em erro
       return res.json(data);
     }
     const thumb = json.creative?.image_url || json.creative?.thumbnail_url || null;
-    const data = { thumbnail_url: thumb, nome: json.name || null };
+    const data = { thumbnail_url: thumb, nome: json.name || null,
+      campanha_nome: json.campaign?.name || null, adset_nome: json.adset?.name || null };
     _thumbCache.set(adId, { data, exp: Date.now() + 6 * 3600000 }); // 6h em sucesso
     res.json(data);
   } catch(e) { res.json({ thumbnail_url: null, nome: null, indisponivel: true }); }
