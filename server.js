@@ -4521,6 +4521,93 @@ app.post('/api/admin/capi-saude/recheck', requireAuth, requireGestor, async (req
   capiChecarGatilhos().catch(e => console.error('[capi-monitor] recheck:', e.message));
 });
 
+// ========== WhatsApp — Monitor de saúde dos números (Cloud API) ==========
+// Detecta quando um número sai do estado saudável da Cloud API. Causa real do
+// incidente 30/06: WABA sem forma de pagamento → Meta desregistra o número →
+// platform_type vira ON_PREMISE / throughput NOT_APPLICABLE e o envio falha com
+// (#133010). Aqui consultamos o número na Graph API e avisamos os gestores no
+// sino do CRM SÓ na MUDANÇA de estado (não spamma a cada tick).
+const WA_SAUDE_NUMEROS = [
+  { rotulo: 'Conversas (9649-2873)', pid: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    tok: process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN },
+  { rotulo: 'Broadcast (3824-8700)', pid: process.env.WHATSAPP_BROADCAST_PHONE_ID,
+    tok: process.env.WHATSAPP_BROADCAST_TOKEN || process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_CLOUD_TOKEN },
+].filter(n => n.pid && n.tok);
+
+const _waSaudeEstado = {}; // pid -> 'ok' | 'degradado'
+let _waChecando = false;
+
+async function waAvaliarNumero(n) {
+  // Retorna { ok, motivo, detalhe } ou null se não deu pra avaliar (rede/token).
+  try {
+    const url = `https://graph.facebook.com/v21.0/${n.pid}` +
+      `?fields=display_phone_number,platform_type,throughput,quality_rating,account_mode` +
+      `&access_token=${n.tok}`;
+    const r = await fetch(url);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) return null; // erro de rede/token → não alarmar (evita falso positivo)
+    const plat = j.platform_type;
+    const thr = j.throughput && j.throughput.level;
+    const degradado = plat !== 'CLOUD_API' || thr === 'NOT_APPLICABLE';
+    let motivo = '';
+    if (degradado) {
+      motivo = `platform_type=${plat || '?'}, throughput=${thr || '?'}`;
+      if (plat === 'ON_PREMISE') motivo += ' (provável WABA sem forma de pagamento)';
+    }
+    return { ok: !degradado, motivo, detalhe: { platform_type: plat, throughput: thr, quality_rating: j.quality_rating } };
+  } catch (e) { return null; }
+}
+
+async function waChecarSaude() {
+  if (_waChecando || !WA_SAUDE_NUMEROS.length) return;
+  _waChecando = true;
+  try {
+    let gestores = null;
+    for (const n of WA_SAUDE_NUMEROS) {
+      const res = await waAvaliarNumero(n);
+      if (!res) continue; // não avaliável agora
+      const novo = res.ok ? 'ok' : 'degradado';
+      const ant = _waSaudeEstado[n.pid];
+      _waSaudeEstado[n.pid] = novo;
+      const primeira = ant === undefined;
+      // Alerta: degradou (ou já nasceu degradado no boot) | Recuperou: degradado -> ok
+      const alertarFalha = novo === 'degradado' && (primeira || ant === 'ok');
+      const alertarOk = novo === 'ok' && ant === 'degradado';
+      if (!alertarFalha && !alertarOk) continue;
+      if (!gestores) {
+        const { data } = await supabase.from('profiles').select('id').or('roles.cs.{admin},roles.cs.{gestor}');
+        gestores = data || [];
+      }
+      const titulo = alertarFalha ? '🔴 WhatsApp fora do ar' : '✅ WhatsApp normalizado';
+      const corpo = alertarFalha
+        ? `O número ${n.rotulo} saiu da Cloud API — o CRM pode não conseguir enviar mensagens. ${res.motivo}. Cheque a forma de pagamento da WABA no WhatsApp Manager.`
+        : `O número ${n.rotulo} voltou ao normal (Cloud API).`;
+      for (const g of gestores) await criarNotificacao(g.id, 'whatsapp_saude', titulo, corpo, { url: '/conversas/' });
+      console.log(`[wa-monitor] ${n.rotulo}: ${ant ?? 'boot'} -> ${novo} (${res.motivo || 'ok'})`);
+    }
+  } catch (e) { console.error('[wa-monitor] checagem falhou:', e.message); }
+  finally { _waChecando = false; }
+}
+
+setTimeout(() => waChecarSaude(), 50_000);
+setInterval(() => waChecarSaude(), 20 * 60_000); // a cada 20 min
+console.log('[wa-monitor] scheduler de saúde WhatsApp ativo (20 min)');
+
+app.get('/api/admin/whatsapp-saude', requireAuth, requireGestor, async (req, res) => {
+  const out = [];
+  for (const n of WA_SAUDE_NUMEROS) {
+    const r = await waAvaliarNumero(n);
+    out.push({ rotulo: n.rotulo, phone_id: n.pid, avaliavel: !!r,
+      ok: r ? r.ok : null, ...(r ? r.detalhe : {}), motivo: r ? r.motivo : 'não avaliável (token/rede)' });
+  }
+  res.json({ numeros: out, atualizadoEm: new Date().toISOString() });
+});
+
+app.post('/api/admin/whatsapp-saude/recheck', requireAuth, requireGestor, async (req, res) => {
+  res.json({ ok: true, msg: 'Re-checagem disparada' });
+  waChecarSaude().catch(e => console.error('[wa-monitor] recheck:', e.message));
+});
+
 // ========== CAPI — Resumos diários 8h / 18h ==========
 function _resumoTexto(rows, slot, agora) {
   const t = capiHealth.totais7d(rows, agora);
