@@ -7418,7 +7418,9 @@ app.get('/api/financeiro/dre', requireAuth, requireFinanceiro, async (req, res) 
 // Lançamentos filtráveis (página de até 2000)
 app.get('/api/financeiro/lancamentos', requireAuth, requireFinanceiro, async (req, res) => {
   const { from, to, empresa, conta_id, fluxo, incluir_inativos } = req.query;
-  let q = supabase.from('fin_lancamentos').select('*, fin_contas(codigo,nome)').order('data', { ascending: false }).limit(2000);
+  // Colunas explícitas SEM `raw` (JSON cru da Clinicorp = 90% do peso da tabela
+  // e não é usado na tela). Corta ~90% do egress deste endpoint.
+  let q = supabase.from('fin_lancamentos').select('id, clinicorp_id, data, descricao, valor, fluxo, post_type, entry_type, forma_pgto, empresa, paciente_id, receita_sub, conta_id, classificacao_metodo, override_manual, ativo, visto_em, criado_em, fin_contas(codigo,nome)').order('data', { ascending: false }).limit(2000);
   if (from) q = q.gte('data', from);
   if (to) q = q.lte('data', to);
   if (empresa) q = q.eq('empresa', empresa);
@@ -7434,7 +7436,8 @@ app.get('/api/financeiro/lancamentos', requireAuth, requireFinanceiro, async (re
 app.get('/api/financeiro/a-categorizar', requireAuth, requireFinanceiro, async (req, res) => {
   const { from, to } = req.query;
   let q = supabase.from('fin_lancamentos')
-    .select('*').eq('ativo', true).eq('fluxo', 'sai').is('conta_id', null).order('valor', { ascending: false }).limit(1000);
+    .select('id, clinicorp_id, data, descricao, valor, fluxo, post_type, entry_type, forma_pgto, empresa, paciente_id, receita_sub, conta_id, classificacao_metodo, override_manual, ativo, visto_em, criado_em') // sem `raw` (peso morto)
+    .eq('ativo', true).eq('fluxo', 'sai').is('conta_id', null).order('valor', { ascending: false }).limit(1000);
   if (from) q = q.gte('data', from);
   if (to) q = q.lte('data', to);
   const { data, error } = await q;
