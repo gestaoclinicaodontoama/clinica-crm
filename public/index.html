@@ -5735,7 +5735,7 @@ function _showApp() {
   setTimeout(() => {
     initPush().catch(() => {});
     initSoftphone().catch(() => {});
-    api('/api/notificacoes').then(r => atualizarBadge(r.nao_lidas)).catch(() => {});
+    api('/api/notificacoes?badge=1').then(r => atualizarBadge(r.nao_lidas)).catch(() => {});
   }, 1000);
 }
 
@@ -6717,11 +6717,14 @@ async function concluirTarefa(id, el) {
   }
 }
 
-// Poll de badge a cada 60s quando painel fechado
+// Poll de badge a cada 60s quando painel fechado (modo leve ?badge=1 = só a
+// contagem; pausa com aba oculta ou fora do horário 07:30–19:00)
 setInterval(async () => {
-  if (_notifAberto || !_sbSession) return;
+  if (_notifAberto || !_sbSession || document.hidden) return;
+  const _h = new Date().getHours() + new Date().getMinutes() / 60;
+  if (_h < 7.5 || _h >= 19) return;
   try {
-    const r = await api('/api/notificacoes');
+    const r = await api('/api/notificacoes?badge=1');
     atualizarBadge(r.nao_lidas);
   } catch(_) {}
 }, 60000);

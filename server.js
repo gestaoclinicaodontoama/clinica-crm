@@ -6738,6 +6738,15 @@ app.delete('/api/push/subscribe', requireAuth, rateLimit, async (req, res) => {
 // Notificações
 app.get('/api/notificacoes', requireAuth, rateLimit, async (req, res) => {
   try {
+    // Modo leve p/ o poll do sino (a cada 60s): retorna só a contagem de não
+    // lidas via count (head:true, sem trazer linhas) → egress ~zero. Antes
+    // baixava 50 notificações inteiras só p/ mostrar o número da bolinha.
+    if (req.query.badge) {
+      const { count } = await supabase.from('notificacoes')
+        .select('id', { count: 'exact', head: true })
+        .eq('usuario_id', req.user.id).eq('lida', false);
+      return res.json({ nao_lidas: count || 0 });
+    }
     const { data } = await supabase.from('notificacoes')
       .select('*').eq('usuario_id', req.user.id)
       .order('criado_em', { ascending: false }).limit(50);
