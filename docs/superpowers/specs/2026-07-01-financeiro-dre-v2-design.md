@@ -27,6 +27,11 @@ returns table(ym text, conta_codigo text, fluxo text, total numeric)
 -- group by 1, 2, 3
 ```
 
+A mesma migração cria também `fin_sem_categoria_resumo(p_from, p_to)` →
+`(qtd bigint, total numeric)` (count+sum das saídas sem `conta_id` no período) —
+RPC dedicada porque aggregates do PostgREST vêm desabilitados por padrão no
+Supabase (não dá pra confiar em `.select('valor.sum()')`).
+
 Migração nova `20260701090000_financeiro_dre_mensal.sql`, aplicada via MCP.
 
 ### 1.2 Endpoint novo `GET /api/financeiro/dre-mensal?from&to`
@@ -35,9 +40,8 @@ Migração nova `20260701090000_financeiro_dre_mensal.sql`, aplicada via MCP.
 - Mesmos middlewares: `requireAuth, requireFinanceiro`.
 - Chama a RPC, agrupa as linhas por `ym` e roda o `montarDRE` existente
   (`lib/financeiro/dre.js`) uma vez por mês.
-- Inclui também o **resumo de não categorizados** do período (count + soma de
-  `fin_lancamentos` com `fluxo='sai'`, `ativo=true`, `conta_id is null`,
-  `data between from/to`) para o aviso da seção 3.6.
+- Inclui também o **resumo de não categorizados** do período (via RPC
+  `fin_sem_categoria_resumo`) para o aviso da seção 3.6.
 - Resposta:
 
 ```json
@@ -47,8 +51,9 @@ Migração nova `20260701090000_financeiro_dre_mensal.sql`, aplicada via MCP.
 }
 ```
 
-Meses sem lançamento dentro do período entram com grupos vazios/zero (o front
-itera o range de meses do filtro, não só os que a RPC devolveu).
+Meses sem lançamento dentro do período entram com grupos vazios/zero — o
+**servidor** itera o range de meses do filtro (`montarDREMensal(rows, from, to)`),
+não só os meses que a RPC devolveu.
 
 O endpoint antigo `/api/financeiro/dre` continua existindo (não quebra nada).
 
@@ -93,9 +98,12 @@ vermelho, cair = verde.
 
 ### 2.4 Média do período e anomalia
 
-- Coluna **Média** = média dos **meses completos** do período. O mês corrente,
-  se incompleto (hoje < último dia), entra como coluna mas **fica fora da média
-  e da anomalia** (senão contamina tudo pra baixo e acende falso alarme).
+- Coluna **Média** = média dos **meses completos** do período. Mês completo =
+  anterior ao mês corrente; **o mês corrente NUNCA conta como completo** (mesmo
+  no último dia — o dia ainda não acabou). Ele entra como coluna (marcada `*`)
+  mas **fica fora da média e da anomalia** (senão contamina tudo pra baixo e
+  acende falso alarme). Meses FUTUROS no período entram zerados como coluna e
+  também ficam fora da média.
 - **Anomalia** (só para contas/grupos de saída, e só quando há ≥3 meses completos):
   célula com |valor| > 125% da média → fundo âmbar; > 150% → fundo vermelho.
   Tooltip: "R$ X vs média R$ Y (+Z%)".
@@ -118,7 +126,11 @@ contribuição não positiva no período".
 
 ### 2.6 Projeção do mês corrente (run-rate)
 
-Só quando o período inclui o mês corrente e ele está incompleto:
+Só quando o período inclui o **mês corrente** — ancorar explicitamente no
+`ym` de hoje (`meses.find(m => m.ym === ymCorrente)`), NUNCA em "primeiro mês
+incompleto" (um período que termina em mês futuro tem meses vazios incompletos
+e a projeção pegaria o mês errado). A barra de progresso do PE (§3.1) usa a
+mesma âncora.
 
 - **Receita projetada** = receita até agora ÷ dias corridos × dias do mês.
 - **Variáveis projetadas** = receita projetada × (% variáveis médio dos meses

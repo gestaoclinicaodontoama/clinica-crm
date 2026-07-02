@@ -1048,6 +1048,10 @@ Inserir dentro da IIFE, imediatamente antes da linha final `window.carregar();`:
   window.renderKpis = function renderKpis(st) {
     const { meses, mesesCompletos } = st;
     const hoje = new Date();
+    // Âncora no mês corrente DE VERDADE (não "primeiro incompleto": um período que
+    // termina em mês futuro tem meses vazios incompletos e pegaria o mês errado).
+    const ymCorrente = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+    const mesCorrente = meses.find(m => m.ym === ymCorrente) || null;
     const total = A.subtotais(somarMeses(meses));
     const cards = [];
 
@@ -1065,7 +1069,6 @@ Inserir dentro da IIFE, imediatamente antes da linha final `window.carregar();`:
       cards.push(`<div class="kpi"><div class="kpi-label">Ponto de Equilíbrio</div>
         <div class="kpi-valor">–</div><div class="kpi-sub">${pe.erro}</div></div>`);
     } else {
-      const mesCorrente = meses.find(m => !A.mesCompleto(m.ym, hoje));
       let barra = '';
       if (mesCorrente) {
         const receitaMes = A.somaGrupos(mesCorrente, ['1']);
@@ -1078,12 +1081,11 @@ Inserir dentro da IIFE, imediatamente antes da linha final `window.carregar();`:
         <div class="kpi-sub">MC ${fmtPct(pe.mcPct)} · fixas ${fmt(pe.fixasMediaMes)}/mês</div>${barra}</div>`);
     }
 
-    const mesParcial = meses.find(m => !A.mesCompleto(m.ym, hoje));
-    if (mesParcial) {
-      const p = A.projecaoMes(mesParcial, mesesCompletos, hoje);
+    if (mesCorrente) {
+      const p = A.projecaoMes(mesCorrente, mesesCompletos, hoje);
       if (p) {
         cards.push(`<div class="kpi" title="Receita linear por dia corrido; variáveis pelo % histórico; fixas pela ${p.fixasAproximada ? 'projeção linear do próprio mês (aproximada)' : 'média dos meses completos'}. Financeiras/investimentos fora.">
-          <div class="kpi-label">Projeção ${fmtMes(mesParcial.ym)}<span class="selo">projeção</span></div>
+          <div class="kpi-label">Projeção ${fmtMes(mesCorrente.ym)}<span class="selo">projeção</span></div>
           <div class="kpi-valor ${valorClass(p.resultadoProj)}">${fmt(p.resultadoProj)}</div>
           <div class="kpi-sub">receita proj. ${fmt(p.receitaProj)}</div></div>`);
       }
