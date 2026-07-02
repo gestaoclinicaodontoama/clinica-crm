@@ -124,12 +124,14 @@ async function syncFluxoFuturo(hojeISO = dataLocal(new Date().toISOString())) {
   if (rows.length) {
     const { error } = await supabase.from('fin_fluxo_futuro').upsert(rows, { onConflict: 'mes' });
     if (error) throw new Error(error.message);
+    // guarda só o que esta rodada upsertou: limpa o passado E qualquer linha
+    // além do último mês recebido (órfã de um parse ruim ficaria pra sempre).
+    // Se a API não devolver nada, NÃO limpa — melhor dado velho que tabela vazia.
+    const primeiro = hojeISO.slice(0, 7) + '-01';
+    const ultimo = rows[rows.length - 1].mes;
+    const del = await supabase.from('fin_fluxo_futuro').delete().or(`mes.lt.${primeiro},mes.gt.${ultimo}`);
+    if (del.error) console.error('[fluxo-futuro] limpeza falhou:', del.error.message);
   }
-  // guarda só a janela [mês corrente, 24º mês]: limpa o passado E sobras além
-  // do horizonte (linha órfã de um parse ruim ficaria pra sempre sem isso)
-  const primeiro = hojeISO.slice(0, 7) + '-01';
-  const ultimo = to.slice(0, 7) + '-01';
-  await supabase.from('fin_fluxo_futuro').delete().or(`mes.lt.${primeiro},mes.gt.${ultimo}`);
   return { meses: rows.length };
 }
 
