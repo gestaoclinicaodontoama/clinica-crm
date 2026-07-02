@@ -361,24 +361,25 @@ async function carregar() {
   document.getElementById('evolSection').style.display = 'none';
   lastEvolucao = [];
 
-  const ano = new Date(currentFrom).getFullYear();
-  const h = { Authorization: `Bearer ${token}` };
-  const [resumoRes, , crRes] = await Promise.all([
-    fetch(`/api/producao/dentista/resumo?from=${currentFrom}&to=${currentTo}`, { headers: h }),
-    carregarAliquota(ano),
-    fetch(`/api/producao/dentista/custo-real?from=${currentFrom}&to=${currentTo}`, { headers: h }).then(r => r.json()).catch(() => ({ data: [] })),
-  ]);
-  custoReal = {};
-  for (const d of (crRes.data || [])) custoReal[d.dentist_person_id] = d;
+  try {
+    const ano = new Date(currentFrom).getFullYear();
+    const h = { Authorization: `Bearer ${token}` };
+    const [resumoRes, , crRes] = await Promise.all([
+      fetch(`/api/producao/dentista/resumo?from=${currentFrom}&to=${currentTo}`, { headers: h }),
+      carregarAliquota(ano),
+      fetch(`/api/producao/dentista/custo-real?from=${currentFrom}&to=${currentTo}`, { headers: h }).then(r => r.json()).catch(() => ({ data: [] })),
+    ]);
+    custoReal = {};
+    for (const d of (crRes.data || [])) custoReal[d.dentist_person_id] = d;
 
-  const resumo = await resumoRes.json();
-  if (resumoRes.ok) {
+    const resumo = await resumoRes.json();
+    if (!resumoRes.ok) throw new Error(resumo.error || 'Erro ao carregar');
     lastResumo = resumo.data || [];
     renderCards(lastResumo);
     if (isMultiMonth()) carregarEvolucao();
-  } else {
+  } catch (e) {
     document.getElementById('cardsContainer').innerHTML =
-      `<div class="empty">Erro ao carregar: ${esc(resumo.error)}</div>`;
+      `<div class="empty">Erro ao carregar: ${esc(e.message)}</div>`;
   }
 }
 
@@ -401,18 +402,25 @@ function brlph(v) {
   if (v == null) return '—';
   return brl(v) + '/h';
 }
+function fmtH(v) {
+  if (v == null) return '—';
+  return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'h';
+}
 
 function renderCards(dentistas) {
-  if (!dentistas.length) {
+  // Sem produção, sem agenda e sem pagamento no período → card vazio só polui
+  const comDados = dentistas.filter(d =>
+    d.producao_total > 0 || d.horas_agendadas > 0 || (custoReal[d.dentist_person_id]?.pago > 0));
+  if (!comDados.length) {
     document.getElementById('cardsContainer').innerHTML =
-      '<div class="empty">Nenhum dentista "execução" encontrado no período.<br>Execute "Atualizar dados" para sincronizar a agenda.</div>';
+      '<div class="empty">Nenhum dentista com produção ou agenda no período.<br>Execute "Atualizar dados" para sincronizar a agenda.</div>';
     return;
   }
   document.getElementById('cardsContainer').innerHTML =
-    `<div class="dent-cards">${dentistas.map(d => cardHtml(d)).join('')}</div>`;
+    `<div class="dent-cards">${comDados.map(d => cardHtml(d)).join('')}</div>`;
 
   // Carrega top 5 procedimentos para cada dentista em paralelo
-  dentistas.forEach(d => carregarTopProcs(d.dentist_person_id));
+  comDados.forEach(d => carregarTopProcs(d.dentist_person_id));
 }
 
 function liquida(bruto) {
@@ -447,35 +455,43 @@ function cardHtml(d) {
     }
   }
 
+  // Custo médio da diária (8h): pago proporcional ÷ (horas agenda ÷ 8)
+  let diariaVal = null, nDiarias = null;
+  if (cr && cr.pago > 0 && d.horas_agendadas > 0) {
+    nDiarias  = d.horas_agendadas / 8;
+    diariaVal = Math.round(cr.custo_proporcional / nDiarias * 100) / 100;
+  }
+  const diariaTooltip = diariaVal != null
+    ? `${brl(cr.custo_proporcional)} pago ÷ ${nDiarias.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} diárias (${fmtH(d.horas_agendadas)} ÷ 8h)`
+    : 'Precisa de pagamento e horas de agenda no período';
+
   return `
 <div class="dent-card" id="card-${esc(d.dentist_person_id)}">
   <div class="dent-card-header">
     <div class="dent-name">👤 ${esc(d.dentist_name)}</div>
     <button class="btn btn-ghost btn-sm" onclick="abrirModalConfig(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})" title="Configurar keyword de despesas">⚙️</button>
   </div>
-  ${ratioBadge}
+  ${ratioBadge ? `<div style="margin-bottom:12px">${ratioBadge}</div>` : ''}
   <div class="dent-metrics">
     <div class="dent-metric">
-      <span class="dent-metric-label">Produção${liq != null ? ' bruta' : ''}</span>
+      <span class="dent-metric-label">Produção bruta</span>
       <span class="dent-metric-value">${brl(d.producao_total)}</span>
     </div>
-    ${liq != null ? `<div class="dent-metric">
-      <span class="liq-label">Prod. líquida (−${aliquota}%)</span>
-      <span class="liq-value">${brl(liq)}</span>
-    </div>` : `<div class="dent-metric">
-      <span class="dent-metric-label">Dias c/ agenda</span>
-      <span class="dent-metric-value">${d.dias_com_agenda}</span>
-    </div>`}
-    ${liq != null ? `<div class="dent-metric">
-      <span class="dent-metric-label">Dias c/ agenda</span>
-      <span class="dent-metric-value">${d.dias_com_agenda}</span>
-    </div>` : ''}
+    <div class="dent-metric">
+      ${liq != null
+        ? `<span class="liq-label">Prod. líquida (−${aliquota}%)</span><span class="liq-value">${brl(liq)}</span>`
+        : `<span class="dent-metric-label">Prod. líquida</span><span class="dent-metric-value muted" title="Configure o imposto % no topo">—</span>`}
+    </div>
     <div class="dent-metric">
       <span class="dent-metric-label">Horas agenda${manualIcon}</span>
       <div class="dent-metric-action">
-        <span class="dent-metric-value">${d.horas_agendadas != null ? d.horas_agendadas + 'h' : '—'}</span>
+        <span class="dent-metric-value">${fmtH(d.horas_agendadas)}</span>
         <button class="btn btn-ghost btn-sm" onclick="abrirModalHoras(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})">✏️</button>
       </div>
+    </div>
+    <div class="dent-metric">
+      <span class="dent-metric-label">Dias c/ agenda</span>
+      <span class="dent-metric-value">${d.dias_com_agenda}</span>
     </div>
     <div class="dent-metric">
       <span class="dent-metric-label">Prod/hora</span>
@@ -489,6 +505,10 @@ function cardHtml(d) {
       <span class="dent-metric-label">Resultado/hora${liq != null ? ' (líq.)' : ''}</span>
       <span class="dent-metric-value ${resClass}">${brlph(resVal)}</span>
     </div>
+    <div class="dent-metric" title="${esc(diariaTooltip)}">
+      <span class="dent-metric-label">Custo/diária (8h)</span>
+      <span class="dent-metric-value">${diariaVal != null ? brl(diariaVal) : '—'}${nDiarias != null ? ` <span style="font-size:11px;font-weight:400;color:var(--muted)">(${nDiarias.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} diárias)</span>` : ''}</span>
+    </div>
   </div>
   <div class="top-procs">
     <div class="top-procs-title">Top 5 procedimentos</div>
@@ -496,11 +516,11 @@ function cardHtml(d) {
   </div>
   ${cr && cr.pagamentos && cr.pagamentos.length > 0 ? `
   <div class="pgto-section">
-    <div class="pgto-header" onclick="togglePagamentos(${JSON.stringify(d.dentist_person_id)})">
+    <div class="pgto-header" onclick="togglePagamentos(${esc(JSON.stringify(d.dentist_person_id))})">
       <span class="pgto-total">💰 Pago no período: ${brl(cr.pago)}</span>
-      <span class="pgto-toggle open" id="pgto-toggle-${esc(d.dentist_person_id)}">▼</span>
+      <span class="pgto-toggle" id="pgto-toggle-${esc(d.dentist_person_id)}">▼</span>
     </div>
-    <div class="pgto-body" id="pgto-body-${esc(d.dentist_person_id)}" style="display:block">
+    <div class="pgto-body" id="pgto-body-${esc(d.dentist_person_id)}">
       <table class="pgto-table">
         <thead><tr><th>Data</th><th>Descrição</th><th>Valor</th></tr></thead>
         <tbody>
@@ -521,8 +541,8 @@ function togglePagamentos(dentId) {
   const body   = document.getElementById('pgto-body-'   + dentId);
   const toggle = document.getElementById('pgto-toggle-' + dentId);
   if (!body) return;
-  const open = body.style.display !== 'none';
-  body.style.display   = open ? 'none' : 'block';
+  const open = body.style.display === 'block'; // fechado por padrão (CSS display:none)
+  body.style.display = open ? 'none' : 'block';
   if (toggle) toggle.classList.toggle('open', !open);
 }
 
@@ -559,12 +579,14 @@ function toggleEvolTable() {
 function renderEvolucao(rows) {
   if (!rows.length) return;
   const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const COLORS = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a855f7'];
+  const COLORS = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a855f7','#14b8a6','#f472b6','#84cc16','#fb923c','#818cf8'];
 
-  // Ordered unique months and dentists
+  // Ordered unique months; dentists ordered by produção total (legenda mais legível)
   const monthKeys = [...new Set(rows.map(r => r.mes))].sort();
   const dentMap   = new Map(rows.map(r => [r.dentist_person_id, r.dentist_name]));
-  const dentIds   = [...dentMap.keys()];
+  const totalByDent = {};
+  for (const r of rows) totalByDent[r.dentist_person_id] = (totalByDent[r.dentist_person_id] || 0) + r.producao;
+  const dentIds = [...dentMap.keys()].sort((a, b) => totalByDent[b] - totalByDent[a]);
 
   const labels = monthKeys.map(m => {
     const [ano, mes] = m.split('-').map(Number);
@@ -646,7 +668,7 @@ function renderEvolucao(rows) {
       <td>${esc(mesLabel)}</td>
       <td>${brl(r.producao)}</td>
       ${hasImposto ? `<td style="color:var(--green);font-weight:600">${brl(liqVal)}</td>` : ''}
-      <td>${r.horas_agendadas != null ? r.horas_agendadas + 'h' + manualMark : '—'}</td>
+      <td>${r.horas_agendadas != null ? fmtH(r.horas_agendadas) + manualMark : '—'}</td>
       <td>${r.dias_com_agenda || '—'}</td>
       <td>${brlph(r.producao_por_hora)}</td>
       <td>${brlph(custo)}</td>

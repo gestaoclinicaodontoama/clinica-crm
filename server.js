@@ -7668,12 +7668,9 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
     const months   = _getMonths(from, to);
 
     // agenda_appointments.dentist_name is always null (Clinicorp /appointment/list doesn't return it)
-    // so we derive execução dentist IDs from producao_procedimentos, which has the correct names
-    const { data: execDentists, error: eExec } = await supabase
-      .from('producao_procedimentos')
-      .select('dentist_person_id, dentist_name')
-      .not('dentist_name', 'ilike', '%avalia%')
-      .not('dentist_person_id', 'is', null);
+    // so we derive execução dentist IDs from producao_procedimentos, which has the correct names.
+    // Agregações via RPC: o client JS trunca .select() em 1000 linhas (agenda tem ~1000/mês).
+    const { data: execDentists, error: eExec } = await supabase.rpc('dentistas_execucao');
     if (eExec) throw new Error(eExec.message);
     const execMap = {};
     for (const r of (execDentists || [])) {
@@ -7688,12 +7685,7 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
       { data: manualRows,  error: eM },
       { data: custoRows,   error: eC },
     ] = await Promise.all([
-      supabase.from('agenda_appointments')
-        .select('dentist_person_id, appointment_date, duration_minutes')
-        .gte('appointment_date', from)
-        .lte('appointment_date', to)
-        .in('dentist_person_id', execIds)
-        .eq('deleted', false),
+      supabase.rpc('agenda_horas_dentista_mes', { p_ids: execIds, p_from: from, p_to: to }),
       supabase.rpc('producao_por_dentista', { p_from: from, p_to: to }),
       supabase.from('dentista_horas_manual')
         .select('dentist_person_id, ano, mes, horas')
@@ -7725,30 +7717,21 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
       producaoMap[r.dentist_person_id] = { producao: Number(r.producao), dentist_name: r.dentist_name };
     }
 
-    // Group agenda by dentist → month
+    // Group agenda by dentist → month (já agregado no SQL)
     const agendaByDent = {};
     for (const r of (agendaRows || [])) {
-      if (!r.dentist_person_id) continue;
-      if (!agendaByDent[r.dentist_person_id]) {
-        agendaByDent[r.dentist_person_id] = { byMonth: {} };
-      }
-      const d = new Date(r.appointment_date + 'T00:00:00');
-      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-      if (!agendaByDent[r.dentist_person_id].byMonth[key]) {
-        agendaByDent[r.dentist_person_id].byMonth[key] = { mins: 0, dias: new Set() };
-      }
-      agendaByDent[r.dentist_person_id].byMonth[key].mins += Number(r.duration_minutes) || 0;
-      agendaByDent[r.dentist_person_id].byMonth[key].dias.add(r.appointment_date);
+      if (!agendaByDent[r.dentist_person_id]) agendaByDent[r.dentist_person_id] = {};
+      agendaByDent[r.dentist_person_id][`${r.ano}-${r.mes}`] = { horas: Number(r.horas), dias: r.dias };
     }
 
     // Build result — all execução dentists (even those without agenda in this period)
     const data = [];
     for (const dentId of execIds) {
-      const agenda = agendaByDent[dentId] || { byMonth: {} };
+      const agenda = agendaByDent[dentId] || {};
       const manual = manualMap[dentId] || {};
 
       let horasTot = 0;
-      const diasSet = new Set();
+      let diasTot  = 0;
       let horas_manual_override = false;
 
       for (const { ano, mes } of months) {
@@ -7757,10 +7740,10 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
           horasTot += Number(manual[key]);
           horas_manual_override = true;
         } else {
-          const m = agenda.byMonth[key];
+          const m = agenda[key];
           if (m) {
-            horasTot += m.mins / 60;
-            for (const d of m.dias) diasSet.add(d);
+            horasTot += m.horas;
+            diasTot  += m.dias;
           }
         }
       }
@@ -7780,7 +7763,7 @@ app.get('/api/producao/dentista/resumo', requireAuth, requireProducao, async (re
         dentist_name:      execMap[dentId] || producaoMap[dentId]?.dentist_name || '',
         producao_total,
         horas_agendadas,
-        dias_com_agenda: diasSet.size,
+        dias_com_agenda: diasTot,
         producao_por_hora,
         custo_hora,
         resultado_por_hora,
@@ -7806,12 +7789,9 @@ app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (
     const toYear   = parseInt(to.slice(0, 4));
     const months   = _getMonths(from, to);
 
-    // agenda_appointments.dentist_name is always null — derive execução IDs from producao_procedimentos
-    const { data: execDentists, error: eExec } = await supabase
-      .from('producao_procedimentos')
-      .select('dentist_person_id, dentist_name')
-      .not('dentist_name', 'ilike', '%avalia%')
-      .not('dentist_person_id', 'is', null);
+    // agenda_appointments.dentist_name is always null — derive execução IDs from producao_procedimentos.
+    // Agregações via RPC: o client JS trunca .select() em 1000 linhas (agenda tem ~1000/mês).
+    const { data: execDentists, error: eExec } = await supabase.rpc('dentistas_execucao');
     if (eExec) throw new Error(eExec.message);
     const execMap = {};
     for (const r of (execDentists || [])) {
@@ -7825,12 +7805,7 @@ app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (
       { data: manualRows,  error: eM },
       { data: custoRows,   error: eC },
     ] = await Promise.all([
-      supabase.from('agenda_appointments')
-        .select('dentist_person_id, appointment_date, duration_minutes')
-        .gte('appointment_date', from)
-        .lte('appointment_date', to)
-        .in('dentist_person_id', execIds)
-        .eq('deleted', false),
+      supabase.rpc('agenda_horas_dentista_mes', { p_ids: execIds, p_from: from, p_to: to }),
       supabase.from('dentista_horas_manual')
         .select('dentist_person_id, ano, mes, horas')
         .gte('ano', fromYear)
@@ -7875,40 +7850,32 @@ app.get('/api/producao/dentista/evolucao', requireAuth, requireProducao, async (
       custoByYear[r.ano] = r.custo_hora != null ? Number(r.custo_hora) : null;
     }
 
-    // Group agenda by dentist → month
+    // Group agenda by dentist → month (já agregado no SQL)
     const agendaByDent = {};
     for (const r of (agendaRows || [])) {
-      if (!r.dentist_person_id) continue;
-      if (!agendaByDent[r.dentist_person_id]) {
-        agendaByDent[r.dentist_person_id] = { byMonth: {} };
-      }
-      const d = new Date(r.appointment_date + 'T00:00:00');
-      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-      if (!agendaByDent[r.dentist_person_id].byMonth[key]) {
-        agendaByDent[r.dentist_person_id].byMonth[key] = { mins: 0, dias: new Set() };
-      }
-      agendaByDent[r.dentist_person_id].byMonth[key].mins += Number(r.duration_minutes) || 0;
-      agendaByDent[r.dentist_person_id].byMonth[key].dias.add(r.appointment_date);
+      if (!agendaByDent[r.dentist_person_id]) agendaByDent[r.dentist_person_id] = {};
+      agendaByDent[r.dentist_person_id][`${r.ano}-${r.mes}`] = { horas: Number(r.horas), dias: r.dias };
     }
 
     // Build monthly rows — iterate execIds so dentists with no agenda still appear
     const data = [];
     for (const dentId of execIds) {
-      const agenda = agendaByDent[dentId] || { byMonth: {} };
+      const agenda = agendaByDent[dentId] || {};
       const manual = manualMap[dentId] || {};
 
       for (const { ano, mes } of months) {
         const key = `${ano}-${mes}`;
         const manualEntry = manual[key];
-        const agendaEntry = agenda.byMonth[key];
+        const agendaEntry = agenda[key];
 
         const horas_manual    = manualEntry !== undefined;
         const horas_agendadas = horas_manual
           ? Number(manualEntry)
-          : (agendaEntry ? Math.round(agendaEntry.mins / 60 * 100) / 100 : 0);
-        const dias_com_agenda = horas_manual ? 0 : (agendaEntry ? agendaEntry.dias.size : 0);
+          : (agendaEntry ? agendaEntry.horas : 0);
+        const dias_com_agenda = horas_manual ? 0 : (agendaEntry ? agendaEntry.dias : 0);
 
         const producao = producaoByMonthDent[dentId]?.[key] || 0;
+        if (!producao && !horas_agendadas) continue; // sem dado no mês → não polui a tabela
         const producao_por_hora = horas_agendadas > 0
           ? Math.round((producao / horas_agendadas) * 100) / 100
           : null;
