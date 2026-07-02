@@ -7478,6 +7478,23 @@ app.get('/api/financeiro/a-categorizar/resumo', requireAuth, requireFinanceiro, 
   res.json(data || []);
 });
 
+// Saúde 24m: a receber × a pagar por mês (fin_fluxo_futuro) + vencido a receber
+app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res) => {
+  const [fluxo, vencido] = await Promise.all([
+    supabase.from('fin_fluxo_futuro').select('mes,a_receber,a_pagar,atualizado_em').order('mes'),
+    supabase.rpc('fin_vencido_total'),
+  ]);
+  if (fluxo.error) return res.status(500).json({ error: fluxo.error.message });
+  if (vencido.error) return res.status(500).json({ error: vencido.error.message });
+  res.json({
+    meses: (fluxo.data || []).map(r => ({
+      mes: String(r.mes).slice(0, 7), a_receber: Number(r.a_receber), a_pagar: Number(r.a_pagar),
+    })),
+    vencido: Number(vencido.data || 0),
+    atualizado_em: (fluxo.data || [])[0]?.atualizado_em || null,
+  });
+});
+
 // Classificar 1 lançamento. body: { conta_id, alcance: 'so_esta'|'todas', metodo, padrao }
 app.post('/api/financeiro/lancamentos/:id/classificar', requireAuth, requireFinanceiro, async (req, res) => {
   const { conta_id, alcance, metodo, padrao } = req.body || {};

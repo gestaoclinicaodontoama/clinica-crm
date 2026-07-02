@@ -25,6 +25,7 @@ window.FinAPI = {
   lancamentos: (q = {}) => api('/api/financeiro/lancamentos?' + new URLSearchParams(q)),
   aCategorizar: (q = {}) => api('/api/financeiro/a-categorizar?' + new URLSearchParams(q)),
   aCategorizarResumo: () => api('/api/financeiro/a-categorizar/resumo'),
+  saude: () => api('/api/financeiro/saude'),
   classificar: (id, body) => api(`/api/financeiro/lancamentos/${id}/classificar`, { method: 'POST', body: JSON.stringify(body) }),
   contas: () => api('/api/financeiro/contas'),
   regras: () => api('/api/financeiro/regras'),
