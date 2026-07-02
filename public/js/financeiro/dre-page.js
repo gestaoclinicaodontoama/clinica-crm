@@ -322,9 +322,9 @@
 
     const desvio = A.maiorDesvio(mesesCompletos);
     if (desvio) {
-      cards.push(`<div class="kpi clicavel" id="kpiDesvio" data-conta="${desvio.codigo}" data-ym="${desvio.ym}">
+      cards.push(`<div class="kpi clicavel" id="kpiDesvio" data-conta="${escHtml(desvio.codigo)}" data-ym="${escHtml(desvio.ym)}">
         <div class="kpi-label">Maior Desvio (${fmtMes(desvio.ym)})</div>
-        <div class="kpi-valor valor-negativo">${desvio.nome}</div>
+        <div class="kpi-valor valor-negativo">${escHtml(desvio.nome)}</div>
         <div class="kpi-sub">${fmt(desvio.valor)} vs média ${fmt(desvio.media)} (+${fmtPct(desvio.pct)}) — clique p/ ver</div></div>`);
     }
 
@@ -383,7 +383,7 @@
       html += '</tbody></table>';
       body.innerHTML = html;
     } catch (e) {
-      body.innerHTML = `<p style="padding:20px;color:var(--red)">Erro: ${e.message}</p>`;
+      body.innerHTML = `<p style="padding:20px;color:var(--red)">Erro: ${escHtml(e.message)}</p>`;
     }
   }
 
