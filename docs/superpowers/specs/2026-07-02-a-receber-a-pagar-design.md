@@ -41,7 +41,7 @@ Nova função `syncFluxoFuturo()` em `sync/financeiro-sync.js` (exportada ao lad
 
 1. Janela: `from` = hoje (fuso BR, via `dataLocal`), `to` = último dia do 24º mês à frente.
 2. 1 chamada `list_cash_flow`; parse com derivação de ano pela posição (lib pura, ver abaixo).
-3. Upsert por `mes` (24–25 linhas) + `delete where mes < mês corrente` (a tabela guarda só o futuro; sem histórico de snapshots — YAGNI).
+3. Upsert por `mes` (24–25 linhas) + delete de tudo FORA da janela `[mês corrente, 24º mês]` — limpa o passado e qualquer linha órfã além do horizonte (a tabela guarda só o futuro; sem histórico de snapshots — YAGNI).
 
 Chamadas:
 - **Sync diário 02h**: novo bloco `try/catch` próprio ao lado do `syncFinanceiro` existente (server.js ~4470) — erro não derruba as demais fases.

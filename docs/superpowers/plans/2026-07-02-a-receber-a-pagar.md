@@ -235,7 +235,11 @@ async function syncFluxoFuturo(hojeISO = dataLocal(new Date().toISOString())) {
     const { error } = await supabase.from('fin_fluxo_futuro').upsert(rows, { onConflict: 'mes' });
     if (error) throw new Error(error.message);
   }
-  await supabase.from('fin_fluxo_futuro').delete().lt('mes', hojeISO.slice(0, 7) + '-01');
+  // guarda só a janela [mês corrente, 24º mês]: limpa o passado E sobras além
+  // do horizonte (linha órfã de um parse ruim ficaria pra sempre sem isso)
+  const primeiro = hojeISO.slice(0, 7) + '-01';
+  const ultimo = to.slice(0, 7) + '-01';
+  await supabase.from('fin_fluxo_futuro').delete().or(`mes.lt.${primeiro},mes.gt.${ultimo}`);
   return { meses: rows.length };
 }
 ```
