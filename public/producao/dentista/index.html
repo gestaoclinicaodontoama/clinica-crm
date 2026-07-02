@@ -35,23 +35,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .controls label{font-size:12px;color:var(--muted);font-weight:500}
 /* Cards dentista */
 .dent-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-bottom:20px}
-.dent-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px}
-.dent-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.dent-name{font-size:15px;font-weight:700}
-.dent-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-bottom:14px}
+.dent-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;animation:cardIn .35s ease both;animation-delay:calc(var(--i,0)*40ms);transition:transform .15s,box-shadow .15s}
+.dent-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.14)}
+@keyframes cardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.dent-card{animation:none}}
+.dent-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.dent-ident{display:flex;align-items:center;gap:10px;min-width:0}
+.dent-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;letter-spacing:.5px;flex-shrink:0}
+.dent-name{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dent-hero{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.dent-hero-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px}
+.dent-hero-value{font-size:23px;font-weight:800;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+.dent-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-bottom:14px}
 .dent-metric{display:flex;flex-direction:column;gap:2px}
 .dent-metric-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-.dent-metric-value{font-size:16px;font-weight:700}
+.dent-metric-value{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
 .dent-metric-value.green{color:var(--green)}
 .dent-metric-value.red{color:var(--red)}
-.dent-metric-value.muted{color:var(--muted);font-size:13px;font-weight:400}
+.dent-metric-value.muted{color:var(--muted);font-weight:400}
 .dent-metric-action{display:flex;align-items:center;gap:6px}
 .top-procs{border-top:1px solid var(--border);padding-top:10px;margin-top:4px}
 .top-procs-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
-.top-proc-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0}
+.top-proc-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 6px 3px 0;border-radius:4px}
 .top-proc-rank{font-weight:700;color:var(--muted);width:16px;text-align:right;flex-shrink:0}
 .top-proc-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.top-proc-val{color:var(--accent);font-weight:600;flex-shrink:0}
+.top-proc-val{color:var(--text);font-weight:600;flex-shrink:0;font-variant-numeric:tabular-nums}
 .top-proc-count{color:var(--muted);flex-shrink:0}
 /* Evolução mensal */
 .section{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px}
@@ -59,10 +67,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 table{border-collapse:collapse;width:100%;font-size:13px}
 th{padding:9px 13px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px}
 th:not(:first-child):not(:nth-child(2)){text-align:right}
-td{padding:8px 13px;border-bottom:1px solid var(--border)}
+td{padding:8px 13px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums}
 td:not(:first-child):not(:nth-child(2)){text-align:right}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--bg3)}
+#evolTable tr.grp td{border-top:2px solid var(--border)}
+#evolTable td.dent-cell{font-weight:600}
+.section-caption{font-size:11px;font-weight:400;color:var(--muted);margin-left:8px}
 .empty{padding:32px;color:var(--muted);text-align:center;font-size:13px}
 /* Modais */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center}
@@ -88,7 +99,7 @@ tr:hover td{background:var(--bg3)}
 .imposto-input:focus{border-color:var(--accent)}
 .liq-value{font-size:13px;color:var(--green);font-weight:600}
 .liq-label{font-size:10px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.4px}
-.ratio-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-top:10px;border:1px solid}
+.ratio-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;align-self:center;margin-left:auto;border:1px solid;white-space:nowrap}
 .ratio-green{background:rgba(34,197,94,.12);color:var(--green);border-color:rgba(34,197,94,.3)}
 .ratio-yellow{background:rgba(245,158,11,.12);color:var(--yellow);border-color:rgba(245,158,11,.3)}
 .ratio-red{background:rgba(239,68,68,.12);color:var(--red);border-color:rgba(239,68,68,.3)}
@@ -145,7 +156,7 @@ tr:hover td{background:var(--bg3)}
   <div id="cardsContainer"><div class="empty"><span class="spinner"></span></div></div>
 
   <div class="section" id="evolSection" style="display:none">
-    <div class="section-header">Evolução Mensal</div>
+    <div class="section-header">Evolução Mensal<span class="section-caption">produção empilhada por mês · 7 maiores + Outros · detalhe completo na tabela</span></div>
     <div class="chart-wrap"><canvas id="evolCanvas"></canvas></div>
     <button class="evol-table-toggle" id="evolToggle" onclick="toggleEvolTable()">Ver tabela detalhada ▾</button>
     <div id="evolTableWrap" style="display:none;overflow-x:auto">
@@ -227,6 +238,45 @@ tr:hover td{background:var(--bg3)}
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ── Identidade visual estável por dentista ───────────────────────────────────
+// Paleta categórica validada (CVD/contraste) p/ as superfícies do CRM.
+// A cor segue o DENTISTA (índice fixo pela ordem alfabética do conjunto todo),
+// nunca o rank de produção — assim card, gráfico e legenda não mudam de cor
+// quando o período muda.
+const SERIES = [
+  { l: '#2a78d6', d: '#3987e5' }, // azul
+  { l: '#1baf7a', d: '#199e70' }, // água
+  { l: '#eda100', d: '#c98500' }, // amarelo
+  { l: '#008300', d: '#008300' }, // verde
+  { l: '#4a3aa7', d: '#9085e9' }, // violeta
+  { l: '#e34948', d: '#e66767' }, // vermelho
+  { l: '#e87ba4', d: '#d55181' }, // magenta
+  { l: '#eb6834', d: '#d95926' }, // laranja
+];
+const OUTROS_COLOR = '#898781';
+
+function cleanName(n) {
+  return String(n || '').replace(/\s*-\s*(Execu[cç][aã]o|Avalia[cç][aã]o|Exec\.?)/gi, '').trim();
+}
+function isDarkTheme() {
+  return document.documentElement.getAttribute('data-theme') !== 'light';
+}
+let dentColorIdx = {}; // dentist_person_id → slot fixo da paleta
+function buildColorMap(dentistas) {
+  dentColorIdx = {};
+  [...dentistas]
+    .sort((a, b) => cleanName(a.dentist_name).localeCompare(cleanName(b.dentist_name), 'pt-BR'))
+    .forEach((d, i) => { dentColorIdx[d.dentist_person_id] = i % SERIES.length; });
+}
+function dentColor(id) {
+  const s = SERIES[dentColorIdx[id] ?? 0];
+  return isDarkTheme() ? s.d : s.l;
+}
+function dentInitials(nome) {
+  const parts = cleanName(nome).split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
 
 // ── Estado ───────────────────────────────────────────────────────────────────
@@ -408,6 +458,8 @@ function fmtH(v) {
 }
 
 function renderCards(dentistas) {
+  buildColorMap(dentistas); // slots fixos pelo conjunto completo (estável entre períodos)
+
   // Sem produção, sem agenda e sem pagamento no período → card vazio só polui
   const comDados = dentistas.filter(d =>
     d.producao_total > 0 || d.horas_agendadas > 0 || (custoReal[d.dentist_person_id]?.pago > 0));
@@ -416,8 +468,10 @@ function renderCards(dentistas) {
       '<div class="empty">Nenhum dentista com produção ou agenda no período.<br>Execute "Atualizar dados" para sincronizar a agenda.</div>';
     return;
   }
+  // Ordem SEMPRE alfabética — não varia com a produção do período
+  comDados.sort((a, b) => cleanName(a.dentist_name).localeCompare(cleanName(b.dentist_name), 'pt-BR'));
   document.getElementById('cardsContainer').innerHTML =
-    `<div class="dent-cards">${comDados.map(d => cardHtml(d)).join('')}</div>`;
+    `<div class="dent-cards">${comDados.map((d, i) => cardHtml(d, i)).join('')}</div>`;
 
   // Carrega top 5 procedimentos para cada dentista em paralelo
   comDados.forEach(d => carregarTopProcs(d.dentist_person_id));
@@ -428,7 +482,7 @@ function liquida(bruto) {
   return Math.round(bruto * (1 - aliquota / 100) * 100) / 100;
 }
 
-function cardHtml(d) {
+function cardHtml(d, idx) {
   const liq = liquida(d.producao_total);
   // custo/hora vem do estado global (clínica), não por dentista
   const custo = custoHora ?? d.custo_hora ?? null;
@@ -465,23 +519,28 @@ function cardHtml(d) {
     ? `${brl(cr.custo_proporcional)} pago ÷ ${nDiarias.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} diárias (${fmtH(d.horas_agendadas)} ÷ 8h)`
     : 'Precisa de pagamento e horas de agenda no período';
 
+  const cor = dentColor(d.dentist_person_id);
   return `
-<div class="dent-card" id="card-${esc(d.dentist_person_id)}">
+<div class="dent-card" id="card-${esc(d.dentist_person_id)}" style="--i:${Number(idx) || 0}">
   <div class="dent-card-header">
-    <div class="dent-name">👤 ${esc(d.dentist_name)}</div>
+    <div class="dent-ident">
+      <span class="dent-avatar" style="background:${cor}22;color:${cor}">${esc(dentInitials(d.dentist_name))}</span>
+      <div class="dent-name" title="${esc(d.dentist_name)}">${esc(cleanName(d.dentist_name))}</div>
+    </div>
     <button class="btn btn-ghost btn-sm" onclick="abrirModalConfig(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})" title="Configurar keyword de despesas">⚙️</button>
   </div>
-  ${ratioBadge ? `<div style="margin-bottom:12px">${ratioBadge}</div>` : ''}
+  <div class="dent-hero">
+    <div>
+      <span class="dent-hero-label">Produção bruta</span>
+      <span class="dent-hero-value">${brl(d.producao_total)}</span>
+    </div>
+    ${liq != null ? `<div>
+      <span class="dent-hero-label" style="color:var(--green)">Prod. líquida (−${aliquota}%)</span>
+      <span class="liq-value" style="font-size:16px">${brl(liq)}</span>
+    </div>` : ''}
+    ${ratioBadge}
+  </div>
   <div class="dent-metrics">
-    <div class="dent-metric">
-      <span class="dent-metric-label">Produção bruta</span>
-      <span class="dent-metric-value">${brl(d.producao_total)}</span>
-    </div>
-    <div class="dent-metric">
-      ${liq != null
-        ? `<span class="liq-label">Prod. líquida (−${aliquota}%)</span><span class="liq-value">${brl(liq)}</span>`
-        : `<span class="dent-metric-label">Prod. líquida</span><span class="dent-metric-value muted" title="Configure o imposto % no topo">—</span>`}
-    </div>
     <div class="dent-metric">
       <span class="dent-metric-label">Horas agenda${manualIcon}</span>
       <div class="dent-metric-action">
@@ -556,14 +615,16 @@ async function carregarTopProcs(dentId) {
     );
     const json = await res.json();
     if (!res.ok || !json.data?.length) { el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Sem procedimentos</span>'; return; }
-    el.innerHTML = json.data.map((p, i) =>
-      `<div class="top-proc-row">
+    const max = Math.max(...json.data.map(p => Number(p.total_value) || 0));
+    el.innerHTML = json.data.map((p, i) => {
+      const pct = max > 0 ? Math.round((Number(p.total_value) || 0) / max * 100) : 0;
+      return `<div class="top-proc-row" style="background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 10%,transparent) ${pct}%,transparent ${pct}%)">
         <span class="top-proc-rank">${i + 1}</span>
         <span class="top-proc-name">${esc(p.procedure_name)}</span>
         <span class="top-proc-val">${brl(p.total_value)}</span>
         <span class="top-proc-count">(${p.count}×)</span>
-      </div>`
-    ).join('');
+      </div>`;
+    }).join('');
   } catch (_) { el.innerHTML = '<span style="font-size:12px;color:var(--muted)">—</span>'; }
 }
 
@@ -579,39 +640,67 @@ function toggleEvolTable() {
 function renderEvolucao(rows) {
   if (!rows.length) return;
   const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const COLORS = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a855f7','#14b8a6','#f472b6','#84cc16','#fb923c','#818cf8'];
+  const TOP_N = 7; // ≤8 séries no gráfico; o resto agrega em "Outros" (tabela tem tudo)
 
-  // Ordered unique months; dentists ordered by produção total (legenda mais legível)
   const monthKeys = [...new Set(rows.map(r => r.mes))].sort();
   const dentMap   = new Map(rows.map(r => [r.dentist_person_id, r.dentist_name]));
   const totalByDent = {};
   for (const r of rows) totalByDent[r.dentist_person_id] = (totalByDent[r.dentist_person_id] || 0) + r.producao;
-  const dentIds = [...dentMap.keys()].sort((a, b) => totalByDent[b] - totalByDent[a]);
+
+  // Séries em ordem ALFABÉTICA (estável); top N escolhido por produção, mas a
+  // cor de cada dentista é fixa (buildColorMap) — trocar o período não repinta
+  const alfabetica = (a, b) => cleanName(dentMap.get(a) || a).localeCompare(cleanName(dentMap.get(b) || b), 'pt-BR');
+  const topSet  = new Set([...dentMap.keys()].sort((a, b) => totalByDent[b] - totalByDent[a]).slice(0, TOP_N));
+  const shown   = [...dentMap.keys()].filter(id => topSet.has(id)).sort(alfabetica);
+  const outros  = [...dentMap.keys()].filter(id => !topSet.has(id));
 
   const labels = monthKeys.map(m => {
     const [ano, mes] = m.split('-').map(Number);
     return MESES[mes - 1] + ' ' + String(ano).slice(2);
   });
 
-  const datasets = dentIds.map((id, i) => {
-    const shortName = (dentMap.get(id) || id).replace(/\s*-\s*(Execu[cç][aã]o|Avalia[cç][aã]o|Exec\.?)/gi, '').trim();
-    return {
-      label: shortName,
-      data: monthKeys.map(m => {
-        const r = rows.find(r => r.dentist_person_id === id && r.mes === m);
-        return r ? r.producao : 0;
-      }),
-      backgroundColor: COLORS[i % COLORS.length] + 'bb',
-      borderColor:     COLORS[i % COLORS.length],
-      borderWidth: 2,
-      borderRadius: 4,
-    };
-  });
+  const prodOf = (id, m) => {
+    const r = rows.find(r => r.dentist_person_id === id && r.mes === m);
+    return r ? r.producao : 0;
+  };
+  const isDark = isDarkTheme();
+  const surface = isDark ? '#181b24' : '#ffffff';
+
+  // Slot preferido = o fixo do dentista; colisão dentro do conjunto exibido
+  // (16 dentistas ÷ 8 slots) resolve p/ o próximo livre, deterministicamente
+  const usados = new Set();
+  const chartColor = {};
+  for (const id of shown) {
+    let slot = dentColorIdx[id] ?? 0;
+    let tries = 0;
+    while (usados.has(slot % SERIES.length) && tries++ < SERIES.length) slot++;
+    slot = slot % SERIES.length;
+    usados.add(slot);
+    chartColor[id] = isDark ? SERIES[slot].d : SERIES[slot].l;
+  }
+
+  const datasets = shown.map(id => ({
+    label: cleanName(dentMap.get(id) || id),
+    data: monthKeys.map(m => prodOf(id, m)),
+    backgroundColor: chartColor[id],
+    borderColor: surface,       // vão entre segmentos empilhados
+    borderWidth: 1,
+    borderRadius: 2,
+  }));
+  if (outros.length) {
+    datasets.push({
+      label: `Outros (${outros.length})`,
+      data: monthKeys.map(m => outros.reduce((s, id) => s + prodOf(id, m), 0)),
+      backgroundColor: OUTROS_COLOR,
+      borderColor: surface,
+      borderWidth: 1,
+      borderRadius: 2,
+    });
+  }
 
   if (evolChart) { evolChart.destroy(); evolChart = null; }
-  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
   const textColor  = isDark ? '#e8eaf0' : '#1a1d29';
-  const mutedColor = isDark ? '#6b7280' : '#6b7280';
+  const mutedColor = '#6b7280';
   const gridColor  = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
 
   const ctx = document.getElementById('evolCanvas').getContext('2d');
@@ -621,18 +710,24 @@ function renderEvolucao(rows) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: textColor, font: { family: 'DM Sans' } } },
+        legend: { labels: { color: textColor, font: { family: 'DM Sans' }, usePointStyle: true, pointStyle: 'circle', boxHeight: 7 } },
         tooltip: {
-          callbacks: { label: c => ' ' + brl(c.raw) },
+          callbacks: {
+            label: c => ` ${c.dataset.label}: ${brl(c.raw)}`,
+            footer: items => 'Total do mês: ' + brl(items.reduce((s, i) => s + i.raw, 0)),
+          },
         },
       },
       scales: {
         x: {
+          stacked: true,
           ticks: { color: mutedColor, font: { family: 'DM Sans', size: 11 } },
-          grid:  { color: gridColor },
+          grid:  { display: false },
         },
         y: {
+          stacked: true,
           ticks: {
             color: mutedColor,
             font:  { family: 'DM Sans', size: 11 },
@@ -644,12 +739,15 @@ function renderEvolucao(rows) {
     },
   });
 
-  // Fill table (hidden by default)
+  // Fill table (hidden by default) — agrupada por dentista, ordem alfabética
   const hasImposto = aliquota != null;
   const thead = document.querySelector('#evolTable thead tr');
   thead.innerHTML = `<th>Dentista</th><th>Mês</th><th>Produção bruta</th>${hasImposto ? `<th>Prod. líquida (−${aliquota}%)</th>` : ''}<th>Horas</th><th>Dias</th><th>Prod/h</th><th>Custo/h</th><th>Resultado/h</th>`;
+  const sorted = [...rows].sort((a, b) =>
+    cleanName(a.dentist_name).localeCompare(cleanName(b.dentist_name), 'pt-BR') || a.mes.localeCompare(b.mes));
   const tbody = document.getElementById('evolBody');
-  tbody.innerHTML = rows.map(r => {
+  let prevDent = null;
+  tbody.innerHTML = sorted.map(r => {
     const [ano, mes] = r.mes.split('-').map(Number);
     const mesLabel   = MESES[mes - 1] + ' ' + ano;
     const manualMark = r.horas_manual ? ' ✏️' : '';
@@ -663,8 +761,11 @@ function renderEvolucao(rows) {
     const resStyle = resVal == null
       ? 'style="color:var(--muted)"'
       : resVal >= 0 ? 'style="color:var(--green)"' : 'style="color:var(--red)"';
-    return `<tr>
-      <td>${esc(r.dentist_name)}</td>
+    const novoGrupo = r.dentist_person_id !== prevDent;
+    prevDent = r.dentist_person_id;
+    const cor = dentColor(r.dentist_person_id);
+    return `<tr${novoGrupo ? ' class="grp"' : ''}>
+      <td class="dent-cell">${novoGrupo ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${cor};margin-right:6px"></span>${esc(cleanName(r.dentist_name))}` : ''}</td>
       <td>${esc(mesLabel)}</td>
       <td>${brl(r.producao)}</td>
       ${hasImposto ? `<td style="color:var(--green);font-weight:600">${brl(liqVal)}</td>` : ''}
