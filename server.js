@@ -1114,20 +1114,70 @@ const CAMP_ENV = {
 
 const TIPOS_VALIDOS = Object.keys(CAMP_ENV);
 
-async function buscarContatos(tipo) {
-  if (tipo === 'abc') {
-    const { data: bloqueados, error: blqError } = await supabase.from('nao_ligar_pacientes').select('clinicorp_id');
-    if (blqError) throw blqError; // falha aberta incluiria pacientes bloqueados na campanha
-    const bloqueadosSet = new Set((bloqueados || []).map(r => String(r.clinicorp_id)));
-    const { data, error } = await supabase.from('pacientes_abc')
-      .select('nome, telefone, clinicorp_id, dias_sem_visita')
-      .in('classe', ['A', 'B'])
-      .gte('dias_sem_visita', 180)
-      .is('proxima_consulta', null);
+// Lê TODAS as linhas de uma query paginando de 1000 em 1000 (o client Supabase
+// trunca em 1000 por padrão). buildQuery deve devolver um builder NOVO a cada chamada.
+async function _fetchAllPaginado(buildQuery) {
+  const size = 1000; let from = 0; const all = [];
+  for (;;) {
+    const { data, error } = await buildQuery().range(from, from + size - 1);
     if (error) throw error;
-    return (data || [])
-      .filter(p => !bloqueadosSet.has(String(p.clinicorp_id)))
-      .map(c => ({ ...c, tipo_origem: 'abc' }));
+    all.push(...(data || []));
+    if (!data || data.length < size) break;
+    from += size;
+  }
+  return all;
+}
+
+const ABC_COLS = 'nome, telefone, clinicorp_id, dias_sem_visita, paciente_id';
+
+// Resolve os contatos ABC para discagem a partir de:
+//  - opts.incluir : lista explícita de clinicorp_id (modo seleção manual), OU
+//  - opts.filtros : filtros da tabela (modo "todas as páginas"), OU
+//  - nada         : critério fixo padrão (Classe A/B · 180+ dias · sem agenda)
+async function _buscarContatosAbc(opts = {}) {
+  const { data: bloqueados, error: blqError } = await supabase.from('nao_ligar_pacientes').select('clinicorp_id');
+  if (blqError) throw blqError; // falha aberta incluiria pacientes bloqueados na campanha
+  const bloqueadosSet = new Set((bloqueados || []).map(r => String(r.clinicorp_id)));
+
+  let rows;
+  if (Array.isArray(opts.incluir) && opts.incluir.length) {
+    const ids = opts.incluir.map(String);
+    rows = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const { data, error } = await supabase.from('pacientes_abc').select(ABC_COLS).in('clinicorp_id', chunk);
+      if (error) throw error;
+      rows.push(...(data || []));
+    }
+  } else {
+    const f = opts.filtros;
+    const usarPadrao = !f || (f.classe == null && f.minDias == null && f.maxDias == null
+      && !f.semAgenda && !f.perio && !(Array.isArray(f.vipIds) && f.vipIds.length) && !f.busca);
+    rows = await _fetchAllPaginado(() => {
+      let q = supabase.from('pacientes_abc').select(ABC_COLS);
+      if (usarPadrao) {
+        q = q.in('classe', ['A', 'B']).gte('dias_sem_visita', 180).is('proxima_consulta', null);
+      } else {
+        if (Array.isArray(f.classe) && f.classe.length) q = q.in('classe', f.classe);
+        if (f.minDias) q = q.gte('dias_sem_visita', Number(f.minDias));
+        if (f.maxDias) q = q.lte('dias_sem_visita', Number(f.maxDias));
+        if (f.semAgenda) q = q.is('proxima_consulta', null);
+        if (f.perio) q = q.eq('perio', true);
+        if (Array.isArray(f.vipIds) && f.vipIds.length) q = q.in('paciente_id', f.vipIds);
+        if (f.busca) q = q.ilike('nome', '%' + String(f.busca) + '%');
+      }
+      return q;
+    });
+  }
+
+  return rows
+    .filter(p => !bloqueadosSet.has(String(p.clinicorp_id)))
+    .map(c => ({ ...c, tipo_origem: 'abc' }));
+}
+
+async function buscarContatos(tipo, opts = {}) {
+  if (tipo === 'abc') {
+    return _buscarContatosAbc(opts);
   }
   if (tipo === 'indicacoes') {
     const { data, error } = await supabase.from('leads')
@@ -1175,6 +1225,23 @@ app.get('/api/campanhas/preview/:tipo', requireAuth, requireCrcLead, async (req,
   }
 });
 
+// Preview dirigido pela seleção da tabela (filtros/incluir/excluir). Retorna a
+// contagem REAL que irá discar (só com telefone) + os 100 primeiros p/ revisão.
+app.post('/api/campanhas/preview', requireAuth, requireCrcLead, async (req, res) => {
+  try {
+    const { tipo } = req.body;
+    if (!TIPOS_VALIDOS.includes(tipo)) return res.status(400).json({ error: 'Tipo inválido' });
+    const contatos = await buscarContatos(tipo, { filtros: req.body.filtros, incluir: req.body.incluir });
+    const idField = tipo === 'abc' ? 'clinicorp_id' : 'id';
+    const excluirSet = new Set((req.body.excluir || []).map(String));
+    const filtrados = excluirSet.size ? contatos.filter(c => !excluirSet.has(String(c[idField]))) : contatos;
+    const comTelefone = filtrados.filter(c => c.telefone?.trim());
+    res.json({ total: comTelefone.length, contatos: comTelefone.slice(0, 100) });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 app.post('/api/campanhas/nao-ligar', requireAuth, requireCrcLead, async (req, res) => {
   try {
     const { tipo, id } = req.body;
@@ -1215,7 +1282,7 @@ app.post('/api/campanhas/lancar', requireAuth, requireCrcLead, async (req, res) 
       return res.status(409).json({ error: 'Encerre ou retome e encerre a campanha atual antes de lançar outra.' });
     }
 
-    const contatos = await buscarContatos(tipo);
+    const contatos = await buscarContatos(tipo, { filtros: req.body.filtros, incluir: req.body.incluir });
     const excluirSet = new Set((req.body.excluir || []).map(String));
     const contatosFiltrados = excluirSet.size > 0
       ? contatos.filter(c => {

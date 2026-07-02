@@ -5,6 +5,7 @@ const sb = createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON__);
 const PAGE_SIZE = 100;
 let paginaAtual = 1, totalRegistros = 0;
 let filtroClasse = null, filtroDays = null, filtroSemAgenda = false, buscaTexto = "";
+let filtroMaxDias = null; // "excluir há mais de X dias sem vir"
 let classTabFilter = "todos";
 let sortCol = "total_receita", sortAsc = false;
 let catPrev = "todas"; // 'todas' | 'adulto' | 'infantil' | 'perio' | 'vip'
@@ -25,6 +26,93 @@ function statusPrev(dateStr, intervalo = 180) {
 let stats = {};
 let tmpl;
 let paginaRows = [];
+
+// ── Seleção para discagem ────────────────────────────────────────────────
+// selMode "manual": envia exatamente os clinicorp_id em `selecionados`.
+// selMode "todas":  envia todos os que batem nos filtros atuais, menos `excluidos`.
+let selMode = "manual";
+let selecionados = new Map(); // clinicorp_id -> { nome, telefone, dias_sem_visita }
+let excluidos = new Set();    // clinicorp_id (usado no modo "todas")
+
+function selCount() {
+  if (selMode === "todas") return Math.max(0, totalRegistros - excluidos.size);
+  return selecionados.size;
+}
+
+function isRowChecked(cid) {
+  cid = String(cid || "");
+  if (!cid) return false;
+  return selMode === "todas" ? !excluidos.has(cid) : selecionados.has(cid);
+}
+
+function setRowSel(p, checked) {
+  const cid = String(p.clinicorp_id || "");
+  if (!cid) return;
+  if (selMode === "todas") {
+    if (checked) excluidos.delete(cid); else excluidos.add(cid);
+  } else {
+    if (checked) selecionados.set(cid, { nome: p.nome, telefone: p.pacientes?.telefone_celular || p.telefone || "", dias_sem_visita: p.dias_sem_visita });
+    else selecionados.delete(cid);
+  }
+}
+
+function resetSelecao() {
+  selMode = "manual"; selecionados.clear(); excluidos.clear();
+  renderSelBar(); syncEnviarBtn();
+}
+
+function filtrosAtuais() {
+  const classe = [];
+  if (classTabFilter !== "todos") classe.push(classTabFilter);
+  if (filtroClasse) filtroClasse.forEach(c => { if (!classe.includes(c)) classe.push(c); });
+  return {
+    classe: classe.length ? classe : null,
+    minDias: filtroDays || null,
+    maxDias: filtroMaxDias || null,
+    semAgenda: filtroSemAgenda || false,
+    perio: catPrev === "perio",
+    vipIds: catPrev === "vip" ? [...vipMap.keys()] : null,
+    busca: buscaTexto || null,
+  };
+}
+
+function renderSelBar() {
+  const bar = document.getElementById("abc-sel-bar");
+  if (!bar) return;
+  const n = selCount();
+  const ativo = n > 0 || selMode === "todas";
+  if (!ativo) { bar.style.display = "none"; bar.innerHTML = ""; return; }
+  bar.style.cssText = "display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;margin-bottom:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px";
+  let html = `<span style="font-weight:600;font-size:13px">${n.toLocaleString("pt-BR")} paciente(s) selecionado(s)</span>`;
+  if (selMode !== "todas") {
+    if (totalRegistros > selecionados.size) {
+      html += `<button class="btn btn--ghost btn--sm" id="abc-sel-todas">Selecionar todas as páginas (${totalRegistros.toLocaleString("pt-BR")})</button>`;
+    }
+  } else {
+    html += `<span style="font-size:12px;color:var(--muted)">todas as páginas do filtro${excluidos.size ? ` (menos ${excluidos.size} desmarcado(s))` : ""}</span>`;
+  }
+  html += `<button class="btn btn--ghost btn--sm" id="abc-sel-limpar" style="margin-left:auto">Limpar seleção</button>`;
+  bar.innerHTML = html;
+
+  document.getElementById("abc-sel-todas")?.addEventListener("click", () => {
+    selMode = "todas"; selecionados.clear(); excluidos.clear();
+    document.querySelectorAll(".row-chk").forEach(c => { if (!c.disabled) c.checked = true; });
+    const all = document.getElementById("chk-all"); if (all) all.checked = true;
+    renderSelBar(); syncEnviarBtn();
+  });
+  document.getElementById("abc-sel-limpar")?.addEventListener("click", () => {
+    resetSelecao();
+    document.querySelectorAll(".row-chk").forEach(c => c.checked = false);
+    const all = document.getElementById("chk-all"); if (all) all.checked = false;
+  });
+}
+
+function syncEnviarBtn() {
+  const btn = document.getElementById("btn-campanha-abc");
+  if (!btn) return;
+  const n = selCount();
+  btn.textContent = n > 0 ? `📞 Enviar ${n.toLocaleString("pt-BR")} para discagem` : "📞 Enviar para Discagem";
+}
 
 async function init() {
   const { data: { user } } = await sb.auth.getUser();
@@ -107,7 +195,7 @@ function setupListeners() {
     document.querySelectorAll(".abc-tab").forEach(b => b.classList.remove("abc-tab--active"));
     btn.classList.add("abc-tab--active");
     classTabFilter = btn.dataset.filter;
-    paginaAtual = 1; carregar();
+    paginaAtual = 1; resetSelecao(); carregar();
   }));
 
   document.querySelectorAll(".abc-chip[data-classe]").forEach(chip => {
@@ -115,7 +203,7 @@ function setupListeners() {
       chip.classList.toggle("abc-chip--active");
       const ativos = [...document.querySelectorAll(".abc-chip[data-classe].abc-chip--active")].map(c => c.dataset.classe);
       filtroClasse = ativos.length ? ativos : null;
-      paginaAtual = 1; syncClearBtn(); carregar();
+      paginaAtual = 1; syncClearBtn(); resetSelecao(); carregar();
     });
   });
 
@@ -125,14 +213,14 @@ function setupListeners() {
       document.querySelectorAll(".abc-chip[data-days]").forEach(c => c.classList.remove("abc-chip--active"));
       if (!wasActive) { chip.classList.add("abc-chip--active"); filtroDays = Number(chip.dataset.days); }
       else filtroDays = null;
-      paginaAtual = 1; syncClearBtn(); carregar();
+      paginaAtual = 1; syncClearBtn(); resetSelecao(); carregar();
     });
   });
 
   document.querySelector(".abc-chip[data-filter='sem-agenda']").addEventListener("click", function() {
     this.classList.toggle("abc-chip--active");
     filtroSemAgenda = this.classList.contains("abc-chip--active");
-    paginaAtual = 1; syncClearBtn(); carregar();
+    paginaAtual = 1; syncClearBtn(); resetSelecao(); carregar();
   });
 
   let debounceTimer;
@@ -140,19 +228,30 @@ function setupListeners() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       buscaTexto = this.value.trim();
-      paginaAtual = 1; syncClearBtn(); carregar();
+      paginaAtual = 1; syncClearBtn(); resetSelecao(); carregar();
     }, 350);
   });
 
+  let maxDiasTimer;
+  document.getElementById("abc-max-dias")?.addEventListener("input", function() {
+    clearTimeout(maxDiasTimer);
+    maxDiasTimer = setTimeout(() => {
+      const v = parseInt(this.value, 10);
+      filtroMaxDias = (!isNaN(v) && v > 0) ? v : null;
+      paginaAtual = 1; syncClearBtn(); resetSelecao(); carregar();
+    }, 400);
+  });
+
   document.getElementById("abc-clear-btn").addEventListener("click", () => {
-    filtroClasse = null; filtroDays = null; filtroSemAgenda = false; buscaTexto = "";
+    filtroClasse = null; filtroDays = null; filtroSemAgenda = false; buscaTexto = ""; filtroMaxDias = null;
     classTabFilter = "todos";
     sortCol = "total_receita"; sortAsc = false;
     document.getElementById("abc-search").value = "";
+    const maxEl = document.getElementById("abc-max-dias"); if (maxEl) maxEl.value = "";
     document.querySelectorAll(".abc-chip").forEach(c => c.classList.remove("abc-chip--active"));
     document.querySelectorAll(".abc-tab").forEach(b => b.classList.remove("abc-tab--active"));
     document.querySelector(".abc-tab[data-filter='todos']").classList.add("abc-tab--active");
-    paginaAtual = 1; syncClearBtn(); carregar();
+    paginaAtual = 1; syncClearBtn(); resetSelecao(); carregar();
   });
 
   document.getElementById("prev-cat-chips")?.addEventListener("click", (e) => {
@@ -161,12 +260,12 @@ function setupListeners() {
     b.classList.add("prev-cat--active");
     catPrev = b.dataset.cat;
     if (sortCol.startsWith("ultima_prevencao")) sortCol = prevCol(); // segue ordenando por prevenção
-    paginaAtual = 1; carregar();
+    paginaAtual = 1; resetSelecao(); carregar();
   });
 }
 
 function syncClearBtn() {
-  const active = filtroClasse || filtroDays || filtroSemAgenda || buscaTexto || classTabFilter !== "todos";
+  const active = filtroClasse || filtroDays || filtroSemAgenda || buscaTexto || filtroMaxDias || classTabFilter !== "todos";
   document.getElementById("abc-clear-btn").classList.toggle("hidden", !active);
 }
 
@@ -181,6 +280,7 @@ async function carregar() {
   if (classTabFilter !== "todos") q = q.eq("classe", classTabFilter);
   if (filtroClasse) q = q.in("classe", filtroClasse);
   if (filtroDays) q = q.gte("dias_sem_visita", filtroDays);
+  if (filtroMaxDias) q = q.lte("dias_sem_visita", filtroMaxDias);
   if (filtroSemAgenda) q = q.is("proxima_consulta", null);
   if (buscaTexto) q = q.ilike("nome", "%" + buscaTexto + "%");
   if (catPrev === "perio") q = q.eq("perio", true);
@@ -232,7 +332,7 @@ function renderTabela(rows) {
           ? `<span class="abc-agenda-dot abc-agenda-dot--ok"></span><span class="abc-agenda-date">${formatarData(p.proxima_consulta)}</span>`
           : `<span class="abc-agenda-dot abc-agenda-dot--none"></span><span class="abc-agenda-none">Sem agenda</span>`;
         return `<tr>
-          <td><input type="checkbox" class="row-chk" data-id="${p.paciente_id}"></td>
+          <td><input type="checkbox" class="row-chk" data-cid="${p.clinicorp_id || ''}" ${p.clinicorp_id ? '' : 'disabled title="Sem ID Clinicorp"'} ${isRowChecked(p.clinicorp_id) ? 'checked' : ''}></td>
           <td>
             <div class="abc-patient-cell">
               <div class="abc-avatar abc-avatar--${(p.classe||"c").toLowerCase()}">${initials}</div>
@@ -260,8 +360,24 @@ function renderTabela(rows) {
       </tbody>
     </table>`;
 
-  document.getElementById("chk-all").addEventListener("change", function() {
-    document.querySelectorAll(".row-chk").forEach(c => c.checked = this.checked);
+  const chkAll = document.getElementById("chk-all");
+  chkAll.addEventListener("change", function() {
+    document.querySelectorAll(".row-chk").forEach(c => {
+      if (c.disabled) return;
+      c.checked = this.checked;
+      const p = paginaRows.find(r => String(r.clinicorp_id) === c.dataset.cid);
+      if (p) setRowSel(p, this.checked);
+    });
+    renderSelBar(); syncEnviarBtn();
+  });
+  wrap.querySelectorAll(".row-chk").forEach(chk => {
+    chk.addEventListener("change", function() {
+      const p = paginaRows.find(r => String(r.clinicorp_id) === this.dataset.cid);
+      if (p) setRowSel(p, this.checked);
+      const boxes = [...document.querySelectorAll(".row-chk:not([disabled])")];
+      chkAll.checked = boxes.length > 0 && boxes.every(c => c.checked);
+      renderSelBar(); syncEnviarBtn();
+    });
   });
 
   wrap.querySelectorAll(".sortable-th").forEach(th => {
@@ -306,6 +422,12 @@ function renderTabela(rows) {
       await carregar();
     });
   });
+
+  // estado do "selecionar todos" da página + barra de seleção
+  const boxes = [...wrap.querySelectorAll(".row-chk:not([disabled])")];
+  chkAll.checked = boxes.length > 0 && boxes.every(c => c.checked);
+  renderSelBar();
+  syncEnviarBtn();
 }
 
 function renderPaginacao() {
@@ -340,18 +462,26 @@ async function backendApi(method, path, body) {
 
 async function lancarCampanhaABC() {
   try {
-    const preview = await backendApi('GET', '/api/campanhas/preview/abc');
+    let payload;
+    if (selMode === "todas") {
+      payload = { tipo: 'abc', filtros: filtrosAtuais(), excluir: [...excluidos] };
+    } else if (selecionados.size) {
+      payload = { tipo: 'abc', incluir: [...selecionados.keys()] };
+    } else {
+      payload = { tipo: 'abc' }; // nada marcado → critério fixo padrão (A/B · 180d · sem agenda)
+    }
+    const preview = await backendApi('POST', '/api/campanhas/preview', payload);
     if (!preview.total) {
-      toast('Nenhum paciente encontrado com os critérios (Classe A/B, 180+ dias sem retorno, sem agenda).', 'error');
+      toast('Nenhum paciente com telefone encontrado para os critérios selecionados.', 'error');
       return;
     }
-    _abrirModalCampanha('abc', preview);
+    _abrirModalCampanha('abc', preview, payload);
   } catch (e) {
     toast(e.message, 'error');
   }
 }
 
-function _abrirModalCampanha(tipo, preview) {
+function _abrirModalCampanha(tipo, preview, payload = { tipo }) {
   const LABELS = {
     abc: { titulo: 'Retorno ABC', sub: 'Classe A/B · Sem consulta há 180+ dias · Sem agenda' },
     indicacoes: { titulo: 'Leads Indicações', sub: 'Leads com origem = indicação · Status ativo' },
@@ -372,7 +502,8 @@ function _abrirModalCampanha(tipo, preview) {
   const bloqueados = new Set();
 
   function _countSel() {
-    return contatos.length - desmarcados.size - bloqueados.size;
+    // `total` = contagem real (todas as páginas); desmarcados/bloqueados vêm dos 100 visíveis
+    return Math.max(0, total - desmarcados.size - bloqueados.size);
   }
 
   function _buildRows() {
@@ -397,7 +528,7 @@ function _abrirModalCampanha(tipo, preview) {
 
   function _updateCounter() {
     const sel = _countSel();
-    overlay.querySelector('#cmp-counter').textContent = `${sel} de ${contatos.length} selecionados`;
+    overlay.querySelector('#cmp-counter').textContent = `${sel} de ${total} selecionados`;
     const btn = overlay.querySelector('#cmp-confirmar');
     btn.disabled = sel === 0;
     btn.textContent = sel === 0 ? 'Nenhum contato selecionado' : `📞 Enviar ${sel} para discagem`;
@@ -464,7 +595,7 @@ function _abrirModalCampanha(tipo, preview) {
       ${avisoExtra}
       <div class="modal__actions" style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">
         <button id="cmp-cancelar" class="btn btn--ghost">Cancelar</button>
-        <button id="cmp-confirmar" class="btn btn--success">📞 Enviar ${contatos.length} para discagem</button>
+        <button id="cmp-confirmar" class="btn btn--success">📞 Enviar ${total} para discagem</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -479,13 +610,25 @@ function _abrirModalCampanha(tipo, preview) {
   overlay.querySelector('#cmp-cancelar').onclick = () => overlay.remove();
   overlay.querySelector('#cmp-confirmar').onclick = async () => {
     const btn = overlay.querySelector('#cmp-confirmar');
-    const excluir = [...desmarcados];
     const sel = _countSel();
     btn.disabled = true; btn.textContent = 'Enviando...';
+    // Monta o payload final: em modo incluir, tira os desmarcados da lista;
+    // caso contrário (filtros/padrão), soma os desmarcados ao excluir.
+    let sendPayload;
+    if (Array.isArray(payload.incluir)) {
+      sendPayload = { tipo, incluir: payload.incluir.filter(id => !desmarcados.has(String(id))) };
+    } else {
+      sendPayload = { tipo, filtros: payload.filtros, excluir: [...(payload.excluir || []), ...desmarcados] };
+    }
     try {
-      await backendApi('POST', '/api/campanhas/lancar', { tipo, excluir });
+      await backendApi('POST', '/api/campanhas/lancar', sendPayload);
       overlay.remove();
       toast(`Campanha iniciada! ${sel} contatos na fila de discagem.`);
+      if (typeof resetSelecao === 'function') {
+        resetSelecao();
+        document.querySelectorAll('.row-chk').forEach(c => c.checked = false);
+        const all = document.getElementById('chk-all'); if (all) all.checked = false;
+      }
       if (window.campanhaWidgetRefresh) window.campanhaWidgetRefresh();
     } catch (e) {
       btn.disabled = false; btn.textContent = `📞 Enviar ${sel} para discagem`;

@@ -108,7 +108,16 @@
                 <button class="abc-chip prev-cat" data-cat="vip">VIP</button>
               </div>
             </div>
+            <div class="abc-filter-group">
+              <span class="abc-filter-label">EXCLUIR ANTIGOS</span>
+              <div class="abc-chips" style="align-items:center;gap:6px">
+                <span style="font-size:12px;color:var(--muted)">há mais de</span>
+                <input type="number" id="abc-max-dias" min="1" placeholder="ex: 1095" style="width:92px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px">
+                <span style="font-size:12px;color:var(--muted)">dias sem vir</span>
+              </div>
+            </div>
           </div>
+          <div id="abc-sel-bar" style="display:none"></div>
           <div id="abc-table-wrap"></div>
           <div id="abc-pagination" class="pagination"></div>
         </div>
