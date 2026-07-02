@@ -443,21 +443,23 @@ td.dif-neg { color: var(--red); font-weight: 600; }
 <script src="/js/shared-nav.js" data-active="financeiro-saude"></script>
 <div class="fin-wrap">
   <div class="fin-header">
-    <h1>💸 A Receber / A Pagar — próximos 24 meses</h1>
+    <h1>💸 A Receber / A Pagar — <span id="horizonte">próximos meses</span></h1>
     <button class="btn btn-primary" id="btn-sync">🔄 Atualizar dados</button>
   </div>
   <div class="fin-sub" id="atualizado"></div>
 
   <div class="kpis">
-    <div class="kpi"><div class="kpi-label">A receber (24m)</div><div class="kpi-valor" id="kpi-receber">—</div><div class="kpi-sub">parcelas a vencer contratadas</div></div>
-    <div class="kpi"><div class="kpi-label">A pagar (24m)</div><div class="kpi-valor" id="kpi-pagar">—</div><div class="kpi-sub">contas lançadas no Clinicorp</div></div>
+    <div class="kpi"><div class="kpi-label">A receber</div><div class="kpi-valor" id="kpi-receber">—</div><div class="kpi-sub">parcelas a vencer contratadas</div></div>
+    <div class="kpi"><div class="kpi-label">A pagar</div><div class="kpi-valor" id="kpi-pagar">—</div><div class="kpi-sub">contas lançadas no Clinicorp</div></div>
     <div class="kpi"><div class="kpi-label">Diferença</div><div class="kpi-valor" id="kpi-diferenca">—</div><div class="kpi-sub">receber − pagar</div></div>
     <div class="kpi"><div class="kpi-label">Vencido a receber</div><div class="kpi-valor" id="kpi-vencido">—</div><div class="kpi-sub"><a href="/?page=inadimplentes">ver Inadimplentes →</a></div></div>
   </div>
 
   <div class="nota">⚠️ As contas <b>a pagar</b> são lançadas com poucos meses de antecedência —
   os meses mais distantes mostram menos saída do que realmente haverá. O lado
-  <b>a receber</b> (parcelas de pacientes) tem horizonte mais longo.</div>
+  <b>a receber</b> (parcelas de pacientes) tem horizonte mais longo. O Clinicorp
+  fornece previsão de no máximo ~12 meses à frente — o painel mostra todo o
+  horizonte disponível.</div>
 
   <div class="card"><div class="chart-wrap"><canvas id="grafico"></canvas></div></div>
 
@@ -497,6 +499,7 @@ td.dif-neg { color: var(--red); font-weight: 600; }
     $('kpi-vencido').textContent = fmt(d.vencido);
     $('atualizado').textContent = d.atualizado_em
       ? 'Atualizado em ' + new Date(d.atualizado_em).toLocaleString('pt-BR') : '';
+    $('horizonte').textContent = d.meses.length ? `próximos ${d.meses.length} meses` : 'próximos meses';
 
     const vazio = !d.meses.length;
     $('vazio').style.display = vazio ? '' : 'none';

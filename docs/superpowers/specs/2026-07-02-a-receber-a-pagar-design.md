@@ -18,6 +18,7 @@ Mostrar, mês a mês pelos próximos 24 meses, quanto a clínica tem **a receber
 - ⚠️ **Mês corrente** vem com `in`/`out` (realizado) E `in_forecast`/`out_forecast` (pendente restante). Usamos só os forecasts — o painel é "o que ainda vai acontecer".
 - ⚠️ `list_summary` de mês futuro retorna vazio — **não existe detalhe conta a conta** disponível hoje. Drill do a pagar fica fora do escopo até acharmos o endpoint (3 dos 6 endpoints `financial` seguem não mapeados; pedir swagger ao suporte Clinicorp quando oportuno).
 - ⚠️ **Horizonte de lançamento assimétrico**: out_forecast despenca após ~6 meses (dez/26 R$194k → fev/27 R$51k) porque as contas a pagar são lançadas com horizonte mais curto que os recebíveis. Sem aviso, os meses distantes parecem artificialmente saudáveis → a página exibe uma **nota fixa** explicando isso.
+- ⚠️ **Horizonte real: a API devolve no máximo ~12 meses de forecast** (descoberto na implementação, 2026-07-02: janela pedida de 25 meses retornou 12 itens, jul/26→jun/27). O sync continua pedindo 24m — se a Clinicorp estender, ganhamos de graça — e a UI mostra o horizonte disponível dinamicamente ("próximos N meses"). Se o Luiz quiser 24m de verdade no lado receber, complementar depois com agregação por DueDate do `/payment/list` (fase futura).
 
 ## Dados
 
@@ -90,7 +91,7 @@ Zero chamada Clinicorp ao vivo na página. Se a tabela estiver vazia (pré-prime
 
 ## Critérios de aceite
 
-1. Sync das 02h (ou botão) popula `fin_fluxo_futuro` com 24–25 meses; jul/2026 bate com a API (~R$153k receber / ~R$170k pagar na data do teste).
+1. Sync das 02h (ou botão) popula `fin_fluxo_futuro` com todos os meses que a API devolver (hoje 12); os valores batem com a API na data do teste.
 2. Página carrega para role `mod_financeiro`; cards, gráfico e tabela consistentes entre si (mesmos números).
 3. Card Vencido bate com `sum(total_vencido)` feito direto no SQL.
 4. Virada de ano correta na tabela (jan/2027 após dez/2026, não "January/2026").
