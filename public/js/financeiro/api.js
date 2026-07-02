@@ -21,6 +21,7 @@ async function api(path, opts = {}) {
 
 window.FinAPI = {
   dre: (from, to) => api(`/api/financeiro/dre?from=${from}&to=${to}`),
+  dreMensal: (from, to) => api(`/api/financeiro/dre-mensal?from=${from}&to=${to}`),
   lancamentos: (q = {}) => api('/api/financeiro/lancamentos?' + new URLSearchParams(q)),
   aCategorizar: (q = {}) => api('/api/financeiro/a-categorizar?' + new URLSearchParams(q)),
   aCategorizarResumo: () => api('/api/financeiro/a-categorizar/resumo'),

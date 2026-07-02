@@ -23,6 +23,7 @@ const { buscarEventosNovos } = require('./lib/monitor/queries');
 const { montarMonitor } = require('./lib/monitor/diario');
 const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
 const { montarDRE } = require('./lib/financeiro/dre');
+const { montarDREMensal } = require('./lib/financeiro/dre-mensal');
 const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
 const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
 const { syncPeriodo: syncFinanceiro } = require('./sync/financeiro-sync');
@@ -7413,6 +7414,24 @@ app.get('/api/financeiro/dre', requireAuth, requireFinanceiro, async (req, res) 
   if (error) return res.status(500).json({ error: error.message });
   const lancs = (data || []).map(r => ({ fluxo: r.fluxo, valor: Number(r.total), conta_codigo: r.conta_codigo }));
   res.json(montarDRE(lancs));
+});
+
+// DRE mensal: uma DRE por mês do período + resumo de saídas sem categoria (fora da DRE)
+app.get('/api/financeiro/dre-mensal', requireAuth, requireFinanceiro, async (req, res) => {
+  const { from, to } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
+  const [agg, semCat] = await Promise.all([
+    supabase.rpc('fin_dre_agg_mensal', { p_from: from, p_to: to }),
+    supabase.rpc('fin_sem_categoria_resumo', { p_from: from, p_to: to }),
+  ]);
+  if (agg.error) return res.status(500).json({ error: agg.error.message });
+  if (semCat.error) return res.status(500).json({ error: semCat.error.message });
+  const sc = (semCat.data || [])[0] || { qtd: 0, total: 0 };
+  res.json({
+    meses: montarDREMensal(agg.data || [], from, to),
+    sem_categoria: { qtd: Number(sc.qtd), total: Number(sc.total) },
+  });
 });
 
 // Lançamentos filtráveis (página de até 2000)
