@@ -159,7 +159,7 @@ sem lib nova.
 ### 3.3 Drill-down
 
 Clicar no valor de uma **conta** (não grupo) em um mês → modal com os
-lançamentos daquela conta naquele mês (`data`, `descricao`, `pessoa`, `valor`),
+lançamentos daquela conta naquele mês (`data`, `descricao`, `valor`),
 ordenados por valor desc, com soma no rodapé (deve bater com a célula).
 Clicar na coluna Total → lançamentos do período inteiro. Fonte:
 `FinAPI.lancamentos({ conta_id, from, to })` (limite 2000 — suficiente para
