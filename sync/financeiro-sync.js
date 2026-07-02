@@ -3,6 +3,8 @@ const { createClient } = require('@supabase/supabase-js');
 const ClinicorpApi = require('./clinicorp-api');
 const { mapear } = require('../lib/financeiro/mapear-lancamento');
 const { criarCategorizador } = require('../lib/financeiro/categorizar');
+const { parseCashFlow, janela24m } = require('../lib/financeiro/fluxo-futuro');
+const { dataLocal } = require('../lib/financeiro/data');
 
 const supabase = createClient(process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY,
@@ -109,4 +111,26 @@ async function syncPeriodo(from, to) {
   }
 }
 
-module.exports = { syncPeriodo };
+// Fluxo futuro (A Receber / A Pagar, 24 meses) — 1 chamada list_cash_flow.
+// Upsert por mês + limpeza dos meses passados (a tabela guarda só o futuro).
+async function syncFluxoFuturo(hojeISO = dataLocal(new Date().toISOString())) {
+  const { from, to } = janela24m(hojeISO);
+  const r = await api.get('/financial/list_cash_flow', { from, to });
+  const meses = parseCashFlow(r, from);
+  const agora = new Date().toISOString();
+  const rows = meses.map(m => ({
+    mes: m.mes + '-01', a_receber: m.a_receber, a_pagar: m.a_pagar, atualizado_em: agora,
+  }));
+  if (rows.length) {
+    const { error } = await supabase.from('fin_fluxo_futuro').upsert(rows, { onConflict: 'mes' });
+    if (error) throw new Error(error.message);
+  }
+  // guarda só a janela [mês corrente, 24º mês]: limpa o passado E sobras além
+  // do horizonte (linha órfã de um parse ruim ficaria pra sempre sem isso)
+  const primeiro = hojeISO.slice(0, 7) + '-01';
+  const ultimo = to.slice(0, 7) + '-01';
+  await supabase.from('fin_fluxo_futuro').delete().or(`mes.lt.${primeiro},mes.gt.${ultimo}`);
+  return { meses: rows.length };
+}
+
+module.exports = { syncPeriodo, syncFluxoFuturo };

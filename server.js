@@ -26,7 +26,7 @@ const { montarDRE } = require('./lib/financeiro/dre');
 const { montarDREMensal } = require('./lib/financeiro/dre-mensal');
 const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
 const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
-const { syncPeriodo: syncFinanceiro } = require('./sync/financeiro-sync');
+const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/financeiro-sync');
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
 // Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
 // buracos: o sync das 02h do dia 30 não cobre o dia 30 inteiro, e a partir do dia 1º a
@@ -4473,6 +4473,11 @@ async function runGuardedSync(trigger) {
       await syncFinanceiro(from, to);
       console.log('[financeiro-sync] mês corrente sincronizado');
     } catch (e) { console.error('[financeiro-sync] erro:', e.message); }
+    // A Receber / A Pagar (24m) — 1 chamada list_cash_flow, erro não derruba as demais fases
+    try {
+      await syncFluxoFuturo();
+      console.log('[fluxo-futuro] 24m sincronizado');
+    } catch (e) { console.error('[fluxo-futuro] erro:', e.message); }
     // Financeiro por paciente + inadimplentes (/payment/list) — diário, não só sob demanda.
     try { await fetchInadimplentesBackground(); }
     catch (e) { console.error('[inadimplentes-diario] erro:', e.message); }
@@ -7558,7 +7563,13 @@ for (const tabela of ['fin_contas', 'fin_regras', 'fin_pessoas']) {
 // Sync manual do financeiro — mês corrente (botão "Atualizar dados" da DRE)
 app.post('/api/financeiro/sync', requireAuth, requireFinanceiro, async (req, res) => {
   const { from, to } = _finMesCorrente();
-  try { res.json(await syncFinanceiro(from, to)); }
+  try {
+    const r = await syncFinanceiro(from, to);
+    // fluxo futuro no mesmo botão; falha aqui não invalida o sync da DRE
+    try { await syncFluxoFuturo(); }
+    catch (e) { console.error('[fluxo-futuro] erro:', e.message); }
+    res.json(r);
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
