@@ -7421,6 +7421,8 @@ app.get('/api/financeiro/dre-mensal', requireAuth, requireFinanceiro, async (req
   const { from, to } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
+  const nMeses = (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + (Number(to.slice(5, 7)) - Number(from.slice(5, 7))) + 1;
+  if (nMeses > 36) return res.status(400).json({ error: 'periodo maximo: 36 meses' });
   const [agg, semCat] = await Promise.all([
     supabase.rpc('fin_dre_agg_mensal', { p_from: from, p_to: to }),
     supabase.rpc('fin_sem_categoria_resumo', { p_from: from, p_to: to }),
