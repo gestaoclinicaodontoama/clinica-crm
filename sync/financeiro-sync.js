@@ -3,7 +3,7 @@ const { createClient } = require('@supabase/supabase-js');
 const ClinicorpApi = require('./clinicorp-api');
 const { mapear } = require('../lib/financeiro/mapear-lancamento');
 const { criarCategorizador } = require('../lib/financeiro/categorizar');
-const { parseCashFlow, janela24m } = require('../lib/financeiro/fluxo-futuro');
+const { parseCashFlow, janelasDe12m } = require('../lib/financeiro/fluxo-futuro');
 const { dataLocal } = require('../lib/financeiro/data');
 
 const supabase = createClient(process.env.SUPABASE_URL,
@@ -111,12 +111,16 @@ async function syncPeriodo(from, to) {
   }
 }
 
-// Fluxo futuro (A Receber / A Pagar, 24 meses) — 1 chamada list_cash_flow.
+// Fluxo futuro (A Receber / A Pagar, 24 meses) — a API trunca cada chamada em
+// ~12 meses, então a janela é fatiada em 3 chamadas list_cash_flow (12+12+1).
 // Upsert por mês + limpeza dos meses passados (a tabela guarda só o futuro).
 async function syncFluxoFuturo(hojeISO = dataLocal(new Date().toISOString())) {
-  const { from, to } = janela24m(hojeISO);
-  const r = await api.get('/financial/list_cash_flow', { from, to });
-  const meses = parseCashFlow(r, from);
+  const meses = [];
+  for (const j of janelasDe12m(hojeISO)) {
+    const r = await api.get('/financial/list_cash_flow', { from: j.from, to: j.to });
+    meses.push(...parseCashFlow(r, j.from));
+    await new Promise(res => setTimeout(res, 400));
+  }
   const agora = new Date().toISOString();
   const rows = meses.map(m => ({
     mes: m.mes + '-01', a_receber: m.a_receber, a_pagar: m.a_pagar, atualizado_em: agora,
