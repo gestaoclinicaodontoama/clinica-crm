@@ -33,29 +33,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .controls input[type="date"]{padding:5px 9px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--bg);color:var(--text);font-family:inherit;outline:none}
 .controls input:focus{border-color:var(--accent)}
 .controls label{font-size:12px;color:var(--muted);font-weight:500}
-/* Cards dentista */
-.dent-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-bottom:20px}
-.dent-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;animation:cardIn .35s ease both;animation-delay:calc(var(--i,0)*40ms);transition:transform .15s,box-shadow .15s}
-.dent-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.14)}
-@keyframes cardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.dent-card{animation:none}}
-.dent-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
-.dent-ident{display:flex;align-items:center;gap:10px;min-width:0}
-.dent-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;letter-spacing:.5px;flex-shrink:0}
-.dent-name{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dent-hero{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-.dent-hero-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px}
-.dent-hero-value{font-size:23px;font-weight:800;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
-.dent-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-bottom:14px}
-.dent-metric{display:flex;flex-direction:column;gap:2px}
-.dent-metric-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-.dent-metric-value{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
-.dent-metric-value.green{color:var(--green)}
-.dent-metric-value.red{color:var(--red)}
-.dent-metric-value.muted{color:var(--muted);font-weight:400}
-.dent-metric-action{display:flex;align-items:center;gap:6px}
-.top-procs{border-top:1px solid var(--border);padding-top:10px;margin-top:4px}
-.top-procs-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+/* KPIs da clínica */
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.kpi-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.kpi-value{font-size:22px;font-weight:800;letter-spacing:-.4px;margin-top:3px;font-variant-numeric:tabular-nums}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:3px}
+/* Tabela comparativa */
+.comp-wrap{overflow-x:auto}
+#compTable th{cursor:pointer;user-select:none;white-space:nowrap}
+#compTable th:hover{color:var(--text)}
+#compTable th:not(:first-child),#compTable td:not(:first-child){text-align:right}
+#compTable td{white-space:nowrap}
+.sort-ind{font-size:9px;margin-left:3px;color:var(--accent)}
+tr.comp-row{cursor:pointer}
+tr.comp-row>td:first-child{font-weight:600}
+tr.comp-detail>td{background:var(--bg3);cursor:default;padding:14px 16px;white-space:normal !important}
+tr.comp-detail:hover>td{background:var(--bg3)}
+.det-cols{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.det-col{flex:1;min-width:280px}
+.det-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+.det-actions{display:flex;gap:8px;margin-top:12px}
+.chev{display:inline-block;width:14px;color:var(--muted);transition:transform .15s}
+.chev.open{transform:rotate(90deg)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
+.ratio-badge.sm{padding:2px 8px;font-size:11px;margin-left:0}
 .top-proc-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 6px 3px 0;border-radius:4px}
 .top-proc-rank{font-weight:700;color:var(--muted);width:16px;text-align:right;flex-shrink:0}
 .top-proc-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -154,6 +156,18 @@ tr:hover td{background:var(--bg3)}
   </div>
 
   <div id="cardsContainer"><div class="empty"><span class="spinner"></span></div></div>
+
+  <div class="kpi-row" id="kpiRow" style="display:none"></div>
+
+  <div class="section" id="compSection" style="display:none">
+    <div class="section-header">Comparativo por dentista<span class="section-caption">clique no cabeçalho p/ ordenar · clique na linha p/ detalhes</span></div>
+    <div class="comp-wrap">
+      <table id="compTable">
+        <thead><tr id="compHead"></tr></thead>
+        <tbody id="compBody"></tbody>
+      </table>
+    </div>
+  </div>
 
   <div class="section" id="evolSection" style="display:none">
     <div class="section-header">Evolução Mensal<span class="section-caption">produção empilhada por mês · 7 maiores + Outros · detalhe completo na tabela</span></div>
@@ -290,6 +304,11 @@ let custoHora   = null;
 let custoReal   = {};     // dentist_person_id → { pago, custo_proporcional, horas_exec, horas_aval }
 let lastResumo  = [];
 let lastEvolucao= [];
+let compData    = [];     // linhas enriquecidas da tabela comparativa
+let sortCol     = 'nome'; // padrão: alfabético (estável)
+let sortDir     = 1;
+let expanded    = new Set();
+let topProcsCache = {};
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 (async function init() {
@@ -401,15 +420,19 @@ async function salvarConfig() {
     });
     if (impVal   !== '') aliquota  = Number(impVal);
     if (custoVal !== '') custoHora = Number(custoVal);
-    renderCards(lastResumo);
+    renderMain(lastResumo);
     if (lastEvolucao.length) renderEvolucao(lastEvolucao);
   } catch (_) {}
 }
 
 async function carregar() {
   document.getElementById('cardsContainer').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  document.getElementById('kpiRow').style.display   = 'none';
+  document.getElementById('compSection').style.display = 'none';
   document.getElementById('evolSection').style.display = 'none';
   lastEvolucao = [];
+  expanded = new Set();
+  topProcsCache = {};
 
   try {
     const ano = new Date(currentFrom).getFullYear();
@@ -425,7 +448,7 @@ async function carregar() {
     const resumo = await resumoRes.json();
     if (!resumoRes.ok) throw new Error(resumo.error || 'Erro ao carregar');
     lastResumo = resumo.data || [];
-    renderCards(lastResumo);
+    renderMain(lastResumo);
     if (isMultiMonth()) carregarEvolucao();
   } catch (e) {
     document.getElementById('cardsContainer').innerHTML =
@@ -457,10 +480,10 @@ function fmtH(v) {
   return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'h';
 }
 
-function renderCards(dentistas) {
+function renderMain(dentistas) {
   buildColorMap(dentistas); // slots fixos pelo conjunto completo (estável entre períodos)
 
-  // Sem produção, sem agenda e sem pagamento no período → card vazio só polui
+  // Sem produção, sem agenda e sem pagamento no período → linha vazia só polui
   const comDados = dentistas.filter(d =>
     d.producao_total > 0 || d.horas_agendadas > 0 || (custoReal[d.dentist_person_id]?.pago > 0));
   if (!comDados.length) {
@@ -468,23 +491,15 @@ function renderCards(dentistas) {
       '<div class="empty">Nenhum dentista com produção ou agenda no período.<br>Execute "Atualizar dados" para sincronizar a agenda.</div>';
     return;
   }
-  // Ordem SEMPRE alfabética — não varia com a produção do período
-  comDados.sort((a, b) => cleanName(a.dentist_name).localeCompare(cleanName(b.dentist_name), 'pt-BR'));
-  document.getElementById('cardsContainer').innerHTML =
-    `<div class="dent-cards">${comDados.map((d, i) => cardHtml(d, i)).join('')}</div>`;
-
-  // Carrega top 5 procedimentos para cada dentista em paralelo
-  comDados.forEach(d => carregarTopProcs(d.dentist_person_id));
+  compData = comDados.map(enrich);
+  document.getElementById('cardsContainer').innerHTML = '';
+  renderKpis(compData);
+  renderComp();
 }
 
-function liquida(bruto) {
-  if (aliquota == null || bruto == null) return null;
-  return Math.round(bruto * (1 - aliquota / 100) * 100) / 100;
-}
-
-function cardHtml(d, idx) {
+function enrich(d) {
+  const cr  = custoReal[d.dentist_person_id];
   const liq = liquida(d.producao_total);
-  // custo/hora vem do estado global (clínica), não por dentista
   const custo = custoHora ?? d.custo_hora ?? null;
   let resVal = d.resultado_por_hora;
   if (custo != null) {
@@ -493,130 +508,196 @@ function cardHtml(d, idx) {
       ? Math.round((base / d.horas_agendadas - custo) * 100) / 100
       : null;
   }
-  const resClass = resVal == null ? 'muted' : (resVal >= 0 ? 'green' : 'red');
-  const manualIcon = ` <span title="${d.horas_manual_override ? 'Inclui horas manuais' : 'Sem horas manuais'}" style="${d.horas_manual_override ? 'color:var(--accent)' : 'opacity:.3'}">✏️</span>`;
-  const cr = custoReal[d.dentist_person_id];
-  let ratioBadge = '';
-  if (cr) {
-    const ratio = d.producao_total > 0 ? Math.round(cr.custo_proporcional / d.producao_total * 1000) / 10 : null;
-    if (ratio != null) {
-      const cls = ratio <= 8 ? 'ratio-green' : ratio < 15 ? 'ratio-yellow' : 'ratio-red';
-      const emoji = ratio <= 8 ? '🟢' : ratio < 15 ? '🟡' : '🔴';
-      const tooltip = cr._avaliacao_id
-        ? `Custo proporcional execução: ${brl(cr.custo_proporcional)} (${cr.proporcao_exec}% do salário ${brl(cr.pago)}, base ${cr.base_rateio})`
-        : `Pago no período: ${brl(cr.pago)}`;
-      ratioBadge = `<span class="ratio-badge ${cls}" title="${esc(tooltip)}">${emoji} Custo s/ produção: ${ratio.toFixed(1)}%</span>`;
-    }
-  }
-
-  // Custo médio da diária (8h): pago proporcional ÷ (horas agenda ÷ 8)
-  let diariaVal = null, nDiarias = null;
+  const ratio = cr && d.producao_total > 0 ? cr.custo_proporcional / d.producao_total * 100 : null;
+  let diaria = null, nDiarias = null;
   if (cr && cr.pago > 0 && d.horas_agendadas > 0) {
-    nDiarias  = d.horas_agendadas / 8;
-    diariaVal = Math.round(cr.custo_proporcional / nDiarias * 100) / 100;
+    nDiarias = d.horas_agendadas / 8;
+    diaria   = Math.round(cr.custo_proporcional / nDiarias * 100) / 100;
   }
-  const diariaTooltip = diariaVal != null
-    ? `${brl(cr.custo_proporcional)} pago ÷ ${nDiarias.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} diárias (${fmtH(d.horas_agendadas)} ÷ 8h)`
-    : 'Precisa de pagamento e horas de agenda no período';
+  return { ...d, cr, liq, custo, resVal, ratio, diaria, nDiarias, nome: cleanName(d.dentist_name) };
+}
 
-  const cor = dentColor(d.dentist_person_id);
+// ── KPIs da clínica ──────────────────────────────────────────────────────────
+function renderKpis(list) {
+  const totProd   = list.reduce((s, e) => s + (e.producao_total || 0), 0);
+  const totLiq    = aliquota != null ? liquida(totProd) : null;
+  const totHoras  = list.reduce((s, e) => s + (e.horas_agendadas || 0), 0);
+  const comPago   = list.filter(e => e.cr && e.cr.pago > 0);
+  const totCusto  = comPago.reduce((s, e) => s + e.cr.custo_proporcional, 0);
+  // média/diária só sobre quem tem pagamento E agenda (senão a média distorce)
+  const eleg       = comPago.filter(e => e.horas_agendadas > 0);
+  const totDiarias = eleg.reduce((s, e) => s + e.horas_agendadas / 8, 0);
+  const custoEleg  = eleg.reduce((s, e) => s + e.cr.custo_proporcional, 0);
+  const mediaDiaria  = totDiarias > 0 ? custoEleg / totDiarias : null;
+  const ratioClinica = totProd > 0 && totCusto > 0 ? totCusto / totProd * 100 : null;
+
+  document.getElementById('kpiRow').innerHTML = `
+    <div class="kpi">
+      <span class="kpi-label">Produção do período</span>
+      <div class="kpi-value">${brl(Math.round(totProd * 100) / 100)}</div>
+      <div class="kpi-sub">${totLiq != null ? `líquida ${brl(totLiq)} (−${aliquota}%)` : `${list.length} dentistas com atividade`}</div>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Horas de agenda</span>
+      <div class="kpi-value">${fmtH(totHoras)}</div>
+      <div class="kpi-sub">${list.length} dentistas · ${(totHoras / 8).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} diárias de 8h</div>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Custo dentistas (rastreado)</span>
+      <div class="kpi-value">${totCusto > 0 ? brl(Math.round(totCusto * 100) / 100) : '—'}</div>
+      <div class="kpi-sub">${comPago.length ? `${comPago.length} com pagamento${ratioClinica != null ? ` · ${ratioClinica.toFixed(1)}% da produção` : ''}` : 'configure as keywords no ⚙️ de cada linha'}</div>
+    </div>
+    <div class="kpi" title="Custo rastreado ÷ diárias (horas de agenda ÷ 8h), só dos dentistas com pagamento no período">
+      <span class="kpi-label">Custo médio/diária (8h)</span>
+      <div class="kpi-value">${mediaDiaria != null ? brl(Math.round(mediaDiaria * 100) / 100) : '—'}</div>
+      <div class="kpi-sub">${mediaDiaria != null ? `sobre ${totDiarias.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} diárias rastreadas` : 'precisa de pagamento + agenda'}</div>
+    </div>`;
+  document.getElementById('kpiRow').style.display = '';
+}
+
+// ── Tabela comparativa ───────────────────────────────────────────────────────
+function compCols() {
+  const cols = [
+    { key: 'nome',            label: 'Dentista',  num: false },
+    { key: 'producao_total',  label: 'Produção',  num: true  },
+  ];
+  if (aliquota != null) cols.push({ key: 'liq', label: `Líquida (−${aliquota}%)`, num: true });
+  cols.push(
+    { key: 'horas_agendadas',   label: 'Horas',           num: true },
+    { key: 'dias_com_agenda',   label: 'Dias',            num: true },
+    { key: 'producao_por_hora', label: 'Prod/h',          num: true },
+    { key: 'ratio',             label: 'Custo s/ prod',   num: true },
+    { key: 'diaria',            label: 'Custo/diária 8h', num: true },
+    { key: 'resVal',            label: 'Resultado/h',     num: true },
+  );
+  return cols;
+}
+
+function sortBy(key, num) {
+  if (sortCol === key) sortDir = -sortDir;
+  else { sortCol = key; sortDir = num ? -1 : 1; } // numérica começa do maior
+  renderComp();
+}
+
+function renderComp() {
+  const cols = compCols();
+  document.getElementById('compHead').innerHTML = cols.map(c =>
+    `<th onclick="sortBy('${c.key}',${c.num})">${c.label}<span class="sort-ind">${sortCol === c.key ? (sortDir === 1 ? '▲' : '▼') : ''}</span></th>`
+  ).join('');
+
+  const list = [...compData].sort((a, b) => {
+    if (sortCol === 'nome') return sortDir * a.nome.localeCompare(b.nome, 'pt-BR');
+    const va = a[sortCol] == null ? -Infinity : Number(a[sortCol]);
+    const vb = b[sortCol] == null ? -Infinity : Number(b[sortCol]);
+    return sortDir * (va - vb) || a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+
+  const maxProd = Math.max(...list.map(e => e.producao_total || 0), 1);
+  document.getElementById('compBody').innerHTML = list.map(e => compRow(e, cols.length, maxProd)).join('');
+  document.getElementById('compSection').style.display = '';
+  for (const id of expanded) carregarTopProcsDet(id);
+}
+
+function compRow(e, ncols, maxProd) {
+  const id   = e.dentist_person_id;
+  const cor  = dentColor(id);
+  const pct  = Math.round((e.producao_total || 0) / maxProd * 100);
+  const open = expanded.has(id);
+
+  let ratioHtml = '—';
+  if (e.ratio != null) {
+    const r = Math.round(e.ratio * 10) / 10;
+    const cls = r <= 8 ? 'ratio-green' : r < 15 ? 'ratio-yellow' : 'ratio-red';
+    const emoji = r <= 8 ? '🟢' : r < 15 ? '🟡' : '🔴';
+    ratioHtml = `<span class="ratio-badge sm ${cls}">${emoji} ${r.toFixed(1)}%</span>`;
+  }
+  const resHtml = e.resVal == null ? '—'
+    : `<span style="color:var(--${e.resVal >= 0 ? 'green' : 'red'});font-weight:600">${brlph(e.resVal)}</span>`;
+
   return `
-<div class="dent-card" id="card-${esc(d.dentist_person_id)}" style="--i:${Number(idx) || 0}">
-  <div class="dent-card-header">
-    <div class="dent-ident">
-      <span class="dent-avatar" style="background:${cor}22;color:${cor}">${esc(dentInitials(d.dentist_name))}</span>
-      <div class="dent-name" title="${esc(d.dentist_name)}">${esc(cleanName(d.dentist_name))}</div>
+<tr class="comp-row" onclick="toggleDetalhe(${esc(JSON.stringify(id))})">
+  <td><span class="chev${open ? ' open' : ''}" id="chev-${esc(id)}">▸</span><span class="dot" style="background:${cor}"></span>${esc(e.nome)}</td>
+  <td style="background:linear-gradient(90deg,${cor}1f ${pct}%,transparent ${pct}%);font-weight:600">${brl(e.producao_total)}</td>
+  ${aliquota != null ? `<td style="color:var(--green)">${brl(e.liq)}</td>` : ''}
+  <td>${fmtH(e.horas_agendadas)}${e.horas_manual_override ? ' <span title="Inclui horas manuais" style="color:var(--accent)">✏️</span>' : ''}</td>
+  <td>${e.dias_com_agenda || '—'}</td>
+  <td>${brlph(e.producao_por_hora)}</td>
+  <td>${ratioHtml}</td>
+  <td>${e.diaria != null ? brl(e.diaria) : '—'}</td>
+  <td>${resHtml}</td>
+</tr>
+<tr class="comp-detail" id="det-${esc(id)}" style="display:${open ? '' : 'none'}"><td colspan="${ncols}">${detHtml(e)}</td></tr>`;
+}
+
+function detHtml(e) {
+  const id = e.dentist_person_id;
+  const cr = e.cr;
+
+  let pagHtml;
+  if (cr && cr.pagamentos && cr.pagamentos.length) {
+    pagHtml = `<table class="pgto-table">
+      <thead><tr><th>Data</th><th>Descrição</th><th>Valor</th></tr></thead>
+      <tbody>${cr.pagamentos.map(p => `<tr>
+        <td style="white-space:nowrap;color:var(--muted)">${p.data ? p.data.slice(0, 10) : '—'}</td>
+        <td>${esc(p.descricao || '')}</td>
+        <td>${brl(p.valor)}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  } else {
+    pagHtml = `<div style="font-size:12px;color:var(--muted)">Nenhum pagamento encontrado no período${cr ? '' : ' — configure a keyword de despesas no ⚙️'}</div>`;
+  }
+  const rateio = cr && cr._avaliacao_id
+    ? `<div class="pgto-prop">Custo proporcional execução: <strong>${brl(cr.custo_proporcional)}</strong> — ${cr.proporcao_exec}% do salário${cr.base_rateio === 'escala' ? ` (escala fixa: ${cr.horas_semana_exec}h exec / ${cr.horas_semana_exec + cr.horas_semana_aval}h semana)` : ` (horas agendadas: ${cr.horas_exec}h exec / ${Math.round((cr.horas_exec + cr.horas_aval) * 10) / 10}h)`}</div>`
+    : '';
+  const diariaNote = e.diaria != null
+    ? `<div class="pgto-prop">Custo/diária (8h): <strong>${brl(e.diaria)}</strong> = ${brl(cr.custo_proporcional)} ÷ ${e.nDiarias.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} diárias (${fmtH(e.horas_agendadas)} ÷ 8h)</div>`
+    : '';
+
+  return `<div class="det-cols" onclick="event.stopPropagation()">
+    <div class="det-col">
+      <div class="det-title">Top 5 procedimentos</div>
+      <div id="top-${esc(id)}"><span class="spinner"></span></div>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="abrirModalConfig(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})" title="Configurar keyword de despesas">⚙️</button>
-  </div>
-  <div class="dent-hero">
-    <div>
-      <span class="dent-hero-label">Produção bruta</span>
-      <span class="dent-hero-value">${brl(d.producao_total)}</span>
-    </div>
-    ${liq != null ? `<div>
-      <span class="dent-hero-label" style="color:var(--green)">Prod. líquida (−${aliquota}%)</span>
-      <span class="liq-value" style="font-size:16px">${brl(liq)}</span>
-    </div>` : ''}
-    ${ratioBadge}
-  </div>
-  <div class="dent-metrics">
-    <div class="dent-metric">
-      <span class="dent-metric-label">Horas agenda${manualIcon}</span>
-      <div class="dent-metric-action">
-        <span class="dent-metric-value">${fmtH(d.horas_agendadas)}</span>
-        <button class="btn btn-ghost btn-sm" onclick="abrirModalHoras(${esc(JSON.stringify(d.dentist_person_id))},${esc(JSON.stringify(d.dentist_name))})">✏️</button>
+    <div class="det-col">
+      <div class="det-title">💰 Pago no período: ${cr ? brl(cr.pago) : '—'}</div>
+      ${pagHtml}
+      ${rateio}
+      ${diariaNote}
+      <div class="det-actions">
+        <button class="btn btn-ghost btn-sm" onclick="abrirModalConfig(${esc(JSON.stringify(id))},${esc(JSON.stringify(e.dentist_name))})">⚙️ Configurar despesas</button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirModalHoras(${esc(JSON.stringify(id))},${esc(JSON.stringify(e.dentist_name))})">✏️ Horas manuais</button>
       </div>
     </div>
-    <div class="dent-metric">
-      <span class="dent-metric-label">Dias c/ agenda</span>
-      <span class="dent-metric-value">${d.dias_com_agenda}</span>
-    </div>
-    <div class="dent-metric">
-      <span class="dent-metric-label">Prod/hora</span>
-      <span class="dent-metric-value">${brlph(d.producao_por_hora)}</span>
-    </div>
-    <div class="dent-metric">
-      <span class="dent-metric-label">Custo/hora</span>
-      <span class="dent-metric-value">${brlph(custo)}</span>
-    </div>
-    <div class="dent-metric">
-      <span class="dent-metric-label">Resultado/hora${liq != null ? ' (líq.)' : ''}</span>
-      <span class="dent-metric-value ${resClass}">${brlph(resVal)}</span>
-    </div>
-    <div class="dent-metric" title="${esc(diariaTooltip)}">
-      <span class="dent-metric-label">Custo/diária (8h)</span>
-      <span class="dent-metric-value">${diariaVal != null ? brl(diariaVal) : '—'}${nDiarias != null ? ` <span style="font-size:11px;font-weight:400;color:var(--muted)">(${nDiarias.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} diárias)</span>` : ''}</span>
-    </div>
-  </div>
-  <div class="top-procs">
-    <div class="top-procs-title">Top 5 procedimentos</div>
-    <div id="top-${esc(d.dentist_person_id)}"><span class="spinner"></span></div>
-  </div>
-  ${cr && cr.pagamentos && cr.pagamentos.length > 0 ? `
-  <div class="pgto-section">
-    <div class="pgto-header" onclick="togglePagamentos(${esc(JSON.stringify(d.dentist_person_id))})">
-      <span class="pgto-total">💰 Pago no período: ${brl(cr.pago)}</span>
-      <span class="pgto-toggle" id="pgto-toggle-${esc(d.dentist_person_id)}">▼</span>
-    </div>
-    <div class="pgto-body" id="pgto-body-${esc(d.dentist_person_id)}">
-      <table class="pgto-table">
-        <thead><tr><th>Data</th><th>Descrição</th><th>Valor</th></tr></thead>
-        <tbody>
-          ${cr.pagamentos.map(p => `<tr>
-            <td style="white-space:nowrap;color:var(--muted)">${p.data ? p.data.slice(0,10) : '—'}</td>
-            <td>${esc(p.descricao || '')}</td>
-            <td>${brl(p.valor)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-      ${cr._avaliacao_id ? `<div class="pgto-prop">Custo proporcional execução: <strong>${brl(cr.custo_proporcional)}</strong> — ${cr.proporcao_exec}% do salário${cr.base_rateio === 'escala' ? ` (escala fixa: ${cr.horas_semana_exec}h exec / ${cr.horas_semana_exec + cr.horas_semana_aval}h semana)` : ` (horas agendadas: ${cr.horas_exec}h exec / ${Math.round((cr.horas_exec+cr.horas_aval)*10)/10}h)`}</div>` : ''}
-    </div>
-  </div>` : (cr && cr.pago === 0 ? `<div class="pgto-section" style="font-size:12px;color:var(--muted);padding-top:10px;border-top:1px solid var(--border)">💰 Nenhum pagamento encontrado no período</div>` : '')}
-</div>`;
+  </div>`;
 }
 
-function togglePagamentos(dentId) {
-  const body   = document.getElementById('pgto-body-'   + dentId);
-  const toggle = document.getElementById('pgto-toggle-' + dentId);
-  if (!body) return;
-  const open = body.style.display === 'block'; // fechado por padrão (CSS display:none)
-  body.style.display = open ? 'none' : 'block';
-  if (toggle) toggle.classList.toggle('open', !open);
+function toggleDetalhe(id) {
+  const det  = document.getElementById('det-'  + id);
+  const chev = document.getElementById('chev-' + id);
+  if (!det) return;
+  const opening = det.style.display === 'none';
+  det.style.display = opening ? '' : 'none';
+  if (chev) chev.classList.toggle('open', opening);
+  if (opening) { expanded.add(id); carregarTopProcsDet(id); }
+  else expanded.delete(id);
 }
 
-async function carregarTopProcs(dentId) {
+async function carregarTopProcsDet(dentId) {
   const el = document.getElementById('top-' + dentId);
   if (!el) return;
+  if (topProcsCache[dentId]) { el.innerHTML = topProcsCache[dentId]; return; }
   try {
     const res = await fetch(
       `/api/producao/dentista/top-procedimentos?from=${currentFrom}&to=${currentTo}&dentist_id=${encodeURIComponent(dentId)}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const json = await res.json();
-    if (!res.ok || !json.data?.length) { el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Sem procedimentos</span>'; return; }
+    if (!res.ok || !json.data?.length) {
+      el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Sem procedimentos</span>';
+      return;
+    }
     const max = Math.max(...json.data.map(p => Number(p.total_value) || 0));
-    el.innerHTML = json.data.map((p, i) => {
+    const html = json.data.map((p, i) => {
       const pct = max > 0 ? Math.round((Number(p.total_value) || 0) / max * 100) : 0;
       return `<div class="top-proc-row" style="background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 10%,transparent) ${pct}%,transparent ${pct}%)">
         <span class="top-proc-rank">${i + 1}</span>
@@ -625,7 +706,14 @@ async function carregarTopProcs(dentId) {
         <span class="top-proc-count">(${p.count}×)</span>
       </div>`;
     }).join('');
+    topProcsCache[dentId] = html;
+    el.innerHTML = html;
   } catch (_) { el.innerHTML = '<span style="font-size:12px;color:var(--muted)">—</span>'; }
+}
+
+function liquida(bruto) {
+  if (aliquota == null || bruto == null) return null;
+  return Math.round(bruto * (1 - aliquota / 100) * 100) / 100;
 }
 
 // ── Render Evolução ──────────────────────────────────────────────────────────
