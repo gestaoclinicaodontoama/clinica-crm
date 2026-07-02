@@ -2547,12 +2547,32 @@ let _convListInterval = null;
 let _chatGen = 0; // geração do abrirChat — previne double interval em cliques rápidos
 let _chatViewMode = 'lista';
 let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
-// Ao voltar para a aba, atualiza uma vez na hora (o polling fica pausado em 2º plano)
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) return;
+// --- Guarda de polling das Conversas (economia de egress Supabase) ---
+// O poll só roda quando faz sentido: dentro do horário da clínica, com a janela
+// em foco e alguém interagindo. Tela aberta e ociosa / de madrugada = zero poll.
+let _ultimaAtividade = Date.now();
+function _podePollar() {
+  if (document.hidden) return false;                          // aba em 2º plano
+  if (typeof document.hasFocus === 'function' && !document.hasFocus()) return false; // janela sem foco
+  if (Date.now() - _ultimaAtividade > 120000) return false;   // ocioso > 2 min
+  const d = new Date();
+  const h = d.getHours() + d.getMinutes() / 60;
+  if (h < 7.5 || h >= 19) return false;                       // fora de 07:30–19:00
+  return true;
+}
+function _refreshConversasAgora() {
   if (chatPollInterval && chatLeadAtual) carregarMensagensChat(chatLeadAtual.id, true);
   if (_convListInterval) loadConversas(true);
-});
+}
+function _marcarAtividade() {
+  const voltouDeOcioso = (Date.now() - _ultimaAtividade) > 120000;
+  _ultimaAtividade = Date.now();
+  if (voltouDeOcioso) _refreshConversasAgora(); // voltou de ocioso → atualiza já
+}
+['mousemove', 'keydown', 'click', 'touchstart'].forEach(ev =>
+  document.addEventListener(ev, _marcarAtividade, { passive: true }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) _refreshConversasAgora(); });
+window.addEventListener('focus', _refreshConversasAgora);
 let _kanbanDragging = false;
 
 const KANBAN_AGENDAMENTOS  = ['Novo','Em qualificação','Avaliação agendada','Compareceu'];
@@ -2656,7 +2676,7 @@ async function loadConversas(silencioso = false) {
 
 function _iniciarConvListInterval() {
   if (_convListInterval) clearInterval(_convListInterval);
-  _convListInterval = setInterval(() => { if (!document.hidden) loadConversas(true); }, 30000);
+  _convListInterval = setInterval(() => { if (_podePollar()) loadConversas(true); }, 60000);
 }
 
 async function carregarMetaAgendamentos() {
@@ -3514,9 +3534,9 @@ async function abrirChat(leadId) {
   await carregarMensagensChat(leadId);
   if (_gen !== _chatGen) return; // invocação obsoleta — outro abrirChat disparou depois
   chatPollInterval = setInterval(() => {
-    if (document.hidden) return; // aba em 2º plano não consome egress
+    if (!_podePollar()) return; // fora do horário / sem foco / ocioso → não consome egress
     if (chatLeadAtual) { _markRead(chatLeadAtual.id); carregarMensagensChat(chatLeadAtual.id, true); }
-  }, 4000);
+  }, 8000);
   document.getElementById('chat-input').focus();
 }
 
