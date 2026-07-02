@@ -3469,9 +3469,16 @@ function voltarListaChat() {
 async function abrirChat(leadId) {
   chatLeadAtual = chatLeads.find(l => l.id === leadId);
   if (!chatLeadAtual) return;
+  const _gen = ++_chatGen;
+  // referral_data (JSON do anúncio) saiu da lista p/ economizar egress — busca
+  // o lead completo sob demanda ao abrir, e completa o objeto da conversa.
+  try {
+    const _full = await api('/api/leads/' + leadId);
+    if (_gen !== _chatGen) return; // usuário abriu outra conversa nesse meio-tempo
+    if (_full && _full.id) Object.assign(chatLeadAtual, _full);
+  } catch (_) {}
   const _obsEl = document.getElementById('chat-obs-input');
   if (_obsEl) _obsEl.value = chatLeadAtual.observacao_interna || '';
-  const _gen = ++_chatGen;
   // Revogar blob URLs da conversa anterior para liberar memória
   _midiaCache.forEach(url => URL.revokeObjectURL(url));
   _midiaCache.clear();
