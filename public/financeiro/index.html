@@ -10,86 +10,116 @@
   --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
   --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
   --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6; --purple: #a855f7;
+  --anom-ambar: rgba(245, 158, 11, .16); --anom-verm: rgba(239, 68, 68, .18);
 }
 :root[data-theme="light"] {
   --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
   --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
   --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488; --purple: #9333ea;
+  --anom-ambar: rgba(217, 119, 6, .14); --anom-verm: rgba(220, 38, 38, .14);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-
 .fin-wrap { padding: 20px 24px; }
-
-/* ── Header ── */
-.fin-header {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
-}
+.fin-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .fin-header h1 { font-size: 20px; font-weight: 700; flex: 1; min-width: 160px; }
-
-.fin-links {
-  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;
-}
-.fin-link {
-  padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+.fin-links { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.fin-link { padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
   text-decoration: none; color: var(--muted); background: var(--bg2);
-  border: 1px solid var(--border); transition: all .15s;
-}
+  border: 1px solid var(--border); transition: all .15s; }
 .fin-link:hover { border-color: var(--accent); color: var(--accent); }
-
-/* ── Controles ── */
-.fin-controls {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;
-}
+.fin-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
 .fin-controls label { font-size: 13px; color: var(--muted); font-weight: 500; }
-.fin-controls input[type="month"],
-.fin-controls input[type="date"] {
-  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
-  font-size: 13px; background: var(--bg2); color: var(--text);
-  font-family: inherit; outline: none;
-}
+.fin-controls input[type="month"] { padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 13px; background: var(--bg2); color: var(--text);
+  font-family: inherit; outline: none; }
 .fin-controls input:focus { border-color: var(--accent); }
-
-.btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s; }
+.btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; font-family: inherit; transition: all .15s; }
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:disabled { opacity: .6; cursor: default; }
 .btn-ghost { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
 .btn-ghost:hover { background: var(--bg3); }
 
-/* ── Mensagem ── */
+/* Banner de não categorizados */
+.banner-semcat { display: none; padding: 10px 14px; margin-bottom: 16px; border-radius: 10px;
+  font-size: 13px; background: var(--anom-ambar); border: 1px solid var(--yellow); }
+.banner-semcat a { color: var(--accent); font-weight: 600; }
+
+/* Cards de KPI (preenchidos na Task 6) */
+.kpis { display: none; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px; margin-bottom: 16px; }
+.kpi { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.kpi .kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+.kpi .kpi-valor { font-size: 19px; font-weight: 700; }
+.kpi .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.kpi.clicavel { cursor: pointer; }
+.kpi.clicavel:hover { border-color: var(--accent); }
+.kpi .selo { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px;
+  border-radius: 99px; background: var(--bg3); color: var(--muted); margin-left: 6px;
+  vertical-align: middle; text-transform: uppercase; letter-spacing: .5px; }
+.kpi .barra { height: 6px; background: var(--bg3); border-radius: 99px; margin-top: 8px; overflow: hidden; }
+.kpi .barra > div { height: 100%; border-radius: 99px; background: var(--yellow); }
+.kpi .barra > div.ok { background: var(--green); }
+
 #dreMsg { padding: 40px; color: var(--muted); text-align: center; }
 
-/* ── Tabela DRE ── */
-.dre-wrap {
-  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
-  overflow-x: auto;
-}
-table.dre { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 400px; }
-
-table.dre th {
-  padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
+/* Tabela */
+.dre-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
+table.dre { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+table.dre th { padding: 10px 12px; text-align: right; font-size: 11px; font-weight: 600;
   color: var(--muted); border-bottom: 1px solid var(--border);
-  text-transform: uppercase; letter-spacing: .5px;
-}
-table.dre th:last-child { text-align: right; }
-
-table.dre td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+  text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+table.dre th.col-conta { text-align: left; }
+table.dre td { padding: 8px 12px; border-bottom: 1px solid var(--border);
+  text-align: right; white-space: nowrap; }
+table.dre td.col-conta { text-align: left; }
 table.dre tr:last-child td { border-bottom: none; }
+/* primeira coluna fixa no scroll horizontal */
+table.dre th.col-conta, table.dre td.col-conta { position: sticky; left: 0; background: var(--bg2); z-index: 1; }
+table.dre tr.grupo td.col-conta, table.dre tr.grupo th.col-conta { background: var(--bg3); }
+table.dre tr.subtotal td.col-conta { background: var(--bg3); }
 
-table.dre tr.grupo td { background: var(--bg3); font-weight: 700; font-size: 13.5px; }
-table.dre tr.grupo td:last-child { text-align: right; }
-
-table.dre tr.conta td:last-child { text-align: right; color: var(--muted); }
-
-table.dre tr.resultado td {
-  background: var(--bg3); font-weight: 700; font-size: 14px;
-  border-top: 2px solid var(--border);
-}
-table.dre tr.resultado td:last-child { text-align: right; }
-
+table.dre tr.grupo td { background: var(--bg3); font-weight: 700; font-size: 13px; cursor: pointer; }
+table.dre tr.grupo .chev { display: inline-block; width: 14px; color: var(--muted);
+  transition: transform .15s; }
+table.dre tr.grupo.aberto .chev { transform: rotate(90deg); }
+table.dre tr.conta td.col-conta { padding-left: 34px; color: var(--muted); }
+table.dre tr.conta td.valor-conta { cursor: pointer; text-decoration: underline dotted transparent; }
+table.dre tr.conta td.valor-conta:hover { text-decoration-color: var(--accent); color: var(--accent); }
+table.dre tr.subtotal td { background: var(--bg3); font-weight: 700; font-size: 13.5px;
+  border-top: 2px solid var(--border); }
+.margem { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.var { display: block; font-size: 10.5px; font-weight: 600; }
+.var.melhor { color: var(--green); }
+.var.pior { color: var(--red); }
+.var.neutro { color: var(--muted); }
+td.anom-ambar { background: var(--anom-ambar) !important; }
+td.anom-verm { background: var(--anom-verm) !important; }
 .valor-positivo { color: var(--green); }
 .valor-negativo { color: var(--red); }
+.col-parcial { opacity: .75; }
+
+/* Modal drill-down (usado na Task 6) */
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 50; }
+.modal-bg.aberto { display: flex; align-items: center; justify-content: center; }
+.modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+  width: min(720px, 92vw); max-height: 82vh; display: flex; flex-direction: column; }
+.modal-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px;
+  border-bottom: 1px solid var(--border); }
+.modal-head h2 { font-size: 15px; font-weight: 700; flex: 1; }
+.modal-head button { background: none; border: none; color: var(--muted); font-size: 20px;
+  cursor: pointer; line-height: 1; }
+.modal-body { overflow-y: auto; padding: 8px 18px 16px; }
+.modal-body table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.modal-body th { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .5px; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+.modal-body td { padding: 7px 6px; border-bottom: 1px solid var(--border); }
+.modal-body td.num, .modal-body th.num { text-align: right; white-space: nowrap; }
+.modal-body tr.soma td { font-weight: 700; border-bottom: none; }
+.modal-aviso { font-size: 12px; color: var(--yellow); padding: 6px 0; }
 </style>
 </head>
 <body>
@@ -116,7 +146,10 @@ table.dre tr.resultado td:last-child { text-align: right; }
     <button class="btn btn-ghost" id="btnSync" onclick="sincronizar()">Atualizar dados</button>
   </div>
 
-  <div id="dreMsg">Selecione o período e clique em "Ver DRE".</div>
+  <div class="banner-semcat" id="semCat"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div id="dreMsg">Carregando…</div>
   <div id="dreWrap" style="display:none" class="dre-wrap">
     <div id="dre"></div>
   </div>
@@ -124,112 +157,18 @@ table.dre tr.resultado td:last-child { text-align: right; }
 </div>
 </div>
 
+<div class="modal-bg" id="drillBg">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="drillTitulo"></h2>
+      <button onclick="fecharDrill()" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-body" id="drillBody"></div>
+  </div>
+</div>
+
 <script src="/js/financeiro/api.js"></script>
-<script>
-// ── Defaults: mês corrente ────────────────────────────────────────────────────
-(function () {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const ym = `${y}-${m}`;
-  document.getElementById('from').value = ym;
-  document.getElementById('to').value = ym;
-})();
-
-// ── Formatação BRL ────────────────────────────────────────────────────────────
-function fmt(v) {
-  return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
-function valorClass(v) {
-  return Number(v) >= 0 ? 'valor-positivo' : 'valor-negativo';
-}
-
-// ── Renderizar DRE ────────────────────────────────────────────────────────────
-async function carregar() {
-  const fromEl = document.getElementById('from');
-  const toEl = document.getElementById('to');
-  const btn = document.getElementById('btnCarregar');
-  const msg = document.getElementById('dreMsg');
-  const wrap = document.getElementById('dreWrap');
-
-  // Converter month input (YYYY-MM) para datas completas
-  const fromDate = fromEl.value ? fromEl.value + '-01' : '';
-  const toDate = toEl.value ? toEl.value + '-' + lastDayOf(toEl.value) : '';
-
-  if (!fromDate || !toDate) {
-    msg.textContent = 'Selecione o período.';
-    msg.style.display = '';
-    wrap.style.display = 'none';
-    return;
-  }
-
-  msg.textContent = 'Carregando...';
-  msg.style.display = '';
-  wrap.style.display = 'none';
-  btn.disabled = true;
-
-  try {
-    const dre = await FinAPI.dre(fromDate, toDate);
-    let html = '<table class="dre"><thead><tr><th>Conta</th><th>Total</th></tr></thead><tbody>';
-
-    for (const g of (dre.grupos || [])) {
-      const gClass = valorClass(g.total);
-      html += `<tr class="grupo"><td>${g.titulo}</td><td class="${gClass}">${fmt(g.total)}</td></tr>`;
-      for (const c of (g.contas || [])) {
-        html += `<tr class="conta"><td style="padding-left:28px">${c.codigo ? c.codigo + ' ' : ''}${c.nome}</td><td>${fmt(c.total)}</td></tr>`;
-      }
-    }
-
-    const resClass = valorClass(dre.resultado);
-    html += `<tr class="resultado"><td>RESULTADO</td><td class="${resClass}">${fmt(dre.resultado)}</td></tr>`;
-    html += '</tbody></table>';
-
-    document.getElementById('dre').innerHTML = html;
-    msg.style.display = 'none';
-    wrap.style.display = '';
-  } catch (e) {
-    msg.textContent = 'Erro ao carregar DRE: ' + e.message;
-    msg.style.display = '';
-    wrap.style.display = 'none';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// ── Sincronizar dados ─────────────────────────────────────────────────────────
-async function sincronizar() {
-  const btn = document.getElementById('btnSync');
-  const msg = document.getElementById('dreMsg');
-  const wrap = document.getElementById('dreWrap');
-
-  btn.disabled = true;
-  btn.textContent = 'Sincronizando...';
-  const prevDisplay = wrap.style.display;
-
-  try {
-    await FinAPI.sync();
-    btn.textContent = 'Sincronizado!';
-    await carregar();
-  } catch (e) {
-    msg.textContent = 'Erro ao sincronizar: ' + e.message;
-    msg.style.display = '';
-    wrap.style.display = 'none';
-  } finally {
-    btn.disabled = false;
-    setTimeout(() => { btn.textContent = 'Atualizar dados'; }, 2000);
-  }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function lastDayOf(ym) {
-  // ym = 'YYYY-MM'
-  const [y, m] = ym.split('-').map(Number);
-  return new Date(y, m, 0).getDate();
-}
-
-// Carregar automaticamente ao abrir
-carregar();
-</script>
+<script src="/js/financeiro/dre-analise.js"></script>
+<script src="/js/financeiro/dre-page.js"></script>
 </body>
 </html>
