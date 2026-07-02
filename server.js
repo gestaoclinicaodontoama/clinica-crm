@@ -28,6 +28,7 @@ const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
 const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
 const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/financeiro-sync');
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
+const { agruparParcelasPorMes } = require('./lib/financeiro/fluxo-futuro');
 // Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
 // buracos: o sync das 02h do dia 30 não cobre o dia 30 inteiro, e a partir do dia 1º a
 // janela nunca mais volta a sincronizar o mês anterior.
@@ -3560,6 +3561,9 @@ async function fetchInadimplentesBackground() {
     // Resumo financeiro POR PACIENTE (pago/vencido/futuro) — reusa os mesmos itens do /payment/list.
     try { await atualizarPacientesFinanceiro(allItems, today); }
     catch(e){ console.error('[pacientes_financeiro] erro:', e.message); }
+    // Recebíveis por mês de vencimento (24m) p/ a página A Receber / A Pagar — mesmos itens.
+    try { await atualizarRecebiveisMensais(allItems, today); }
+    catch(e){ console.error('[recebiveis_mensal] erro:', e.message); }
   } catch(e) {
     console.error('[Inadimplentes] Background refresh erro:', e.message);
   } finally {
@@ -3595,6 +3599,21 @@ async function atualizarPacientesFinanceiro(items, today) {
     if (error) throw new Error(error.message);
   }
   console.log(`[pacientes_financeiro] ${rows.length} pacientes atualizados`);
+}
+
+// Agrega o /payment/list por MÊS de vencimento (parcelas a vencer, 24m) →
+// fin_recebiveis_mensal. Range completo com zeros; upsert + limpeza do passado.
+async function atualizarRecebiveisMensais(items, today) {
+  const meses = agruparParcelasPorMes(items, today);
+  const agora = new Date().toISOString();
+  const rows = meses.map(m => ({ mes: m.mes + '-01', valor: m.valor, atualizado_em: agora }));
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase.from('fin_recebiveis_mensal').upsert(rows.slice(i, i + 500), { onConflict: 'mes' });
+    if (error) throw new Error(error.message);
+  }
+  const del = await supabase.from('fin_recebiveis_mensal').delete().lt('mes', rows[0].mes);
+  if (del.error) console.error('[recebiveis_mensal] limpeza falhou:', del.error.message);
+  console.log(`[recebiveis_mensal] ${rows.length} meses atualizados`);
 }
 
 // ========== AGENDAMENTO CLINICORP ==========
@@ -7478,21 +7497,31 @@ app.get('/api/financeiro/a-categorizar/resumo', requireAuth, requireFinanceiro, 
   res.json(data || []);
 });
 
-// Saúde 24m: a receber × a pagar por mês (fin_fluxo_futuro) + vencido a receber
+// Saúde 24m: a receber (parcelas por vencimento, fin_recebiveis_mensal, 24m) ×
+// a pagar (out_forecast do cash_flow, fin_fluxo_futuro, ~12m — a_pagar=null além
+// do horizonte que o Clinicorp fornece, para não parecer "zero contas").
 app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res) => {
-  const [fluxo, vencido] = await Promise.all([
+  const [receb, fluxo, vencido] = await Promise.all([
+    supabase.from('fin_recebiveis_mensal').select('mes,valor,atualizado_em').order('mes'),
     supabase.from('fin_fluxo_futuro').select('mes,a_receber,a_pagar,atualizado_em').order('mes'),
     supabase.rpc('fin_vencido_total'),
   ]);
+  if (receb.error) return res.status(500).json({ error: receb.error.message });
   if (fluxo.error) return res.status(500).json({ error: fluxo.error.message });
   if (vencido.error) return res.status(500).json({ error: vencido.error.message });
-  res.json({
-    meses: (fluxo.data || []).map(r => ({
-      mes: String(r.mes).slice(0, 7), a_receber: Number(r.a_receber), a_pagar: Number(r.a_pagar),
-    })),
-    vencido: Number(vencido.data || 0),
-    atualizado_em: (fluxo.data || [])[0]?.atualizado_em || null,
-  });
+  const pagarPorMes = new Map((fluxo.data || []).map(r => [String(r.mes).slice(0, 7), Number(r.a_pagar)]));
+  // Fallback: antes do 1º refresh dos recebíveis, usa o in_forecast antigo do fluxo
+  const meses = (receb.data || []).length
+    ? (receb.data || []).map(r => {
+        const ym = String(r.mes).slice(0, 7);
+        return { mes: ym, a_receber: Number(r.valor), a_pagar: pagarPorMes.has(ym) ? pagarPorMes.get(ym) : null };
+      })
+    : (fluxo.data || []).map(r => ({
+        mes: String(r.mes).slice(0, 7), a_receber: Number(r.a_receber), a_pagar: Number(r.a_pagar),
+      }));
+  const ts = [(receb.data || [])[0]?.atualizado_em, (fluxo.data || [])[0]?.atualizado_em]
+    .filter(Boolean).sort().pop() || null;
+  res.json({ meses, vencido: Number(vencido.data || 0), atualizado_em: ts });
 });
 
 // Classificar 1 lançamento. body: { conta_id, alcance: 'so_esta'|'todas', metodo, padrao }
@@ -7585,6 +7614,9 @@ app.post('/api/financeiro/sync', requireAuth, requireFinanceiro, async (req, res
     // fluxo futuro no mesmo botão; falha aqui não invalida o sync da DRE
     try { await syncFluxoFuturo(); }
     catch (e) { console.error('[fluxo-futuro] erro:', e.message); }
+    // recebíveis 24m (12 chamadas /payment/list) em background — guard interno
+    // impede execução concorrente; a página atualiza no próximo carregamento
+    fetchInadimplentesBackground().catch(e => console.error('[recebiveis-manual] erro:', e.message));
     res.json(r);
   }
   catch (e) { res.status(500).json({ error: e.message }); }

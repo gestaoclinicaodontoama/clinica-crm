@@ -49,6 +49,7 @@ th { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: va
 tr.ruim td { background: var(--ruim-bg); }
 td.dif-pos { color: var(--green); font-weight: 600; }
 td.dif-neg { color: var(--red); font-weight: 600; }
+td.sem-dado { color: var(--muted); }
 .vazio { padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
 @media (max-width: 700px) { .fin-wrap { padding: 12px; } .chart-wrap { height: 240px; } }
 </style>
@@ -63,17 +64,17 @@ td.dif-neg { color: var(--red); font-weight: 600; }
   <div class="fin-sub" id="atualizado"></div>
 
   <div class="kpis">
-    <div class="kpi"><div class="kpi-label">A receber</div><div class="kpi-valor" id="kpi-receber">—</div><div class="kpi-sub">parcelas a vencer contratadas</div></div>
-    <div class="kpi"><div class="kpi-label">A pagar</div><div class="kpi-valor" id="kpi-pagar">—</div><div class="kpi-sub">contas lançadas no Clinicorp</div></div>
-    <div class="kpi"><div class="kpi-label">Diferença</div><div class="kpi-valor" id="kpi-diferenca">—</div><div class="kpi-sub">receber − pagar</div></div>
+    <div class="kpi"><div class="kpi-label">A receber (24m)</div><div class="kpi-valor" id="kpi-receber">—</div><div class="kpi-sub">parcelas de pacientes a vencer</div></div>
+    <div class="kpi"><div class="kpi-label">A pagar</div><div class="kpi-valor" id="kpi-pagar">—</div><div class="kpi-sub" id="kpi-pagar-sub">contas lançadas no Clinicorp</div></div>
+    <div class="kpi"><div class="kpi-label">Diferença</div><div class="kpi-valor" id="kpi-diferenca">—</div><div class="kpi-sub" id="kpi-dif-sub">receber − pagar</div></div>
     <div class="kpi"><div class="kpi-label">Vencido a receber</div><div class="kpi-valor" id="kpi-vencido">—</div><div class="kpi-sub"><a href="/?page=inadimplentes">ver Inadimplentes →</a></div></div>
   </div>
 
-  <div class="nota">⚠️ As contas <b>a pagar</b> são lançadas com poucos meses de antecedência —
-  os meses mais distantes mostram menos saída do que realmente haverá. O lado
-  <b>a receber</b> (parcelas de pacientes) tem horizonte mais longo. O Clinicorp
-  fornece previsão de no máximo ~12 meses à frente — o painel mostra todo o
-  horizonte disponível.</div>
+  <div class="nota">⚠️ <b>A receber</b> = parcelas de pacientes por mês de vencimento (24 meses;
+  convênio pendente e entradas avulsas não entram). <b>A pagar</b> = contas lançadas no
+  Clinicorp, que fornece no máximo ~12 meses de previsão — meses além disso aparecem
+  com "—" (sem dado, não zero). Contas também costumam ser lançadas com pouca
+  antecedência: até dentro do horizonte, os meses distantes subestimam a saída.</div>
 
   <div class="card"><div class="chart-wrap"><canvas id="grafico"></canvas></div></div>
 

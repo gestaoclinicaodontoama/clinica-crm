@@ -83,6 +83,31 @@ Zero chamada Clinicorp ao vivo na página. Se a tabela estiver vazia (pré-prime
 4. **Nota fixa** sobre o horizonte assimétrico ("contas a pagar são lançadas com poucos meses de antecedência; meses distantes mostram menos saída do que haverá").
 5. Botão **"Atualizar dados"** → `POST /api/financeiro/sync` (padrão da DRE) + recarrega.
 
+## Fase 2 — receber em 24 meses de verdade (2026-07-02, pedido do Luiz no mesmo dia)
+
+O lado **a receber** deixou de usar o `in_forecast` do cash_flow (limitado a ~12m) e passou
+a vir das **parcelas do `/payment/list` agrupadas por mês de vencimento** — a mesma fonte
+do `pacientes_financeiro`, reaproveitando os MESMOS itens que o `fetchInadimplentesBackground`
+já baixa (zero chamadas extras à API):
+
+- Lib: `agruparParcelasPorMes(items, hojeISO)` → range completo `[mês corrente, +24m]` (25
+  entradas) com zeros; mesmos fallbacks de campo e critério de "recebida" do
+  `atualizarPacientesFinanceiro`; vencidas (due < hoje) ficam FORA (são o card Vencido).
+- Tabela: `fin_recebiveis_mensal (mes date pk, valor, atualizado_em)` — migração
+  `20260702110000`. Escrita por `atualizarRecebiveisMensais()` dentro do
+  `fetchInadimplentesBackground` (sync 02h + abrir Inadimplentes + botão da página).
+- Endpoint `/saude`: `a_receber` = fin_recebiveis_mensal (24m); `a_pagar` = fin_fluxo_futuro
+  (~12m), **null além do horizonte** (a UI mostra "—", não zero falso). Fallback: se
+  fin_recebiveis_mensal ainda estiver vazio, serve o comportamento antigo (in_forecast).
+- Botão "Atualizar dados": além do sync da DRE + fluxo, dispara `fetchInadimplentesBackground`
+  em background (fire-and-forget; guard `_inadimplentesRefreshing` impede concorrência —
+  são 12 chamadas /payment/list, por isso não é await).
+- Página: card A receber = 24m; A pagar e Diferença calculados só nos meses COM previsão de
+  saída (subtítulos dinâmicos); tabela com "—" nos meses sem dado de pagar; header mostra
+  o range real ("jul/26 → jul/28").
+- `fin_fluxo_futuro.a_receber` (in_forecast) continua sendo gravado (cross-check/fallback),
+  mas a página não o usa quando há recebíveis.
+
 ## Fora de escopo (registrado, não construído)
 
 - Drill conta a conta do a pagar (sem endpoint hoje).

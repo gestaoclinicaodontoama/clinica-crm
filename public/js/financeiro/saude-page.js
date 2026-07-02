@@ -6,17 +6,25 @@
   let chart = null;
 
   function render(d) {
+    // a_pagar pode ser null além do horizonte do Clinicorp (~12m): esses meses
+    // ficam fora do total de pagar e da diferença (não são "zero contas").
+    const comPagar = d.meses.filter(m => m.a_pagar != null);
     const receber = d.meses.reduce((s, m) => s + m.a_receber, 0);
-    const pagar = d.meses.reduce((s, m) => s + m.a_pagar, 0);
-    const dif = receber - pagar;
+    const pagar = comPagar.reduce((s, m) => s + m.a_pagar, 0);
+    const dif = comPagar.reduce((s, m) => s + m.a_receber - m.a_pagar, 0);
     $('kpi-receber').textContent = fmt(receber);
     $('kpi-pagar').textContent = fmt(pagar);
+    $('kpi-pagar-sub').textContent = comPagar.length && comPagar.length < d.meses.length
+      ? `contas lançadas — ${comPagar.length} meses com previsão` : 'contas lançadas no Clinicorp';
     $('kpi-diferenca').textContent = fmt(dif);
     $('kpi-diferenca').style.color = dif >= 0 ? 'var(--green)' : 'var(--red)';
+    $('kpi-dif-sub').textContent = comPagar.length && comPagar.length < d.meses.length
+      ? `nos ${comPagar.length} meses com previsão de saída` : 'receber − pagar';
     $('kpi-vencido').textContent = fmt(d.vencido);
     $('atualizado').textContent = d.atualizado_em
       ? 'Atualizado em ' + new Date(d.atualizado_em).toLocaleString('pt-BR') : '';
-    $('horizonte').textContent = d.meses.length ? `próximos ${d.meses.length} meses` : 'próximos meses';
+    $('horizonte').textContent = d.meses.length
+      ? `${rotulo(d.meses[0].mes)} → ${rotulo(d.meses[d.meses.length - 1].mes)}` : 'próximos meses';
 
     const vazio = !d.meses.length;
     $('vazio').style.display = vazio ? '' : 'none';
@@ -30,7 +38,7 @@
         labels: d.meses.map(m => rotulo(m.mes)),
         datasets: [
           { label: 'A receber', data: d.meses.map(m => m.a_receber), backgroundColor: css.getPropertyValue('--green').trim() },
-          { label: 'A pagar',   data: d.meses.map(m => m.a_pagar),   backgroundColor: css.getPropertyValue('--red').trim() },
+          { label: 'A pagar',   data: d.meses.map(m => m.a_pagar),   backgroundColor: css.getPropertyValue('--red').trim() }, // null = sem barra (fora do horizonte)
         ],
       },
       options: {
@@ -45,6 +53,10 @@
     });
 
     $('tbody').innerHTML = d.meses.map(m => {
+      if (m.a_pagar == null) {
+        return `<tr><td>${rotulo(m.mes)}</td><td>${fmt(m.a_receber)}</td>` +
+          `<td class="sem-dado">—</td><td class="sem-dado">—</td></tr>`;
+      }
       const md = m.a_receber - m.a_pagar;
       return `<tr class="${md < 0 ? 'ruim' : ''}"><td>${rotulo(m.mes)}</td><td>${fmt(m.a_receber)}</td>` +
         `<td>${fmt(m.a_pagar)}</td><td class="${md >= 0 ? 'dif-pos' : 'dif-neg'}">${fmt(md)}</td></tr>`;
