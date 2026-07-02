@@ -27,10 +27,16 @@ const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
 const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
 const { syncPeriodo: syncFinanceiro } = require('./sync/financeiro-sync');
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
-// Período do mês corrente em America/Sao_Paulo (evita virada de dia/mês por UTC).
+// Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
+// buracos: o sync das 02h do dia 30 não cobre o dia 30 inteiro, e a partir do dia 1º a
+// janela nunca mais volta a sincronizar o mês anterior.
 function _finMesCorrente() {
   const hojeBR = _finDataLocal(new Date().toISOString());  // 'YYYY-MM-DD' no fuso BR
-  return { from: hojeBR.slice(0, 8) + '01', to: hojeBR };
+  const [ano, mes] = hojeBR.slice(0, 7).split('-').map(Number);
+  const anoAnterior = mes === 1 ? ano - 1 : ano;
+  const mesAnterior = mes === 1 ? 12 : mes - 1;
+  const from = `${anoAnterior}-${String(mesAnterior).padStart(2, '0')}-01`;
+  return { from, to: hojeBR };
 }
 
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
