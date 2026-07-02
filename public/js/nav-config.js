@@ -95,6 +95,7 @@
 
     { id: 'financeiro-sec', label: 'Financeiro', icon: 'financeiro', roles: 'admin,gestor,financeiro,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes,mod_financeiro', items: [
       { slug: 'financeiro',    label: 'Financeiro (DRE)', roles: 'financeiro,mod_financeiro',                      mode: 'link', href: '/financeiro/' },
+      { slug: 'financeiro-saude', label: 'A Receber / A Pagar', roles: 'financeiro,mod_financeiro', mode: 'link', href: '/financeiro/saude/' },
       { slug: 'inadimplentes', label: 'Inadimplentes',    roles: 'admin,gestor,auxiliar_adm,mod_inadimplentes',    mode: 'spa', badge: { id: 'badge-inadimplentes', cls: 'inad-nav-badge' } },
       { slug: 'notas-fiscais', label: 'Notas Fiscais',    roles: 'admin,gestor,auxiliar_adm,mod_notas_fiscais',    mode: 'spa' },
     ]},
