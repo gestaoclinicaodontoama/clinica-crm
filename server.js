@@ -4511,7 +4511,17 @@ let _syncRunning = false;
 async function runGuardedSync(trigger) {
   if (_syncRunning) { console.log('[sync] já em execução — gatilho ignorado:', trigger); return null; }
   _syncRunning = true;
-  try { return await runClinicorpSync(trigger); }
+  try {
+    const result = await runClinicorpSync(trigger);
+    // CAPI Purchase dos leads que o sync avançou p/ Fechou (dedup via eventos_meta_enviados)
+    for (const id of (result?.leads_fechados_ids || [])) {
+      try {
+        const { data: lead } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
+        if (lead) await dispararConversaoMeta(lead);
+      } catch (e) { console.error('[sync-fechou] CAPI lead', id, ':', e.message); }
+    }
+    return result;
+  }
   finally { _syncRunning = false; }
 }
 

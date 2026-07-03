@@ -465,6 +465,54 @@ async function vincularLeads() {
   return n;
 }
 
+/** Avança para "Fechou" leads vinculados a orçamento APROVADO no Clinicorp.
+ *  Complementa (não substitui) o caminho manual: nunca rebaixa, ignora Fechou/Perdido,
+ *  preserva valor/data_fechamento já preenchidos pela CRC. Retorna os ids avançados
+ *  (o server dispara o CAPI Purchase deles após o sync). */
+const PRE_FECHOU = ['Novo', 'Em qualificação', 'Avaliação agendada', 'Compareceu', 'Em negociação'];
+async function avancarFechamentos() {
+  const orcs = await selectAll('orcamentos', 'lead_id, valor, valor_aprovado, data_fechamento',
+    q => q.eq('status', 'APPROVED').gt('valor_particular', 0)
+          .not('data_fechamento', 'is', null).not('lead_id', 'is', null));
+  const porLead = new Map(); // lead_id → orçamento aprovado mais recente
+  for (const o of orcs) {
+    const cur = porLead.get(o.lead_id);
+    if (!cur || String(o.data_fechamento) > String(cur.data_fechamento)) porLead.set(o.lead_id, o);
+  }
+  if (!porLead.size) { log('avancarFechamentos: nenhum orçamento aprovado vinculado'); return []; }
+
+  const ids = [...porLead.keys()];
+  const leads = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase.from('leads').select('id, status, valor, data_fechamento')
+      .in('id', ids.slice(i, i + 200)).in('status', PRE_FECHOU);
+    leads.push(...(data || []));
+  }
+
+  const avancados = [];
+  for (const lead of leads) {
+    const o = porLead.get(lead.id);
+    const patch = { status: 'Fechou', atualizado_em: new Date().toISOString() };
+    if (!lead.data_fechamento) {
+      const d = String(o.data_fechamento);
+      patch.data_fechamento = /T/.test(d) ? d : d + 'T12:00:00-03:00';
+    }
+    if (lead.valor == null) patch.valor = Number(o.valor_aprovado ?? o.valor) || null;
+    // .in('status', PRE_FECHOU) de novo no update: se a CRC mexeu no meio-tempo, não sobrescreve
+    const { error } = await supabase.from('leads').update(patch)
+      .eq('id', lead.id).in('status', PRE_FECHOU);
+    if (error) { log(`ERRO avancarFechamentos lead ${lead.id}: ${error.message}`); continue; }
+    await supabase.from('lead_eventos').insert({
+      lead_id: lead.id, tipo: 'status_mudou',
+      descricao: `Status: ${lead.status} → Fechou (automático — orçamento aprovado no Clinicorp)`,
+      metadata: { de: lead.status, para: 'Fechou', automatico: true },
+    });
+    avancados.push(lead.id);
+  }
+  log(`avancarFechamentos: ${avancados.length} lead(s) → Fechou`);
+  return avancados;
+}
+
 /** Casa a entrada (1º pagamento do paciente a partir da data do orçamento) nos orçamentos aprovados particulares. */
 async function syncEntradas() {
   log(`Buscando pagamentos do funil (${FUNIL_DIAS}d) para casar entradas...`);
@@ -900,6 +948,13 @@ async function runSync(trigger = 'agendado') {
   // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
   await step('leads_vinculados', async () => { result.steps.leads_vinculados = await vincularLeads(); });
 
+  // Fase 8b: avançar leads p/ Fechou quando o orçamento vinculado foi aprovado
+  await step('leads_fechados', async () => {
+    const ids = await avancarFechamentos();
+    result.steps.leads_fechados = ids.length;
+    result.leads_fechados_ids = ids; // o server dispara CAPI Purchase p/ estes
+  });
+
   // Fase 9: entradas (1º pagamento)
   await step('entradas', async () => { result.steps.entradas = await syncEntradas(); });
 
@@ -939,4 +994,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes, syncPrevencao };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, avancarFechamentos, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes, syncPrevencao };
