@@ -82,6 +82,12 @@ const _buildDeployedAt = new Date().toISOString();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '5531999999999').replace(/\D/g, '');
 const FUNIL = ['Novo', 'Em qualificação', 'Avaliação agendada', 'Compareceu', 'Em negociação', 'Fechou', 'Perdido'];
+// Sufixo p/ busca por telefone imune ao 9º dígito/DDI (WhatsApp grava wa_id sem o 9 em números antigos):
+// os 8 dígitos finais não mudam entre formatos. Retorna '' se a busca não parece telefone.
+const sufixoTelefoneBusca = q => {
+  const dig = String(q || '').replace(/\D/g, '');
+  return dig.length >= 8 ? dig.slice(-8) : '';
+};
 const CARTEIRAS = ['Comercial', 'Dra. Izabela'];
 const ESTADOS_FRIO = ['nunca_agendou', 'orcou_sem_fechar'];
 
@@ -663,7 +669,9 @@ app.get('/api/leads', requireAuth, rateLimit, async (req, res) => {
     if (etiqueta) query = query.contains('etiquetas', [etiqueta]);
     if (q) {
       const safe = q.replace(/[%_\\]/g, '\\$&');
-      query = query.or('nome.ilike.%' + safe + '%,telefone.ilike.%' + safe + '%,campanha.ilike.%' + safe + '%');
+      const suf = sufixoTelefoneBusca(q);
+      query = query.or('nome.ilike.%' + safe + '%,telefone.ilike.%' + safe + '%,campanha.ilike.%' + safe + '%'
+        + (suf ? ',telefone.ilike.%' + suf + '%' : ''));
     }
     const { data, error } = await query;
     if (error) throw error;
@@ -884,7 +892,8 @@ function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
   }
   if (q) {
     const safe = q.replace(/[%,()]/g, '');
-    qb = qb.or(`nome.ilike.%${safe}%,telefone.ilike.%${safe}%`);
+    const suf = sufixoTelefoneBusca(q);
+    qb = qb.or(`nome.ilike.%${safe}%,telefone.ilike.%${safe}%` + (suf ? `,telefone.ilike.%${suf}%` : ''));
   }
   if (crc)    qb = qb.eq('crc_agendamento_nome', crc);
   if (origem) qb = qb.eq('origem', origem);
@@ -967,7 +976,8 @@ function buildComercialColFilter(coluna, q, crc, countOnly = false) {
   }
   if (q) {
     const safe = q.replace(/[%,()]/g, '');
-    qb = qb.or(`nome.ilike.%${safe}%,telefone.ilike.%${safe}%`);
+    const suf = sufixoTelefoneBusca(q);
+    qb = qb.or(`nome.ilike.%${safe}%,telefone.ilike.%${safe}%` + (suf ? `,telefone.ilike.%${suf}%` : ''));
   }
   if (crc) qb = qb.eq('crc_comercial_nome', crc);
   return qb;

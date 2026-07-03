@@ -2738,7 +2738,11 @@ function filtrarChats() {
   const q = (document.getElementById('chat-search').value || '').toLowerCase();
   const crcFiltro = document.getElementById('filtro-crc').value;
   let base = _filtrarParaModo(chatLeads);
-  if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q) || (l.ultima_mensagem||'').toLowerCase().includes(q));
+  const qDig = q.replace(/\D/g, ''); // 8 dígitos finais casam mesmo quando o telefone foi salvo sem o 9º dígito
+  const qSuf = qDig.length >= 8 ? qDig.slice(-8) : '';
+  if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q)
+    || (qSuf && (l.telefone||'').replace(/\D/g, '').includes(qSuf))
+    || (l.ultima_mensagem||'').toLowerCase().includes(q));
   if (crcFiltro) base = base.filter(l => _chatMode === 'avaliacao' ? l.crc_comercial_id === crcFiltro : l.crc_agendamento_id === crcFiltro);
   if (_filtroNaoLidas) base = base.filter(l => _isUnread(l));
   if (_filtroVencendo && typeof estadoJanela === 'function') base = base.filter(l => estadoJanela(l.ultima_recebida_em).estado === 'fechando');
@@ -3815,10 +3819,13 @@ function fecharModalEncaminhar() {
 function encaminharFiltrar() {
   const q = (document.getElementById('encaminhar-busca').value || '').toLowerCase();
   const lista = document.getElementById('encaminhar-lista');
+  const qDig = q.replace(/\D/g, '');
+  const qSuf = qDig.length >= 8 ? qDig.slice(-8) : '';
   const leads = (chatLeads || []).filter(l => {
     if (chatLeadAtual && l.id === chatLeadAtual.id) return false;
     if (!q) return true;
-    return (l.nome || '').toLowerCase().includes(q) || (l.telefone || '').includes(q);
+    return (l.nome || '').toLowerCase().includes(q) || (l.telefone || '').includes(q)
+      || (qSuf && (l.telefone || '').replace(/\D/g, '').includes(qSuf));
   }).slice(0, 40);
   lista.innerHTML = leads.map(l => `
     <div onclick="confirmarEncaminhar(${l.id})" style="padding:8px 10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">

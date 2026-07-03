@@ -455,25 +455,13 @@ async function syncOrcamentos() {
   return rows.length;
 }
 
-/** Liga avaliações/orçamentos a leads por telefone normalizado (1 update por lead/tabela). */
+/** Liga avaliações/orçamentos/pacientes_sucesso a leads pela chave de telefone (RPC vincular_leads_funil).
+ *  Roda inteiro no Postgres: casa formatos mistos (DDI/9º dígito) e não sofre o limite de 1000 linhas do client. */
 async function vincularLeads() {
-  const { data: leads } = await supabase.from('leads').select('id, telefone');
-  const mapa = new Map(); // telefone → lead_id
-  for (const l of (leads || [])) {
-    const t = normalizarTelefone(l.telefone);
-    if (t && !mapa.has(t)) mapa.set(t, l.id);
-  }
-  if (!mapa.size) { log('vincularLeads: nenhum lead com telefone'); return 0; }
-
-  let n = 0;
-  for (const [t, lid] of mapa) {
-    for (const tabela of ['avaliacoes', 'orcamentos']) {
-      const { data, error } = await supabase.from(tabela)
-        .update({ lead_id: lid }).eq('telefone', t).is('lead_id', null).select('telefone');
-      if (!error && data) n += data.length;
-    }
-  }
-  log(`vincularLeads: ${n} linhas ligadas a leads`);
+  const { data, error } = await supabase.rpc('vincular_leads_funil');
+  if (error) { log(`ERRO vincularLeads: ${error.message}`); return 0; }
+  const n = (data?.avaliacoes || 0) + (data?.orcamentos || 0) + (data?.pacientes_sucesso || 0);
+  log(`vincularLeads: ${n} linhas ligadas (aval ${data?.avaliacoes || 0}, orc ${data?.orcamentos || 0}, pac_sucesso ${data?.pacientes_sucesso || 0})`);
   return n;
 }
 
