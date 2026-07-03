@@ -6609,6 +6609,18 @@ app.get('/api/marketing/visao-geral', requireAuth, requireRole('admin', 'gestor'
     let semCampanha = { total: 0, por_status: {} };
     (rpcQ || []).forEach(r => { if (r.campanha_id == null) semCampanha = { total: Number(r.total) || 0, por_status: r.por_status || {} }; else quali[r.campanha_id] = r; });
 
+    // 3b. Região por DDD do telefone (31=local, 33=regional, resto=fora) por anúncio.
+    const { data: rpcD, error: eD } = await supabase.rpc('marketing_ddd_regiao', { p_desde: ymd(dDesde), p_ate: ymd(dAte) });
+    if (eD) throw new Error(eD.message);
+    const dddZero = () => ({ local: 0, regional: 0, fora: 0, nd: 0 });
+    const dddMap = {};
+    let semCampanhaDdd = dddZero();
+    (rpcD || []).forEach(r => {
+      const o = { local: Number(r.ddd_local) || 0, regional: Number(r.ddd_regional) || 0, fora: Number(r.ddd_fora) || 0, nd: Number(r.ddd_nd) || 0 };
+      if (r.campanha_id == null) semCampanhaDdd = o; else dddMap[r.campanha_id] = o;
+    });
+    semCampanha.ddd = semCampanhaDdd;
+
     // 4. Resolve ad→campanha p/ anúncios que têm lead/receita mas não vieram nos insights
     // (sem entrega no período) via Graph ?ids= (lote de 50; resolve por id).
     const conhecidos = new Set(Object.keys(adInfo));
@@ -6632,16 +6644,18 @@ app.get('/api/marketing/visao-geral', requireAuth, requireRole('admin', 'gestor'
     const allAdIds = new Set([...Object.keys(adInfo), ...Object.keys(receita), ...Object.keys(quali)]);
     allAdIds.forEach(adId => {
       const info = adInfo[adId] || {}, rev = receita[adId] || {}, q = quali[adId] || { total: 0, por_status: {} };
+      const dd = dddMap[adId] || dddZero();
       const campId = info.campaign_id || ('ad:' + adId);
       const campNome = info.campaign_name || info.ad_name || adId;
-      if (!campMap[campId]) campMap[campId] = { campanha_id: campId, campanha_nome: campNome, resolvido: !!info.campaign_name, spend: 0, faturamento: 0, caixa: 0, total: 0, por_status: {}, anuncios: [] };
+      if (!campMap[campId]) campMap[campId] = { campanha_id: campId, campanha_nome: campNome, resolvido: !!info.campaign_name, spend: 0, faturamento: 0, caixa: 0, total: 0, por_status: {}, ddd: dddZero(), anuncios: [] };
       const c = campMap[campId];
       c.spend += info.spend || 0;
       c.faturamento += Number(rev.faturamento) || 0;
       c.caixa += Number(rev.caixa) || 0;
       c.total += Number(q.total) || 0;
       mergeStatus(c.por_status, q.por_status);
-      c.anuncios.push({ ad_id: adId, ad_name: info.ad_name || adId, spend: info.spend || 0, faturamento: Number(rev.faturamento) || 0, caixa: Number(rev.caixa) || 0, total: Number(q.total) || 0, por_status: q.por_status || {} });
+      c.ddd.local += dd.local; c.ddd.regional += dd.regional; c.ddd.fora += dd.fora; c.ddd.nd += dd.nd;
+      c.anuncios.push({ ad_id: adId, ad_name: info.ad_name || adId, spend: info.spend || 0, faturamento: Number(rev.faturamento) || 0, caixa: Number(rev.caixa) || 0, total: Number(q.total) || 0, por_status: q.por_status || {}, ddd: dd });
     });
     const campanhas = Object.values(campMap)
       .map(c => { c.roas = c.spend > 0 ? c.faturamento / c.spend : null; return c; })

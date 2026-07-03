@@ -27,12 +27,19 @@ function erro(el, msg) { const p = document.createElement('p'); p.style.color = 
 function _metrica(key) { const ms = (_data && _data.metricas) || []; return ms.find(m => m.key === key) || { key, status: [] }; }
 function _val(porStatus, key) { const st = _metrica(key).status || []; return st.reduce((s, x) => s + ((porStatus && porStatus[x]) || 0), 0); }
 function _roas(o) { return o.spend > 0 ? o.faturamento / o.spend : null; }
+// Fração de leads com DDD fora do 31 (33 + demais) sobre os leads com DDD conhecido.
+function _pctFora(o) {
+  const d = o.ddd || {};
+  const conhecido = (d.local || 0) + (d.regional || 0) + (d.fora || 0);
+  return conhecido > 0 ? ((d.regional || 0) + (d.fora || 0)) / conhecido : null;
+}
 function _sortVal(o, key) {
   if (key === 'total') return o.total;
   if (key === 'spend') return o.spend;
   if (key === 'faturamento') return o.faturamento;
   if (key === 'caixa') return o.caixa;
   if (key === 'roas') { const r = _roas(o); return r == null ? -1 : r; }
+  if (key === 'fora_regiao') { const p = _pctFora(o); return p == null ? -1 : p; }
   return _val(o.por_status, key);
 }
 
@@ -83,6 +90,16 @@ function _cellRoas(o) {
   const cls = r >= meta ? 'q-roas-bom' : 'q-roas-ruim';
   return `<td class="q-num q-money"><span class="${cls}">${r.toFixed(1)}x</span></td>`;
 }
+// Célula "% fora da região" (DDD ≠ 31). Verde <10%, vermelho ≥25%.
+function _cellFora(o) {
+  const p = _pctFora(o);
+  if (p == null) return `<td class="q-num"><span class="q-zero">·</span></td>`;
+  const d = o.ddd || {};
+  const pct = Math.round(p * 100);
+  const cls = pct >= 25 ? 'q-roas-ruim' : (pct < 10 ? 'q-roas-bom' : '');
+  const tip = `DDD 31 (local): ${d.local || 0} · DDD 33: ${d.regional || 0} · outros DDDs: ${d.fora || 0}` + (d.nd ? ` · sem DDD: ${d.nd}` : '');
+  return `<td class="q-num" title="${esc(tip)}"><span class="${cls}">${pct}%</span></td>`;
+}
 
 function render() {
   const d = _data; if (!d) return;
@@ -107,6 +124,7 @@ function render() {
     ${th('caixa', 'Caixa', 'q-num q-money', 'Caixa (entradas) — Ordenar')}
     ${th('roas', 'ROAS', 'q-num q-money')}
     ${th('total', 'Leads', 'q-num q-sep', 'Total de leads (e custo por lead) — Ordenar')}
+    ${th('fora_regiao', 'Fora reg.', 'q-num', '% de leads com DDD fora do 31 (33 + outros). Segmentação corrigida em 03/07/2026 para só moradores de Ipatinga — comparar antes/depois. — Ordenar')}
     ${Q_COLS.map(c => th(c.key, c.short, 'q-num' + (c.tom === 'ruim' ? ' q-bad-h' : ''), c.label + ' (e custo por ' + c.label.toLowerCase() + ') — Ordenar')).join('')}
   </tr></thead><tbody>`;
 
@@ -122,6 +140,7 @@ function render() {
       <td class="q-camp"><span class="q-caret" data-exp="${ci}">${exp ? '▾' : '▸'}</span><span class="q-name" title="${esc(c.campanha_nome)}">${esc(c.campanha_nome)}</span></td>
       ${moneyCells(c, JSON.stringify({ ci }))}
       ${leadsCell(c)}
+      ${_cellFora(c)}
       ${Q_COLS.map(col => _cellFunil(c, col, JSON.stringify({ ci }))).join('')}
     </tr>`;
     if (exp) (c.anuncios || []).forEach((a, ai) => {
@@ -129,6 +148,7 @@ function render() {
         <td class="q-camp q-ad"><span class="q-name" title="${esc(a.ad_name)}">↳ ${esc(a.ad_name)}</span></td>
         ${moneyCells(a, JSON.stringify({ ci, ai }))}
         ${leadsCell(a)}
+        ${_cellFora(a)}
         ${Q_COLS.map(col => _cellFunil(a, col, JSON.stringify({ ci, ai }))).join('')}
       </tr>`;
     });
@@ -138,6 +158,7 @@ function render() {
     <td class="q-camp"><span class="q-name">(sem campanha · orgânico/manual)</span></td>
     <td class="q-num q-money q-sep"><span class="q-zero">·</span></td><td class="q-num q-money"><span class="q-zero">·</span></td><td class="q-num q-money"><span class="q-zero">·</span></td><td class="q-num q-money"><span class="q-zero">·</span></td>
     <td class="q-num q-total q-sep">${sc.total}</td>
+    ${_cellFora(sc)}
     ${Q_COLS.map(col => _cellFunil(sc, col, JSON.stringify({ none: true }))).join('')}
   </tr>`;
 
