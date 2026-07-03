@@ -70,10 +70,37 @@
     .mkt-modal label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
     .mkt-modal input { width:100%; box-sizing:border-box; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:7px 9px; }
     .mkt-modal-acoes { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+    .q-scroll-hint { display:none; margin-bottom:8px; }
+
+    /* ───── Celular (≤768px, mesmo breakpoint da barra de navegação mobile) ───── */
+    @media (max-width: 768px) {
+      h1 { font-size:18px; }
+      .sub { font-size:12px; margin-bottom:12px; }
+      .q-scroll-hint { display:block; }
+      /* Controles: fáceis de tocar; fonte ≥16px evita o zoom automático do iOS ao focar. */
+      .mkt-controls { gap:8px; }
+      .mkt-controls label { display:flex; align-items:center; gap:6px; font-size:13px; }
+      .mkt-controls select, .mkt-controls input, .btn { font-size:16px; padding:9px 12px; }
+      #q-periodo { flex:1; }
+      .mkt-controls .btn { flex:1; text-align:center; }
+
+      /* Matriz: sem table-layout fixo (esmaga as colunas em tela estreita) — cada coluna
+         no tamanho natural, a tabela rola na horizontal e a coluna da campanha fica fixa. */
+      .q-matrix { table-layout:auto; width:max-content; min-width:100%; }
+      .q-th-camp { width:auto; }
+      .q-name { max-width:120px; }
+      .q-ad .q-name { max-width:104px; }
+      .q-matrix th.q-th-camp, .q-matrix td.q-camp {
+        position:sticky; left:0; z-index:2; box-shadow:6px 0 6px -6px rgba(0,0,0,.35);
+      }
+      .q-matrix td.q-camp { background:var(--bg2); }
+      .q-matrix tr.q-adrow td.q-camp { background:var(--bg3); }
+      .q-matrix thead th.q-th-camp { z-index:3; background:var(--bg3); }
+    }
   </style>
 </head>
 <body>
-  <div id="app" class="mkt-wrap">
+  <main id="app" class="mkt-wrap">
     <h1>📊 Agente de Marketing</h1>
     <p class="sub">Read-only · por campanha: gasto Meta × receita real do Clinicorp × qualidade do funil de leads. Cada número é clicável até o lead.</p>
 
@@ -95,9 +122,10 @@
     </div>
     <div class="mkt-cobertura" style="margin-bottom:6px">Cabeçalho ordena · ▸ abre os anúncios · clique numa etapa do funil → leads · clique em Faturam./Caixa → leads→pagamentos</div>
     <div id="q-cobertura" class="mkt-cobertura" style="margin-bottom:10px"></div>
+    <div class="q-scroll-hint mkt-cobertura">← deslize a tabela para ver todos os números →</div>
     <div id="q-lista"></div>
     <div id="q-drill" style="margin-top:12px"></div>
-  </div>
+  </main>
 
   <!-- Modal de parâmetros (substitui os prompt()) -->
   <div class="mkt-modal-bg" id="cfg-modal-bg">
