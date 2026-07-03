@@ -208,12 +208,28 @@ Dentro da rota, logo APÓS o bloco de `coletarEventosDebug` (que termina em `cat
     } catch (e) { console.error('❌ eco-app:', e.message); }
 ```
 
-- [ ] **Step 3: Verificar sintaxe e suíte**
+- [ ] **Step 3: Thread ordenada por tempo (pré-requisito do backfill)**
+
+O backfill (Task 4) insere ecos ANTIGOS com `id` NOVO. A thread hoje ordena por `id`
+(server.js ~linha 2152), o que jogaria esses ecos pro FIM da conversa. Trocar:
+
+```js
+    const { data, error } = await supabase.from('mensagens').select('*').eq('lead_id', id).order('id', { ascending: true });
+```
+por:
+```js
+    // criada_em primeiro: ecos backfillados têm id novo mas data antiga
+    const { data, error } = await supabase.from('mensagens').select('*').eq('lead_id', id)
+      .order('criada_em', { ascending: true }).order('id', { ascending: true });
+```
+(O caminho incremental `?after=N` continua por `id` — mensagens ao vivo chegam em ordem; só o carregamento completo precisa da ordem temporal.)
+
+- [ ] **Step 4: Verificar sintaxe e suíte**
 
 Run: `node --check server.js && npm test`
 Expected: sem erro de sintaxe; suíte verde.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server.js
@@ -368,8 +384,9 @@ language sql stable as $$
          floor(extract(epoch from (now() - m.criada_em)) / 60)::int,
          l.crc_agendamento_id
   from leads l
+  -- criada_em desc (não id): ecos backfillados têm id novo com data antiga
   join lateral (select direcao, criada_em from mensagens
-                where lead_id = l.id order by id desc limit 1) m on true
+                where lead_id = l.id order by criada_em desc, id desc limit 1) m on true
   where l.status in ('Novo','Em qualificação','Avaliação agendada','Compareceu','Em negociação')
     and coalesce(l.nao_ligar, false) = false
     and m.direcao = 'recebida'
@@ -407,13 +424,15 @@ language sql stable as $function$
     ur.criada_em AS ultima_recebida_em,
     l.nao_ligar
   FROM leads l
-  JOIN LATERAL (SELECT texto, direcao, criada_em, wa_number_id FROM mensagens WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) m ON true
+  -- criada_em DESC (não id): ecos backfillados têm id novo com data antiga —
+  -- por id, um eco velho viraria a "última mensagem" e afundaria a conversa
+  JOIN LATERAL (SELECT texto, direcao, criada_em, wa_number_id FROM mensagens WHERE lead_id = l.id ORDER BY criada_em DESC, id DESC LIMIT 1) m ON true
   JOIN LATERAL (SELECT COUNT(*) AS total FROM mensagens WHERE lead_id = l.id) c ON true
   LEFT JOIN LATERAL (
     SELECT criada_em FROM mensagens
     WHERE lead_id = l.id AND direcao = 'recebida'
       AND (sdr_phone IS NULL OR wa_number_id IS NULL OR wa_number_id = '' OR wa_number_id = sdr_phone)
-    ORDER BY id DESC LIMIT 1
+    ORDER BY criada_em DESC, id DESC LIMIT 1
   ) ur ON true
   ORDER BY l.conversa_fixada DESC, m.criada_em DESC;
 $function$;
@@ -461,7 +480,7 @@ git commit -m "feat(db): rpc conversas_aguardando + nao_ligar no preview + confi
 
 **Interfaces:**
 - Consumes: campos `ultima_mensagem_direcao`, `ultima_mensagem_em`, `status`, `nao_ligar` do payload de `/api/conversas` (Task 5).
-- Produces: `_isAguardando(l)`, `toggleFiltroAguardando()`, `_fmtEsperaMin(min)` (usados só aqui).
+- Produces: `_isAguardando(l)`, `toggleFiltroAguardando()`, `_fmtEsperaMs(ms)` (usados só aqui; o server tem `_fmtEsperaMin(min)` na Task 8 — nomes distintos de propósito, unidades diferentes).
 
 - [ ] **Step 1: Botão com badge ao lado do ⏳ (linha ~697)**
 
@@ -486,7 +505,7 @@ function _isAguardando(l) {
     && (Date.now() - new Date(l.ultima_mensagem_em).getTime()) >= AGUARDANDO_MIN * 60 * 1000;
 }
 
-function _fmtEsperaMin(ms) {
+function _fmtEsperaMs(ms) {
   const min = Math.floor(ms / 60000);
   return min >= 60 ? Math.floor(min / 60) + 'h' + String(min % 60).padStart(2, '0') : min + 'min';
 }
@@ -528,7 +547,7 @@ E junto dos outros filtros (após a linha do `_filtroSemCrc`):
 
 ```js
     const aguardaChip = _filtroAguardando && _isAguardando(l)
-      ? `<span style="font-size:9.5px;font-weight:700;color:#dc2626;background:rgba(239,68,68,.12);border-radius:4px;padding:1px 5px;white-space:nowrap">aguarda ${_fmtEsperaMin(Date.now() - new Date(l.ultima_mensagem_em).getTime())}</span>`
+      ? `<span style="font-size:9.5px;font-weight:700;color:#dc2626;background:rgba(239,68,68,.12);border-radius:4px;padding:1px 5px;white-space:nowrap">aguarda ${_fmtEsperaMs(Date.now() - new Date(l.ultima_mensagem_em).getTime())}</span>`
       : '';
 ```
 
@@ -668,7 +687,7 @@ setInterval(function() {
 }, 60000);
 ```
 
-⚠️ Conferir se já não existe outro `_fmtEsperaMin` no server (não existe hoje); se a Task 6 rodou antes, o dela é no front — sem conflito.
+⚠️ `_fmtEsperaMin` (server, recebe MINUTOS) ≠ `_fmtEsperaMs` (front/Task 6, recebe MS) — nomes e unidades distintos de propósito.
 
 - [ ] **Step 2: Verificar**
 
@@ -727,6 +746,16 @@ Ajustar temporariamente uma `hora` no JSON p/ um minuto à frente (via SQL), agu
 Adicionar à memória `pending_tests.md`: validar logado o filtro ⏰ (badge = nº de cards ao clicar), selo "via app/IA" nos balões, chip "sem dono" sumindo após responder pelo CRM, e as notificações de 17:30/18:00 chegando pra Maria/Paola com deep-link abrindo o filtro.
 
 ---
+
+## Review completo (2ª passada, 03/07 — verificado contra o código real)
+
+- 🐛 **CORRIGIDO — ordenação id×criada_em:** backfill insere ecos antigos com id novo. Laterais de `conversas_com_preview`/`conversas_aguardando` agora ordenam por `criada_em DESC, id DESC` (Task 5) e o fetch completo da thread por `criada_em, id` (Task 2 Step 3). Sem isso: eco velho viraria "última mensagem", conversa afundava na lista e ecos apareciam no fim da thread.
+- ✅ `.env` local tem `SUPABASE_URL`+`SUPABASE_SERVICE_ROLE_KEY` e `dotenv@16` está no package.json — backfill roda da raiz.
+- ✅ `chaveTelefone` já é importado no server.js (usado no webhook) — Tasks 2/4 não precisam de require novo no server.
+- ✅ `GET /api/leads/:id/mensagens` usa `select('*')` — `canal` chega ao front sem mudança de API (Task 3).
+- ✅ Renomeado `_fmtEsperaMin`→`_fmtEsperaMs` no front (unidades diferentes do helper do server).
+- ✅ Ecos são `direcao='enviada'` — não afetam `janela24hAberta` nem `ultima_recebida_em` (ambos filtram `recebida`).
+- Nota consciente: chips "aguarda"/"sem dono" só na visão lista (renderChatList); o kanban de conversas recebe o FILTRO ⏰ (base filtrada) mas não os chips — conforme spec.
 
 ## Self-review (feito na escrita)
 
