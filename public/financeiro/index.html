@@ -60,6 +60,18 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .kpi .selo { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px;
   border-radius: 99px; background: var(--bg3); color: var(--muted); margin-left: 6px;
   vertical-align: middle; text-transform: uppercase; letter-spacing: .5px; }
+.kpi .selo.selo-baixa { background: var(--anom-ambar); color: var(--yellow); }
+.aval-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; margin-bottom: 16px; }
+.aval-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.aval-titulo { font-size: 14px; font-weight: 700; flex: 1; }
+.aval-dica { font-size: 13px; color: var(--muted); }
+.aval-resumo { font-size: 13px; line-height: 1.55; margin-bottom: 10px; }
+.aval-lista { list-style: none; font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+.aval-lista li { padding: 3px 0; }
+.aval-sub { font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); font-weight: 600; margin: 8px 0 4px; }
+.aval-fatos { font-size: 11px; color: var(--muted); margin-top: 8px; }
 .kpi .barra { height: 6px; background: var(--bg3); border-radius: 99px; margin-top: 8px; overflow: hidden; }
 .kpi .barra > div { height: 100%; border-radius: 99px; background: var(--yellow); }
 .kpi .barra > div.ok { background: var(--green); }
@@ -148,6 +160,14 @@ td.anom-verm { background: var(--anom-verm) !important; }
 
   <div class="banner-semcat" id="semCat"></div>
   <div class="kpis" id="kpis"></div>
+
+  <div class="aval-card" id="avalCard" style="display:none">
+    <div class="aval-head">
+      <div class="aval-titulo">📝 Avaliação do consultor</div>
+      <button class="btn btn-ghost" id="btnAvaliar">📝 Gerar avaliação</button>
+    </div>
+    <div id="avalCorpo"></div>
+  </div>
 
   <div id="dreMsg">Carregando…</div>
   <div id="dreWrap" style="display:none" class="dre-wrap">

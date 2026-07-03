@@ -30,6 +30,7 @@ const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/finance
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
 const { agruparParcelasPorMes } = require('./lib/financeiro/fluxo-futuro');
 const _analiseParcelas = require('./lib/financeiro/analise-parcelas');
+const { montarFatos: _dreMontarFatos } = require('./lib/financeiro/avaliacao');
 // Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
 // buracos: o sync das 02h do dia 30 não cobre o dia 30 inteiro, e a partir do dia 1º a
 // janela nunca mais volta a sincronizar o mês anterior.
@@ -7502,6 +7503,62 @@ app.get('/api/financeiro/dre-mensal', requireAuth, requireFinanceiro, async (req
     meses: montarDREMensal(agg.data || [], from, to),
     sem_categoria: { qtd: Number(sc.qtd), total: Number(sc.total) },
   });
+});
+
+// Curva diária dos últimos 6 meses completos — calibra a projeção do mês corrente
+// (corrige o front-loading: despesas concentradas no início do mês explodiam a linear)
+app.get('/api/financeiro/curva-diaria', requireAuth, requireFinanceiro, async (req, res) => {
+  const hoje = _finDataLocal(new Date().toISOString());
+  const [y, m] = hoje.slice(0, 7).split('-').map(Number);
+  const ini = new Date(Date.UTC(y, m - 7, 1)).toISOString().slice(0, 10);  // 1º dia, 6 meses atrás
+  const fim = new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10);  // último dia do mês passado
+  const { data, error } = await supabase.rpc('fin_agg_diario', { p_from: ini, p_to: fim });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// Avaliação do consultor: fatos exatos (lib/financeiro/avaliacao) + leitura da IA.
+// Cache 24h por período em fin_dre_avaliacoes; ?force=1 regenera.
+app.get('/api/financeiro/avaliacao', requireAuth, requireFinanceiro, async (req, res) => {
+  const { from, to, force } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
+  const periodoKey = `${from}~${to}`;
+  try {
+    if (force !== '1') {
+      const { data: c } = await supabase.from('fin_dre_avaliacoes').select('*').eq('periodo', periodoKey).maybeSingle();
+      if (c && (Date.now() - new Date(c.atualizado_em).getTime()) < 24 * 3600e3)
+        return res.json({ fatos: c.fatos, texto: c.texto, atualizado_em: c.atualizado_em, cache: true });
+    }
+    // período + contexto (6 meses antes) + mesmos meses do ano anterior
+    const ultimoDiaMesAnterior = (iso) => { const [yy, mm] = iso.slice(0, 7).split('-').map(Number);
+      return new Date(Date.UTC(yy, mm - 1, 0)).toISOString().slice(0, 10); };
+    const primeiroDiaMenosN = (iso, n) => { const [yy, mm] = iso.slice(0, 7).split('-').map(Number);
+      return new Date(Date.UTC(yy, mm - 1 - n, 1)).toISOString().slice(0, 10); };
+    const menos1Ano = (iso, fimDeMes) => { const [yy, mm] = iso.slice(0, 7).split('-').map(Number);
+      return fimDeMes ? new Date(Date.UTC(yy - 1, mm, 0)).toISOString().slice(0, 10)
+        : `${yy - 1}${iso.slice(4)}`; };
+    const buscar = async (f, t) => {
+      const { data, error } = await supabase.rpc('fin_dre_agg_mensal', { p_from: f, p_to: t });
+      if (error) throw new Error(error.message);
+      return montarDREMensal(data || [], f, t);
+    };
+    const [periodo, contexto, anoAnterior] = await Promise.all([
+      buscar(from, to),
+      buscar(primeiroDiaMenosN(from, 6), ultimoDiaMesAnterior(from)),
+      buscar(menos1Ano(from, false), menos1Ano(to, true)),
+    ]);
+    // meses sem receita nenhuma no contexto/AA (antes do backfill) ficam fora das médias
+    const comDados = (ms) => ms.filter(m => (m.grupos || []).some(g => Math.abs(g.total) > 0.005));
+    const fatos = _dreMontarFatos({ periodo, contexto: comDados(contexto), anoAnterior: comDados(anoAnterior) });
+    let texto = null, textoErro = null;
+    try { texto = (await geminiLib().avaliarDRE({ fatos })).data; }
+    catch (e) { textoErro = e.message; console.error('[dre-avaliacao] IA falhou:', e.message); }
+    await supabase.from('fin_dre_avaliacoes').upsert({
+      periodo: periodoKey, fatos, texto, atualizado_em: new Date().toISOString(),
+    }, { onConflict: 'periodo' });
+    res.json({ fatos, texto, texto_erro: textoErro, atualizado_em: new Date().toISOString(), cache: false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Lançamentos filtráveis (página de até 2000)

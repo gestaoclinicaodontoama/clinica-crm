@@ -70,10 +70,19 @@
     wrap.style.display = 'none'; $('kpis').style.display = 'none';
     $('semCat').style.display = 'none'; btn.disabled = true;
     try {
+      // curva diária (6 meses) buscada uma vez por sessão — calibra a projeção
+      if (window._dreCurva === undefined) {
+        window._dreCurva = null;
+        FinAPI.curvaDiaria().then(rows => {
+          window._dreCurva = A.curvaDiaria(rows);
+          if (window._dreState && window.renderKpis) window.renderKpis(window._dreState);
+        }).catch(() => {});
+      }
       const r = await FinAPI.dreMensal(from, to);
       const hoje = new Date();
       const mesesCompletos = r.meses.filter(m => A.mesCompleto(m.ym, hoje));
       window._dreState = { meses: r.meses, semCat: r.sem_categoria, from, to, mesesCompletos };
+      if (window.prepararAvaliacao) window.prepararAvaliacao(from, to);
       renderSemCat(r.sem_categoria);
       renderTabela(window._dreState);
       if (window.renderKpis) window.renderKpis(window._dreState); // Task 6
@@ -311,12 +320,21 @@
     }
 
     if (mesCorrente) {
-      const p = A.projecaoMes(mesCorrente, mesesCompletos, hoje);
+      // Preferência: projeção calibrada pela curva histórica do dia do mês
+      // (realizado ÷ fração histórica de cada lado — corrige o front-loading
+      // das despesas que explodia a projeção linear no início do mês).
+      const pc = A.projecaoMesCurva(mesCorrente, window._dreCurva || null, hoje);
+      const p = pc || A.projecaoMes(mesCorrente, mesesCompletos, hoje);
       if (p) {
-        cards.push(`<div class="kpi" title="Receita linear por dia corrido; variáveis pelo % histórico; fixas pela ${p.fixasAproximada ? 'projeção linear do próprio mês (aproximada)' : 'média dos meses completos'}. Financeiras/investimentos fora.">
-          <div class="kpi-label">Projeção ${fmtMes(mesCorrente.ym)}<span class="selo">projeção</span></div>
+        const titulo = pc
+          ? `Calibrada pelo padrão dos últimos ${window._dreCurva.meses} meses: até o dia ${hoje.getDate()} historicamente entrou ${(pc.fracReceita * 100).toFixed(0)}% da receita e saiu ${(pc.fracSaida * 100).toFixed(0)}% da despesa do mês. Financeiras/investimentos fora.`
+          : `Receita linear por dia corrido; variáveis pelo % histórico; fixas pela ${p.fixasAproximada ? 'projeção linear do próprio mês (aproximada)' : 'média dos meses completos'}. Financeiras/investimentos fora.`;
+        const seloConf = (pc && pc.confianca === 'baixa')
+          ? '<span class="selo selo-baixa">início do mês — baixa confiança</span>' : '<span class="selo">projeção</span>';
+        cards.push(`<div class="kpi" title="${escHtml(titulo)}">
+          <div class="kpi-label">Projeção ${fmtMes(mesCorrente.ym)}${seloConf}</div>
           <div class="kpi-valor ${valorClass(p.resultadoProj)}">${fmt(p.resultadoProj)}</div>
-          <div class="kpi-sub">receita proj. ${fmt(p.receitaProj)}</div></div>`);
+          <div class="kpi-sub">receita proj. ${fmt(p.receitaProj)}${pc ? ' · saída proj. ' + fmt(pc.saidaProj) : ''}</div></div>`);
       }
     }
 
@@ -386,6 +404,59 @@
       body.innerHTML = `<p style="padding:20px;color:var(--red)">Erro: ${escHtml(e.message)}</p>`;
     }
   }
+
+  // ── Avaliação do consultor ──────────────────────────────────────────────────
+  let _avalPeriodo = null;
+  window.prepararAvaliacao = function prepararAvaliacao(from, to) {
+    _avalPeriodo = { from, to };
+    const card = $('avalCard');
+    if (!card) return;
+    card.style.display = '';
+    $('avalCorpo').innerHTML = '<div class="aval-dica">Clique em "Gerar avaliação" para uma leitura de consultor deste período (fatos calculados + análise da IA).</div>';
+    $('btnAvaliar').textContent = '📝 Gerar avaliação';
+    $('btnAvaliar').dataset.force = '';
+  };
+
+  function renderAvaliacao(r) {
+    const f = r.fatos || {};
+    const fmtPct100 = (v) => v == null ? '—' : (v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
+    let html = '';
+    if (r.texto) {
+      html += `<p class="aval-resumo">${escHtml(r.texto.resumo)}</p>`;
+      html += '<ul class="aval-lista">' + (r.texto.pontos || []).map(p => `<li>${escHtml(p)}</li>`).join('') + '</ul>';
+      if ((r.texto.recomendacoes || []).length) {
+        html += '<div class="aval-sub">Recomendações</div><ul class="aval-lista">' +
+          r.texto.recomendacoes.map(p => `<li>💡 ${escHtml(p)}</li>`).join('') + '</ul>';
+      }
+    } else {
+      html += `<div class="aval-dica">⚠️ IA indisponível${r.texto_erro ? ` (${escHtml(r.texto_erro)})` : ''} — seguem os fatos calculados:</div>`;
+    }
+    const fatosLinha = [];
+    if (f.margem != null) fatosLinha.push(`margem ${fmtPct100(f.margem)}`);
+    if (f.vsContexto?.margemPontosPct != null) fatosLinha.push(`${f.vsContexto.margemPontosPct >= 0 ? '+' : ''}${f.vsContexto.margemPontosPct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}pp vs média 6m`);
+    if (f.anoAnterior?.crescimentoReceitaPct != null) fatosLinha.push(`receita ${fmtPct100(f.anoAnterior.crescimentoReceitaPct)} vs ano anterior`);
+    if (f.pontoEquilibrio?.folgaPct != null) fatosLinha.push(`folga sobre o PE ${fmtPct100(f.pontoEquilibrio.folgaPct)}`);
+    if (fatosLinha.length) html += `<div class="aval-fatos">📐 Fatos: ${escHtml(fatosLinha.join(' · '))}</div>`;
+    if (r.cache) html += `<div class="aval-fatos">avaliação em cache de ${new Date(r.atualizado_em).toLocaleString('pt-BR')} — clique em Reavaliar para regenerar</div>`;
+    $('avalCorpo').innerHTML = html;
+    $('btnAvaliar').textContent = '🔄 Reavaliar';
+    $('btnAvaliar').dataset.force = '1';
+  }
+
+  const btnAval = $('btnAvaliar');
+  if (btnAval) btnAval.addEventListener('click', async () => {
+    if (!_avalPeriodo) return;
+    btnAval.disabled = true;
+    const rotulo = btnAval.textContent;
+    btnAval.textContent = 'Avaliando…';
+    $('avalCorpo').innerHTML = '<div class="aval-dica">Calculando fatos e consultando a IA…</div>';
+    try { renderAvaliacao(await FinAPI.avaliacao(_avalPeriodo.from, _avalPeriodo.to, btnAval.dataset.force === '1')); }
+    catch (e) {
+      $('avalCorpo').innerHTML = `<div class="aval-dica">Erro: ${escHtml(e.message)}</div>`;
+      btnAval.textContent = rotulo;
+    }
+    finally { btnAval.disabled = false; }
+  });
 
   window.carregar();
 })();

@@ -121,8 +121,58 @@
     return top;
   }
 
+  // Curva média dos meses completos: fração ACUMULADA da receita/saída do mês
+  // já realizada até cada dia (1..31). rows = saída da RPC fin_agg_diario.
+  // Corrige o front-loading (despesas concentradas no início do mês) que fazia
+  // a projeção linear explodir nos primeiros dias.
+  function curvaDiaria(rows) {
+    const porMes = new Map();
+    for (const r of (rows || [])) {
+      if (!porMes.has(r.ym)) porMes.set(r.ym, []);
+      porMes.get(r.ym).push({ dia: Number(r.dia), receita: Number(r.receita), saida: Number(r.saida) });
+    }
+    const listasR = [], listasS = [];
+    let meses = 0;
+    for (const dias of porMes.values()) {
+      const totR = dias.reduce((s, d) => s + d.receita, 0);
+      const totS = dias.reduce((s, d) => s + d.saida, 0);
+      if (totR <= ZERO && totS <= ZERO) continue;
+      meses++;
+      const byDia = new Map(dias.map(d => [d.dia, d]));
+      let accR = 0, accS = 0;
+      for (let d = 1; d <= 31; d++) {
+        const x = byDia.get(d);
+        if (x) { accR += x.receita; accS += x.saida; }
+        if (totR > ZERO) (listasR[d - 1] = listasR[d - 1] || []).push(accR / totR);
+        if (totS > ZERO) (listasS[d - 1] = listasS[d - 1] || []).push(accS / totS);
+      }
+    }
+    if (!meses) return null;
+    const avg = (listas) => Array.from({ length: 31 }, (_, i) =>
+      (listas[i] && listas[i].length) ? listas[i].reduce((s, v) => s + v, 0) / listas[i].length : null);
+    return { receita: avg(listasR), saida: avg(listasS), meses };
+  }
+
+  // Projeção calibrada: realizado ÷ fração histórica até o dia D (cada lado com
+  // a sua curva). Confiança baixa nos primeiros dias / frações minúsculas.
+  function projecaoMesCurva(mesParcial, curva, hoje) {
+    if (!curva) return null;
+    const d = Math.min(hoje.getDate(), 31);
+    const fr = curva.receita[d - 1], fs = curva.saida[d - 1];
+    if (fr == null || fs == null) return null;
+    const MIN = 0.03; // piso: fração ínfima multiplicaria o realizado por >33x
+    const receitaAtual = somaGrupos(mesParcial, ['1']);
+    const saidaAtual = Math.abs(somaGrupos(mesParcial, VARIAVEIS)) + Math.abs(somaGrupos(mesParcial, FIXAS));
+    const receitaProj = receitaAtual / Math.max(fr, MIN);
+    const saidaProj = saidaAtual / Math.max(fs, MIN);
+    const confianca = (d <= 5 || fr < 0.15 || fs < 0.15) ? 'baixa' : 'alta';
+    return { receitaProj, saidaProj, resultadoProj: receitaProj - saidaProj,
+      confianca, fracReceita: fr, fracSaida: fs, metodo: 'curva' };
+  }
+
   const api = { VARIAVEIS, FIXAS, somaGrupos, subtotais, av, variacao, classeVariacao,
-    mesCompleto, media, nivelAnomalia, pontoEquilibrio, projecaoMes, maiorDesvio };
+    mesCompleto, media, nivelAnomalia, pontoEquilibrio, projecaoMes, maiorDesvio,
+    curvaDiaria, projecaoMesCurva };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.DREAnalise = api;
 })(typeof window !== 'undefined' ? window : globalThis);
