@@ -412,9 +412,11 @@
     const card = $('avalCard');
     if (!card) return;
     card.style.display = '';
-    $('avalCorpo').innerHTML = '<div class="aval-dica">Clique em "Gerar avaliação" para uma leitura de consultor deste período (fatos calculados + análise da IA).</div>';
+    $('avalCorpo').innerHTML = '<div class="aval-dica">Clique em "Gerar avaliação" para uma leitura de consultor deste período (fatos calculados + análise da IA) — ou pergunte algo específico abaixo.</div>';
     $('btnAvaliar').textContent = '📝 Gerar avaliação';
     $('btnAvaliar').dataset.force = '';
+    $('avalRespostas').innerHTML = '';
+    $('avalPergunta').value = '';
   };
 
   function renderAvaliacao(r) {
@@ -457,6 +459,29 @@
     }
     finally { btnAval.disabled = false; }
   });
+
+  async function perguntar() {
+    const inp = $('avalPergunta'), btn = $('btnPerguntar');
+    const pergunta = (inp.value || '').trim();
+    if (!pergunta || !_avalPeriodo) return;
+    btn.disabled = true; inp.disabled = true; btn.textContent = 'Pensando…';
+    const bloco = document.createElement('div');
+    bloco.className = 'aval-qa';
+    bloco.innerHTML = `<div class="q">❓ ${escHtml(pergunta)}</div><div class="a">Consultando…</div>`;
+    $('avalRespostas').prepend(bloco);
+    try {
+      const r = await FinAPI.perguntarDRE(_avalPeriodo.from, _avalPeriodo.to, pergunta);
+      bloco.querySelector('.a').textContent = r.resposta;
+      inp.value = '';
+    } catch (e) {
+      bloco.querySelector('.a').textContent = 'Erro: ' + e.message;
+    } finally { btn.disabled = false; inp.disabled = false; btn.textContent = 'Perguntar'; inp.focus(); }
+  }
+  const btnPerg = $('btnPerguntar');
+  if (btnPerg) {
+    btnPerg.addEventListener('click', perguntar);
+    $('avalPergunta').addEventListener('keydown', (e) => { if (e.key === 'Enter') perguntar(); });
+  }
 
   window.carregar();
 })();

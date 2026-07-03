@@ -28,6 +28,7 @@ window.FinAPI = {
   saude: () => api('/api/financeiro/saude'),
   curvaDiaria: () => api('/api/financeiro/curva-diaria'),
   avaliacao: (from, to, force) => api(`/api/financeiro/avaliacao?from=${from}&to=${to}${force ? '&force=1' : ''}`),
+  perguntarDRE: (from, to, pergunta) => api(`/api/financeiro/avaliacao?from=${from}&to=${to}&pergunta=${encodeURIComponent(pergunta)}`),
   classificar: (id, body) => api(`/api/financeiro/lancamentos/${id}/classificar`, { method: 'POST', body: JSON.stringify(body) }),
   contas: () => api('/api/financeiro/contas'),
   regras: () => api('/api/financeiro/regras'),

@@ -72,6 +72,14 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .aval-sub { font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
   color: var(--muted); font-weight: 600; margin: 8px 0 4px; }
 .aval-fatos { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.aval-pergunta { display: flex; gap: 8px; margin-top: 12px; }
+.aval-pergunta input { flex: 1; padding: 7px 10px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 13px; background: var(--bg3); color: var(--text);
+  font-family: inherit; outline: none; }
+.aval-pergunta input:focus { border-color: var(--accent); }
+.aval-qa { margin-top: 10px; padding: 10px 12px; border-radius: 10px;
+  background: var(--bg3); font-size: 13px; line-height: 1.55; }
+.aval-qa .q { font-weight: 600; margin-bottom: 6px; }
 .kpi .barra { height: 6px; background: var(--bg3); border-radius: 99px; margin-top: 8px; overflow: hidden; }
 .kpi .barra > div { height: 100%; border-radius: 99px; background: var(--yellow); }
 .kpi .barra > div.ok { background: var(--green); }
@@ -167,6 +175,12 @@ td.anom-verm { background: var(--anom-verm) !important; }
       <button class="btn btn-ghost" id="btnAvaliar">📝 Gerar avaliação</button>
     </div>
     <div id="avalCorpo"></div>
+    <div class="aval-pergunta">
+      <input type="text" id="avalPergunta" maxlength="300"
+        placeholder='Pergunte algo específico deste período — ex.: "por que o custo de material subiu?"'>
+      <button class="btn btn-ghost" id="btnPerguntar">Perguntar</button>
+    </div>
+    <div id="avalRespostas"></div>
   </div>
 
   <div id="dreMsg">Carregando…</div>

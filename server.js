@@ -30,7 +30,7 @@ const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/finance
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
 const { agruparParcelasPorMes } = require('./lib/financeiro/fluxo-futuro');
 const _analiseParcelas = require('./lib/financeiro/analise-parcelas');
-const { montarFatos: _dreMontarFatos } = require('./lib/financeiro/avaliacao');
+const { montarFatos: _dreMontarFatos, contasDetalhadas: _dreContasDetalhadas } = require('./lib/financeiro/avaliacao');
 // Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
 // buracos: o sync das 02h do dia 30 não cobre o dia 30 inteiro, e a partir do dia 1º a
 // janela nunca mais volta a sincronizar o mês anterior.
@@ -7520,12 +7520,14 @@ app.get('/api/financeiro/curva-diaria', requireAuth, requireFinanceiro, async (r
 // Avaliação do consultor: fatos exatos (lib/financeiro/avaliacao) + leitura da IA.
 // Cache 24h por período em fin_dre_avaliacoes; ?force=1 regenera.
 app.get('/api/financeiro/avaliacao', requireAuth, requireFinanceiro, async (req, res) => {
-  const { from, to, force } = req.query;
+  const { from, to, force, pergunta } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
+  if (pergunta != null && (!String(pergunta).trim() || String(pergunta).length > 300))
+    return res.status(400).json({ error: 'pergunta vazia ou longa demais (máx. 300 caracteres)' });
   const periodoKey = `${from}~${to}`;
   try {
-    if (force !== '1') {
+    if (!pergunta && force !== '1') {
       const { data: c } = await supabase.from('fin_dre_avaliacoes').select('*').eq('periodo', periodoKey).maybeSingle();
       if (c && (Date.now() - new Date(c.atualizado_em).getTime()) < 24 * 3600e3)
         return res.json({ fatos: c.fatos, texto: c.texto, atualizado_em: c.atualizado_em, cache: true });
@@ -7550,7 +7552,14 @@ app.get('/api/financeiro/avaliacao', requireAuth, requireFinanceiro, async (req,
     ]);
     // meses sem receita nenhuma no contexto/AA (antes do backfill) ficam fora das médias
     const comDados = (ms) => ms.filter(m => (m.grupos || []).some(g => Math.abs(g.total) > 0.005));
-    const fatos = _dreMontarFatos({ periodo, contexto: comDados(contexto), anoAnterior: comDados(anoAnterior) });
+    const ctxOk = comDados(contexto);
+    const fatos = _dreMontarFatos({ periodo, contexto: ctxOk, anoAnterior: comDados(anoAnterior) });
+    // Pergunta livre: responde com fatos + TODAS as contas (sem cache — custa centavos)
+    if (pergunta) {
+      const contas = _dreContasDetalhadas(periodo, ctxOk);
+      const { data } = await geminiLib().perguntarDRE({ fatos, contas, pergunta });
+      return res.json({ resposta: data.resposta });
+    }
     let texto = null, textoErro = null;
     try { texto = (await geminiLib().avaliarDRE({ fatos })).data; }
     catch (e) { textoErro = e.message; console.error('[dre-avaliacao] IA falhou:', e.message); }
