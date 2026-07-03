@@ -50,6 +50,14 @@ tr.ruim td { background: var(--ruim-bg); }
 td.dif-pos { color: var(--green); font-weight: 600; }
 td.dif-neg { color: var(--red); font-weight: 600; }
 td.sem-dado { color: var(--muted); }
+tr.em-andamento td { color: var(--muted); font-style: italic; }
+.card h2 { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+.grid-analises { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.exp-linha { display: flex; justify-content: space-between; padding: 7px 0; font-size: 13px;
+  border-bottom: 1px solid var(--border); }
+.exp-linha.exp-dest b { color: var(--green); font-size: 15px; }
+.exp-nota { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
 .vazio { padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
 @media (max-width: 700px) { .fin-wrap { padding: 12px; } .chart-wrap { height: 240px; } }
 </style>
@@ -82,7 +90,33 @@ td.sem-dado { color: var(--muted); }
       <thead><tr><th>Mês</th><th>A receber</th><th>A pagar</th><th>Diferença</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
+    <div class="fin-sub" id="nota-atual" style="display:none">* mês em andamento — fica fora dos totais, do gráfico e da diferença.</div>
     <div class="vazio" id="vazio" style="display:none">Sem dados ainda — clique em "🔄 Atualizar dados" para buscar do Clinicorp.</div>
+  </div>
+
+  <div class="card" id="sec-tendencia" style="display:none">
+    <h2>📈 Tendência da carteira</h2>
+    <div class="chart-wrap"><canvas id="grafico-tendencia"></canvas></div>
+    <div class="fin-sub" id="tendencia-resumo"></div>
+  </div>
+
+  <div class="grid-analises" id="sec-analises" style="display:none">
+    <div class="card">
+      <h2>🧮 Expectativa de recebimento</h2>
+      <div id="expectativa"></div>
+    </div>
+    <div class="card">
+      <h2>⏳ Vencido por idade</h2>
+      <table id="aging-tabela"></table>
+    </div>
+    <div class="card">
+      <h2>👥 Maiores carteiras (pagador)</h2>
+      <table id="top-tabela"></table>
+    </div>
+    <div class="card">
+      <h2>🔄 Renovação da carteira (12m)</h2>
+      <div class="chart-wrap"><canvas id="grafico-renovacao"></canvas></div>
+    </div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>

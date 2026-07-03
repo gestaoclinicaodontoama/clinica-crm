@@ -29,6 +29,7 @@ const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
 const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/financeiro-sync');
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
 const { agruparParcelasPorMes } = require('./lib/financeiro/fluxo-futuro');
+const _analiseParcelas = require('./lib/financeiro/analise-parcelas');
 // Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
 // buracos: o sync das 02h do dia 30 não cobre o dia 30 inteiro, e a partir do dia 1º a
 // janela nunca mais volta a sincronizar o mês anterior.
@@ -3564,6 +3565,11 @@ async function fetchInadimplentesBackground() {
     // Recebíveis por mês de vencimento (24m) p/ a página A Receber / A Pagar — mesmos itens.
     try { await atualizarRecebiveisMensais(allItems, today); }
     catch(e){ console.error('[recebiveis_mensal] erro:', e.message); }
+    // Análises da carteira (aging, taxa de perda, renovação, top, retroativo) + snapshot do dia.
+    try { await atualizarAnalisesSaude(allItems, today); }
+    catch(e){ console.error('[saude_analises] erro:', e.message); }
+    try { await gravarSnapshotSaude(today); }
+    catch(e){ console.error('[saude_snapshot] erro:', e.message); }
   } catch(e) {
     console.error('[Inadimplentes] Background refresh erro:', e.message);
   } finally {
@@ -3614,6 +3620,44 @@ async function atualizarRecebiveisMensais(items, today) {
   const del = await supabase.from('fin_recebiveis_mensal').delete().lt('mes', rows[0].mes);
   if (del.error) console.error('[recebiveis_mensal] limpeza falhou:', del.error.message);
   console.log(`[recebiveis_mensal] ${rows.length} meses atualizados`);
+}
+
+// Análises da carteira p/ a página A Receber / A Pagar (1 linha JSON, sobrescrita).
+async function atualizarAnalisesSaude(items, today) {
+  const dados = {
+    aging: _analiseParcelas.agingVencido(items, today),
+    perda: _analiseParcelas.taxaPerda(items, today),
+    renovacao: _analiseParcelas.novasERecebidasPorMes(items, today, 12),
+    top: _analiseParcelas.topPagadores(items, today, 10),
+    retroativo: _analiseParcelas.carteiraRetroativa(items, today, 24),
+  };
+  const { error } = await supabase.from('fin_saude_analises')
+    .upsert({ id: 1, dados, atualizado_em: new Date().toISOString() }, { onConflict: 'id' });
+  if (error) throw new Error(error.message);
+  console.log('[saude_analises] atualizadas');
+}
+
+// Snapshot diário dos totais A PARTIR DO MÊS SEGUINTE ao vigente (o mês corrente
+// é parcial — contas pagas saem do forecast e distorcem a tendência).
+async function gravarSnapshotSaude(today) {
+  const proxMes = (() => { let [y, m] = today.slice(0, 7).split('-').map(Number);
+    m++; if (m > 12) { m = 1; y++; } return `${y}-${String(m).padStart(2, '0')}-01`; })();
+  const [receb, fluxo, vencido] = await Promise.all([
+    supabase.from('fin_recebiveis_mensal').select('valor').gte('mes', proxMes),
+    supabase.from('fin_fluxo_futuro').select('a_pagar').gte('mes', proxMes),
+    supabase.rpc('fin_vencido_total'),
+  ]);
+  if (receb.error || fluxo.error || vencido.error)
+    throw new Error((receb.error || fluxo.error || vencido.error).message);
+  const receber = (receb.data || []).reduce((s, r) => s + Number(r.valor), 0);
+  const pagar = (fluxo.data || []).reduce((s, r) => s + Number(r.a_pagar), 0);
+  const { error } = await supabase.from('fin_saude_snapshots').upsert({
+    data: today, receber: Math.round(receber * 100) / 100, pagar: Math.round(pagar * 100) / 100,
+    resultado: Math.round((receber - pagar) * 100) / 100,
+    vencido: Number(vencido.data || 0), origem: 'diario',
+  }, { onConflict: 'data' });
+  if (error) throw new Error(error.message);
+  console.log(`[saude_snapshot] ${today}: receber ${Math.round(receber)} × pagar ${Math.round(pagar)}`);
 }
 
 // ========== AGENDAMENTO CLINICORP ==========
@@ -7501,10 +7545,12 @@ app.get('/api/financeiro/a-categorizar/resumo', requireAuth, requireFinanceiro, 
 // a pagar (out_forecast do cash_flow, fin_fluxo_futuro, ~12m — a_pagar=null além
 // do horizonte que o Clinicorp fornece, para não parecer "zero contas").
 app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res) => {
-  const [receb, fluxo, vencido] = await Promise.all([
+  const [receb, fluxo, vencido, analises, snaps] = await Promise.all([
     supabase.from('fin_recebiveis_mensal').select('mes,valor,atualizado_em').order('mes'),
     supabase.from('fin_fluxo_futuro').select('mes,a_receber,a_pagar,atualizado_em').order('mes'),
     supabase.rpc('fin_vencido_total'),
+    supabase.from('fin_saude_analises').select('dados,atualizado_em').eq('id', 1).maybeSingle(),
+    supabase.from('fin_saude_snapshots').select('data,receber,pagar,resultado,origem').order('data').limit(800),
   ]);
   if (receb.error) return res.status(500).json({ error: receb.error.message });
   if (fluxo.error) return res.status(500).json({ error: fluxo.error.message });
@@ -7521,7 +7567,14 @@ app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res
       }));
   const ts = [(receb.data || [])[0]?.atualizado_em, (fluxo.data || [])[0]?.atualizado_em]
     .filter(Boolean).sort().pop() || null;
-  res.json({ meses, vencido: Number(vencido.data || 0), atualizado_em: ts });
+  res.json({
+    meses, vencido: Number(vencido.data || 0), atualizado_em: ts,
+    analises: analises.data?.dados || null,
+    snapshots: (snaps.data || []).map(s => ({
+      data: String(s.data), receber: Number(s.receber), pagar: Number(s.pagar),
+      resultado: Number(s.resultado), origem: s.origem,
+    })),
+  });
 });
 
 // Classificar 1 lançamento. body: { conta_id, alcance: 'so_esta'|'todas', metodo, padrao }
