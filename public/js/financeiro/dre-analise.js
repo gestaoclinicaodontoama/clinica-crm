@@ -96,6 +96,38 @@
     return { receitaProj, variaveisProj, fixasProj, resultadoProj: receitaProj - variaveisProj - fixasProj, fixasAproximada };
   }
 
+  // Saídas operacionais do período (grupo 8 = distribuição fica fora: é destino do
+  // lucro, não custo de rodar). Valores positivos p/ exibição.
+  function resumoSaidas(dreTotal, nMeses) {
+    const variaveis = Math.abs(somaGrupos(dreTotal, VARIAVEIS));
+    const fixas = Math.abs(somaGrupos(dreTotal, FIXAS));
+    const outras = Math.abs(somaGrupos(dreTotal, ['5', '7']));
+    const total = variaveis + fixas + outras;
+    return { total, mediaMes: nMeses > 0 ? total / nMeses : null, variaveis, fixas, outras };
+  }
+
+  // Quanto a receita pode CAIR antes do prejuízo: (receita média − PE) / receita média.
+  function margemSeguranca(mesesCompletos) {
+    const pe = pontoEquilibrio(mesesCompletos);
+    if (pe.erro) return null;
+    const receitaMediaMes = mesesCompletos.reduce((s, m) => s + somaGrupos(m, ['1']), 0) / mesesCompletos.length;
+    if (receitaMediaMes <= ZERO) return null;
+    return { pct: (receitaMediaMes - pe.pe) / receitaMediaMes, receitaMediaMes, pe: pe.pe };
+  }
+
+  // Fração da receita consumida pelos custos variáveis (impostos + custos 3.x).
+  function variaveisPctReceita(dreTotal) {
+    const receita = somaGrupos(dreTotal, ['1']);
+    if (receita <= ZERO) return null;
+    return Math.abs(somaGrupos(dreTotal, VARIAVEIS)) / receita;
+  }
+
+  // Distribuição de lucro do período e o que sobrou retido na clínica.
+  function resumoDistribuicoes(dreTotal) {
+    const total = Math.abs(somaGrupos(dreTotal, ['8']));
+    return { total, retido: subtotais(dreTotal).resultadoAposDistribuicoes };
+  }
+
   // Conta de saída com maior estouro em R$ (último mês completo vs média dos completos).
   // Materialidade: só vira KPI se estourou ≥ R$1.000 E ≥ 25% acima da média — sem isso
   // uma conta miúda (ex.: moto taxi +33% = R$26) ou a variação normal de uma conta grande
@@ -181,7 +213,8 @@
 
   const api = { VARIAVEIS, FIXAS, somaGrupos, subtotais, av, variacao, classeVariacao,
     mesCompleto, media, nivelAnomalia, pontoEquilibrio, projecaoMes, maiorDesvio,
-    curvaDiaria, projecaoMesCurva };
+    curvaDiaria, projecaoMesCurva,
+    resumoSaidas, margemSeguranca, variaveisPctReceita, resumoDistribuicoes };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.DREAnalise = api;
 })(typeof window !== 'undefined' ? window : globalThis);

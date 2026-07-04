@@ -89,12 +89,29 @@
       renderSemCat(r.sem_categoria);
       renderTabela(window._dreState);
       if (window.renderKpis) window.renderKpis(window._dreState); // Task 6
+      carregarAnoAnterior(fromYm, toYm); // YoY do card Receita — em segundo plano
       msg.style.display = 'none'; wrap.style.display = '';
     } catch (e) {
       msg.textContent = 'Erro ao carregar DRE: ' + e.message;
       msg.style.display = ''; wrap.style.display = 'none';
     } finally { btn.disabled = false; }
   };
+
+  // Receita do MESMO período no ano anterior (comparativo no card Receita Bruta).
+  // Busca em segundo plano e re-renderiza os KPIs quando chegar; falha = sem a linha.
+  function carregarAnoAnterior(fromYm, toYm) {
+    const key = fromYm + '|' + toYm;
+    if (window._dreAnoAnterior && window._dreAnoAnterior.key === key) return;
+    window._dreAnoAnterior = null;
+    const fromAA = (Number(fromYm.slice(0, 4)) - 1) + fromYm.slice(4) + '-01';
+    const toYmAA = (Number(toYm.slice(0, 4)) - 1) + toYm.slice(4);
+    const toAA = toYmAA + '-' + String(lastDayOf(toYmAA)).padStart(2, '0');
+    FinAPI.dreMensal(fromAA, toAA).then(r => {
+      const receita = (r.meses || []).reduce((s, m) => s + A.somaGrupos(m, ['1']), 0);
+      window._dreAnoAnterior = { key, receita };
+      if (window._dreState && window.renderKpis) window.renderKpis(window._dreState);
+    }).catch(() => {});
+  }
 
   window.sincronizar = async function sincronizar() {
     const btn = $('btnSync');
@@ -293,17 +310,47 @@
     // termina em mês futuro tem meses vazios incompletos e pegaria o mês errado).
     const ymCorrente = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
     const mesCorrente = meses.find(m => m.ym === ymCorrente) || null;
-    const total = A.subtotais(somarMeses(meses));
+    const dreTotal = somarMeses(meses);
+    const total = A.subtotais(dreTotal);
     const cards = [];
 
+    let receitaSub = `${meses.length} ${meses.length > 1 ? 'meses' : 'mês'}`;
+    const aa = window._dreAnoAnterior;
+    if (aa && aa.receita > 0) {
+      const yoy = (total.receitaBruta - aa.receita) / aa.receita;
+      receitaSub += ` · <span class="var ${yoy >= 0 ? 'melhor' : 'pior'}">${yoy >= 0 ? '▲' : '▼'} ${fmtPct(Math.abs(yoy))}</span> vs mesmo período do ano anterior`;
+    }
     cards.push(`<div class="kpi"><div class="kpi-label">Receita Bruta</div>
       <div class="kpi-valor">${fmt(total.receitaBruta)}</div>
-      <div class="kpi-sub">${meses.length} ${meses.length > 1 ? 'meses' : 'mês'}</div></div>`);
+      <div class="kpi-sub">${receitaSub}</div></div>`);
+
+    const rs = A.resumoSaidas(dreTotal, meses.length);
+    cards.push(`<div class="kpi" title="Tudo que saiu no período (impostos, custos, fixas, financeiras e investimentos). Distribuição de lucro fica fora — é destino do lucro, não custo de rodar.">
+      <div class="kpi-label">Saídas Totais</div>
+      <div class="kpi-valor">${fmt(rs.total)}</div>
+      <div class="kpi-sub">média ${fmt(rs.mediaMes)}/mês</div>
+      <div class="kpi-sub">variáveis ${fmt(rs.variaveis)} · fixas ${fmt(rs.fixas)}${rs.outras > 0 ? ' · outras ' + fmt(rs.outras) : ''}</div></div>`);
 
     const margem = A.av(total.resultadoFinal, total.receitaBruta);
     cards.push(`<div class="kpi"><div class="kpi-label">Resultado Final</div>
       <div class="kpi-valor ${valorClass(total.resultadoFinal)}">${fmt(total.resultadoFinal)}</div>
       <div class="kpi-sub">margem ${margem == null ? '–' : fmtPct(margem)}</div></div>`);
+
+    const rd = A.resumoDistribuicoes(dreTotal);
+    if (rd.total > 0) {
+      cards.push(`<div class="kpi" title="Lucro distribuído aos sócios no período (grupo 8) e o que ficou retido na clínica depois disso.">
+        <div class="kpi-label">Distribuição de Lucro</div>
+        <div class="kpi-valor">${fmt(rd.total)}</div>
+        <div class="kpi-sub">retido na clínica: <span class="${valorClass(rd.retido)}">${fmt(rd.retido)}</span></div></div>`);
+    }
+
+    const vp = A.variaveisPctReceita(dreTotal);
+    if (vp != null) {
+      cards.push(`<div class="kpi" title="Impostos + tarifas + material + dentistas + técnicos: custos que crescem junto com a receita. Quanto menor o %, mais sobra de cada real faturado.">
+        <div class="kpi-label">Custos Variáveis</div>
+        <div class="kpi-valor">${fmtPct(vp)}</div>
+        <div class="kpi-sub">da receita — de cada R$ 100 faturados, sobram ${fmt(100 * (1 - vp))} p/ fixas e lucro</div></div>`);
+    }
 
     const pe = A.pontoEquilibrio(mesesCompletos);
     if (pe.erro) {
@@ -317,9 +364,19 @@
         barra = `<div class="barra"><div class="${frac >= 1 ? 'ok' : ''}" style="width:${(frac * 100).toFixed(0)}%"></div></div>
           <div class="kpi-sub">mês atual: ${fmt(receitaMes)} (${fmtPct(receitaMes / pe.pe)})</div>`;
       }
-      cards.push(`<div class="kpi"><div class="kpi-label">Ponto de Equilíbrio</div>
+      cards.push(`<div class="kpi" title="Receita mínima mensal p/ empatar: fixas ${fmt(pe.fixasMediaMes)}/mês ÷ margem de contribuição ${fmtPct(pe.mcPct)} (o que sobra de cada real depois dos custos variáveis).">
+        <div class="kpi-label">Ponto de Equilíbrio</div>
         <div class="kpi-valor">${fmt(pe.pe)}/mês</div>
         <div class="kpi-sub">MC ${fmtPct(pe.mcPct)} · fixas ${fmt(pe.fixasMediaMes)}/mês</div>${barra}</div>`);
+    }
+
+    const ms = A.margemSeguranca(mesesCompletos);
+    if (ms) {
+      const ok = ms.pct >= 0;
+      cards.push(`<div class="kpi" title="Receita média ${fmt(ms.receitaMediaMes)}/mês vs ponto de equilíbrio ${fmt(ms.pe)}/mês (meses completos do período).">
+        <div class="kpi-label">Margem de Segurança</div>
+        <div class="kpi-valor ${ok ? 'valor-positivo' : 'valor-negativo'}">${fmtPct(Math.abs(ms.pct))}</div>
+        <div class="kpi-sub">${ok ? 'a receita pode cair até isso antes de dar prejuízo' : 'receita média ABAIXO do ponto de equilíbrio'}</div></div>`);
     }
 
     if (mesCorrente) {
