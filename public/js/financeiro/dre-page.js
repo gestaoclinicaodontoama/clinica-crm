@@ -17,6 +17,9 @@
     { tipo: 'grupo', codigo: '5', natureza: 'saida' },
     { tipo: 'grupo', codigo: '7', natureza: 'saida' },
     { tipo: 'subtotal', chave: 'resultadoFinal', label: 'RESULTADO FINAL' },
+    // Distribuição de lucro: abaixo da linha — sem alerta de anomalia (é decisão, não estouro)
+    { tipo: 'grupo', codigo: '6', natureza: 'saida', semAnomalia: true },
+    { tipo: 'subtotal', chave: 'resultadoAposDistribuicoes', label: 'RESULTADO APÓS DISTRIBUIÇÕES' },
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -203,7 +206,7 @@
       valores.forEach((v, i) => {
         html += celulaValor({
           valor: v, anterior: i > 0 ? valores[i - 1] : null, natureza: linha.natureza,
-          mediaVal, nComp, ehSaida: linha.natureza === 'saida',
+          mediaVal, nComp, ehSaida: linha.natureza === 'saida' && !linha.semAnomalia,
           parcial: !A.mesCompleto(meses[i].ym, hoje),
         });
       });
@@ -230,7 +233,7 @@
             const parcial = !A.mesCompleto(meses[i].ym, hoje);
             const pct = A.variacao(linha.natureza, v, i > 0 ? vals[i - 1] : null);
             const cls = A.classeVariacao(linha.natureza, pct);
-            const anom = (linha.natureza === 'saida' && !parcial) ? A.nivelAnomalia(v, medC, nComp) : null;
+            const anom = (linha.natureza === 'saida' && !linha.semAnomalia && !parcial) ? A.nivelAnomalia(v, medC, nComp) : null;
             html += `<td class="valor-conta ${anom ? 'anom-' + (anom === 'vermelho' ? 'verm' : 'ambar') : ''}${parcial ? ' col-parcial' : ''}"` +
               ` data-conta="${conta.codigo}" data-ym="${meses[i].ym}"` +
               (anom ? ` title="${fmt(v)} vs média ${fmt(medC)}"` : '') + `>${fmt(v)}`;
