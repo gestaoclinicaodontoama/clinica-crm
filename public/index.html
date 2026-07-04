@@ -3620,6 +3620,8 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
     el.innerHTML = msgs.map((m, i) => {
       const waLabel = m.direcao === 'enviada' && m.wa_number_id && _waNumbers[m.wa_number_id]
         ? ` · <span style="opacity:.7">${escHtml(_waNumbers[m.wa_number_id])}</span>` : '';
+      const appLabel = m.direcao === 'enviada' && m.canal === 'app'
+        ? '<span style="font-size:9px;opacity:.8;font-weight:600"> · via app/IA</span>' : '';
       const stIcon = m.direcao !== 'enviada' ? '' :
         m.wa_status === 'failed' ? ` <span style="color:var(--red);font-weight:700;cursor:help" title="${escHtml('Não entregue: ' + (m.wa_erro || 'sem detalhe'))}">⚠️ não entregue</span>` :
         m.wa_status === 'read' ? ' <span style="color:#4fc3f7">✓✓</span>' :
@@ -3637,7 +3639,7 @@ async function carregarMensagensChat(leadId, silencioso = false, _tentativa = 0)
         <div class="msg-wrap ${m.direcao === 'recebida' ? 'in' : 'out'}${m.fixada ? ' msg-fixada' : ''}">
           ${actionsHtml}
           <div class="msg-bubble ${m.direcao === 'recebida' ? 'in' : 'out'}">${_bolhaMsgHtml(m)}</div>
-          <div class="msg-time">${_brt(m.criada_em)}${waLabel}${stIcon}</div>
+          <div class="msg-time">${_brt(m.criada_em)}${waLabel}${appLabel}${stIcon}</div>
         </div>`;
     }).join('');
     el.querySelectorAll('[data-ri]').forEach(btn => {
