@@ -107,8 +107,14 @@ table.dre tr.grupo .chev { display: inline-block; width: 14px; color: var(--mute
   transition: transform .15s; }
 table.dre tr.grupo.aberto .chev { transform: rotate(90deg); }
 table.dre tr.conta td.col-conta { padding-left: 34px; color: var(--muted); }
+table.dre tr.conta td.conta-nome { cursor: pointer; padding-left: 20px; }
+table.dre tr.conta td.conta-nome .chev { display: inline-block; width: 14px; color: var(--muted); transition: transform .15s; }
+table.dre tr.conta td.conta-nome.aberto .chev { transform: rotate(90deg); }
+table.dre tr.conta td.conta-nome:hover { color: var(--accent); }
 table.dre tr.conta td.valor-conta { cursor: pointer; text-decoration: underline dotted transparent; }
 table.dre tr.conta td.valor-conta:hover { text-decoration-color: var(--accent); color: var(--accent); }
+table.dre tr.lanc td { font-size: 12px; color: var(--muted); background: var(--bg); }
+table.dre tr.lanc td.col-conta { padding-left: 50px; }
 table.dre tr.subtotal td { background: var(--bg3); font-weight: 700; font-size: 13.5px;
   border-top: 2px solid var(--border); }
 .margem { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); }

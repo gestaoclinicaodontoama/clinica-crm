@@ -151,6 +151,7 @@
     // Faturamento (competência/REVENUE): linha 0 + análise vertical própria (% Fat.)
     st._temFat = !!(st.faturamento && st.faturamento.size);
     st._fatTot = st._temFat ? meses.reduce((s, m) => s + (st.faturamento.get(m.ym) || 0), 0) : 0;
+    st._rbTot = receitaBrutaTotal; // base da coluna AV% também nas linhas de despesa expandidas
 
     let html = '<table class="dre"><thead><tr><th class="col-conta">Conta</th>';
     if (multi) {
@@ -179,6 +180,14 @@
         if (abertos.has(cod)) abertos.delete(cod); else abertos.add(cod);
         salvarAbertos();
         renderTabela(window._dreState);
+      });
+    }
+    // expandir despesas de uma conta direto na tabela (clique no NOME da conta)
+    for (const td of document.querySelectorAll('td.conta-nome[data-exp]')) {
+      td.addEventListener('click', () => {
+        const cod = td.dataset.exp;
+        if (lancAbertos.has(cod)) { lancAbertos.delete(cod); renderTabela(window._dreState); }
+        else { lancAbertos.add(cod); carregarLancConta(cod); renderTabela(window._dreState); }
       });
     }
     if (window.plugarDrill) window.plugarDrill(); // Task 6
@@ -270,7 +279,11 @@
     if (aberto) {
       // união de contas (do total somado — cobre conta que só existe num mês)
       for (const conta of grupoTotal.contas.sort((a, b) => a.codigo < b.codigo ? -1 : 1)) {
-        html += `<tr class="conta"><td class="col-conta">${conta.codigo} ${conta.nome}</td>`;
+        const expansivel = linha.natureza === 'saida'; // receita tem milhares de recebimentos
+        const abertaL = expansivel && lancAbertos.has(conta.codigo);
+        html += `<tr class="conta"><td class="col-conta${expansivel ? ' conta-nome' : ''}${abertaL ? ' aberto' : ''}"` +
+          (expansivel ? ` data-exp="${conta.codigo}" title="clique p/ abrir as despesas desta conta aqui na tabela"` : '') +
+          `>${expansivel ? '<span class="chev">▸</span>' : ''}${conta.codigo} ${conta.nome}</td>`;
         if (multi) {
           const vals = meses.map(m => {
             const g = acharGrupo(m, cod);
@@ -301,9 +314,72 @@
           html += `<td>${avFC == null ? '–' : fmtPct(avFC)}</td>`;
         }
         html += '</tr>';
+        if (abertaL) html += renderLancRows(conta.codigo, st, multi);
       }
     }
     return html;
+  }
+
+  // ── Despesas da conta direto na tabela (DRE v2 — pedido do Luiz 04/07) ──────
+  // Agrupadas por descrição (parcelas N/M e sufixo de empresa colapsam numa linha),
+  // valor caindo na coluna do mês. Top 30 + "outros"; o modal continua p/ ver tudo.
+  const lancAbertos = new Set();
+  const lancCache = new Map();     // `${codigo}|${from}|${to}` → { rows, truncado, erro }
+  const _lancBuscando = new Set();
+
+  function renderLancRows(codigo, st, multi) {
+    const nCols = 1 + (multi ? st.meses.length + 1 : 0) + 2 + (st._temFat ? 1 : 0);
+    const cache = lancCache.get(`${codigo}|${st.from}|${st.to}`);
+    if (!cache) return `<tr class="lanc"><td class="col-conta" colspan="${nCols}">↳ carregando despesas…</td></tr>`;
+    if (cache.erro) return `<tr class="lanc"><td class="col-conta" colspan="${nCols}">↳ erro ao carregar: ${escHtml(cache.erro)}</td></tr>`;
+    const hoje = new Date();
+    const TOP = 30;
+    const linhaDe = (label, porMes, total, extraCls) => {
+      let h = `<tr class="lanc${extraCls || ''}"><td class="col-conta">↳ ${escHtml(label)}</td>`;
+      if (multi) {
+        for (const m of st.meses) {
+          const v = porMes[m.ym] || 0;
+          h += `<td class="${!A.mesCompleto(m.ym, hoje) ? 'col-parcial' : ''}">${v ? fmt(v) : '–'}</td>`;
+        }
+        const med = A.media(st.mesesCompletos.map(m => porMes[m.ym] || 0));
+        h += `<td>${med == null ? '–' : fmt(med)}</td>`;
+      }
+      const avL = A.av(total, st._rbTot);
+      h += `<td>${fmt(total)}</td><td>${avL == null ? '–' : fmtPct(avL)}</td>`;
+      if (st._temFat) {
+        const avF = A.av(total, st._fatTot);
+        h += `<td>${avF == null ? '–' : fmtPct(avF)}</td>`;
+      }
+      return h + '</tr>';
+    };
+    let html = '';
+    for (const r of cache.rows.slice(0, TOP)) html += linhaDe(r.label, r.porMes, r.total);
+    const resto = cache.rows.slice(TOP);
+    if (resto.length) {
+      const porMes = {}; let total = 0;
+      for (const r of resto) { total += r.total; for (const [ym, v] of Object.entries(r.porMes)) porMes[ym] = (porMes[ym] || 0) + v; }
+      html += linhaDe(`… outras ${resto.length} despesas menores (clique no valor da conta p/ ver todas)`, porMes, total);
+    }
+    if (cache.truncado) html += `<tr class="lanc"><td class="col-conta" colspan="${nCols}">⚠️ período com mais de 2000 pagamentos — lista parcial; use o modal (clique no valor) p/ conferir</td></tr>`;
+    return html;
+  }
+
+  async function carregarLancConta(codigo) {
+    const st = window._dreState;
+    const key = `${codigo}|${st.from}|${st.to}`;
+    if (lancCache.has(key) || _lancBuscando.has(key)) return;
+    _lancBuscando.add(key);
+    try {
+      const conta = await contaPorCodigo(codigo);
+      if (!conta) throw new Error('conta não encontrada no cadastro');
+      const lancs = await FinAPI.lancamentos({ conta_id: conta.id, from: st.from, to: st.to });
+      lancCache.set(key, { rows: A.agruparLancamentos(lancs), truncado: lancs.length >= 2000 });
+    } catch (e) {
+      lancCache.set(key, { rows: [], erro: e.message });
+    } finally {
+      _lancBuscando.delete(key);
+      if (window._dreState) renderTabela(window._dreState);
+    }
   }
 
   function tituloGrupo(meses, cod) {

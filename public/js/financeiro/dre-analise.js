@@ -177,6 +177,34 @@
     return top;
   }
 
+  // Agrupa lançamentos de uma conta por "despesa": mesma descrição sem o prefixo
+  // "Pagamento de Conta:", sem o nº de parcela (N/M) e sem o sufixo de empresa —
+  // aluguel 1/12, 2/12... vira UMA linha com o valor caindo em cada mês.
+  // (Espelho leve do nucleo() de lib/financeiro/normalizar.js, que não roda no browser.)
+  const _deacc = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const _limparDesc = (s) => String(s || '')
+    .replace(/^pagamento de conta:\s*/i, '')
+    .replace(/\s*\d+\/\d+\s*/g, ' ')
+    .replace(/\s*-\s*(AMA|MAR|PF|Martins)\b/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
+  function agruparLancamentos(lancs) {
+    const por = new Map(); // chave → { label, labelData, porMes, total }
+    for (const l of (lancs || [])) {
+      const label = _limparDesc(l.descricao);
+      const chave = _deacc(label).toLowerCase();
+      const ym = String(l.data || '').slice(0, 7);
+      const v = (l.fluxo === 'entra' ? 1 : -1) * Number(l.valor);
+      const g = por.get(chave) || { label, labelData: '', porMes: {}, total: 0 };
+      if (String(l.data) >= g.labelData) { g.label = label; g.labelData = String(l.data); }
+      g.porMes[ym] = (g.porMes[ym] || 0) + v;
+      g.total += v;
+      por.set(chave, g);
+    }
+    return [...por.values()]
+      .map(({ label, porMes, total }) => ({ label, porMes, total }))
+      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  }
+
   // Curva média dos meses completos: fração ACUMULADA da receita/saída do mês
   // já realizada até cada dia (1..31). rows = saída da RPC fin_agg_diario.
   // Corrige o front-loading (despesas concentradas no início do mês) que fazia
@@ -228,7 +256,7 @@
 
   const api = { VARIAVEIS, FIXAS, somaGrupos, subtotais, av, variacao, classeVariacao,
     mesCompleto, media, nivelAnomalia, pontoEquilibrio, projecaoMes, maiorDesvio,
-    curvaDiaria, projecaoMesCurva, variaveisDe, fixasDe,
+    curvaDiaria, projecaoMesCurva, variaveisDe, fixasDe, agruparLancamentos,
     resumoSaidas, margemSeguranca, variaveisPctReceita, resumoDistribuicoes };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.DREAnalise = api;
