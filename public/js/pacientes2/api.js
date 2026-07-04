@@ -26,4 +26,5 @@ window.Pacientes2API = {
   atualizar: (id, body) => api('/api/pacientes/' + id, { method: 'PATCH', body: JSON.stringify(body) }),
   excluir: (id) => api('/api/pacientes2/' + id, { method: 'DELETE' }),
   restaurar: (id) => api('/api/pacientes2/' + id + '/restaurar', { method: 'POST' }),
+  sync: () => api('/api/admin/sync-clinicorp', { method: 'POST' }),
 };

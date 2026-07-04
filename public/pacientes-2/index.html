@@ -51,14 +51,20 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .pac-table-wrap {
   background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
   overflow: auto; max-height: calc(100vh - 215px);
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
 }
+.pac-table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+.pac-table-wrap::-webkit-scrollbar-track { background: transparent; }
+.pac-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+.pac-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.pac-table-wrap::-webkit-scrollbar-corner { background: transparent; }
 /* border-collapse: separate p/ o cabeçalho sticky levar a borda junto ao rolar */
-table.pac { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; min-width: 1180px; }
+table.pac { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
 
 table.pac th {
-  padding: 10px 10px; text-align: left; font-size: 11px; font-weight: 600;
+  padding: 8px 7px; text-align: left; font-size: 10.5px; font-weight: 600;
   color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap;
-  background: var(--bg2); text-transform: uppercase; letter-spacing: .5px;
+  background: var(--bg2); text-transform: uppercase; letter-spacing: .4px;
   user-select: none;
   position: sticky; top: 0; z-index: 2;
 }
@@ -68,12 +74,14 @@ table.pac th .sort-icon { margin-left: 4px; opacity: .4; font-style: normal; }
 table.pac th.sort-asc .sort-icon,
 table.pac th.sort-desc .sort-icon { opacity: 1; color: var(--accent); }
 
-table.pac td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.pac td { padding: 7px 7px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.pac tr:last-child td { border-bottom: none; }
 table.pac tr:hover td { background: var(--bg3); }
 
-td.td-date { white-space: nowrap; font-size: 12px; color: var(--muted); }
-td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
+td.td-date { white-space: nowrap; font-size: 11.5px; color: var(--muted); }
+td.td-text { white-space: normal; word-break: break-word; line-height: 1.35; }
+th.col-pp,  td.col-pp  { min-width: 130px; }
+th.col-obs, td.col-obs { min-width: 200px; }
 
 /* ── Prioridade ── */
 .pac-prio-cell { text-align: center; cursor: pointer; width: 42px; }
@@ -107,8 +115,8 @@ td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
 .pac-status.alta-c    { background: rgba(20,184,166,.12); color: var(--teal); }
 
 .fin-chip {
-  display: inline-block; padding: 2px 8px; border-radius: 12px;
-  font-size: 11px; font-weight: 600; white-space: nowrap;
+  display: inline-block; padding: 2px 7px; border-radius: 12px;
+  font-size: 10.5px; font-weight: 600; white-space: nowrap;
 }
 .fin-chip.venc    { background: rgba(239,68,68,.12);  color: var(--red); }
 .fin-chip.em-dia  { background: rgba(34,197,94,.12);  color: var(--green); }
@@ -153,7 +161,15 @@ a.pac-perfil:hover { color: var(--accent); text-decoration: underline; }
 .pac-act.del:hover { border-color: var(--red); color: var(--red); }
 .pac-act:disabled { opacity: .4; cursor: default; }
 td.td-acts { white-space: nowrap; }
-td.td-acts .pac-act { margin-right: 4px; }
+td.td-acts .pac-act { margin-right: 3px; }
+
+.pac-sync {
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--bg2); color: var(--text);
+  font-family: inherit; cursor: pointer; transition: all .12s; white-space: nowrap;
+}
+.pac-sync:hover { border-color: var(--accent); color: var(--accent); }
+.pac-sync:disabled { opacity: .55; cursor: default; }
 
 #pacMsg { padding: 40px; color: var(--muted); text-align: center; }
 
@@ -216,6 +232,7 @@ td.td-acts .pac-act { margin-right: 4px; }
     </select>
     <select id="fTratamento" onchange="renderTable()"><option value="">Todos os tratamentos</option></select>
     <select id="fExecutor" onchange="renderTable()"><option value="">Todos os executores</option></select>
+    <button id="syncBtn" class="pac-sync" onclick="syncNow()" title="Puxa agora os dados do Clinicorp (agenda, financeiro, visitas) — sem isso, atualizam sozinhos 1x por dia às 02h">🔄 Atualizar dados</button>
     <span class="pac-count" id="pacCount"></span>
   </div>
 
@@ -255,6 +272,18 @@ function fmtDate(d) {
   const parts = String(d).slice(0, 10).split('-');
   if (parts.length !== 3) return d;
   return parts[2] + '/' + parts[1] + '/' + parts[0];
+}
+
+// dd/mm/aa — versão curta pras células (tooltip carrega a completa)
+function fmtDia(d) {
+  if (!d) return '—';
+  const parts = String(d).slice(0, 10).split('-');
+  if (parts.length !== 3) return d;
+  return parts[2] + '/' + parts[1] + '/' + parts[0].slice(2);
+}
+
+function primeiroNome(s) {
+  return s ? String(s).trim().split(/\s+/)[0] : s;
 }
 
 function fmtMoney(v) {
@@ -311,7 +340,7 @@ function finInfo(r) {
   const futuro  = Number(r.fin_futuro  || 0);
   const pago    = Number(r.fin_total_pago || 0);
   if (!r.clinicorp_id) return { cls: 'nd', label: '—', title: 'Sem vínculo com o Clinicorp' };
-  if (vencido > 0) return { cls: 'venc', label: '🔴 ' + fmtMoney(vencido) + ' venc.', title: 'Vencido: ' + fmtMoney(vencido) + (r.fin_ultimo_pgto ? ' · último pgto ' + fmtDate(r.fin_ultimo_pgto) : '') };
+  if (vencido > 0) return { cls: 'venc', label: '🔴 ' + fmtMoney(vencido), title: 'VENCIDO: ' + fmtMoney(vencido) + (r.fin_ultimo_pgto ? ' · último pgto ' + fmtDate(r.fin_ultimo_pgto) : '') };
   if (futuro > 0)  return { cls: 'em-dia', label: '🟢 Em dia', title: 'Parcelas futuras: ' + fmtMoney(futuro) + (r.fin_ultimo_pgto ? ' · último pgto ' + fmtDate(r.fin_ultimo_pgto) : '') };
   if (pago > 0)    return { cls: 'quitado', label: '✅ Quitado', title: 'Total pago: ' + fmtMoney(pago) };
   return { cls: 'nd', label: '—', title: 'Sem lançamentos financeiros' };
@@ -320,38 +349,38 @@ function finInfo(r) {
 // ── Header ───────────────────────────────────────────────────────────────────
 
 const COLS_GERAL = [
-  { key: 'prioridade',      label: 'P',             sortable: true,  width: '42px'  },
-  { key: 'nome',            label: 'Nome',          sortable: true,  width: ''      },
-  { key: 'tratamento',      label: 'Tratamento',    sortable: true,  width: '105px' },
-  { key: 'data_venda',      label: 'Venda',         sortable: true,  width: '84px'  },
-  { key: '_fin',            label: '💰 Financeiro', sortable: true,  width: '120px' },
-  { key: 'ultima_visita',   label: 'Últ. visita',   sortable: true,  width: '84px'  },
-  { key: 'proxima_consulta',label: 'Próx. consulta',sortable: true,  width: '95px'  },
-  { key: 'proximo_passo',   label: 'Próximo Passo', sortable: false, width: ''      },
-  { key: 'avaliador',       label: 'Avaliador',     sortable: true,  width: '95px'  },
-  { key: 'executor',        label: 'Executor',      sortable: true,  width: '95px'  },
-  { key: 'obs',             label: 'Obs',           sortable: false, width: ''      },
-  { key: '_dias',           label: 'Dias',          sortable: true,  width: '48px'  },
-  { key: '_status',         label: 'Status',        sortable: true,  width: '88px'  },
-  { key: '_wpp',            label: '',              sortable: false, width: '36px'  },
-  { key: '_acts',           label: '',              sortable: false, width: '104px' },
+  { key: 'prioridade',      label: 'P',           sortable: true,  width: '34px' },
+  { key: 'nome',            label: 'Nome',        sortable: true,  width: ''     },
+  { key: 'tratamento',      label: 'Tratamento',  sortable: true,  width: '88px' },
+  { key: 'data_venda',      label: 'Venda',       sortable: true,  width: '58px' },
+  { key: 'ultima_visita',   label: 'Últ. visita', sortable: true,  width: '58px' },
+  { key: 'proxima_consulta',label: 'Próx. cons.', sortable: true,  width: '62px' },
+  { key: 'proximo_passo',   label: 'Próximo Passo', cls: 'col-pp',  sortable: false, width: '' },
+  { key: 'avaliador',       label: 'Aval.',       sortable: true,  width: '66px' },
+  { key: 'executor',        label: 'Exec.',       sortable: true,  width: '66px' },
+  { key: 'obs',             label: 'Obs',         cls: 'col-obs',  sortable: false, width: '' },
+  { key: '_fin',            label: '💰 Fin.',     sortable: true,  width: '96px' },
+  { key: '_dias',           label: 'Dias',        sortable: true,  width: '38px' },
+  { key: '_status',         label: 'Status',      sortable: true,  width: '78px' },
+  { key: '_wpp',            label: '',            sortable: false, width: '30px' },
+  { key: '_acts',           label: '',            sortable: false, width: '92px' },
 ];
 
 const COLS_INVISALIGN = [
-  { key: 'nome',               label: 'Nome',          sortable: true,  width: ''      },
-  { key: 'tratamento',         label: 'Tratamento',    sortable: true,  width: '105px' },
-  { key: 'situacao_tratamento',label: 'Situação',      sortable: true,  width: '110px' },
-  { key: '_fin',               label: '💰 Financeiro', sortable: true,  width: '120px' },
-  { key: 'ultima_visita',      label: 'Últ. visita',   sortable: true,  width: '84px'  },
-  { key: 'proxima_consulta',   label: 'Próx. consulta',sortable: true,  width: '95px'  },
-  { key: 'proximo_passo',      label: 'Próximo Passo', sortable: false, width: ''      },
-  { key: 'data_vencimento',    label: 'Vencimento',    sortable: true,  width: '90px'  },
-  { key: 'executor',           label: 'Responsável',   sortable: true,  width: '95px'  },
-  { key: 'obs',                label: 'Obs',           sortable: false, width: ''      },
-  { key: '_dias',              label: 'Dias',          sortable: true,  width: '48px'  },
-  { key: '_status',            label: 'Status',        sortable: true,  width: '88px'  },
-  { key: '_wpp',               label: '',              sortable: false, width: '36px'  },
-  { key: '_acts',              label: '',              sortable: false, width: '104px' },
+  { key: 'nome',               label: 'Nome',        sortable: true,  width: ''     },
+  { key: 'tratamento',         label: 'Tratamento',  sortable: true,  width: '88px' },
+  { key: 'situacao_tratamento',label: 'Situação',    sortable: true,  width: '95px' },
+  { key: 'ultima_visita',      label: 'Últ. visita', sortable: true,  width: '58px' },
+  { key: 'proxima_consulta',   label: 'Próx. cons.', sortable: true,  width: '62px' },
+  { key: 'proximo_passo',      label: 'Próximo Passo', cls: 'col-pp', sortable: false, width: '' },
+  { key: 'data_vencimento',    label: 'Vencim.',     sortable: true,  width: '62px' },
+  { key: 'executor',           label: 'Resp.',       sortable: true,  width: '66px' },
+  { key: 'obs',                label: 'Obs',         cls: 'col-obs',  sortable: false, width: '' },
+  { key: '_fin',               label: '💰 Fin.',     sortable: true,  width: '96px' },
+  { key: '_dias',              label: 'Dias',        sortable: true,  width: '38px' },
+  { key: '_status',            label: 'Status',      sortable: true,  width: '78px' },
+  { key: '_wpp',               label: '',            sortable: false, width: '30px' },
+  { key: '_acts',              label: '',            sortable: false, width: '92px' },
 ];
 
 function buildHeader() {
@@ -360,8 +389,9 @@ function buildHeader() {
   cols.forEach(col => {
     const th = document.createElement('th');
     if (col.width) th.style.width = col.width;
+    if (col.cls) th.classList.add(col.cls);
     if (col.sortable) {
-      th.className = 'sortable';
+      th.classList.add('sortable');
       th.dataset.col = col.key;
       if (sortCol === col.key) th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
     }
@@ -440,8 +470,8 @@ function finCel(r) {
 function dateCel(v, title) {
   const td = document.createElement('td');
   td.className = 'td-date';
-  td.textContent = fmtDate(v);
-  if (title) td.title = title;
+  td.textContent = fmtDia(v);
+  td.title = [title, v ? fmtDate(v) : ''].filter(Boolean).join(' · ');
   return td;
 }
 
@@ -449,7 +479,10 @@ function editCel(rowId, field, value, isText) {
   const td = document.createElement('td');
   const isDate = field.includes('data');
   td.className = 'pac-cell-edit' + (isText ? ' td-text' : (isDate ? ' td-date' : ''));
-  td.textContent = isDate ? fmtDate(value) : (value || '—');
+  if (field === 'proximo_passo') td.classList.add('col-pp');
+  if (field === 'obs') td.classList.add('col-obs');
+  td.textContent = isDate ? fmtDia(value) : (value || '—');
+  if (isDate && value) td.title = fmtDate(value);
   td.dataset.id = rowId;
   td.dataset.field = field;
   td.dataset.value = value || '';
@@ -467,17 +500,19 @@ function dentistaCel(r, field) {
   const sug = field === 'avaliador'
     ? r.avaliador_sugerido
     : (r.proximo_dentista || r.ultimo_dentista);
-  td.dataset.saved = saved || '';
+  // exibe/grava só o primeiro nome (pedido do Luiz); dados antigos completos são encurtados na exibição
+  td.dataset.saved = primeiroNome(saved) || '';
   if (saved) {
-    td.textContent = saved;
-    td.dataset.value = saved;
+    td.textContent = primeiroNome(saved);
+    td.title = saved;
+    td.dataset.value = primeiroNome(saved);
   } else if (sug) {
     const s = document.createElement('span');
     s.className = 'sug';
-    s.textContent = sug;
-    s.title = 'Sugerido pela agenda do Clinicorp — clique para confirmar ou alterar';
+    s.textContent = primeiroNome(sug);
+    s.title = sug + ' — sugerido pela agenda do Clinicorp; clique para confirmar ou alterar';
     td.appendChild(s);
-    td.dataset.value = sug;
+    td.dataset.value = primeiroNome(sug);
   } else {
     td.textContent = '—';
     td.dataset.value = '';
@@ -554,8 +589,8 @@ function proxConsultaCel(r) {
   const td = document.createElement('td');
   td.className = 'td-date';
   if (v && v >= hoje()) {
-    td.textContent = fmtDate(v);
-    if (r.proximo_dentista) td.title = 'Com ' + r.proximo_dentista;
+    td.textContent = fmtDia(v);
+    td.title = fmtDate(v) + (r.proximo_dentista ? ' · com ' + r.proximo_dentista : '');
   } else {
     td.textContent = '— ⚠️';
     td.title = 'Sem consulta futura no Clinicorp';
@@ -571,13 +606,13 @@ function makeRow(r) {
     tr.appendChild(nomeCel(r));
     tr.appendChild(editCel(r.id, 'tratamento',          r.tratamento,          false));
     tr.appendChild(editCel(r.id, 'situacao_tratamento', r.situacao_tratamento, false));
-    tr.appendChild(finCel(r));
     tr.appendChild(dateCel(r.ultima_visita, 'Última visita registrada no Clinicorp'));
     tr.appendChild(proxConsultaCel(r));
     tr.appendChild(editCel(r.id, 'proximo_passo',       r.proximo_passo,       true));
     tr.appendChild(editCel(r.id, 'data_vencimento',     r.data_vencimento,     false));
     tr.appendChild(dentistaCel(r, 'executor'));
     tr.appendChild(editCel(r.id, 'obs',                 r.obs,                 true));
+    tr.appendChild(finCel(r));
     diasStatusWppActs(tr, r);
     return tr;
   }
@@ -586,13 +621,13 @@ function makeRow(r) {
   tr.appendChild(nomeCel(r));
   tr.appendChild(editCel(r.id, 'tratamento', r.tratamento, false));
   tr.appendChild(dateCel(r.data_venda));
-  tr.appendChild(finCel(r));
   tr.appendChild(dateCel(r.ultima_visita, 'Última visita registrada no Clinicorp'));
   tr.appendChild(proxConsultaCel(r));
   tr.appendChild(editCel(r.id, 'proximo_passo', r.proximo_passo, true));
   tr.appendChild(dentistaCel(r, 'avaliador'));
   tr.appendChild(dentistaCel(r, 'executor'));
   tr.appendChild(editCel(r.id, 'obs', r.obs, true));
+  tr.appendChild(finCel(r));
   diasStatusWppActs(tr, r);
   return tr;
 }
@@ -913,12 +948,31 @@ async function carregarComRetry() {
   throw lastErr;
 }
 
+// Sync manual: dispara o sync do Clinicorp agora (sem ele, os dados vêm do sync diário das 02h)
+async function syncNow() {
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Sincronizando… (pode levar uns minutos)';
+  try {
+    await Pacientes2API.sync();
+    rows = await Pacientes2API.listar();
+    renderTable();
+    renderExcluidos();
+    btn.textContent = '✅ Atualizado';
+    setTimeout(() => { btn.textContent = '🔄 Atualizar dados'; btn.disabled = false; }, 2000);
+  } catch (e) {
+    alert('Erro ao sincronizar: ' + e.message);
+    btn.textContent = '🔄 Atualizar dados';
+    btn.disabled = false;
+  }
+}
+
 async function init() {
   try {
     const [data, cfg, dents] = await carregarComRetry();
     rows      = data;
     config    = Object.fromEntries(cfg.map(c => [c.tratamento, c]));
-    dentistas = dents;
+    dentistas = [...new Set(dents.map(primeiroNome))].sort();
 
     const fExec = document.getElementById('fExecutor');
     [...new Set(data.filter(r => !r.excluido_em).map(r => r.executor).filter(Boolean))].sort().forEach(e => {
