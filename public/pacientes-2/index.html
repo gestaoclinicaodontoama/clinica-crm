@@ -50,15 +50,17 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 /* ── Tabela ── */
 .pac-table-wrap {
   background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
-  overflow-x: auto;
+  overflow: auto; max-height: calc(100vh - 215px);
 }
-table.pac { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 1180px; }
+/* border-collapse: separate p/ o cabeçalho sticky levar a borda junto ao rolar */
+table.pac { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; min-width: 1180px; }
 
 table.pac th {
   padding: 10px 10px; text-align: left; font-size: 11px; font-weight: 600;
   color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap;
   background: var(--bg2); text-transform: uppercase; letter-spacing: .5px;
   user-select: none;
+  position: sticky; top: 0; z-index: 2;
 }
 table.pac th.sortable { cursor: pointer; }
 table.pac th.sortable:hover { color: var(--text); }
@@ -154,6 +156,21 @@ td.td-acts { white-space: nowrap; }
 td.td-acts .pac-act { margin-right: 4px; }
 
 #pacMsg { padding: 40px; color: var(--muted); text-align: center; }
+
+/* ── Excluídos ── */
+#excluidosBox { margin-top: 18px; }
+#excluidosBox summary {
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted);
+  user-select: none; padding: 6px 2px;
+}
+#excluidosBox summary:hover { color: var(--text); }
+.exc-restore {
+  padding: 4px 10px; border-radius: 8px; cursor: pointer; font-size: 12px;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  font-family: inherit; transition: all .12s; white-space: nowrap;
+}
+.exc-restore:hover { border-color: var(--green); color: var(--green); }
+.exc-restore:disabled { opacity: .4; cursor: default; }
 </style>
 </head>
 <body>
@@ -209,6 +226,16 @@ td.td-acts .pac-act { margin-right: 4px; }
       <tbody id="pacTbody"></tbody>
     </table>
   </div>
+
+  <details id="excluidosBox" style="display:none">
+    <summary>🗑 Excluídos (<span id="excCount">0</span>) — clique para ver/restaurar</summary>
+    <div class="pac-table-wrap" style="max-height:320px">
+      <table class="pac" style="min-width:760px">
+        <thead><tr><th>Nome</th><th>Tratamento</th><th>Venda</th><th>Excluído em</th><th style="width:110px"></th></tr></thead>
+        <tbody id="excTbody"></tbody>
+      </table>
+    </div>
+  </details>
 </div>
 </div>
 
@@ -218,7 +245,8 @@ let rows = [], config = {}, dentistas = [], activeTab = 'geral';
 let sortCol = null, sortDir = 'asc';
 
 const INVISALIGN_TRATS = new Set(['Invisalign', 'Vivera']);
-const HOJE = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+// função (não const): aba aberta de um dia pro outro não pode gravar/avaliar com a data de ontem
+function hoje() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -243,7 +271,12 @@ function resolveAba(r) {
 }
 
 function tabRows() {
-  return rows.filter(r => resolveAba(r) === activeTab);
+  return rows.filter(r => !r.excluido_em && resolveAba(r) === activeTab);
+}
+
+function excluidos() {
+  return rows.filter(r => r.excluido_em)
+    .sort((a, b) => String(b.excluido_em).localeCompare(String(a.excluido_em)));
 }
 
 // Base do "Dias": última atividade real = mais recente entre visita (Clinicorp) e contato manual
@@ -263,7 +296,7 @@ function calcStatus(r) {
   if (prio === 9 || r.is_alta) return { label: 'Alta', cls: 'alta', icon: '✅' };
   const base = baseAtividade(r);
   const dias = diasDesde(base);
-  if (r.proxima_consulta && String(r.proxima_consulta).slice(0, 10) >= HOJE) {
+  if (r.proxima_consulta && String(r.proxima_consulta).slice(0, 10) >= hoje()) {
     return { label: 'Agendado', cls: 'em-dia', icon: '🟢', dias };
   }
   if (!base) return { label: 'Sem data', cls: 'sem-data', icon: '⚪' };
@@ -393,7 +426,7 @@ function finCel(r) {
   chip.textContent = info.label;
   chip.title = info.title;
   td.appendChild(chip);
-  const semAgendaFutura = !r.proxima_consulta || String(r.proxima_consulta).slice(0, 10) < HOJE;
+  const semAgendaFutura = !r.proxima_consulta || String(r.proxima_consulta).slice(0, 10) < hoje();
   if (r.sem_checkin_ultima && semAgendaFutura && r.ultima_agenda_data) {
     const al = document.createElement('span');
     al.className = 'fin-alert';
@@ -434,6 +467,7 @@ function dentistaCel(r, field) {
   const sug = field === 'avaliador'
     ? r.avaliador_sugerido
     : (r.proximo_dentista || r.ultimo_dentista);
+  td.dataset.saved = saved || '';
   if (saved) {
     td.textContent = saved;
     td.dataset.value = saved;
@@ -471,7 +505,8 @@ function diasStatusWppActs(tr, r) {
   const tdWpp = document.createElement('td');
   tdWpp.style.textAlign = 'center';
   if (r.telefone) {
-    const tel = String(r.telefone).replace(/\D/g, '');
+    // strip do 0 à esquerda SÓ para o link (o 0 gravado é estratégia intencional de família)
+    const tel = String(r.telefone).replace(/\D/g, '').replace(/^0+/, '');
     const a = document.createElement('a');
     a.className = 'pac-wpp';
     a.href = 'https://wa.me/' + (tel.startsWith('55') && tel.length >= 12 ? tel : '55' + tel);
@@ -518,7 +553,7 @@ function proxConsultaCel(r) {
   const v = r.proxima_consulta ? String(r.proxima_consulta).slice(0, 10) : null;
   const td = document.createElement('td');
   td.className = 'td-date';
-  if (v && v >= HOJE) {
+  if (v && v >= hoje()) {
     td.textContent = fmtDate(v);
     if (r.proximo_dentista) td.title = 'Com ' + r.proximo_dentista;
   } else {
@@ -571,6 +606,8 @@ function getSortValue(row, col) {
   }
   if (col === '_status') return calcStatus(row).cls;
   if (col === '_fin') return Number(row.fin_vencido || 0);
+  // null = sem classificação → 0 (igual à exibição e ao sort padrão), senão vai pro fim da lista
+  if (col === 'prioridade') return row.prioridade ?? 0;
   const v = row[col];
   return v ?? '';
 }
@@ -684,14 +721,15 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
       if (act === 'mover') {
         await salvar(id, { aba: actBtn.dataset.target });
       } else if (act === 'contato') {
-        await salvar(id, { data_atualizacao: HOJE });
+        await salvar(id, { data_atualizacao: hoje() });
       } else if (act === 'excluir') {
-        const ok = confirm('Excluir "' + nomeLimpo(row) + '" da lista?\n\nSome da lista de Pacientes do CRM. Não altera NADA no Clinicorp.');
+        const ok = confirm('Excluir "' + nomeLimpo(row) + '" da lista?\n\nEle vai para a lista "🗑 Excluídos" no fim da página (dá para restaurar). Não altera NADA no Clinicorp.');
         if (!ok) { actBtn.disabled = false; return; }
-        await Pacientes2API.excluir(id);
-        rows = rows.filter(r => r.id !== id);
+        const resp = await Pacientes2API.excluir(id);
+        row.excluido_em = resp.excluido_em || new Date().toISOString();
       }
       renderTable();
+      renderExcluidos();
     } catch (err) {
       actBtn.disabled = false;
       alert('Erro: ' + err.message);
@@ -745,12 +783,15 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
     const optBlank = document.createElement('option');
     optBlank.value = ''; optBlank.textContent = '—';
     sel.appendChild(optBlank);
+    // pré-seleciona só o que está SALVO; a sugestão fica como opção (escolher = confirmar)
+    const savedVal = td.dataset.saved || '';
     const nomes = [...dentistas];
     if (value && !nomes.includes(value)) nomes.unshift(value);
+    if (savedVal && !nomes.includes(savedVal)) nomes.unshift(savedVal);
     nomes.forEach(n => {
       const o = document.createElement('option');
       o.value = n; o.textContent = n;
-      if (n === value) o.selected = true;
+      if (n === savedVal) o.selected = true;
       sel.appendChild(o);
     });
     td.textContent = '';
@@ -761,6 +802,8 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
     async function saveSel() {
       sel.removeEventListener('blur', saveSel);
       if (cancelled) return;
+      // dirty-check contra o valor SALVO (não contra a sugestão): abrir e clicar fora não grava nada
+      if ((sel.value || '') === (td.dataset.saved || '')) { td.innerHTML = origHtml; return; }
       try {
         await salvar(id, { [field]: sel.value || null });
         renderTable();
@@ -797,19 +840,88 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
   });
 });
 
+// ── Excluídos (restaurar) ─────────────────────────────────────────────────────
+
+function renderExcluidos() {
+  const exc = excluidos();
+  const box = document.getElementById('excluidosBox');
+  document.getElementById('excCount').textContent = exc.length;
+  box.style.display = exc.length ? '' : 'none';
+  const tbody = document.getElementById('excTbody');
+  tbody.textContent = '';
+  const frag = document.createDocumentFragment();
+  exc.forEach(r => {
+    const tr = document.createElement('tr');
+    const tdNome = document.createElement('td');
+    const strong = document.createElement('strong');
+    strong.textContent = nomeLimpo(r);
+    tdNome.appendChild(strong);
+    tr.appendChild(tdNome);
+    tr.appendChild(cel(r.tratamento));
+    tr.appendChild(cel(fmtDate(r.data_venda), 'td-date'));
+    tr.appendChild(cel(fmtDate(r.excluido_em), 'td-date'));
+    const tdBtn = document.createElement('td');
+    const btn = document.createElement('button');
+    btn.className = 'exc-restore';
+    btn.textContent = '↩ Restaurar';
+    btn.dataset.id = r.id;
+    tdBtn.appendChild(btn);
+    tr.appendChild(tdBtn);
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
+}
+
+function cel(text, cls) {
+  const td = document.createElement('td');
+  if (cls) td.className = cls;
+  td.textContent = (text === undefined || text === null || text === '') ? '—' : text;
+  return td;
+}
+
+document.getElementById('excTbody').addEventListener('click', async e => {
+  const btn = e.target.closest('.exc-restore');
+  if (!btn) return;
+  const row = rows.find(r => r.id === btn.dataset.id);
+  if (!row) return;
+  btn.disabled = true;
+  try {
+    await Pacientes2API.restaurar(row.id);
+    row.excluido_em = null;
+    renderTable();
+    renderExcluidos();
+  } catch (err) {
+    btn.disabled = false;
+    alert('Erro ao restaurar: ' + err.message);
+  }
+});
+
 // ── Init ─────────────────────────────────────────────────────────────────────
+
+// Retry padrão do projeto p/ 5xx transitórios (swap de container): 2 novas tentativas em 1.5s/3s
+async function carregarComRetry() {
+  const delays = [0, 1500, 3000];
+  let lastErr;
+  for (const d of delays) {
+    if (d) await new Promise(r => setTimeout(r, d));
+    try {
+      return await Promise.all([
+        Pacientes2API.listar(), Pacientes2API.config(), Pacientes2API.dentistas(),
+      ]);
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
 
 async function init() {
   try {
-    const [data, cfg, dents] = await Promise.all([
-      Pacientes2API.listar(), Pacientes2API.config(), Pacientes2API.dentistas(),
-    ]);
+    const [data, cfg, dents] = await carregarComRetry();
     rows      = data;
     config    = Object.fromEntries(cfg.map(c => [c.tratamento, c]));
     dentistas = dents;
 
     const fExec = document.getElementById('fExecutor');
-    [...new Set(data.map(r => r.executor).filter(Boolean))].sort().forEach(e => {
+    [...new Set(data.filter(r => !r.excluido_em).map(r => r.executor).filter(Boolean))].sort().forEach(e => {
       const o = document.createElement('option'); o.textContent = e; fExec.appendChild(o);
     });
     populateTratamentoFilter();
@@ -817,8 +929,9 @@ async function init() {
     document.getElementById('pacMsg').style.display = 'none';
     document.getElementById('pacTableWrap').style.display = '';
     renderTable();
+    renderExcluidos();
   } catch (e) {
-    document.getElementById('pacMsg').textContent = 'Erro: ' + e.message;
+    document.getElementById('pacMsg').textContent = 'Erro: ' + e.message + ' — recarregue a página';
   }
 }
 

@@ -4217,7 +4217,12 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
       (async () => {
         try {
           const { data: jaExisteArr } = await supabase.from('pacientes_sucesso')
-            .select('id').eq('clinicorp_estimate_id', id).limit(1);
+            .select('id, excluido_em').eq('clinicorp_estimate_id', id).limit(1);
+          if (jaExisteArr?.length && jaExisteArr[0].excluido_em) {
+            // Linha soft-deletada no Pacientes 2: reaprovação reativa (senão a venda sumiria dos dois módulos)
+            await supabase.from('pacientes_sucesso')
+              .update({ excluido_em: null }).eq('id', jaExisteArr[0].id);
+          }
           if (!jaExisteArr?.length) {
             let telefone = orc.telefone || '';
             if (!telefone && orc.lead_id) {
@@ -4300,8 +4305,20 @@ app.get('/api/pacientes2/dentistas', requireAuth, requireCrcSucesso, rateLimit, 
 // Soft-delete: some da lista (v2); linha preservada no banco (excluido_em).
 app.delete('/api/pacientes2/:id', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
   try {
+    const excluido_em = new Date().toISOString();
     const { data, error } = await supabase.from('pacientes_sucesso')
-      .update({ excluido_em: new Date().toISOString() })
+      .update({ excluido_em })
+      .eq('id', req.params.id).select('id').single();
+    if (error) throw error;
+    res.json({ ok: true, id: data.id, excluido_em });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Restaurar um excluído (lista "Excluídos" no rodapé do Pacientes 2)
+app.post('/api/pacientes2/:id/restaurar', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('pacientes_sucesso')
+      .update({ excluido_em: null })
       .eq('id', req.params.id).select('id').single();
     if (error) throw error;
     res.json({ ok: true, id: data.id });
