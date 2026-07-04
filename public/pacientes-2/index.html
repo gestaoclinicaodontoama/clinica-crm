@@ -230,6 +230,11 @@ td.td-acts .pac-act { margin-right: 3px; }
       <option value="em-dia">🟢 Em dia (parcelas)</option>
       <option value="quitado">✅ Quitado</option>
     </select>
+    <select id="fAgenda" onchange="renderTable()">
+      <option value="">📅 Agenda: todos</option>
+      <option value="sem">⚠️ Sem consulta futura</option>
+      <option value="com">📅 Com consulta futura</option>
+    </select>
     <select id="fTratamento" onchange="renderTable()"><option value="">Todos os tratamentos</option></select>
     <select id="fExecutor" onchange="renderTable()"><option value="">Todos os executores</option></select>
     <button id="syncBtn" class="pac-sync" onclick="syncNow()" title="Puxa agora os dados do Clinicorp (agenda, financeiro, visitas) — sem isso, atualizam sozinhos 1x por dia às 02h">🔄 Atualizar dados</button>
@@ -643,6 +648,11 @@ function getSortValue(row, col) {
   if (col === '_fin') return Number(row.fin_vencido || 0);
   // null = sem classificação → 0 (igual à exibição e ao sort padrão), senão vai pro fim da lista
   if (col === 'prioridade') return row.prioridade ?? 0;
+  // consulta no PASSADO conta como "sem agenda" (igual à exibição "— ⚠️"), senão a data velha embaralha o sort
+  if (col === 'proxima_consulta') {
+    const v = row.proxima_consulta ? String(row.proxima_consulta).slice(0, 10) : '';
+    return v >= hoje() ? v : '';
+  }
   const v = row[col];
   return v ?? '';
 }
@@ -675,6 +685,7 @@ function renderTable() {
   const fPrio   = document.getElementById('fPrioridade').value;
   const fStatus = document.getElementById('fStatus').value;
   const fFin    = document.getElementById('fFin').value;
+  const fAgenda = document.getElementById('fAgenda').value;
   const fTrat   = document.getElementById('fTratamento').value;
   const fExec   = document.getElementById('fExecutor').value;
 
@@ -685,6 +696,11 @@ function renderTable() {
     }
     if (fStatus && calcStatus(r).cls !== fStatus) return false;
     if (fFin && finInfo(r).cls !== fFin) return false;
+    if (fAgenda) {
+      const temFutura = !!(r.proxima_consulta && String(r.proxima_consulta).slice(0, 10) >= hoje());
+      if (fAgenda === 'sem' && temFutura) return false;
+      if (fAgenda === 'com' && !temFutura) return false;
+    }
     if (fTrat && r.tratamento !== fTrat) return false;
     if (fExec && r.executor !== fExec) return false;
     return true;
