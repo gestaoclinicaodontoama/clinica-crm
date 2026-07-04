@@ -2031,6 +2031,21 @@ async function janela24hAberta(leadId) {
   return !!(ult && Date.now() - new Date(ult.criada_em).getTime() < 24 * 3600 * 1000);
 }
 
+// Claim-first: 1ª resposta pelo CRM torna o usuário dono da conversa.
+// Só preenche quando vazio (guard .is no update) — nunca sobrescreve.
+function assumirConversaSeSemDono(lead, user) {
+  if (!lead || lead.crc_agendamento_id || !user?.id) return;
+  const nomeCrc = sanitizeStr(user.profile?.nome || '', 100);
+  supabase.from('leads')
+    .update({ crc_agendamento_id: user.id, crc_agendamento_nome: nomeCrc })
+    .eq('id', lead.id).is('crc_agendamento_id', null)
+    .then(({ error }) => {
+      if (!error) logEvento(lead.id, 'conversa_assumida',
+        'Conversa assumida por ' + (nomeCrc || 'CRC'), {}, user.id);
+    })
+    .catch(() => {});
+}
+
 app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -2063,6 +2078,7 @@ app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, as
     if (insErr) console.error('❌ wa send (registro da mensagem):', insErr.message);
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
+    assumirConversaSeSemDono(lead, req.user);
     if (templateName) {
       supabase.from('templates').select('categoria').eq('nome', templateName).maybeSingle()
         .then(({ data: tpl }) => {
@@ -2088,7 +2104,7 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLim
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
-    const { data: lead } = await supabase.from('leads').select('id,telefone,wa_number_id').eq('id', id).maybeSingle();
+    const { data: lead } = await supabase.from('leads').select('id,telefone,wa_number_id,crc_agendamento_id').eq('id', id).maybeSingle();
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
     if (!whatsapp.temToken()) return res.status(503).json({ error: 'WhatsApp Cloud API não configurada' });
@@ -2124,6 +2140,7 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLim
     if (insErr) console.error('❌ wa midia (registro da mensagem):', insErr.message);
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
+    assumirConversaSeSemDono(lead, req.user);
     logEvento(id, 'mensagem_enviada', 'Mídia enviada: ' + (req.file?.originalname || 'arquivo'),
       { tipo: req.file?.mimetype || '' }, req.user?.id || null);
   } catch (e) {
@@ -2388,6 +2405,7 @@ app.post('/api/leads/:id/broadcast', requireAuth, requireConversas, rateLimit, a
     if (insErr) console.error('❌ broadcast (registro da mensagem):', insErr.message);
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
     res.json({ ok: true });
+    assumirConversaSeSemDono(lead, req.user);
   } catch (e) {
     console.error('❌ broadcast:', e);
     res.status(500).json({ error: e.message });
@@ -4237,7 +4255,7 @@ app.get('/api/pacientes/config', requireAuth, requireCrcSucesso, rateLimit, asyn
 app.get('/api/pacientes', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
   try {
     const { tratamento, executor } = req.query;
-    let q = supabase.from('pacientes_sucesso').select('*').order('data_venda', { ascending: false, nullsFirst: false });
+    let q = supabase.from('pacientes_sucesso').select('*').is('excluido_em', null).order('data_venda', { ascending: false, nullsFirst: false });
     if (tratamento) q = q.eq('tratamento', tratamento);
     if (executor) q = q.eq('executor', executor);
     const { data, error } = await q.limit(2000);
@@ -4256,6 +4274,37 @@ app.patch('/api/pacientes/:id', requireAuth, requireCrcSucesso, rateLimit, async
     const { data, error } = await supabase.from('pacientes_sucesso').update(patch).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ========== PACIENTES 2 (beta) — mesma tabela, leitura enriquecida via RPC ==========
+// Enriquecimento (financeiro, agenda, dentistas) é feito no Postgres (pacientes_sucesso_v2),
+// sobre tabelas já sincronizadas — zero chamadas ao Clinicorp. RPC retorna jsonb único
+// (não sofre o teto de 1000 linhas do PostgREST).
+app.get('/api/pacientes2', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.rpc('pacientes_sucesso_v2');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/pacientes2/dentistas', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.rpc('dentistas_nomes');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Soft-delete: some da lista (v2); linha preservada no banco (excluido_em).
+app.delete('/api/pacientes2/:id', requireAuth, requireCrcSucesso, rateLimit, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('pacientes_sucesso')
+      .update({ excluido_em: new Date().toISOString() })
+      .eq('id', req.params.id).select('id').single();
+    if (error) throw error;
+    res.json({ ok: true, id: data.id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

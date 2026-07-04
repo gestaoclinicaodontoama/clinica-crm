@@ -2808,6 +2808,7 @@ function renderChatList(leads) {
       <div style="display:flex;align-items:center;gap:4px;margin-top:4px">
         <span class="badge ${classBadge(l.status)}" style="font-size:10px">${l.status}</span>
         ${l.ctwa_clid ? '<span class="ctwa-badge" style="font-size:9.5px">anúncio</span>' : ''}
+        ${(!l.crc_agendamento_id && !l.crc_comercial_id) ? '<span style="font-size:9.5px;color:var(--muted);background:var(--bg3);border:1px dashed var(--border);border-radius:4px;padding:1px 5px;white-space:nowrap">sem dono</span>' : ''}
         ${_nomeCrc(l.crc_agendamento_nome) ? `<span style="font-size:9.5px;color:var(--accent);background:rgba(79,142,247,.1);border-radius:4px;padding:1px 5px;white-space:nowrap">${escHtml(_nomeCrc(l.crc_agendamento_nome))}</span>` : ''}
       </div>
     </div>`;
