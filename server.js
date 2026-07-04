@@ -2966,6 +2966,46 @@ setInterval(function() {
   if (hhmm >= '18:30') enviarResumoCrcDiario(false).catch(function(e) { console.error('[resumo-crc]', e.message); });
 }, 60000);
 
+// Varredura de fim de dia: notifica CRCs configuradas (app_config.varredura_aguardando
+// = [{usuario_id, hora}]) sobre conversas aguardando resposta (spec 2026-07-03).
+function _fmtEsperaMin(min) {
+  return min >= 60 ? Math.floor(min / 60) + 'h' + String(min % 60).padStart(2, '0') : min + 'min';
+}
+
+async function enviarVarreduraAguardando() {
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  const hhmm = new Date().toLocaleTimeString('sv-SE', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  const { data: cfg } = await supabase.from('app_config')
+    .select('varredura_aguardando, varredura_aguardando_envios').eq('id', 1).maybeSingle();
+  const lista = Array.isArray(cfg?.varredura_aguardando) ? cfg.varredura_aguardando : [];
+  if (!lista.length) return;
+  const envios = cfg?.varredura_aguardando_envios || {};
+  let mudou = false;
+  for (const item of lista) {
+    if (!item?.usuario_id || !item?.hora) continue;
+    if (hhmm < item.hora || envios[item.usuario_id] === hoje) continue;
+    envios[item.usuario_id] = hoje; mudou = true;
+    const { data: rows, error } = await supabase.rpc('conversas_aguardando', { minutos: 30 });
+    if (error) { console.error('[varredura-aguardando] rpc:', error.message); continue; }
+    if (!rows?.length) continue;
+    const top = rows.slice(0, 5)
+      .map(r => (r.nome || r.telefone || '?') + ' (' + _fmtEsperaMin(r.espera_min) + ')').join(', ');
+    const corpo = rows.length + ' conversa' + (rows.length > 1 ? 's' : '') +
+      ' aguardando resposta. Mais antigas: ' + top +
+      (rows.length > 5 ? ' e mais ' + (rows.length - 5) + '…' : '');
+    await criarNotificacao(item.usuario_id, 'aguardando_resposta',
+      '⏰ Conversas aguardando resposta', corpo,
+      { url: '/?page=conv-agendamentos&filtro=aguardando' });
+    console.log('[varredura-aguardando] ' + item.usuario_id.slice(0, 8) + ': ' + rows.length + ' conversas');
+  }
+  if (mudou) await supabase.from('app_config')
+    .update({ varredura_aguardando_envios: envios }).eq('id', 1);
+}
+
+setInterval(function() {
+  enviarVarreduraAguardando().catch(function(e) { console.error('[varredura-aguardando]', e.message); });
+}, 60000);
+
 app.post('/api/internal/cron/resumo-crc', requireCronSecret, async (req, res) => {
   try {
     const ok = await enviarResumoCrcDiario(req.query.force === '1');
