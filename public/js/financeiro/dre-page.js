@@ -418,7 +418,7 @@
       cards.push(`<div class="kpi" title="Receita mínima mensal p/ empatar: fixas ${fmt(pe.fixasMediaMes)}/mês ÷ margem de contribuição ${fmtPct(pe.mcPct)} (o que sobra de cada real depois dos custos variáveis).">
         <div class="kpi-label">Ponto de Equilíbrio</div>
         <div class="kpi-valor">${fmt(pe.pe)}/mês</div>
-        <div class="kpi-sub">MC ${fmtPct(pe.mcPct)} · fixas ${fmt(pe.fixasMediaMes)}/mês</div>${barra}</div>`);
+        <div class="kpi-sub">sobra ${fmtPct(pe.mcPct)} de cada real · fixas ${fmt(pe.fixasMediaMes)}/mês</div>${barra}</div>`);
     }
 
     const ms = A.margemSeguranca(mesesCompletos);
