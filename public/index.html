@@ -695,6 +695,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       <button onclick="abrirNovaConversa()" title="Nova conversa" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--accent);font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
       <button id="btn-filtro-nao-lidas" title="Mostrar apenas não lidas" onclick="toggleFiltroNaoLidas()" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">🔔</button>
       <button id="btn-filtro-vencendo" onclick="toggleFiltroVencendo()" title="Mostrar apenas janelas vencendo" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">⏳</button>
+      <button id="btn-filtro-aguardando" onclick="toggleFiltroAguardando()" title="Aguardando resposta há 30+ min" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;position:relative">⏰<span id="badge-aguardando" style="position:absolute;top:-5px;right:-5px;background:#dc2626;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:0 4px;min-width:14px;line-height:14px;display:none"></span></button>
       <button id="btn-filtro-sem-crc" onclick="toggleFiltroSemCrc()" title="Sem CRC responsável" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">👤</button>
       <input class="search-input" style="width:170px;margin:0" placeholder="🔍 Nome, número ou texto" id="chat-search" oninput="filtrarChats()" title="Busca por nome, telefone ou pelo texto da última mensagem">
       <select id="filtro-crc" class="filter-select" style="font-size:12px;height:32px;display:none" onchange="filtrarChats()">
@@ -2738,6 +2739,9 @@ function filtrarChats() {
   const q = (document.getElementById('chat-search').value || '').toLowerCase();
   const crcFiltro = document.getElementById('filtro-crc').value;
   let base = _filtrarParaModo(chatLeads);
+  const _nAguard = base.filter(_isAguardando).length;
+  const _bAg = document.getElementById('badge-aguardando');
+  if (_bAg) { _bAg.textContent = _nAguard; _bAg.style.display = _nAguard ? 'block' : 'none'; }
   const qDig = q.replace(/\D/g, ''); // 8 dígitos finais casam mesmo quando o telefone foi salvo sem o 9º dígito
   const qSuf = qDig.length >= 8 ? qDig.slice(-8) : '';
   if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q)
@@ -2747,6 +2751,10 @@ function filtrarChats() {
   if (_filtroNaoLidas) base = base.filter(l => _isUnread(l));
   if (_filtroVencendo && typeof estadoJanela === 'function') base = base.filter(l => estadoJanela(l.ultima_recebida_em).estado === 'fechando');
   if (_filtroSemCrc) base = base.filter(l => !l.crc_agendamento_id && !l.crc_comercial_id);
+  if (_filtroAguardando) {
+    base = base.filter(_isAguardando)
+      .sort((a, b) => new Date(a.ultima_mensagem_em) - new Date(b.ultima_mensagem_em));
+  }
   if (_chatViewMode === 'kanban') renderKanban(base);
   else renderChatList(base);
 }
@@ -2778,6 +2786,9 @@ function renderChatList(leads) {
       : jan.estado === 'fechada'
       ? `<span style="font-size:9.5px;color:var(--muted);background:rgba(239,68,68,.10);border-radius:4px;padding:1px 5px;white-space:nowrap" title="Janela de 24h fechada — só template">fechada</span>`
       : '';
+    const aguardaChip = _filtroAguardando && _isAguardando(l)
+      ? `<span style="font-size:9.5px;font-weight:700;color:#dc2626;background:rgba(239,68,68,.12);border-radius:4px;padding:1px 5px;white-space:nowrap">aguarda ${_fmtEsperaMs(Date.now() - new Date(l.ultima_mensagem_em).getTime())}</span>`
+      : '';
     const preview = l.ultima_mensagem
       ? (l.ultima_mensagem_direcao === 'enviada' ? '» ' : '') + l.ultima_mensagem
       : l.telefone || '';
@@ -2788,6 +2799,7 @@ function renderChatList(leads) {
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           ${unread ? '<span class="unread-dot"></span>' : ''}
           ${janChip}
+          ${aguardaChip}
           <span style="font-size:10.5px;color:var(--muted)">${_horaOuData(l.ultima_mensagem_em)}</span>
           <button class="pin-conv-btn" onclick="fixarConversa(${l.id},event)" title="${l.conversa_fixada?'Desafixar':'Fixar conversa'}" style="opacity:${l.conversa_fixada?'1':'0'};color:${l.conversa_fixada?'var(--accent)':'var(--muted)'}">📌</button>
         </div>
@@ -3798,6 +3810,38 @@ function toggleFiltroSemCrc() {
     btn.style.color = _filtroSemCrc ? '#fff' : 'var(--muted)';
     btn.title = _filtroSemCrc ? 'Mostrar todas' : 'Sem CRC responsável';
   }
+  filtrarChats();
+}
+
+// ============ FILTRO AGUARDANDO (⏰ 30+ min sem resposta) ============
+// Espelha a regra canônica da RPC conversas_aguardando (migration 20260703120000)
+const STATUS_AGUARDANDO = new Set(['Novo','Em qualificação','Avaliação agendada','Compareceu','Em negociação']);
+const AGUARDANDO_MIN = 30;
+let _filtroAguardando = false;
+
+function _isAguardando(l) {
+  return l.ultima_mensagem_direcao === 'recebida'
+    && !l.nao_ligar
+    && STATUS_AGUARDANDO.has(l.status)
+    && !!l.ultima_mensagem_em
+    && (Date.now() - new Date(l.ultima_mensagem_em).getTime()) >= AGUARDANDO_MIN * 60 * 1000;
+}
+
+function _fmtEsperaMs(ms) {
+  const min = Math.floor(ms / 60000);
+  return min >= 60 ? Math.floor(min / 60) + 'h' + String(min % 60).padStart(2, '0') : min + 'min';
+}
+
+function _syncBtnAguardando() {
+  const btn = document.getElementById('btn-filtro-aguardando');
+  if (!btn) return;
+  btn.style.background = _filtroAguardando ? '#dc2626' : 'var(--bg2)';
+  btn.style.color = _filtroAguardando ? '#fff' : 'var(--muted)';
+}
+
+function toggleFiltroAguardando() {
+  _filtroAguardando = !_filtroAguardando;
+  _syncBtnAguardando();
   filtrarChats();
 }
 
@@ -5819,6 +5863,12 @@ function iniciarApp() {
       setTimeout(() => clearInterval(_tryOpen), 8000);
       return;
     }
+  }
+
+  // Deep-link da varredura: /?page=conv-agendamentos&filtro=aguardando liga o ⏰
+  if (new URLSearchParams(location.search).get('filtro') === 'aguardando') {
+    _filtroAguardando = true;
+    _syncBtnAguardando();
   }
 
   // Deep-link: /?page=funil abre a aba correspondente (links vindos do shared-nav)
