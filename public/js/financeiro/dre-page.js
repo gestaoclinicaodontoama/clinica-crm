@@ -397,7 +397,7 @@
 
     const fx = Math.abs(A.fixasDe(dreTotal));
     if (total.receitaBruta > 0 && fx > 0) {
-      cards.push(`<div class="kpi" title="O que sai todo mês independente da produção: grupo 4 + pró-labore fixo dos sócios (3.2.3).">
+      cards.push(`<div class="kpi" title="O que sai todo mês independente da produção: grupo 4 + dentistas com valor fixo mensal (3.2.3).">
         <div class="kpi-label">Despesas Fixas</div>
         <div class="kpi-valor">${fmtPct(fx / total.receitaBruta)}</div>
         <div class="kpi-sub">da receita — ${fmt(fx)} no período · média ${fmt(fx / meses.length)}/mês</div></div>`);

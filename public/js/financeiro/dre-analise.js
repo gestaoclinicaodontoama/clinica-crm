@@ -10,7 +10,7 @@
   const somaGrupos = (dre, codigos) =>
     (dre.grupos || []).filter(g => codigos.includes(g.codigo)).reduce((s, g) => s + g.total, 0);
 
-  // Exceção fixo×variável (Luiz, 04/07/26): pró-labore dos sócios (3.2.3) fica no
+  // Exceção fixo×variável (Luiz, 04/07/26): remuneração fixa de dentistas (3.2.3) fica no
   // grupo 3.2 na CASCATA (é mão de obra de dentista), mas é despesa FIXA nas fórmulas
   // de PE/projeção/cards. Só o pagamento do Joaquim (3.2.1) varia com a produção.
   const FIXAS_CONTAS = ['3.2.3'];
