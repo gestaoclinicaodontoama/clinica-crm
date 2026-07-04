@@ -5,7 +5,13 @@
   const rotulo = (ym) => { const [y, m] = ym.split('-').map(Number); return `${MESES_PT[m - 1]}/${String(y).slice(2)}`; };
   const rotuloDia = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
   const ymAtual = new Date().toLocaleDateString('sv-SE').slice(0, 7);
-  let chart = null, chartTend = null, chartRenov = null;
+  let chart = null, chartTend = null, chartRenov = null, chartProj = null;
+  let projDados = null, projMetrica = 'caixa';
+  const METRICAS = {
+    faturamento: { label: 'Faturamento', desc: 'o que é vendido (antes de entrar no caixa)' },
+    caixa: { label: 'Caixa recebido', desc: 'o que efetivamente entra no bolso' },
+    lucro: { label: 'Lucro', desc: 'o que sobra: caixa recebido menos as saídas' },
+  };
 
   function cores() {
     const css = getComputedStyle(document.documentElement);
@@ -73,8 +79,87 @@
     $('nota-atual').style.display = atual ? '' : 'none';
 
     renderTendencia(d, c);
+    renderProjecao(d);
     renderAnalises(d, receber, c);
   }
+
+  // Projeção de crescimento: histórico (últimos 12m) + 24m projetados, 3 cenários.
+  function renderProjecao(d) {
+    const sec = $('sec-projecao');
+    const r = window.ProjecaoCresc && d.serie_mensal
+      ? window.ProjecaoCresc.projecaoCrescimento(d.serie_mensal) : { erro: 'sem dados' };
+    if (r.erro) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    projDados = r;
+    desenharProjecao();
+  }
+
+  function desenharProjecao() {
+    const r = projDados;
+    if (!r) return;
+    const c = cores();
+    const met = projMetrica;
+    const gMet = { faturamento: r.gFaturamento, caixa: r.gCaixa, lucro: r.gCaixa }[met];
+
+    // Cartões-resumo do cenário provável (+ faixa conservador–otimista)
+    const resP = r.resumo.provavel[met], resC = r.resumo.conservador[met], resO = r.resumo.otimista[met];
+    const faixa = (a, b) => `entre ${fmt(a)} e ${fmt(b)}`;
+    $('proj-cards').innerHTML =
+      `<div class="proj-card"><div class="l">Próximos 12 meses (provável)</div>
+        <div class="v">${fmt(resP.m12)}</div><div class="r">${faixa(resC.m12, resO.m12)}</div></div>` +
+      `<div class="proj-card"><div class="l">Próximos 24 meses (provável)</div>
+        <div class="v">${fmt(resP.m24)}</div><div class="r">${faixa(resC.m24, resO.m24)}</div></div>` +
+      `<div class="proj-card"><div class="l">Ritmo de crescimento medido</div>
+        <div class="v">${gMet >= 0 ? '+' : ''}${(gMet * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%/ano</div>
+        <div class="r">${METRICAS[met].desc}</div></div>`;
+
+    // Série: últimos 12 meses reais + 24 projetados. Cenários ancoram no último real.
+    const hist = r.historico.slice(-12);
+    const histVals = hist.map(h => h[met]);
+    const ancora = histVals[histVals.length - 1];
+    const proj = r.projecao.provavel[met]; // ym's iguais entre cenários
+    const labels = [...hist.map(h => rotulo(h.ym)), ...proj.map(p => rotulo(p.ym))];
+    const nH = hist.length;
+    const nulos = (n) => Array.from({ length: n }, () => null);
+    // datasets de cenário começam ancorados no último real (posição nH-1) p/ conectar a linha
+    const linhaCen = (cen) => [...nulos(nH - 1), ancora, ...r.projecao[cen][met].map(p => p.val)];
+
+    if (chartProj) chartProj.destroy();
+    chartProj = new Chart($('grafico-projecao'), {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'Conservador', data: linhaCen('conservador'), borderColor: 'transparent',
+          backgroundColor: hexA(c.accent, .10), pointRadius: 0, fill: false, tension: .2 },
+        { label: 'Faixa (conservador → otimista)', data: linhaCen('otimista'), borderColor: 'transparent',
+          backgroundColor: hexA(c.accent, .10), pointRadius: 0, fill: '-1', tension: .2 },
+        { label: 'Provável', data: linhaCen('provavel'), borderColor: c.accent,
+          borderDash: [6, 4], pointRadius: 0, fill: false, tension: .2 },
+        { label: 'Realizado', data: [...histVals, ...nulos(proj.length)], borderColor: c.green,
+          pointRadius: 2, fill: false, tension: .2 },
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, spanGaps: false,
+        plugins: { legend: { labels: { color: c.text,
+          filter: (it) => it.text !== 'Conservador' } } }, scales: escalaR$(c) },
+    });
+    $('projecao-resumo').textContent =
+      `Linha verde = realizado (últimos 12 meses). Tracejada = projeção provável; a faixa sombreada vai do cenário conservador ao otimista. `
+      + `No provável, o ${METRICAS[met].label.toLowerCase()} dos próximos 12 meses soma ${fmt(r.resumo.provavel[met].m12)}.`;
+  }
+
+  const hexA = (hex, a) => {
+    const h = hex.replace('#', '');
+    const n = h.length === 3 ? h.split('').map(x => x + x).join('') : h;
+    const r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  };
+
+  document.getElementById('proj-seg').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-met]');
+    if (!btn) return;
+    projMetrica = btn.dataset.met;
+    for (const b of e.currentTarget.querySelectorAll('button')) b.classList.toggle('on', b === btn);
+    desenharProjecao();
+  });
 
   function renderTendencia(d, c) {
     const retro = d.analises?.retroativo || [];

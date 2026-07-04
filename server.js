@@ -7780,12 +7780,17 @@ app.get('/api/financeiro/a-categorizar/resumo', requireAuth, requireFinanceiro, 
 // a pagar (out_forecast do cash_flow, fin_fluxo_futuro, ~12m — a_pagar=null além
 // do horizonte que o Clinicorp fornece, para não parecer "zero contas").
 app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res) => {
-  const [receb, fluxo, vencido, analises, snaps] = await Promise.all([
+  // Histórico mensal (faturamento/caixa/saídas) p/ a projeção de crescimento — 36 meses.
+  const hojeIso = _finDataLocal(new Date());
+  const serieFrom = (() => { const [y, m] = hojeIso.slice(0, 7).split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1 - 36, 1)).toISOString().slice(0, 10); })();
+  const [receb, fluxo, vencido, analises, snaps, serie] = await Promise.all([
     supabase.from('fin_recebiveis_mensal').select('mes,valor,atualizado_em').order('mes'),
     supabase.from('fin_fluxo_futuro').select('mes,a_receber,a_pagar,atualizado_em').order('mes'),
     supabase.rpc('fin_vencido_total'),
     supabase.from('fin_saude_analises').select('dados,atualizado_em').eq('id', 1).maybeSingle(),
     supabase.from('fin_saude_snapshots').select('data,receber,pagar,resultado,origem').order('data').limit(800),
+    supabase.rpc('fin_series_mensais', { p_from: serieFrom, p_to: hojeIso }),
   ]);
   if (receb.error) return res.status(500).json({ error: receb.error.message });
   if (fluxo.error) return res.status(500).json({ error: fluxo.error.message });
@@ -7802,6 +7807,13 @@ app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res
       }));
   const ts = [(receb.data || [])[0]?.atualizado_em, (fluxo.data || [])[0]?.atualizado_em]
     .filter(Boolean).sort().pop() || null;
+  // Série mensal p/ projeção — exclui o mês corrente (parcial distorce a tendência).
+  const ymCorrente = hojeIso.slice(0, 7);
+  const serieMensal = serie.error ? []
+    : (serie.data || []).filter(r => String(r.ym) < ymCorrente).map(r => ({
+        ym: String(r.ym), faturamento: Number(r.faturamento) || 0,
+        caixa: Number(r.caixa) || 0, saidas: Number(r.saidas) || 0,
+      }));
   res.json({
     meses, vencido: Number(vencido.data || 0), atualizado_em: ts,
     analises: analises.data?.dados || null,
@@ -7809,6 +7821,7 @@ app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res
       data: String(s.data), receber: Number(s.receber), pagar: Number(s.pagar),
       resultado: Number(s.resultado), origem: s.origem,
     })),
+    serie_mensal: serieMensal,
   });
 });
 
