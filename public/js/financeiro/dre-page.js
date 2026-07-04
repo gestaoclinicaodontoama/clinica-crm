@@ -18,7 +18,7 @@
     { tipo: 'grupo', codigo: '7', natureza: 'saida' },
     { tipo: 'subtotal', chave: 'resultadoFinal', label: 'RESULTADO FINAL' },
     // Distribuição de lucro: abaixo da linha — sem alerta de anomalia (é decisão, não estouro)
-    { tipo: 'grupo', codigo: '6', natureza: 'saida', semAnomalia: true },
+    { tipo: 'grupo', codigo: '8', natureza: 'saida', semAnomalia: true },
     { tipo: 'subtotal', chave: 'resultadoAposDistribuicoes', label: 'RESULTADO APÓS DISTRIBUIÇÕES' },
   ];
 

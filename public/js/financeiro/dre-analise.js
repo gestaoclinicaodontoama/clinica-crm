@@ -16,7 +16,7 @@
     const lucroBruto = receitaLiquida + somaGrupos(dre, ['3.0', '3.1', '3.2', '3.3']);
     const resultadoOperacional = lucroBruto + somaGrupos(dre, ['4']);
     const resultadoFinal = resultadoOperacional + somaGrupos(dre, ['5', '7']);
-    const resultadoAposDistribuicoes = resultadoFinal + somaGrupos(dre, ['6']);
+    const resultadoAposDistribuicoes = resultadoFinal + somaGrupos(dre, ['8']);
     return { receitaBruta, receitaLiquida, lucroBruto, resultadoOperacional, resultadoFinal, resultadoAposDistribuicoes };
   }
 
@@ -102,7 +102,7 @@
     const ultimo = mesesCompletos[mesesCompletos.length - 1];
     const porConta = new Map(); // codigo → { nome, porMes: {ym: total} }
     for (const m of mesesCompletos) for (const g of (m.grupos || [])) {
-      if (g.codigo === '1' || g.codigo === '6') continue; // 6 = distribuição: decisão, não estouro
+      if (g.codigo === '1' || g.codigo === '8') continue; // 8 = distribuição: decisão, não estouro
       for (const c of (g.contas || [])) {
         if (!porConta.has(c.codigo)) porConta.set(c.codigo, { nome: c.nome, porMes: {} });
         porConta.get(c.codigo).porMes[m.ym] = c.total;
