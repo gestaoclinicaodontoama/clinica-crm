@@ -96,13 +96,19 @@
     return { receitaProj, variaveisProj, fixasProj, resultadoProj: receitaProj - variaveisProj - fixasProj, fixasAproximada };
   }
 
-  // Conta de saída com maior estouro % (último mês completo vs média dos completos).
+  // Conta de saída com maior estouro em R$ (último mês completo vs média dos completos).
+  // Materialidade: só vira KPI se estourou ≥ R$1.000 E ≥ 25% acima da média — sem isso
+  // uma conta miúda (ex.: moto taxi +33% = R$26) ou a variação normal de uma conta grande
+  // ocupavam o card. Entre estouros relevantes, ganha o que mais dói no caixa (R$, não %).
+  const DESVIO_MIN_REAIS = 1000;
+  const DESVIO_MIN_PCT = 0.25;
   function maiorDesvio(mesesCompletos) {
     if (mesesCompletos.length < 3) return null;
     const ultimo = mesesCompletos[mesesCompletos.length - 1];
     const porConta = new Map(); // codigo → { nome, porMes: {ym: total} }
     for (const m of mesesCompletos) for (const g of (m.grupos || [])) {
-      if (g.codigo === '1' || g.codigo === '8') continue; // 8 = distribuição: decisão, não estouro
+      // 2 = imposto segue a receita (subir junto não é estouro); 8 = distribuição é decisão
+      if (g.codigo === '1' || g.codigo === '2' || g.codigo === '8') continue;
       for (const c of (g.contas || [])) {
         if (!porConta.has(c.codigo)) porConta.set(c.codigo, { nome: c.nome, porMes: {} });
         porConta.get(c.codigo).porMes[m.ym] = c.total;
@@ -110,13 +116,15 @@
     }
     let top = null;
     for (const [codigo, info] of porConta) {
-      const valores = mesesCompletos.map(m => info.porMes[m.ym] || 0);
+      // Base = meses ANTERIORES ao último; incluir o próprio mês do estouro diluía o sinal.
+      const valores = mesesCompletos.slice(0, -1).map(m => info.porMes[m.ym] || 0);
       const med = media(valores);
       if (med == null || Math.abs(med) < ZERO) continue;
       const atual = info.porMes[ultimo.ym] || 0;
-      const pct = (Math.abs(atual) - Math.abs(med)) / Math.abs(med);
-      if (pct > 0 && (!top || pct > top.pct)) {
-        top = { codigo, nome: info.nome, pct, ym: ultimo.ym, valor: atual, media: med };
+      const delta = Math.abs(atual) - Math.abs(med);
+      const pct = delta / Math.abs(med);
+      if (delta >= DESVIO_MIN_REAIS && pct >= DESVIO_MIN_PCT && (!top || delta > top.delta)) {
+        top = { codigo, nome: info.nome, pct, delta, ym: ultimo.ym, valor: atual, media: med };
       }
     }
     return top;
