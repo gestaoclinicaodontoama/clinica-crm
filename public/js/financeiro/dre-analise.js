@@ -10,6 +10,21 @@
   const somaGrupos = (dre, codigos) =>
     (dre.grupos || []).filter(g => codigos.includes(g.codigo)).reduce((s, g) => s + g.total, 0);
 
+  // Exceção fixo×variável (Luiz, 04/07/26): pró-labore dos sócios (3.2.3) fica no
+  // grupo 3.2 na CASCATA (é mão de obra de dentista), mas é despesa FIXA nas fórmulas
+  // de PE/projeção/cards. Só o pagamento do Joaquim (3.2.1) varia com a produção.
+  const FIXAS_CONTAS = ['3.2.3'];
+  const somaConta = (dre, codigo) => {
+    let s = 0;
+    for (const g of (dre.grupos || [])) for (const c of (g.contas || [])) {
+      if (c.codigo === codigo) s += c.total;
+    }
+    return s;
+  };
+  const fixasExtra = (dre) => FIXAS_CONTAS.reduce((s, cod) => s + somaConta(dre, cod), 0);
+  const variaveisDe = (dre) => somaGrupos(dre, VARIAVEIS) - fixasExtra(dre);
+  const fixasDe = (dre) => somaGrupos(dre, FIXAS) + fixasExtra(dre);
+
   function subtotais(dre) {
     const receitaBruta = somaGrupos(dre, ['1']);
     const receitaLiquida = receitaBruta + somaGrupos(dre, ['2']);
@@ -63,8 +78,8 @@
     let receita = 0, variaveis = 0, fixas = 0;
     for (const m of mesesCompletos) {
       receita += somaGrupos(m, ['1']);
-      variaveis += somaGrupos(m, VARIAVEIS);
-      fixas += somaGrupos(m, FIXAS);
+      variaveis += variaveisDe(m);
+      fixas += fixasDe(m);
     }
     if (receita <= ZERO) return { erro: 'sem receita no período' };
     const mcPct = 1 - Math.abs(variaveis) / receita;
@@ -84,12 +99,12 @@
     let pctVar, fixasProj, fixasAproximada = false;
     if (mesesCompletos.length) {
       const receitaHist = mesesCompletos.reduce((s, m) => s + somaGrupos(m, ['1']), 0);
-      const varHist = mesesCompletos.reduce((s, m) => s + somaGrupos(m, VARIAVEIS), 0);
+      const varHist = mesesCompletos.reduce((s, m) => s + variaveisDe(m), 0);
       pctVar = receitaHist > ZERO ? Math.abs(varHist) / receitaHist : 0;
-      fixasProj = Math.abs(mesesCompletos.reduce((s, m) => s + somaGrupos(m, FIXAS), 0)) / mesesCompletos.length;
+      fixasProj = Math.abs(mesesCompletos.reduce((s, m) => s + fixasDe(m), 0)) / mesesCompletos.length;
     } else {
-      pctVar = receitaAtual > ZERO ? Math.abs(somaGrupos(mesParcial, VARIAVEIS)) / receitaAtual : 0;
-      fixasProj = Math.abs(somaGrupos(mesParcial, FIXAS)) / diasCorridos * diasMes;
+      pctVar = receitaAtual > ZERO ? Math.abs(variaveisDe(mesParcial)) / receitaAtual : 0;
+      fixasProj = Math.abs(fixasDe(mesParcial)) / diasCorridos * diasMes;
       fixasAproximada = true;
     }
     const variaveisProj = receitaProj * pctVar;
@@ -99,8 +114,8 @@
   // Saídas operacionais do período (grupo 8 = distribuição fica fora: é destino do
   // lucro, não custo de rodar). Valores positivos p/ exibição.
   function resumoSaidas(dreTotal, nMeses) {
-    const variaveis = Math.abs(somaGrupos(dreTotal, VARIAVEIS));
-    const fixas = Math.abs(somaGrupos(dreTotal, FIXAS));
+    const variaveis = Math.abs(variaveisDe(dreTotal));
+    const fixas = Math.abs(fixasDe(dreTotal));
     const outras = Math.abs(somaGrupos(dreTotal, ['5', '7']));
     const total = variaveis + fixas + outras;
     return { total, mediaMes: nMeses > 0 ? total / nMeses : null, variaveis, fixas, outras };
@@ -119,7 +134,7 @@
   function variaveisPctReceita(dreTotal) {
     const receita = somaGrupos(dreTotal, ['1']);
     if (receita <= ZERO) return null;
-    return Math.abs(somaGrupos(dreTotal, VARIAVEIS)) / receita;
+    return Math.abs(variaveisDe(dreTotal)) / receita;
   }
 
   // Distribuição de lucro do período e o que sobrou retido na clínica.
@@ -203,7 +218,7 @@
     if (fr == null || fs == null) return null;
     const MIN = 0.03; // piso: fração ínfima multiplicaria o realizado por >33x
     const receitaAtual = somaGrupos(mesParcial, ['1']);
-    const saidaAtual = Math.abs(somaGrupos(mesParcial, VARIAVEIS)) + Math.abs(somaGrupos(mesParcial, FIXAS));
+    const saidaAtual = Math.abs(variaveisDe(mesParcial)) + Math.abs(fixasDe(mesParcial));
     const receitaProj = receitaAtual / Math.max(fr, MIN);
     const saidaProj = saidaAtual / Math.max(fs, MIN);
     const confianca = (d <= 5 || fr < 0.15 || fs < 0.15) ? 'baixa' : 'alta';
@@ -213,7 +228,7 @@
 
   const api = { VARIAVEIS, FIXAS, somaGrupos, subtotais, av, variacao, classeVariacao,
     mesCompleto, media, nivelAnomalia, pontoEquilibrio, projecaoMes, maiorDesvio,
-    curvaDiaria, projecaoMesCurva,
+    curvaDiaria, projecaoMesCurva, variaveisDe, fixasDe,
     resumoSaidas, margemSeguranca, variaveisPctReceita, resumoDistribuicoes };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.DREAnalise = api;

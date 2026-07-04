@@ -7659,9 +7659,10 @@ app.get('/api/financeiro/dre-mensal', requireAuth, requireFinanceiro, async (req
   if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
   const nMeses = (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + (Number(to.slice(5, 7)) - Number(from.slice(5, 7))) + 1;
   if (nMeses > 36) return res.status(400).json({ error: 'periodo maximo: 36 meses' });
-  const [agg, semCat] = await Promise.all([
+  const [agg, semCat, fat] = await Promise.all([
     supabase.rpc('fin_dre_agg_mensal', { p_from: from, p_to: to }),
     supabase.rpc('fin_sem_categoria_resumo', { p_from: from, p_to: to }),
+    supabase.rpc('fin_faturamento_mensal', { p_from: from, p_to: to }),
   ]);
   if (agg.error) return res.status(500).json({ error: agg.error.message });
   if (semCat.error) return res.status(500).json({ error: semCat.error.message });
@@ -7669,6 +7670,7 @@ app.get('/api/financeiro/dre-mensal', requireAuth, requireFinanceiro, async (req
   res.json({
     meses: montarDREMensal(agg.data || [], from, to),
     sem_categoria: { qtd: Number(sc.qtd), total: Number(sc.total) },
+    faturamento: fat.error ? [] : (fat.data || []), // competência (REVENUE) — linha 0 da DRE
   });
 });
 

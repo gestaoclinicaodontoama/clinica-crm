@@ -84,7 +84,8 @@
       const r = await FinAPI.dreMensal(from, to);
       const hoje = new Date();
       const mesesCompletos = r.meses.filter(m => A.mesCompleto(m.ym, hoje));
-      window._dreState = { meses: r.meses, semCat: r.sem_categoria, from, to, mesesCompletos };
+      const faturamento = new Map((r.faturamento || []).map(f => [f.ym, Number(f.total)]));
+      window._dreState = { meses: r.meses, semCat: r.sem_categoria, from, to, mesesCompletos, faturamento };
       if (window.prepararAvaliacao) window.prepararAvaliacao(from, to);
       renderSemCat(r.sem_categoria);
       renderTabela(window._dreState);
@@ -147,6 +148,9 @@
     const subTotal = A.subtotais(somarMeses(meses));
     const receitaBrutaTotal = subTotal.receitaBruta;
     const nComp = mesesCompletos.length;
+    // Faturamento (competência/REVENUE): linha 0 + análise vertical própria (% Fat.)
+    st._temFat = !!(st.faturamento && st.faturamento.size);
+    st._fatTot = st._temFat ? meses.reduce((s, m) => s + (st.faturamento.get(m.ym) || 0), 0) : 0;
 
     let html = '<table class="dre"><thead><tr><th class="col-conta">Conta</th>';
     if (multi) {
@@ -156,8 +160,11 @@
       }
       html += '<th>Média</th>';
     }
-    html += '<th>Total</th><th>AV%</th></tr></thead><tbody>';
+    html += '<th>Total</th><th>AV%</th>';
+    if (st._temFat) html += '<th title="Análise vertical sobre o FATURAMENTO (competência): quanto cada linha representa do que foi vendido no período.">% Fat.</th>';
+    html += '</tr></thead><tbody>';
 
+    if (st._temFat) html += renderFaturamento(st, multi);
     for (const linha of LINHAS) {
       if (linha.tipo === 'grupo') html += renderGrupo(linha, st, subs, receitaBrutaTotal, nComp, multi);
       else html += renderSubtotal(linha, subs, subTotal, receitaBrutaTotal, multi);
@@ -175,6 +182,28 @@
       });
     }
     if (window.plugarDrill) window.plugarDrill(); // Task 6
+  }
+
+  // Linha 0: o que foi VENDIDO no mês (Clinicorp REVENUE, competência). As linhas
+  // abaixo são caixa — a diferença p/ "1 - RECEITA" é o que ainda não entrou.
+  function renderFaturamento(st, multi) {
+    const { meses, mesesCompletos, faturamento } = st;
+    const hoje = new Date();
+    const vals = meses.map(m => faturamento.get(m.ym) || 0);
+    let html = '<tr class="subtotal" title="O que foi vendido/produzido no mês segundo o Clinicorp (competência). As linhas abaixo são regime de caixa — 1 - RECEITA é o que efetivamente entrou.">' +
+      '<td class="col-conta">FATURAMENTO (COMPETÊNCIA)</td>';
+    if (multi) {
+      vals.forEach((v, i) => {
+        const parcial = !A.mesCompleto(meses[i].ym, hoje);
+        const pct = A.variacao('entrada', v, i > 0 ? vals[i - 1] : null);
+        const cls = A.classeVariacao('entrada', pct);
+        html += `<td class="${parcial ? 'col-parcial' : ''}">${fmt(v)}` +
+          (pct != null ? `<span class="var ${cls || 'neutro'}">${pct > 0 ? '▲' : '▼'} ${fmtPct(Math.abs(pct))}</span>` : '') + '</td>';
+      });
+      const med = A.media(mesesCompletos.map(m => faturamento.get(m.ym) || 0));
+      html += `<td>${med == null ? '–' : fmt(med)}</td>`;
+    }
+    return html + `<td>${fmt(st._fatTot)}</td><td>–</td><td>100%</td></tr>`;
   }
 
   function somarMeses(meses) {
@@ -231,7 +260,12 @@
     }
     const avG = A.av(grupoTotal.total, receitaBrutaTotal);
     html += `<td class="${valorClass(grupoTotal.total)}">${fmt(grupoTotal.total)}</td>` +
-      `<td>${avG == null ? '–' : fmtPct(avG)}</td></tr>`;
+      `<td>${avG == null ? '–' : fmtPct(avG)}</td>`;
+    if (st._temFat) {
+      const avF = A.av(grupoTotal.total, st._fatTot);
+      html += `<td>${avF == null ? '–' : fmtPct(avF)}</td>`;
+    }
+    html += '</tr>';
 
     if (aberto) {
       // união de contas (do total somado — cobre conta que só existe num mês)
@@ -261,7 +295,12 @@
         }
         const avC = A.av(conta.total, receitaBrutaTotal);
         html += `<td class="valor-conta" data-conta="${conta.codigo}" data-ym="total">${fmt(conta.total)}</td>` +
-          `<td>${avC == null ? '–' : fmtPct(avC)}</td></tr>`;
+          `<td>${avC == null ? '–' : fmtPct(avC)}</td>`;
+        if (st._temFat) {
+          const avFC = A.av(conta.total, st._fatTot);
+          html += `<td>${avFC == null ? '–' : fmtPct(avFC)}</td>`;
+        }
+        html += '</tr>';
       }
     }
     return html;
@@ -295,8 +334,12 @@
     const margemT = A.av(total, receitaBrutaTotal);
     html += `<td class="${valorClass(total)}">${fmt(total)}` +
       (margemT != null ? `<span class="margem">${fmtPct(margemT)}</span>` : '') + '</td>' +
-      `<td>${margemT == null ? '–' : fmtPct(margemT)}</td></tr>`;
-    return html;
+      `<td>${margemT == null ? '–' : fmtPct(margemT)}</td>`;
+    if (st._temFat) {
+      const avF = A.av(total, st._fatTot);
+      html += `<td>${avF == null ? '–' : fmtPct(avF)}</td>`;
+    }
+    return html + '</tr>';
   }
 
   const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
@@ -346,10 +389,18 @@
 
     const vp = A.variaveisPctReceita(dreTotal);
     if (vp != null) {
-      cards.push(`<div class="kpi" title="Impostos + tarifas + material + dentistas + técnicos: custos que crescem junto com a receita. Quanto menor o %, mais sobra de cada real faturado.">
+      cards.push(`<div class="kpi" title="Impostos + tarifas + material + dentistas (parte variável: Joaquim/CNPJ) + técnicos: custos que crescem junto com a receita. Quanto menor o %, mais sobra de cada real faturado.">
         <div class="kpi-label">Custos Variáveis</div>
         <div class="kpi-valor">${fmtPct(vp)}</div>
         <div class="kpi-sub">da receita — de cada R$ 100 faturados, sobram ${fmt(100 * (1 - vp))} p/ fixas e lucro</div></div>`);
+    }
+
+    const fx = Math.abs(A.fixasDe(dreTotal));
+    if (total.receitaBruta > 0 && fx > 0) {
+      cards.push(`<div class="kpi" title="O que sai todo mês independente da produção: grupo 4 + pró-labore fixo dos sócios (3.2.3).">
+        <div class="kpi-label">Despesas Fixas</div>
+        <div class="kpi-valor">${fmtPct(fx / total.receitaBruta)}</div>
+        <div class="kpi-sub">da receita — ${fmt(fx)} no período · média ${fmt(fx / meses.length)}/mês</div></div>`);
     }
 
     const pe = A.pontoEquilibrio(mesesCompletos);
