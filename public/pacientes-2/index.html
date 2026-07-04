@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pacientes 2 (beta) — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] {
+  --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+  --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --teal: #14b8a6; --purple: #a855f7;
+}
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+  --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626; --teal: #0d9488; --purple: #9333ea;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+.pac-wrap { padding: 20px 24px; }
+
+.pac-beta {
+  display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; background: rgba(168,85,247,.14); color: var(--purple);
+  vertical-align: middle; letter-spacing: .5px;
+}
+
+/* ── Tabs ── */
+.pac-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 18px; align-items: center; }
+.pac-tab {
+  padding: 9px 20px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  border: none; background: none; color: var(--muted); border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: all .15s; font-family: inherit;
+}
+.pac-tab:hover { color: var(--text); }
+.pac-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Filtros ── */
+.pac-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.pac-header select {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--bg2); color: var(--text);
+  font-family: inherit; cursor: pointer; outline: none;
+}
+.pac-header select:focus { border-color: var(--accent); }
+.pac-count { font-size: 12px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+
+/* ── Tabela ── */
+.pac-table-wrap {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  overflow-x: auto;
+}
+table.pac { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 1180px; }
+
+table.pac th {
+  padding: 10px 10px; text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap;
+  background: var(--bg2); text-transform: uppercase; letter-spacing: .5px;
+  user-select: none;
+}
+table.pac th.sortable { cursor: pointer; }
+table.pac th.sortable:hover { color: var(--text); }
+table.pac th .sort-icon { margin-left: 4px; opacity: .4; font-style: normal; }
+table.pac th.sort-asc .sort-icon,
+table.pac th.sort-desc .sort-icon { opacity: 1; color: var(--accent); }
+
+table.pac td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.pac tr:last-child td { border-bottom: none; }
+table.pac tr:hover td { background: var(--bg3); }
+
+td.td-date { white-space: nowrap; font-size: 12px; color: var(--muted); }
+td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
+
+/* ── Prioridade ── */
+.pac-prio-cell { text-align: center; cursor: pointer; width: 42px; }
+.pac-prio-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; height: 26px; padding: 0 5px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  transition: border-color .12s;
+}
+.pac-prio-num:hover { border-color: var(--accent); }
+.pac-prio-num.p0    { background: rgba(239,68,68,.13);  color: var(--red);    border-color: transparent; }
+.pac-prio-num.p-alta  { background: rgba(34,197,94,.13);  color: var(--green);  border-color: transparent; font-size: 10px; }
+.pac-prio-num.p-altac { background: rgba(20,184,166,.13); color: var(--teal);   border-color: transparent; font-size: 10px; }
+.pac-prio-input {
+  width: 44px; padding: 3px 4px; border: 1px solid var(--accent); border-radius: 5px;
+  font-size: 12px; font-weight: 700; text-align: center;
+  background: var(--bg3); color: var(--text); font-family: inherit; outline: none;
+}
+
+/* ── Status / chips ── */
+.pac-status {
+  display: inline-block; padding: 2px 8px; border-radius: 12px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.pac-status.critico   { background: rgba(239,68,68,.12);  color: var(--red); }
+.pac-status.atencao   { background: rgba(245,158,11,.12); color: var(--yellow); }
+.pac-status.em-dia    { background: rgba(34,197,94,.12);  color: var(--green); }
+.pac-status.sem-data  { background: var(--bg3); color: var(--muted); }
+.pac-status.alta      { background: rgba(34,197,94,.12);  color: var(--green); }
+.pac-status.alta-c    { background: rgba(20,184,166,.12); color: var(--teal); }
+
+.fin-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 12px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.fin-chip.venc    { background: rgba(239,68,68,.12);  color: var(--red); }
+.fin-chip.em-dia  { background: rgba(34,197,94,.12);  color: var(--green); }
+.fin-chip.quitado { background: rgba(20,184,166,.12); color: var(--teal); }
+.fin-chip.nd      { background: var(--bg3); color: var(--muted); }
+.fin-alert { font-size: 11px; color: var(--yellow); display: block; margin-top: 3px; white-space: nowrap; }
+
+.pac-novo {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; background: rgba(79,142,247,.14); color: var(--accent);
+}
+a.pac-perfil { color: inherit; text-decoration: none; }
+a.pac-perfil:hover { color: var(--accent); text-decoration: underline; }
+
+/* ── Células editáveis ── */
+.pac-cell-edit { cursor: pointer; }
+.pac-cell-edit:hover { background: rgba(99,102,241,.06); border-radius: 4px; }
+.pac-edit-input, .pac-edit-select {
+  width: 100%; padding: 3px 6px; border: 1px solid var(--accent);
+  border-radius: 4px; font-size: 12px; background: var(--bg3);
+  color: var(--text); font-family: inherit; outline: none;
+}
+.sug { color: var(--muted); font-style: italic; }
+
+.pac-dias { font-weight: 600; font-size: 13px; }
+.pac-dias.over { color: var(--red); }
+
+.pac-wpp {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; background: #25D366; color: #fff;
+  border-radius: 8px; text-decoration: none; font-size: 14px;
+}
+.pac-wpp:hover { opacity: .85; }
+
+.pac-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--muted);
+  font-size: 13px; font-family: inherit; transition: all .12s;
+}
+.pac-act:hover { border-color: var(--accent); color: var(--accent); }
+.pac-act.del:hover { border-color: var(--red); color: var(--red); }
+.pac-act:disabled { opacity: .4; cursor: default; }
+td.td-acts { white-space: nowrap; }
+td.td-acts .pac-act { margin-right: 4px; }
+
+#pacMsg { padding: 40px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="pacientes-2"></script>
+<div class="main-content">
+<div class="pac-wrap">
+
+  <div class="pac-tabs">
+    <button class="pac-tab active" data-tab="geral" onclick="switchTab('geral')">Geral</button>
+    <button class="pac-tab" data-tab="invisalign" onclick="switchTab('invisalign')">💎 Invisalign</button>
+    <span class="pac-beta" title="Versão beta — a página Pacientes original continua intacta">BETA</span>
+  </div>
+
+  <div class="pac-header">
+    <select id="fPrioridade" onchange="renderTable()">
+      <option value="">Todas as prioridades</option>
+      <option value="0">0 – Urgente</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+      <option value="7">7</option>
+      <option value="8">8</option>
+      <option value="9">9 – Alta</option>
+      <option value="10">10 – Alta Consulta</option>
+    </select>
+    <select id="fStatus" onchange="renderTable()">
+      <option value="">Todos os status</option>
+      <option value="critico">🔴 Crítico</option>
+      <option value="atencao">🟡 Atenção</option>
+      <option value="em-dia">🟢 Em dia / Agendado</option>
+      <option value="sem-data">⚪ Sem data</option>
+      <option value="alta">✅ Alta</option>
+      <option value="alta-c">🔵 Alta Consulta</option>
+    </select>
+    <select id="fFin" onchange="renderTable()">
+      <option value="">💰 Financeiro: todos</option>
+      <option value="venc">🔴 Com vencido</option>
+      <option value="em-dia">🟢 Em dia (parcelas)</option>
+      <option value="quitado">✅ Quitado</option>
+    </select>
+    <select id="fTratamento" onchange="renderTable()"><option value="">Todos os tratamentos</option></select>
+    <select id="fExecutor" onchange="renderTable()"><option value="">Todos os executores</option></select>
+    <span class="pac-count" id="pacCount"></span>
+  </div>
+
+  <div id="pacMsg">Carregando...</div>
+  <div class="pac-table-wrap" id="pacTableWrap" style="display:none">
+    <table class="pac" id="pacTable">
+      <thead id="pacThead"></thead>
+      <tbody id="pacTbody"></tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<script src="/js/pacientes2/api.js"></script>
+<script>
+let rows = [], config = {}, dentistas = [], activeTab = 'geral';
+let sortCol = null, sortDir = 'asc';
+
+const INVISALIGN_TRATS = new Set(['Invisalign', 'Vivera']);
+const HOJE = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtDate(d) {
+  if (!d) return '—';
+  const parts = String(d).slice(0, 10).split('-');
+  if (parts.length !== 3) return d;
+  return parts[2] + '/' + parts[1] + '/' + parts[0];
+}
+
+function fmtMoney(v) {
+  return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function nomeLimpo(r) {
+  return String(r.nome || '').replace(/\s*\(\d+\)\s*$/, '');
+}
+
+function resolveAba(r) {
+  if (r.aba === 'geral' || r.aba === 'invisalign') return r.aba;
+  return INVISALIGN_TRATS.has(r.tratamento) ? 'invisalign' : 'geral';
+}
+
+function tabRows() {
+  return rows.filter(r => resolveAba(r) === activeTab);
+}
+
+// Base do "Dias": última atividade real = mais recente entre visita (Clinicorp) e contato manual
+function baseAtividade(r) {
+  const c = [r.ultima_visita, r.data_atualizacao].filter(Boolean).map(d => String(d).slice(0, 10));
+  return c.length ? c.sort()[c.length - 1] : null;
+}
+
+function diasDesde(dateStr) {
+  if (!dateStr) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(dateStr + 'T12:00:00').getTime()) / 86400000));
+}
+
+function calcStatus(r) {
+  const prio = (r.prioridade === undefined) ? null : r.prioridade;
+  if (prio === 10) return { label: 'Alta - Consulta Realizada', cls: 'alta-c', icon: '🔵' };
+  if (prio === 9 || r.is_alta) return { label: 'Alta', cls: 'alta', icon: '✅' };
+  const base = baseAtividade(r);
+  const dias = diasDesde(base);
+  if (r.proxima_consulta && String(r.proxima_consulta).slice(0, 10) >= HOJE) {
+    return { label: 'Agendado', cls: 'em-dia', icon: '🟢', dias };
+  }
+  if (!base) return { label: 'Sem data', cls: 'sem-data', icon: '⚪' };
+  const cfg = config[r.tratamento] || { dias_atualizacao: 10 };
+  if (dias > cfg.dias_atualizacao) return { label: 'Crítico', cls: 'critico', icon: '🔴', dias };
+  if (dias > cfg.dias_atualizacao - 5) return { label: 'Atenção', cls: 'atencao', icon: '🟡', dias };
+  return { label: 'Em dia', cls: 'em-dia', icon: '🟢', dias };
+}
+
+function finInfo(r) {
+  const vencido = Number(r.fin_vencido || 0);
+  const futuro  = Number(r.fin_futuro  || 0);
+  const pago    = Number(r.fin_total_pago || 0);
+  if (!r.clinicorp_id) return { cls: 'nd', label: '—', title: 'Sem vínculo com o Clinicorp' };
+  if (vencido > 0) return { cls: 'venc', label: '🔴 ' + fmtMoney(vencido) + ' venc.', title: 'Vencido: ' + fmtMoney(vencido) + (r.fin_ultimo_pgto ? ' · último pgto ' + fmtDate(r.fin_ultimo_pgto) : '') };
+  if (futuro > 0)  return { cls: 'em-dia', label: '🟢 Em dia', title: 'Parcelas futuras: ' + fmtMoney(futuro) + (r.fin_ultimo_pgto ? ' · último pgto ' + fmtDate(r.fin_ultimo_pgto) : '') };
+  if (pago > 0)    return { cls: 'quitado', label: '✅ Quitado', title: 'Total pago: ' + fmtMoney(pago) };
+  return { cls: 'nd', label: '—', title: 'Sem lançamentos financeiros' };
+}
+
+// ── Header ───────────────────────────────────────────────────────────────────
+
+const COLS_GERAL = [
+  { key: 'prioridade',      label: 'P',             sortable: true,  width: '42px'  },
+  { key: 'nome',            label: 'Nome',          sortable: true,  width: ''      },
+  { key: 'tratamento',      label: 'Tratamento',    sortable: true,  width: '105px' },
+  { key: 'data_venda',      label: 'Venda',         sortable: true,  width: '84px'  },
+  { key: '_fin',            label: '💰 Financeiro', sortable: true,  width: '120px' },
+  { key: 'ultima_visita',   label: 'Últ. visita',   sortable: true,  width: '84px'  },
+  { key: 'proxima_consulta',label: 'Próx. consulta',sortable: true,  width: '95px'  },
+  { key: 'proximo_passo',   label: 'Próximo Passo', sortable: false, width: ''      },
+  { key: 'avaliador',       label: 'Avaliador',     sortable: true,  width: '95px'  },
+  { key: 'executor',        label: 'Executor',      sortable: true,  width: '95px'  },
+  { key: 'obs',             label: 'Obs',           sortable: false, width: ''      },
+  { key: '_dias',           label: 'Dias',          sortable: true,  width: '48px'  },
+  { key: '_status',         label: 'Status',        sortable: true,  width: '88px'  },
+  { key: '_wpp',            label: '',              sortable: false, width: '36px'  },
+  { key: '_acts',           label: '',              sortable: false, width: '104px' },
+];
+
+const COLS_INVISALIGN = [
+  { key: 'nome',               label: 'Nome',          sortable: true,  width: ''      },
+  { key: 'tratamento',         label: 'Tratamento',    sortable: true,  width: '105px' },
+  { key: 'situacao_tratamento',label: 'Situação',      sortable: true,  width: '110px' },
+  { key: '_fin',               label: '💰 Financeiro', sortable: true,  width: '120px' },
+  { key: 'ultima_visita',      label: 'Últ. visita',   sortable: true,  width: '84px'  },
+  { key: 'proxima_consulta',   label: 'Próx. consulta',sortable: true,  width: '95px'  },
+  { key: 'proximo_passo',      label: 'Próximo Passo', sortable: false, width: ''      },
+  { key: 'data_vencimento',    label: 'Vencimento',    sortable: true,  width: '90px'  },
+  { key: 'executor',           label: 'Responsável',   sortable: true,  width: '95px'  },
+  { key: 'obs',                label: 'Obs',           sortable: false, width: ''      },
+  { key: '_dias',              label: 'Dias',          sortable: true,  width: '48px'  },
+  { key: '_status',            label: 'Status',        sortable: true,  width: '88px'  },
+  { key: '_wpp',               label: '',              sortable: false, width: '36px'  },
+  { key: '_acts',              label: '',              sortable: false, width: '104px' },
+];
+
+function buildHeader() {
+  const cols = activeTab === 'invisalign' ? COLS_INVISALIGN : COLS_GERAL;
+  const tr = document.createElement('tr');
+  cols.forEach(col => {
+    const th = document.createElement('th');
+    if (col.width) th.style.width = col.width;
+    if (col.sortable) {
+      th.className = 'sortable';
+      th.dataset.col = col.key;
+      if (sortCol === col.key) th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+    th.innerHTML = col.label
+      + (col.sortable ? `<i class="sort-icon">${sortCol === col.key ? (sortDir === 'asc' ? '▲' : '▼') : '⬍'}</i>` : '');
+    tr.appendChild(th);
+  });
+  const thead = document.getElementById('pacThead');
+  thead.textContent = '';
+  thead.appendChild(tr);
+}
+
+// ── Células ──────────────────────────────────────────────────────────────────
+
+function prioCel(row) {
+  const td = document.createElement('td');
+  td.className = 'pac-prio-cell';
+  td.dataset.id = row.id;
+  const prio = row.prioridade ?? null;
+  const badge = document.createElement('span');
+  badge.className = 'pac-prio-num';
+  if (prio === 10)      { badge.classList.add('p-altac'); badge.textContent = 'Alta+'; badge.title = '10 – Alta Consulta Realizada'; }
+  else if (prio === 9)  { badge.classList.add('p-alta');  badge.textContent = 'Alta';  badge.title = '9 – Alta'; }
+  else if (prio === 0 || prio === null) { badge.classList.add('p0'); badge.textContent = '0'; badge.title = '0 – Urgente (clique para editar)'; }
+  else { badge.textContent = prio; badge.title = 'Prioridade ' + prio + ' (clique para editar)'; }
+  td.appendChild(badge);
+  return td;
+}
+
+function nomeCel(r) {
+  const td = document.createElement('td');
+  const strong = document.createElement('strong');
+  const nome = nomeLimpo(r);
+  if (r.lead_id) {
+    const a = document.createElement('a');
+    a.className = 'pac-perfil';
+    a.href = '/perfil/?id=' + r.lead_id;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.title = 'Abrir Perfil 360º';
+    a.textContent = nome;
+    strong.appendChild(a);
+  } else {
+    strong.textContent = nome;
+  }
+  td.appendChild(strong);
+  if (!r.importado_historico && r.criado_em && diasDesde(String(r.criado_em).slice(0, 10)) <= 14) {
+    const novo = document.createElement('span');
+    novo.className = 'pac-novo';
+    novo.textContent = '🆕';
+    novo.title = 'Entrou pela Conferência há poucos dias — confira tratamento/executor';
+    td.appendChild(novo);
+  }
+  return td;
+}
+
+function finCel(r) {
+  const td = document.createElement('td');
+  const info = finInfo(r);
+  const chip = document.createElement('span');
+  chip.className = 'fin-chip ' + info.cls;
+  chip.textContent = info.label;
+  chip.title = info.title;
+  td.appendChild(chip);
+  const semAgendaFutura = !r.proxima_consulta || String(r.proxima_consulta).slice(0, 10) < HOJE;
+  if (r.sem_checkin_ultima && semAgendaFutura && r.ultima_agenda_data) {
+    const al = document.createElement('span');
+    al.className = 'fin-alert';
+    al.textContent = '⚠️ sem check-in ' + fmtDate(r.ultima_agenda_data);
+    al.title = 'Última consulta agendada (' + fmtDate(r.ultima_agenda_data) + ') não teve check-in registrado e não há agenda futura';
+    td.appendChild(al);
+  }
+  return td;
+}
+
+function dateCel(v, title) {
+  const td = document.createElement('td');
+  td.className = 'td-date';
+  td.textContent = fmtDate(v);
+  if (title) td.title = title;
+  return td;
+}
+
+function editCel(rowId, field, value, isText) {
+  const td = document.createElement('td');
+  const isDate = field.includes('data');
+  td.className = 'pac-cell-edit' + (isText ? ' td-text' : (isDate ? ' td-date' : ''));
+  td.textContent = isDate ? fmtDate(value) : (value || '—');
+  td.dataset.id = rowId;
+  td.dataset.field = field;
+  td.dataset.value = value || '';
+  return td;
+}
+
+// Avaliador/Executor: valor salvo, ou sugestão da agenda (itálico); clique abre select de dentistas
+function dentistaCel(r, field) {
+  const td = document.createElement('td');
+  td.className = 'pac-cell-edit';
+  td.dataset.id = r.id;
+  td.dataset.field = field;
+  td.dataset.dentista = '1';
+  const saved = r[field];
+  const sug = field === 'avaliador'
+    ? r.avaliador_sugerido
+    : (r.proximo_dentista || r.ultimo_dentista);
+  if (saved) {
+    td.textContent = saved;
+    td.dataset.value = saved;
+  } else if (sug) {
+    const s = document.createElement('span');
+    s.className = 'sug';
+    s.textContent = sug;
+    s.title = 'Sugerido pela agenda do Clinicorp — clique para confirmar ou alterar';
+    td.appendChild(s);
+    td.dataset.value = sug;
+  } else {
+    td.textContent = '—';
+    td.dataset.value = '';
+  }
+  return td;
+}
+
+function diasStatusWppActs(tr, r) {
+  const st = calcStatus(r);
+  const dias = st.dias !== undefined && st.dias !== null ? st.dias : diasDesde(baseAtividade(r));
+
+  const tdDias = document.createElement('td');
+  tdDias.className = 'pac-dias' + (typeof dias === 'number' && dias > 0 && st.cls === 'critico' ? ' over' : '');
+  tdDias.textContent = dias !== null && dias !== undefined ? dias : '—';
+  tdDias.title = 'Dias desde a última atividade (visita no Clinicorp ou contato registrado)';
+  tr.appendChild(tdDias);
+
+  const span = document.createElement('span');
+  span.className = 'pac-status ' + st.cls;
+  span.textContent = st.icon + ' ' + st.label;
+  const tdSt = document.createElement('td');
+  tdSt.appendChild(span);
+  tr.appendChild(tdSt);
+
+  const tdWpp = document.createElement('td');
+  tdWpp.style.textAlign = 'center';
+  if (r.telefone) {
+    const tel = String(r.telefone).replace(/\D/g, '');
+    const a = document.createElement('a');
+    a.className = 'pac-wpp';
+    a.href = 'https://wa.me/' + (tel.startsWith('55') && tel.length >= 12 ? tel : '55' + tel);
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = '💬';
+    tdWpp.appendChild(a);
+  }
+  tr.appendChild(tdWpp);
+
+  const tdActs = document.createElement('td');
+  tdActs.className = 'td-acts';
+
+  const ct = document.createElement('button');
+  ct.className = 'pac-act';
+  ct.textContent = '✓';
+  ct.dataset.id = r.id;
+  ct.dataset.act = 'contato';
+  ct.title = 'Registrar contato hoje (zera os Dias)';
+  tdActs.appendChild(ct);
+
+  const target = resolveAba(r) === 'invisalign' ? 'geral' : 'invisalign';
+  const mv = document.createElement('button');
+  mv.className = 'pac-act';
+  mv.textContent = '⇄';
+  mv.dataset.id = r.id;
+  mv.dataset.act = 'mover';
+  mv.dataset.target = target;
+  mv.title = target === 'invisalign' ? 'Mover para 💎 Invisalign' : 'Mover para Geral';
+  tdActs.appendChild(mv);
+
+  const del = document.createElement('button');
+  del.className = 'pac-act del';
+  del.textContent = '🗑';
+  del.dataset.id = r.id;
+  del.dataset.act = 'excluir';
+  del.title = 'Excluir da lista (não altera o Clinicorp)';
+  tdActs.appendChild(del);
+
+  tr.appendChild(tdActs);
+}
+
+function proxConsultaCel(r) {
+  const v = r.proxima_consulta ? String(r.proxima_consulta).slice(0, 10) : null;
+  const td = document.createElement('td');
+  td.className = 'td-date';
+  if (v && v >= HOJE) {
+    td.textContent = fmtDate(v);
+    if (r.proximo_dentista) td.title = 'Com ' + r.proximo_dentista;
+  } else {
+    td.textContent = '— ⚠️';
+    td.title = 'Sem consulta futura no Clinicorp';
+  }
+  return td;
+}
+
+function makeRow(r) {
+  const tr = document.createElement('tr');
+  tr.dataset.id = r.id;
+
+  if (activeTab === 'invisalign') {
+    tr.appendChild(nomeCel(r));
+    tr.appendChild(editCel(r.id, 'tratamento',          r.tratamento,          false));
+    tr.appendChild(editCel(r.id, 'situacao_tratamento', r.situacao_tratamento, false));
+    tr.appendChild(finCel(r));
+    tr.appendChild(dateCel(r.ultima_visita, 'Última visita registrada no Clinicorp'));
+    tr.appendChild(proxConsultaCel(r));
+    tr.appendChild(editCel(r.id, 'proximo_passo',       r.proximo_passo,       true));
+    tr.appendChild(editCel(r.id, 'data_vencimento',     r.data_vencimento,     false));
+    tr.appendChild(dentistaCel(r, 'executor'));
+    tr.appendChild(editCel(r.id, 'obs',                 r.obs,                 true));
+    diasStatusWppActs(tr, r);
+    return tr;
+  }
+
+  tr.appendChild(prioCel(r));
+  tr.appendChild(nomeCel(r));
+  tr.appendChild(editCel(r.id, 'tratamento', r.tratamento, false));
+  tr.appendChild(dateCel(r.data_venda));
+  tr.appendChild(finCel(r));
+  tr.appendChild(dateCel(r.ultima_visita, 'Última visita registrada no Clinicorp'));
+  tr.appendChild(proxConsultaCel(r));
+  tr.appendChild(editCel(r.id, 'proximo_passo', r.proximo_passo, true));
+  tr.appendChild(dentistaCel(r, 'avaliador'));
+  tr.appendChild(dentistaCel(r, 'executor'));
+  tr.appendChild(editCel(r.id, 'obs', r.obs, true));
+  diasStatusWppActs(tr, r);
+  return tr;
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+
+function getSortValue(row, col) {
+  if (col === '_dias') {
+    const d = diasDesde(baseAtividade(row));
+    return d === null ? -1 : d;
+  }
+  if (col === '_status') return calcStatus(row).cls;
+  if (col === '_fin') return Number(row.fin_vencido || 0);
+  const v = row[col];
+  return v ?? '';
+}
+
+function applySort(arr) {
+  if (!sortCol) {
+    if (activeTab === 'geral') {
+      return [...arr].sort((a, b) => {
+        const pa = (a.prioridade === null || a.prioridade === undefined) ? 0 : a.prioridade;
+        const pb = (b.prioridade === null || b.prioridade === undefined) ? 0 : b.prioridade;
+        return pa - pb;
+      });
+    }
+    return arr;
+  }
+  return [...arr].sort((a, b) => {
+    let va = getSortValue(a, sortCol);
+    let vb = getSortValue(b, sortCol);
+    if (va === '' && vb === '') return 0;
+    if (va === '') return 1;
+    if (vb === '') return -1;
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function renderTable() {
+  const fPrio   = document.getElementById('fPrioridade').value;
+  const fStatus = document.getElementById('fStatus').value;
+  const fFin    = document.getElementById('fFin').value;
+  const fTrat   = document.getElementById('fTratamento').value;
+  const fExec   = document.getElementById('fExecutor').value;
+
+  let filtered = tabRows().filter(r => {
+    if (fPrio !== '') {
+      const pEfetivo = (r.prioridade === null || r.prioridade === undefined) ? 0 : r.prioridade;
+      if (pEfetivo !== parseInt(fPrio)) return false;
+    }
+    if (fStatus && calcStatus(r).cls !== fStatus) return false;
+    if (fFin && finInfo(r).cls !== fFin) return false;
+    if (fTrat && r.tratamento !== fTrat) return false;
+    if (fExec && r.executor !== fExec) return false;
+    return true;
+  });
+
+  filtered = applySort(filtered);
+
+  document.getElementById('pacCount').textContent = `${filtered.length} paciente(s)`;
+  buildHeader();
+  const tbody = document.getElementById('pacTbody');
+  tbody.textContent = '';
+  const frag = document.createDocumentFragment();
+  filtered.forEach(r => frag.appendChild(makeRow(r)));
+  tbody.appendChild(frag);
+}
+
+function populateTratamentoFilter() {
+  const fTrat = document.getElementById('fTratamento');
+  const current = fTrat.value;
+  while (fTrat.options.length > 1) fTrat.remove(1);
+  [...new Set(tabRows().map(r => r.tratamento).filter(Boolean))].sort().forEach(t => {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = t;
+    if (t === current) o.selected = true;
+    fTrat.appendChild(o);
+  });
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  sortCol = null; sortDir = 'asc';
+  document.querySelectorAll('.pac-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.getElementById('fTratamento').value = '';
+  document.getElementById('fPrioridade').style.display = tab === 'invisalign' ? 'none' : '';
+  populateTratamentoFilter();
+  renderTable();
+}
+
+// ── Persistência ─────────────────────────────────────────────────────────────
+
+// PATCH devolve só os campos base (v1) — preserva os campos enriquecidos já carregados
+async function salvar(id, body) {
+  const updated = await Pacientes2API.atualizar(id, body);
+  const idx = rows.findIndex(r => r.id === id);
+  if (idx >= 0) rows[idx] = { ...rows[idx], ...updated };
+}
+
+// ── Interações ────────────────────────────────────────────────────────────────
+
+document.getElementById('pacThead').addEventListener('click', e => {
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  const col = th.dataset.col;
+  if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else { sortCol = col; sortDir = 'asc'; }
+  renderTable();
+});
+
+document.getElementById('pacTbody').addEventListener('click', async e => {
+  const actBtn = e.target.closest('.pac-act');
+  if (actBtn) {
+    const id = actBtn.dataset.id, act = actBtn.dataset.act;
+    const row = rows.find(r => r.id === id);
+    if (!row) return;
+    actBtn.disabled = true;
+    try {
+      if (act === 'mover') {
+        await salvar(id, { aba: actBtn.dataset.target });
+      } else if (act === 'contato') {
+        await salvar(id, { data_atualizacao: HOJE });
+      } else if (act === 'excluir') {
+        const ok = confirm('Excluir "' + nomeLimpo(row) + '" da lista?\n\nSome da lista de Pacientes do CRM. Não altera NADA no Clinicorp.');
+        if (!ok) { actBtn.disabled = false; return; }
+        await Pacientes2API.excluir(id);
+        rows = rows.filter(r => r.id !== id);
+      }
+      renderTable();
+    } catch (err) {
+      actBtn.disabled = false;
+      alert('Erro: ' + err.message);
+    }
+    return;
+  }
+
+  // Prioridade
+  const prioCell = e.target.closest('.pac-prio-cell');
+  if (prioCell && !prioCell.querySelector('.pac-prio-input')) {
+    const id = prioCell.dataset.id;
+    const row = rows.find(r => r.id === id);
+    if (!row) return;
+    const badge = prioCell.querySelector('.pac-prio-num');
+    const inp = document.createElement('input');
+    inp.className = 'pac-prio-input';
+    inp.type = 'number'; inp.min = 0; inp.max = 10;
+    inp.value = (row.prioridade === null || row.prioridade === undefined) ? 0 : row.prioridade;
+    prioCell.replaceChildren(inp);
+    inp.focus(); inp.select();
+
+    async function savePrio() {
+      inp.removeEventListener('blur', savePrio);
+      const val = Math.max(0, Math.min(10, parseInt(inp.value) || 0));
+      try {
+        await salvar(id, { prioridade: val, is_alta: val >= 9 });
+        renderTable();
+      } catch (err) {
+        prioCell.replaceChildren(badge);
+        alert('Erro: ' + err.message);
+      }
+    }
+    inp.addEventListener('blur', savePrio);
+    inp.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter')  { ev.preventDefault(); inp.blur(); }
+      if (ev.key === 'Escape') { inp.removeEventListener('blur', savePrio); prioCell.replaceChildren(badge); }
+    });
+    return;
+  }
+
+  // Células editáveis
+  const td = e.target.closest('.pac-cell-edit');
+  if (!td || td.querySelector('input') || td.querySelector('select')) return;
+  const { id, field, value } = td.dataset;
+  const origHtml = td.innerHTML;
+
+  // Avaliador/Executor: select com os dentistas
+  if (td.dataset.dentista === '1') {
+    const sel = document.createElement('select');
+    sel.className = 'pac-edit-select';
+    const optBlank = document.createElement('option');
+    optBlank.value = ''; optBlank.textContent = '—';
+    sel.appendChild(optBlank);
+    const nomes = [...dentistas];
+    if (value && !nomes.includes(value)) nomes.unshift(value);
+    nomes.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      if (n === value) o.selected = true;
+      sel.appendChild(o);
+    });
+    td.textContent = '';
+    td.appendChild(sel);
+    sel.focus();
+
+    let cancelled = false;
+    async function saveSel() {
+      sel.removeEventListener('blur', saveSel);
+      if (cancelled) return;
+      try {
+        await salvar(id, { [field]: sel.value || null });
+        renderTable();
+      } catch (err) { td.innerHTML = origHtml; alert('Erro: ' + err.message); }
+    }
+    sel.addEventListener('change', () => sel.blur());
+    sel.addEventListener('blur', saveSel);
+    sel.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape') { cancelled = true; sel.removeEventListener('blur', saveSel); td.innerHTML = origHtml; }
+    });
+    return;
+  }
+
+  const inp = document.createElement('input');
+  inp.className = 'pac-edit-input';
+  inp.type  = field.includes('data') ? 'date' : 'text';
+  inp.value = value;
+  td.textContent = '';
+  td.appendChild(inp);
+  inp.focus();
+
+  async function save() {
+    inp.removeEventListener('blur', save);
+    const val = inp.value.trim();
+    try {
+      await salvar(id, { [field]: val || null });
+      renderTable();
+    } catch (err) { td.innerHTML = origHtml; alert('Erro: ' + err.message); }
+  }
+  inp.addEventListener('blur', save);
+  inp.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter')  { ev.preventDefault(); inp.blur(); }
+    if (ev.key === 'Escape') { inp.removeEventListener('blur', save); td.innerHTML = origHtml; }
+  });
+});
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+async function init() {
+  try {
+    const [data, cfg, dents] = await Promise.all([
+      Pacientes2API.listar(), Pacientes2API.config(), Pacientes2API.dentistas(),
+    ]);
+    rows      = data;
+    config    = Object.fromEntries(cfg.map(c => [c.tratamento, c]));
+    dentistas = dents;
+
+    const fExec = document.getElementById('fExecutor');
+    [...new Set(data.map(r => r.executor).filter(Boolean))].sort().forEach(e => {
+      const o = document.createElement('option'); o.textContent = e; fExec.appendChild(o);
+    });
+    populateTratamentoFilter();
+
+    document.getElementById('pacMsg').style.display = 'none';
+    document.getElementById('pacTableWrap').style.display = '';
+    renderTable();
+  } catch (e) {
+    document.getElementById('pacMsg').textContent = 'Erro: ' + e.message;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
