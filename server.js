@@ -169,6 +169,7 @@ function sanitizeStr(v, max = 200) {
 }
 const sha256 = v => v ? crypto.createHash('sha256').update(String(v).toLowerCase().trim()).digest('hex') : null;
 const { chaveTelefone } = require('./lib/funil/telefone');
+const { parseEchoes } = require('./lib/wa/echoes');
 const { parseCsv } = require('./lib/disparos/parser');
 const { ultimos8 } = require('./lib/disparos/matching');
 const disparoRunner = require('./lib/disparos/runner');
@@ -2149,7 +2150,9 @@ app.get('/api/leads/:id/mensagens', requireAuth, requireConversas, rateLimit, as
       if (novasR.error) throw novasR.error;
       return res.json({ incremental: true, novas: novasR.data || [], recentes: recentesR.data || [] });
     }
-    const { data, error } = await supabase.from('mensagens').select('*').eq('lead_id', id).order('id', { ascending: true });
+    // criada_em primeiro: ecos backfillados têm id novo mas data antiga
+    const { data, error } = await supabase.from('mensagens').select('*').eq('lead_id', id)
+      .order('criada_em', { ascending: true }).order('id', { ascending: true });
     if (error) throw error;
     res.json(data || []);
   } catch (e) {
@@ -2686,6 +2689,24 @@ app.post('/api/admin/wa-webhook-subscribe', requireAuth, requireAdmin, async (re
   res.json({ pediu: fields, subscribe, fieldsAtuais });
 });
 
+// Match de lead por telefone: exato → sufixo 8 dígitos + chaveTelefone (base
+// legada sem DDI/9º dígito; preserva a separação intencional de familiares).
+async function acharLeadPorTelefone(fone) {
+  const { data: rows } = await supabase.from('leads').select('*')
+    .eq('telefone', fone).order('id').limit(1);
+  let lead = rows?.[0] || null;
+  if (!lead) {
+    const suf = String(fone).slice(-8);
+    const alvo = chaveTelefone(fone);
+    if (suf.length === 8 && alvo) {
+      const { data: cands } = await supabase.from('leads').select('*')
+        .like('telefone', '%' + suf).order('id').limit(20);
+      lead = (cands || []).find(c => chaveTelefone(c.telefone) === alvo) || null;
+    }
+  }
+  return lead;
+}
+
 app.post('/webhooks/whatsapp', async (req, res) => {
   const APP_SECRET = process.env.META_APP_SECRET;
   if (APP_SECRET) {
@@ -2731,25 +2752,30 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         ).then(({ error }) => { if (error) console.error('webhook_wa_debug:', error.message); });
       }
     } catch (e) { console.error('webhook debug log:', e.message); }
+    // Ecos do app/IA da Meta → entram na thread como enviada canal='app'.
+    // Dedup por wa_id (protege contra reentrega e eco de msg enviada via API).
+    try {
+      for (const eco of parseEchoes(req.body)) {
+        try {
+          const { data: dup } = await supabase.from('mensagens')
+            .select('id').eq('wa_id', eco.wamid).limit(1);
+          if (dup?.length) continue;
+          const leadEco = await acharLeadPorTelefone(eco.to);
+          if (!leadEco) { console.log('[eco-app] sem lead p/ …' + eco.to.slice(-8)); continue; }
+          const { error: ecoErr } = await supabase.from('mensagens').insert({
+            lead_id: leadEco.id, direcao: 'enviada', canal: 'app',
+            texto: sanitizeStr(eco.texto, 4000), wa_id: eco.wamid,
+            tipo: eco.tipo,
+            wa_number_id: sanitizeStr(eco.phone_number_id || '', 50),
+            ...(eco.timestamp ? { criada_em: eco.timestamp } : {}),
+          });
+          if (ecoErr) console.error('❌ eco-app insert:', ecoErr.message);
+        } catch (e) { console.error('❌ eco-app item:', e.message); }
+      }
+    } catch (e) { console.error('❌ eco-app:', e.message); }
     const m = whatsapp.parseMensagemRecebida(req.body);
     if (!m) return res.status(200).send('ok');
-    // Match exato primeiro (caminho comum: lead criado pelo próprio webhook).
-    // limit(1) em vez de maybeSingle puro: com telefone duplicado, maybeSingle
-    // retornaria erro → 500 → Meta reenviaria e poderia desativar o webhook.
-    let { data: leadRows } = await supabase.from('leads').select('*')
-      .eq('telefone', m.from).order('id').limit(1);
-    let lead = leadRows?.[0] || null;
-    if (!lead) {
-      // Fallback: a base tem milhares de leads sem DDI 55, e a Meta pode entregar
-      // m.from sem o 9º dígito — sem isso, cada resposta criaria um lead duplicado.
-      const suf = String(m.from).slice(-8);
-      const alvo = chaveTelefone(m.from);
-      if (suf.length === 8 && alvo) {
-        const { data: cands } = await supabase.from('leads').select('*')
-          .like('telefone', '%' + suf).order('id').limit(20);
-        lead = (cands || []).find(c => chaveTelefone(c.telefone) === alvo) || null;
-      }
-    }
+    let lead = await acharLeadPorTelefone(m.from);
     if (!lead) {
       const { data: inserted, error: insertErr } = await supabase.from('leads').insert({
         nome: sanitizeStr(m.nome || 'Lead WhatsApp'),
