@@ -2975,8 +2975,9 @@ function _fmtEsperaMin(min) {
 async function enviarVarreduraAguardando() {
   const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
   const hhmm = new Date().toLocaleTimeString('sv-SE', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
-  const { data: cfg } = await supabase.from('app_config')
+  const { data: cfg, error: cfgError } = await supabase.from('app_config')
     .select('varredura_aguardando, varredura_aguardando_envios').eq('id', 1).maybeSingle();
+  if (cfgError) console.error('[varredura-aguardando] config:', cfgError.message);
   const lista = Array.isArray(cfg?.varredura_aguardando) ? cfg.varredura_aguardando : [];
   if (!lista.length) return;
   const envios = cfg?.varredura_aguardando_envios || {};
@@ -2984,9 +2985,9 @@ async function enviarVarreduraAguardando() {
   for (const item of lista) {
     if (!item?.usuario_id || !item?.hora) continue;
     if (hhmm < item.hora || envios[item.usuario_id] === hoje) continue;
-    envios[item.usuario_id] = hoje; mudou = true;
     const { data: rows, error } = await supabase.rpc('conversas_aguardando', { minutos: 30 });
     if (error) { console.error('[varredura-aguardando] rpc:', error.message); continue; }
+    envios[item.usuario_id] = hoje; mudou = true;
     if (!rows?.length) continue;
     const top = rows.slice(0, 5)
       .map(r => (r.nome || r.telefone || '?') + ' (' + _fmtEsperaMin(r.espera_min) + ')').join(', ');
