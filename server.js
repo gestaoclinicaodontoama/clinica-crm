@@ -756,6 +756,18 @@ async function patchLead(req, res) {
         if (v === 'Avaliação agendada' && !lead.data_agendamento) patch.data_agendamento = agora;
         if (v === 'Avaliação agendada') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.nome || null; }
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
+        if (v === 'Compareceu') {
+          const ehComercial = (req.user?.profile?.roles || []).includes('crc_comercial');
+          if (ehComercial && !lead.crc_comercial_id) {
+            patch.crc_comercial_id = req.user.id; patch.crc_comercial_nome = req.user.profile?.nome || null;
+          } else if (!lead.crc_comercial_id) { req._notifCompareceu = true; }
+        }
+        if (v === 'Em negociação') {
+          const ehComercial = (req.user?.profile?.roles || []).includes('crc_comercial');
+          if (ehComercial && !lead.crc_comercial_id) {
+            patch.crc_comercial_id = req.user.id; patch.crc_comercial_nome = req.user.profile?.nome || null;
+          }
+        }
         if (v === 'Em negociação' && !lead.data_avaliacao) patch.data_avaliacao = agora;
         if (v === 'Em negociação' && !lead.data_orcamento) patch.data_orcamento = agora;
         // Entrou em negociação sem D definido → começa em D0; saiu de negociação → limpa o D.
@@ -822,6 +834,7 @@ async function patchLead(req, res) {
         dispararConversaoGoogle(updated).catch(e => console.error('Google:', e.message));
       }
     }
+    if (req._notifCompareceu) notificarComercialCompareceu(lead);
     if (patch.notas_sdr !== undefined && (patch.notas_sdr || '') !== (leadAntes.notas_sdr || '')) {
       logEvento(updated.id, 'nota_sdr_editada', 'Anotação SDR atualizada',
         { tamanho: (patch.notas_sdr || '').length }, req.user?.id || null);
@@ -2050,6 +2063,65 @@ function assumirConversaSeSemDono(lead, user) {
     })
     .catch(() => {});
 }
+
+// Claim-first comercial: 1ª ação da CRC comercial sobre o lead a torna dona.
+// Só preenche quando vazio (guard .is) — nunca sobrescreve.
+function assumirComercialSeSemDono(lead, user) {
+  if (!lead || lead.crc_comercial_id || !user?.id) return;
+  const nomeCrc = sanitizeStr(user.profile?.nome || '', 100);
+  supabase.from('leads')
+    .update({ crc_comercial_id: user.id, crc_comercial_nome: nomeCrc })
+    .eq('id', lead.id).is('crc_comercial_id', null)
+    .then(({ error }) => {
+      if (!error) logEvento(lead.id, 'comercial_assumido', 'Assumido no comercial por ' + (nomeCrc || 'CRC'), {}, user.id);
+    })
+    .catch(() => {});
+}
+
+// Handoff: avisa o pool comercial quando um lead compareceu sem dono comercial.
+async function notificarComercialCompareceu(lead) {
+  try {
+    if (!lead || lead.crc_comercial_id) return;
+    const { data: cfg } = await supabase.from('app_config').select('comercial_pool').eq('id', 1).maybeSingle();
+    const pool = Array.isArray(cfg?.comercial_pool) ? cfg.comercial_pool : [];
+    for (const uid of pool) {
+      await criarNotificacao(uid, 'novo_comparecimento', '🤝 Novo comparecido',
+        (lead.nome || 'Paciente') + ' compareceu — pegar no Meu Dia',
+        { url: '/meu-dia/', lead_id: lead.id });
+    }
+  } catch (e) { console.error('[handoff-comercial]', e.message); }
+}
+
+// ── Handoff comercial: botão "Pegar" (claim manual pelo Meu Dia) ──
+app.post('/api/comercial/pegar/:id', requireAuth, requireRole('crc_comercial','gestor','admin'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: lead } = await supabase.from('leads').select('id, crc_comercial_id, nome').eq('id', id).maybeSingle();
+    if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
+    if (lead.crc_comercial_id) return res.json({ ok: false, ja_tem_dono: true });
+    const nome = sanitizeStr(req.user.profile?.nome || '', 100);
+    const { error } = await supabase.from('leads')
+      .update({ crc_comercial_id: req.user.id, crc_comercial_nome: nome })
+      .eq('id', id).is('crc_comercial_id', null);
+    if (error) throw error;
+    logEvento(id, 'comercial_assumido', 'Pego no Meu Dia por ' + (nome || 'CRC'), {}, req.user.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Handoff comercial: agregado do "Meu Dia" (RPC faz o matching pesado) ──
+app.get('/api/comercial/meu-dia', requireAuth, requireRole('crc_comercial','gestor','admin'), async (req, res) => {
+  try {
+    const roles = req.user.profile?.roles || [];
+    const gestor = roles.includes('admin') || roles.includes('gestor');
+    // gestor/admin vê agregado (p_uid null); CRC comercial vê só o dela
+    const p_uid = gestor ? null : req.user.id;
+    const { data, error } = await supabase.rpc('comercial_meu_dia', { p_uid });
+    if (error) throw error;
+    res.json(data || { para_pegar: [], meus_comparecidos: [], minhas_negociacoes: [], followups: [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
@@ -3881,7 +3953,7 @@ async function syncComparecimentos() {
 
     // ── Phase 1: leads com clinicorp_appointment_id (agendados via CRM) ──
     const { data: linkedLeads } = await supabase.from('leads')
-      .select('id, clinicorp_appointment_id, status')
+      .select('id, clinicorp_appointment_id, status, crc_comercial_id, nome')
       .not('clinicorp_appointment_id', 'is', null)
       .in('status', PRE_COMPARECEU);
 
@@ -3911,6 +3983,7 @@ async function syncComparecimentos() {
       await supabase.from('leads').update({ status: 'Compareceu', data_comparecimento: dataComp }).eq('id', lead.id);
       logEvento(lead.id, 'status_mudou', 'Status: Agendado → Compareceu (detectado via Clinicorp)',
         { de: lead.status, para: 'Compareceu' }, null);
+      notificarComercialCompareceu(lead);
       console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (apt ${lead.clinicorp_appointment_id})`);
     }
 
@@ -3930,7 +4003,7 @@ async function syncComparecimentos() {
 
     // Busca leads em status pré-Compareceu e sem apt_id (para não duplicar Phase 1)
     const { data: candidates } = await supabase.from('leads')
-      .select('id, telefone, status')
+      .select('id, telefone, status, crc_comercial_id, nome')
       .in('status', PRE_COMPARECEU)
       .is('clinicorp_appointment_id', null);
 
@@ -3941,6 +4014,7 @@ async function syncComparecimentos() {
       await supabase.from('leads').update({ status: 'Compareceu', data_comparecimento: dataComp }).eq('id', lead.id);
       logEvento(lead.id, 'status_mudou', 'Status: → Compareceu (detectado via Clinicorp por telefone)',
         { de: lead.status, para: 'Compareceu', telefone: lead.telefone }, null);
+      notificarComercialCompareceu(lead);
       console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (phone match)`);
     }
 
@@ -4116,6 +4190,7 @@ async function _processarAptWebhook(apt) {
   logEvento(lead.id, 'status_mudou', 'Status: ' + lead.status + ' → Compareceu (webhook Clinicorp)',
     { de: lead.status, para: 'Compareceu' }, null);
   dispararConversaoMeta({ ...lead, status: 'Compareceu' }).catch(e => console.error('Meta CAPI:', e.message));
+  notificarComercialCompareceu(lead);
   console.log('[clinicorp-webhook] lead ' + lead.id + ' → Compareceu (apt ' + aptId + ')');
 }
 
