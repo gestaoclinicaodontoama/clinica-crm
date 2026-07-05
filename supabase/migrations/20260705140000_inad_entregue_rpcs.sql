@@ -25,5 +25,5 @@ LANGUAGE sql STABLE AS $$
     AND appointment_date >= p_hoje;
 $$;
 
-REVOKE EXECUTE ON FUNCTION inad_entregue_por_paciente(text[], date) FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION inad_consulta_futura_ids(text[], date) FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION inad_entregue_por_paciente(text[], date) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION inad_consulta_futura_ids(text[], date) FROM PUBLIC, anon, authenticated;
