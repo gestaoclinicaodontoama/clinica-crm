@@ -176,6 +176,7 @@ const disparoRunner = require('./lib/disparos/runner');
 const { coletarLeadIds } = require('./lib/disparos/leads-da-campanha');
 const { normalizarRegra } = require('./lib/publicos/regra');
 const { montarCsv } = require('./lib/publicos/csv');
+const { toqueDevido, podeAutoPerder } = require('./lib/recuperacao/cadencia');
 
 // --------- APP ---------
 const app = express();
@@ -3970,6 +3971,129 @@ async function syncComparecimentos() {
   }
 }
 setInterval(syncComparecimentos, 10 * 60 * 1000);
+
+// ===== Recuperação de falta de avaliação (spec 2026-07-05) =====
+// Detecta no-shows pela agenda, cria etiqueta+tarefa, roda cadência D+0/3/7/10.
+function _hojeSP() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+}
+
+async function _criarTarefaRecuperacao(falta, assigneeId) {
+  const desc = [
+    'Paciente faltou à avaliação (' + (falta.category || 's/ categoria') + ').',
+    falta.telefone ? 'Tel: ' + falta.telefone : 'Sem telefone no cadastro — buscar no Clinicorp.',
+    falta.dentist_name ? 'Dentista: ' + falta.dentist_name : null,
+    'Data da falta: ' + falta.appointment_date,
+    'Ligar para remarcar.',
+  ].filter(Boolean).join('\n');
+  const { data, error } = await supabase.from('tasks').insert({
+    titulo: 'Recuperar falta — ' + (falta.patient_name || 'paciente'),
+    descricao: desc, tipo: 'pontual', data_ref: _hojeSP(),
+    created_by: assigneeId, prioridade: 'alta', categoria: 'recuperacao_falta',
+    prazo: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    lead_id: falta.lead_id || null, assignee_id: assigneeId, status: 'pendente',
+  }).select('id').single();
+  if (error) { console.error('[recuperacao] task:', error.message); return null; }
+  return data.id;
+}
+
+async function _donoProvisorioRodizio() {
+  const { data: cfg } = await supabase.from('app_config')
+    .select('recuperacao_falta_crc_leads, recuperacao_falta_rodizio_idx').eq('id', 1).maybeSingle();
+  const lista = Array.isArray(cfg?.recuperacao_falta_crc_leads) ? cfg.recuperacao_falta_crc_leads : [];
+  if (!lista.length) return { dono: null, todos: [] };
+  const idx = (cfg.recuperacao_falta_rodizio_idx || 0) % lista.length;
+  const dono = lista[idx];
+  await supabase.from('app_config').update({ recuperacao_falta_rodizio_idx: idx + 1 }).eq('id', 1);
+  return { dono, todos: lista };
+}
+
+async function varrerFaltasAvaliacao() {
+  const hoje = _hojeSP();
+  // 1) NOVAS faltas
+  const { data: novas, error: eNovas } = await supabase.rpc('detectar_faltas_avaliacao', { dias: 30 });
+  if (eNovas) { console.error('[recuperacao] detectar:', eNovas.message); return; }
+  const { data: cfg } = await supabase.from('app_config')
+    .select('recuperacao_falta_crc_pos').eq('id', 1).maybeSingle();
+  const crcPos = cfg?.recuperacao_falta_crc_pos || null;
+  for (const f of (novas || [])) {
+    try {
+      // define responsável
+      let assignee = null, semDono = false;
+      if ((f.category || '').match(/pós|pos/i) && crcPos) assignee = crcPos;
+      else if (f.crc_agendamento_id) assignee = f.crc_agendamento_id;
+      let todosLeads = [];
+      if (!assignee) { const r = await _donoProvisorioRodizio(); assignee = r.dono; todosLeads = r.todos; semDono = true; }
+      if (!assignee) continue; // sem config → não cria (evita task órfã)
+      const taskId = await _criarTarefaRecuperacao(f, assignee);
+      if (f.lead_id) await supabase.rpc('lead_add_etiqueta', { p_lead_id: f.lead_id, p_tag: 'Faltou' });
+      await supabase.from('recuperacao_faltas').insert({
+        clinicorp_appt_id: f.clinicorp_appt_id, patient_name: f.patient_name, category: f.category,
+        dentist_name: f.dentist_name, appointment_date: f.appointment_date, telefone: f.telefone,
+        lead_id: f.lead_id || null, crc_responsavel_id: semDono ? null : assignee,
+        status: 'aberta', toques_enviados: 1, ultimo_toque_em: new Date().toISOString(), task_id: taskId,
+      });
+      if (semDono) {
+        for (const uid of todosLeads) {
+          await criarNotificacao(uid, 'falta_sem_responsavel', 'Falta sem responsável',
+            (f.patient_name || 'Paciente') + ' faltou (' + (f.category || '') + '). Atribuída provisoriamente; remaneje se for de outra.',
+            { url: '/tarefas/', task_id: taskId });
+        }
+      }
+    } catch (e) { console.error('[recuperacao] nova falta:', e.message); }
+  }
+  // 2) ABERTAS: recuperação + cadência
+  const { data: abertas } = await supabase.from('recuperacao_faltas').select('*').eq('status', 'aberta');
+  for (const r of (abertas || [])) {
+    try {
+      const { data: recuperada } = await supabase.rpc('falta_esta_recuperada', { p_appt_id: r.clinicorp_appt_id });
+      if (recuperada) {
+        if (r.task_id) await supabase.from('tasks').update({ status: 'concluida' }).eq('id', r.task_id);
+        await supabase.from('recuperacao_faltas').update({ status: 'recuperada', recuperada_em: new Date().toISOString() }).eq('id', r.id);
+        continue;
+      }
+      const marco = toqueDevido(r.appointment_date, hoje, r.toques_enviados);
+      if (marco === null) continue;
+      if (marco === 10) {
+        // auto-Perdido com trava. Já passamos pela checagem de recuperação acima e
+        // NÃO recuperou → logo não há consulta futura (futura tornaria recuperada).
+        // Por isso temConsultaFutura é definitivamente false aqui (sem RPC extra).
+        let statusLead = null, tarefaConcluida = false;
+        if (r.lead_id) {
+          const { data: l } = await supabase.from('leads').select('status').eq('id', r.lead_id).maybeSingle();
+          statusLead = l?.status || null;
+        }
+        if (r.task_id) {
+          const { data: t } = await supabase.from('tasks').select('status').eq('id', r.task_id).maybeSingle();
+          tarefaConcluida = t?.status === 'concluida';
+        }
+        if (podeAutoPerder({ leadEncontrado: !!r.lead_id, statusLead, temConsultaFutura: false, tarefaConcluida })) {
+          await supabase.from('leads').update({ status: 'Perdido', motivo_perda: 'Faltou e não retornou' }).eq('id', r.lead_id);
+          logEvento(r.lead_id, 'status_mudou', 'Auto-Perdido: faltou e não retornou', { de: statusLead, para: 'Perdido' }, null);
+          if (r.task_id) await supabase.from('tasks').update({ status: 'concluida' }).eq('id', r.task_id);
+          await supabase.from('recuperacao_faltas').update({ status: 'perdida' }).eq('id', r.id);
+        } else {
+          await supabase.from('recuperacao_faltas').update({ status: 'encerrada' }).eq('id', r.id);
+        }
+        continue;
+      }
+      // toque D+3 ou D+7: renotifica o dono (ou as 3 se sem dono)
+      const alvo = r.crc_responsavel_id ? [r.crc_responsavel_id] : (await _donoProvisorioRodizio()).todos;
+      for (const uid of alvo) {
+        await criarNotificacao(uid, 'falta_recuperar_lembrete', 'Lembrete: recuperar falta',
+          'D+' + marco + ' — ' + (r.patient_name || 'paciente') + ' ainda não voltou. Insista na remarcação.',
+          { url: '/tarefas/', task_id: r.task_id });
+      }
+      await supabase.from('recuperacao_faltas').update({
+        toques_enviados: r.toques_enviados + 1, ultimo_toque_em: new Date().toISOString(),
+      }).eq('id', r.id);
+    } catch (e) { console.error('[recuperacao] cadencia:', e.message); }
+  }
+}
+
+setInterval(function () {
+  varrerFaltasAvaliacao().catch(function (e) { console.error('[recuperacao]', e.message); });
+}, 3 * 3600 * 1000);
 
 // ── Webhook do Clinicorp (Clinicorp -> CRM, tempo real) ──────────────────────
 // Cadastrado em sistema.clinicorp.com → Acesso Externo → Gestão de Webhook,
