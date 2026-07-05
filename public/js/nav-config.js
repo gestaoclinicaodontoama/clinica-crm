@@ -51,6 +51,8 @@
   const ALL = 'admin,gestor,crc_leads,crc_comercial,crc_sucesso,crc_pos_tratamento';
   const CRM_NAV = [
 
+    { slug: 'painel-gestor', label: 'Painel do Gestor', icon: 'dashboard', roles: 'admin,gestor', mode: 'spa' },
+
     { id: 'crc-leads', label: 'CRC de Leads', icon: 'kanban', roles: 'admin,gestor,crc_leads,crc_comercial', items: [
       { slug: 'kanban-leads',      label: 'Kanban Leads',       roles: 'admin,crc,crc_leads,crc_comercial,mod_kanban_leads', mode: 'link', href: '/kanban-leads/' },
       { slug: 'conv-agendamentos', label: 'WhatsApp CRC Lead',  roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso',    mode: 'spa' },

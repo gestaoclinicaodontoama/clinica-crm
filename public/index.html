@@ -634,6 +634,11 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
   </div>
 </div>
 
+<!-- PAINEL DO GESTOR (só admin/gestor — ver nav-config) -->
+<div id="page-painel-gestor" class="page">
+  <div id="painel-gestor-root"></div>
+</div>
+
 <!-- LEADS -->
 <div id="page-leads" class="page">
   <h1>Todos os Leads</h1>
@@ -1747,6 +1752,7 @@ function setPage(p, btn) {
   const isConv2 = p === 'conv-agendamentos' || p === 'conv-avaliacao' || p === 'conv-oficial';
   document.querySelector('main').classList.toggle('conv-active', isConv2);
   if (p === 'dashboard') loadDash();
+  if (p === 'painel-gestor' && window.loadPainelGestor) window.loadPainelGestor();
   if (p === 'leads') {
     loadLeads();
     api('/api/campanhas/preview/indicacoes?count_only=true').then(d => {
@@ -6758,6 +6764,8 @@ function _abrirModalCampanhaLeads(tipo, preview) {
 }
 </script>
 <script src="/js/campanha-widget.js"></script>
+<script src="/js/painel/gestor.js"></script>
+<script src="/js/painel/painel-gestor-page.js"></script>
 
 <!-- PAINEL NOTIFICAÇÕES + TAREFAS -->
 <div id="notif-overlay" style="display:none;position:fixed;inset:0;z-index:900" onclick="fecharPainelNotif()"></div>

@@ -24,6 +24,8 @@ const { montarMonitor } = require('./lib/monitor/diario');
 const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
 const { montarDRE } = require('./lib/financeiro/dre');
 const { montarDREMensal } = require('./lib/financeiro/dre-mensal');
+const _DREAnalise = require('./public/js/financeiro/dre-analise');
+const _PainelGestor = require('./public/js/painel/gestor');
 const { alvosDaRegra } = require('./lib/financeiro/reclassificar');
 const { nucleo: _finNucleo } = require('./lib/financeiro/normalizar');
 const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/financeiro-sync');
@@ -7933,6 +7935,70 @@ app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res
     })),
     serie_mensal: serieMensal,
   });
+});
+
+// Painel do Gestor — indicadores financeiros (só gestor). O funil, marketing e
+// prevenção o front puxa dos endpoints que já aceitam gestor; aqui ficam os
+// números que exigem as RPCs financeiras (fora do alcance do role gestor puro).
+app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
+  const hoje = _finDataLocal(new Date());
+  const ymCorrente = hoje.slice(0, 7);
+  const menosMeses = (n) => { const [y, m] = hoje.slice(0, 7).split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
+  const from90 = (() => { const d = new Date(hoje + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 90);
+    return d.toISOString().slice(0, 10); })();
+  try {
+    const [serieR, aggR, vencR, recebR, analR, ticketR] = await Promise.all([
+      supabase.rpc('fin_series_mensais', { p_from: menosMeses(36), p_to: hoje }),
+      supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(8), p_to: hoje }),
+      supabase.rpc('fin_vencido_total'),
+      supabase.from('fin_recebiveis_mensal').select('valor'),
+      supabase.from('fin_saude_analises').select('dados').eq('id', 1).maybeSingle(),
+      supabase.from('orcamentos').select('valor_particular,valor_aprovado,revisao_status')
+        .eq('status', 'APPROVED').gt('valor_particular', 0).gte('data_fechamento', from90),
+    ]);
+    // Faturamento do último mês completo + crescimento ano-a-ano
+    const serie = (serieR.data || []).filter(r => String(r.ym) < ymCorrente)
+      .sort((a, b) => a.ym < b.ym ? -1 : 1)
+      .map(r => ({ ym: String(r.ym), faturamento: Number(r.faturamento) || 0,
+        caixa: Number(r.caixa) || 0, saidas: Number(r.saidas) || 0 }));
+    const ultimoMes = serie[serie.length - 1] || null;
+    const crescimentoFat = _PainelGestor.crescimentoAnual(serie, 'faturamento');
+
+    // Lucro/margem + ponto de equilíbrio (meses completos), via DRE + análise
+    const dreMeses = montarDREMensal(aggR.data || [], menosMeses(8), hoje);
+    const hojeDate = new Date();
+    const completos = dreMeses.filter(m => _DREAnalise.mesCompleto(m.ym, hojeDate));
+    const ult = completos[completos.length - 1] || null;
+    const sub = ult ? _DREAnalise.subtotais(ult) : null;
+    const margem = sub && sub.receitaBruta > 0 ? sub.resultadoFinal / sub.receitaBruta : null;
+    const pe = _DREAnalise.pontoEquilibrio(completos);
+    const ms = _DREAnalise.margemSeguranca(completos);
+
+    // Inadimplência
+    const aReceber = (recebR.data || []).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const vencido = Number(vencR.data || 0);
+    const inadPct = aReceber > 0 ? vencido / aReceber : null;
+    const taxaPerda = analR.data?.dados?.perda?.taxa ?? null;
+
+    // Ticket médio SEM convênio (orçamentos particulares aprovados nos últimos 90 dias)
+    const aprov = (ticketR.data || []).filter(o => o.revisao_status !== 'rejeitado');
+    const vals = aprov.map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v > 0);
+    const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+
+    res.json({
+      atualizado_em: new Date().toISOString(),
+      faturamento: { mes: ultimoMes ? ultimoMes.ym : null, valor: ultimoMes ? ultimoMes.faturamento : null,
+        crescimentoAnual: crescimentoFat },
+      lucro: { margem, resultado: sub ? sub.resultadoFinal : null,
+        pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
+      inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda },
+      ticketSemConvenio: { valor: ticket, n: vals.length },
+    });
+  } catch (e) {
+    console.error('❌ /api/painel-gestor:', e.message);
+    res.status(500).json({ error: 'Falha ao montar o painel do gestor' });
+  }
 });
 
 // Classificar 1 lançamento. body: { conta_id, alcance: 'so_esta'|'todas', metodo, padrao }
