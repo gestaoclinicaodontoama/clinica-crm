@@ -7948,7 +7948,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   const from90 = (() => { const d = new Date(hoje + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 90);
     return d.toISOString().slice(0, 10); })();
   try {
-    const [serieR, aggR, vencR, recebR, analR, ticketR] = await Promise.all([
+    const [serieR, aggR, vencR, recebR, analR, ticketR, avalR] = await Promise.all([
       supabase.rpc('fin_series_mensais', { p_from: menosMeses(36), p_to: hoje }),
       supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(8), p_to: hoje }),
       supabase.rpc('fin_vencido_total'),
@@ -7956,6 +7956,9 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       supabase.from('fin_saude_analises').select('dados').eq('id', 1).maybeSingle(),
       supabase.from('orcamentos').select('valor_particular,valor_aprovado,revisao_status')
         .eq('status', 'APPROVED').gt('valor_particular', 0).gte('data_fechamento', from90),
+      // Funil (agendou→compareceu→fechou) via avaliacoes — fonte confiável.
+      // O topo leads→agendou NÃO é rastreável hoje (data_lead da base foi sobrescrita).
+      supabase.from('avaliacoes').select('compareceu').gte('data', from90),
     ]);
     // Faturamento do último mês completo + crescimento ano-a-ano
     const serie = (serieR.data || []).filter(r => String(r.ym) < ymCorrente)
@@ -7986,6 +7989,12 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
     const vals = aprov.map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v > 0);
     const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 
+    // Funil (últimos 90 dias): agendaram (avaliações) → compareceram → fecharam.
+    const avals = avalR.data || [];
+    const agendaram = avals.length;
+    const compareceram = avals.filter(a => a.compareceu).length;
+    const fecharam = vals.length;
+
     res.json({
       atualizado_em: new Date().toISOString(),
       faturamento: { mes: ultimoMes ? ultimoMes.ym : null, valor: ultimoMes ? ultimoMes.faturamento : null,
@@ -7994,6 +8003,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
         pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
       inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda },
       ticketSemConvenio: { valor: ticket, n: vals.length },
+      funil: { agendaram, compareceram, fecharam, dias: 90, leadsRastreavel: false },
     });
   } catch (e) {
     console.error('❌ /api/painel-gestor:', e.message);

@@ -31,9 +31,10 @@
     marketing: { oque: 'De cada R$ 1 gasto em anúncio, quanto voltou em faturamento — e quanto custou cada paciente que fechou.',
       bom: 'Acima de 3× o anúncio se paga com folga.', ruim: 'Abaixo de 1,5× o anúncio está no prejuízo.',
       acoes: 'Cortar campanha abaixo da meta, escalar verba na que está acima. Fonte: Agente de Marketing.' },
-    funil: { oque: 'A % de gente que passa de uma etapa pra próxima: lead → agendou → compareceu → fechou.',
-      bom: 'Funil saudável ~40/40/30. Meta de vocês: 45/50/25.', ruim: 'Etapa abaixo da meta trava tudo que vem depois.',
-      acoes: 'Agendamento: responder o lead rápido, script de agendamento. Fechamento: treinar a CRC em objeção e preço.' },
+    funil: { oque: 'A % de gente que passa de uma etapa pra próxima. Aqui do agendamento em diante (fonte confiável): agendou → compareceu → fechou.',
+      bom: 'Comparecimento acima de 50% (bom em odontologia) e fechamento acima de 25%.',
+      ruim: 'Etapa abaixo da meta trava tudo que vem depois. Historicamente o fechamento é o gargalo de vocês.',
+      acoes: 'Fechamento: treinar a CRC em objeção e preço, oferecer condições de pagamento. E consertar o rastreio de lead→agendamento pra medir o topo.' },
     ticket: { oque: 'Valor médio das vendas particulares aprovadas (convênio fora — margem baixa não entra na conta).',
       bom: 'Em tendência de alta.', ruim: 'Caindo, sinal de orçamentos fatiados ou desconto reflexo.',
       acoes: 'Oferecer plano completo, implante/alinhador, evitar fatiar o orçamento.' },
@@ -118,16 +119,21 @@
     </div>`;
   }
 
-  function funilHTML(k) {
+  function funilNiveis(f) {
+    const taxa = (a, b) => (b > 0 ? a / b : null);
+    return [taxa(f.compareceram, f.agendaram), taxa(f.fecharam, f.compareceram)]
+      .map((t, i) => t == null ? null : P.semFunil(t, i === 0 ? META_FUNIL.comparecimento : META_FUNIL.fechamento))
+      .filter(Boolean);
+  }
+
+  function funilHTML(f) {
     const taxa = (a, b) => (b > 0 ? a / b : null);
     const etapas = [
-      { q: k.leads, e: 'Leads' }, { q: k.agendados, e: 'Agendaram' },
-      { q: k.compareceram, e: 'Compareceram' }, { q: k.fecharam, e: 'Fecharam' },
+      { q: f.agendaram, e: 'Agendaram' }, { q: f.compareceram, e: 'Compareceram' }, { q: f.fecharam, e: 'Fecharam' },
     ];
     const convs = [
-      { taxa: taxa(k.agendados, k.leads), meta: META_FUNIL.agendamento },
-      { taxa: taxa(k.compareceram, k.agendados), meta: META_FUNIL.comparecimento },
-      { taxa: taxa(k.fecharam, k.compareceram), meta: META_FUNIL.fechamento },
+      { taxa: taxa(f.compareceram, f.agendaram), meta: META_FUNIL.comparecimento },
+      { taxa: taxa(f.fecharam, f.compareceram), meta: META_FUNIL.fechamento },
     ];
     let flow = '';
     etapas.forEach((et, i) => {
@@ -135,16 +141,17 @@
       if (convs[i]) { const s = convs[i].taxa == null ? 'neutro' : P.semFunil(convs[i].taxa, convs[i].meta);
         flow += `<div class="pg-conv ${s}"><span class="s">→</span><span class="t">${pct0(convs[i].taxa)}</span><span class="a">meta ${pct0(convs[i].meta)}</span></div>`; }
     });
-    const niveis = convs.map(c => c.taxa == null ? null : P.semFunil(c.taxa, c.meta)).filter(Boolean);
-    const pior = niveis.includes('vermelho') ? 'vermelho' : niveis.includes('amarelo') ? 'amarelo' : 'verde';
+    const niveis = funilNiveis(f);
+    const pior = niveis.includes('vermelho') ? 'vermelho' : niveis.includes('amarelo') ? 'amarelo' : niveis.length ? 'verde' : 'neutro';
     const nFraco = niveis.filter(n => n !== 'verde').length;
     const e = EXPLICA.funil;
-    return `<div class="pg-funil" style="--x:0">
+    return `<div class="pg-funil">
       <button class="pg-ent" data-alvo="pg-ent-funil">▸ entenda</button>
-      <div class="pg-label">Funil comercial — onde se perde paciente (últimos 30 dias)</div>
+      <div class="pg-label">Funil comercial — do agendamento ao fechamento (últimos 90 dias)</div>
       <div style="margin:4px 0"><span class="pg-sev ${pior}"><span class="pg-dot ${pior}"></span>${nFraco ? nFraco + ' etapa(s) abaixo da meta' : 'no ritmo'}</span></div>
-      <div class="pg-funil-meta">Saudável: <b>40 / 40 / 30</b> · Meta 2026: <b>45 / 50 / 25</b> (agendamento / comparecimento / fechamento)</div>
+      <div class="pg-funil-meta">Meta 2026: comparecimento <b>50%</b> · fechamento <b>25%</b> (saudável: 40% / 30%)</div>
       <div class="pg-flow">${flow}</div>
+      <div class="pg-nota" style="margin-top:10px">⚠️ A etapa <b>lead → agendamento</b> não é medível hoje: as datas de criação dos leads foram sobrescritas na base (tudo caiu em jun/26). Corrigir isso é um próximo passo.</div>
       <div class="pg-ent-box" id="pg-ent-funil"><span class="l"><b>O que é:</b> ${esc(e.oque)}</span><span class="l"><b>Quando é bom:</b> ${esc(e.bom)}</span><span class="l"><b>Quando é ruim:</b> ${esc(e.ruim)}</span><span class="l"><b>Ações:</b> ${esc(e.acoes)}</span></div>
     </div>`;
   }
@@ -155,9 +162,8 @@
     if (!root) return;
     if (!root.dataset.init) { root.innerHTML = '<div class="pg-msg">Carregando indicadores…</div>'; }
 
-    const [fin, com, mkt, abc] = await Promise.allSettled([
+    const [fin, mkt, abc] = await Promise.allSettled([
       get('/api/painel-gestor'),
-      get('/api/comercial/dashboard?preset=30d'),
       get('/api/meta-insights').catch(() => null),
       get('/api/campanhas/preview/abc?count_only=true'),
     ]).then(rs => rs.map(r => r.status === 'fulfilled' ? r.value : null));
@@ -181,13 +187,9 @@
 
     // ── Elo 2: funil + ticket + ocupação ──
     let funilBlock = '';
-    if (com && com.kpis) {
-      funilBlock = funilHTML(com.kpis);
-      const k = com.kpis, taxa = (a, b) => (b > 0 ? a / b : null);
-      [taxa(k.agendados, k.leads) && P.semFunil(taxa(k.agendados, k.leads), META_FUNIL.agendamento),
-       taxa(k.compareceram, k.agendados) && P.semFunil(taxa(k.compareceram, k.agendados), META_FUNIL.comparecimento),
-       taxa(k.fecharam, k.compareceram) && P.semFunil(taxa(k.fecharam, k.compareceram), META_FUNIL.fechamento)]
-        .forEach(n => n && niveisContados.push(n));
+    if (fin && fin.funil) {
+      funilBlock = funilHTML(fin.funil);
+      funilNiveis(fin.funil).forEach(n => niveisContados.push(n));
     } else {
       funilBlock = `<div class="pg-msg">Funil indisponível no momento.</div>`;
     }
