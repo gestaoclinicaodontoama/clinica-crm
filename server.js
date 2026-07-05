@@ -30,6 +30,7 @@ const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/finance
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
 const { agruparParcelasPorMes } = require('./lib/financeiro/fluxo-futuro');
 const _analiseParcelas = require('./lib/financeiro/analise-parcelas');
+const _recuperacao = require('./lib/financeiro/recuperacao');
 const _inad = require('./lib/financeiro/inadimplencia');
 const { montarFatos: _dreMontarFatos, contasDetalhadas: _dreContasDetalhadas } = require('./lib/financeiro/avaliacao');
 // Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
@@ -3621,6 +3622,11 @@ async function fetchInadimplentesBackground() {
       await sleep(400);
     }
     const processado = await processarInadimplentes(allItems, today);
+    processado.resultado = {
+      recuperacao: _recuperacao.recuperacaoPorMes(allItems, today, 12),
+      vencido:     _recuperacao.vencidoRetroativo(allItems, today, 24),
+      aging:       _analiseParcelas.agingVencido(allItems, today),
+    };
     await supabase.from('inadimplentes_cache').upsert({
       id: 1, data: processado, atualizado_em: Date.now(),
       endpoint: '/payment/list?postDate (24mo chunks)',
