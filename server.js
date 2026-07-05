@@ -756,16 +756,18 @@ async function patchLead(req, res) {
         if (v === 'Avaliação agendada' && !lead.data_agendamento) patch.data_agendamento = agora;
         if (v === 'Avaliação agendada') { patch.crc_agendamento_id = req.user?.id || null; patch.crc_agendamento_nome = req.user?.profile?.nome || null; }
         if (v === 'Compareceu' && !lead.data_comparecimento) patch.data_comparecimento = agora;
+        // requireAuth não chama loadProfile — carrega aqui (cacheado) para ehComercial ser confiável.
+        const _statusProfile = (v === 'Compareceu' || v === 'Em negociação') ? await loadProfile(req) : null;
         if (v === 'Compareceu') {
-          const ehComercial = (req.user?.profile?.roles || []).includes('crc_comercial');
+          const ehComercial = (_statusProfile?.roles || []).includes('crc_comercial');
           if (ehComercial && !lead.crc_comercial_id) {
-            patch.crc_comercial_id = req.user.id; patch.crc_comercial_nome = req.user.profile?.nome || null;
+            req._claimComercial = true;
           } else if (!lead.crc_comercial_id) { req._notifCompareceu = true; }
         }
         if (v === 'Em negociação') {
-          const ehComercial = (req.user?.profile?.roles || []).includes('crc_comercial');
+          const ehComercial = (_statusProfile?.roles || []).includes('crc_comercial');
           if (ehComercial && !lead.crc_comercial_id) {
-            patch.crc_comercial_id = req.user.id; patch.crc_comercial_nome = req.user.profile?.nome || null;
+            req._claimComercial = true;
           }
         }
         if (v === 'Em negociação' && !lead.data_avaliacao) patch.data_avaliacao = agora;
@@ -834,6 +836,7 @@ async function patchLead(req, res) {
         dispararConversaoGoogle(updated).catch(e => console.error('Google:', e.message));
       }
     }
+    if (req._claimComercial) assumirComercialSeSemDono(lead, req.user);
     if (req._notifCompareceu) notificarComercialCompareceu(lead);
     if (patch.notas_sdr !== undefined && (patch.notas_sdr || '') !== (leadAntes.notas_sdr || '')) {
       logEvento(updated.id, 'nota_sdr_editada', 'Anotação SDR atualizada',
