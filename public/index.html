@@ -457,6 +457,16 @@ textarea { resize: vertical; min-height: 80px; }
 .nf-preview-err { color:var(--red); font-size:11px; }
 
 /* ===== INADIMPLENTES ===== */
+.inad-resultado { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.inad-res-titulo { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+.inad-res-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 900px) { .inad-res-grid { grid-template-columns: 1fr; } }
+.inad-res-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.inad-res-card-tit { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.inad-res-sub { color: var(--muted); font-weight: 400; }
+.inad-res-nota { margin-top: 10px; font-size: 11px; color: var(--muted); }
+.inad-res-svg { width: 100%; height: auto; display: block; }
+.inad-res-manchete { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
 .inad-section { margin-bottom: 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .inad-section-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; cursor: pointer; user-select: none; }
 .inad-section-header:hover { background: var(--bg3); }
@@ -1235,6 +1245,24 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     </div>
   </div>
 
+  <div id="inad-resultado" class="inad-resultado" style="display:none">
+    <div class="inad-res-titulo">Resultado da Cobrança</div>
+    <div class="inad-res-grid">
+      <div class="inad-res-card">
+        <div class="inad-res-card-tit">Recuperação por mês <span class="inad-res-sub">(coorte do vencimento)</span></div>
+        <div id="inad-res-recup"></div>
+      </div>
+      <div class="inad-res-card">
+        <div class="inad-res-card-tit">Vencido no tempo <span class="inad-res-sub">(saldo em aberto, fim do mês)</span></div>
+        <div id="inad-res-vencido"></div>
+      </div>
+      <div class="inad-res-card">
+        <div class="inad-res-card-tit">Aging do vencido <span class="inad-res-sub">(idade do atraso)</span></div>
+        <div id="inad-res-aging"></div>
+      </div>
+    </div>
+    <div class="inad-res-nota">Meses recentes ainda estão em cobrança (taxa tende a subir). Histórico reconstruído dos pagamentos — renegociações antigas podem não aparecer.</div>
+  </div>
 
   <div id="inad-error-bar" style="display:none;padding:12px 16px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;color:var(--red);font-size:13px;margin-bottom:14px"></div>
   <div id="inad-aviso-bar" style="display:none;padding:12px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;color:var(--yellow);font-size:13px;margin-bottom:14px"></div>
@@ -5386,6 +5414,77 @@ function _inadStopPoll() {
   if (_inadPollTimer) { clearInterval(_inadPollTimer); _inadPollTimer = null; }
 }
 
+function _svgEscala(vals) { const m = Math.max(1, ...vals); return v => (v / m); }
+function _mesCurto(ym) { return ym.slice(5) + '/' + ym.slice(2, 4); } // 'MM/AA'
+
+// Barras agrupadas: atrasou (vermelho) x recuperado (verde) por mês.
+function _svgRecuperacao(recup) {
+  if (!recup || !recup.length) return '<div style="color:var(--muted);font-size:12px">Sem dados</div>';
+  const W = 600, H = 150, pad = 22, n = recup.length;
+  const esc = _svgEscala(recup.map(r => r.atrasou));
+  const slot = (W - pad * 2) / n, bw = Math.min(10, slot / 3);
+  let bars = '';
+  recup.forEach((r, i) => {
+    const x = pad + i * slot + slot / 2;
+    const hA = esc(r.atrasou) * (H - 40), hR = esc(r.recuperado) * (H - 40);
+    const recente = i >= n - 2;
+    bars += `<rect x="${(x - bw - 1).toFixed(1)}" y="${(H - 20 - hA).toFixed(1)}" width="${bw}" height="${hA.toFixed(1)}" fill="var(--red)" opacity="${recente ? 0.5 : 0.9}"/>`;
+    bars += `<rect x="${(x + 1).toFixed(1)}" y="${(H - 20 - hR).toFixed(1)}" width="${bw}" height="${hR.toFixed(1)}" fill="var(--green)" opacity="${recente ? 0.5 : 0.9}"/>`;
+    if (i % 2 === 0 || n <= 6) bars += `<text x="${x.toFixed(1)}" y="${H - 6}" font-size="8" fill="var(--muted)" text-anchor="middle">${_mesCurto(r.mes)}</text>`;
+  });
+  const totA = recup.reduce((s, r) => s + r.atrasou, 0), totR = recup.reduce((s, r) => s + r.recuperado, 0);
+  const taxaGeral = totA > 0 ? Math.round((totR / totA) * 100) : 0;
+  return `<div class="inad-res-manchete" style="color:var(--green)">${taxaGeral}% recuperado</div>` +
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">${_inadFmt(totR)} de ${_inadFmt(totA)} que atrasaram (12m)</div>` +
+    `<svg class="inad-res-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${bars}</svg>` +
+    `<div style="font-size:10px;color:var(--muted);margin-top:4px"><span style="color:var(--red)">■</span> atrasou &nbsp; <span style="color:var(--green)">■</span> recuperado &nbsp; (barras claras = meses recentes, ainda em cobrança)</div>`;
+}
+
+// Linha do saldo vencido no tempo.
+function _svgVencido(venc) {
+  if (!venc || !venc.length) return '<div style="color:var(--muted);font-size:12px">Sem dados</div>';
+  const W = 600, H = 150, pad = 22, n = venc.length;
+  const esc = _svgEscala(venc.map(v => v.vencido));
+  const px = i => pad + (n === 1 ? (W - pad * 2) / 2 : i * (W - pad * 2) / (n - 1));
+  const py = v => (H - 20) - esc(v) * (H - 40);
+  const pts = venc.map((v, i) => `${px(i).toFixed(1)},${py(v.vencido).toFixed(1)}`).join(' ');
+  const ult = venc[venc.length - 1], prim = venc[0];
+  const seta = ult.vencido > prim.vencido ? '<span style="color:var(--red)">▲ subindo</span>' : '<span style="color:var(--green)">▼ caindo</span>';
+  let labels = '';
+  [0, Math.floor(n / 2), n - 1].forEach(i => { if (venc[i]) labels += `<text x="${px(i).toFixed(1)}" y="${H - 6}" font-size="8" fill="var(--muted)" text-anchor="middle">${_mesCurto(venc[i].mes)}</text>`; });
+  return `<div class="inad-res-manchete" style="color:var(--red)">${_inadFmt(ult.vencido)}</div>` +
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">saldo vencido hoje · ${seta}</div>` +
+    `<svg class="inad-res-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">` +
+    `<polyline points="${pts}" fill="none" stroke="var(--red)" stroke-width="2"/>${labels}</svg>`;
+}
+
+// Barra horizontal empilhada do aging.
+function _svgAging(aging) {
+  const faixas = (aging && aging.faixas) || [];
+  const tot = faixas.reduce((s, f) => s + f.valor, 0);
+  if (!tot) return '<div style="color:var(--muted);font-size:12px">Sem vencido</div>';
+  const cores = ['var(--green)', 'var(--yellow)', '#f59e0b', 'var(--red)', '#b91c1c'];
+  let x = 0, segs = '', legenda = '';
+  faixas.forEach((f, i) => {
+    const w = (f.valor / tot) * 100;
+    segs += `<div style="width:${w}%;background:${cores[i] || 'var(--muted)'}" title="${f.faixa}: ${_inadFmt(f.valor)}"></div>`;
+    if (f.valor > 0) legenda += `<span style="white-space:nowrap"><span style="color:${cores[i]}">■</span> ${f.faixa}: ${_inadFmt(f.valor)}</span>`;
+  });
+  return `<div class="inad-res-manchete" style="color:var(--red)">${_inadFmt(tot)}</div>` +
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">total vencido em aberto</div>` +
+    `<div style="display:flex;height:18px;border-radius:5px;overflow:hidden">${segs}</div>` +
+    `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:10px;color:var(--muted)">${legenda}</div>`;
+}
+
+function renderInadResultado(resultado) {
+  const box = document.getElementById('inad-resultado');
+  if (!resultado) { box.style.display = 'none'; return; }
+  document.getElementById('inad-res-recup').innerHTML   = _svgRecuperacao(resultado.recuperacao);
+  document.getElementById('inad-res-vencido').innerHTML = _svgVencido(resultado.vencido);
+  document.getElementById('inad-res-aging').innerHTML   = _svgAging(resultado.aging);
+  box.style.display = 'block';
+}
+
 function _renderInadData(data) {
   const t = data.totais || {};
   document.getElementById('inad-kpi-total').textContent = t.pacientes || 0;
@@ -5393,6 +5492,7 @@ function _renderInadData(data) {
   document.getElementById('inad-kpi-g1').textContent    = t.emCobranca   || 0;
   document.getElementById('inad-kpi-g2').textContent    = t.renegociacao || 0;
   document.getElementById('inad-kpi-g3').textContent    = t.criticos     || 0;
+  renderInadResultado(data.resultado);
 
   const badge = document.getElementById('badge-inadimplentes');
   if (t.pacientes > 0) { badge.textContent = t.pacientes; badge.style.display = 'inline'; }
