@@ -60,6 +60,7 @@
     ]},
 
     { id: 'crc-comercial', label: 'CRC Comercial', icon: 'comercial', roles: 'admin,gestor,crc_comercial', items: [
+      { slug: 'meu-dia',           label: '📅 Meu Dia',             roles: 'admin,gestor,crc_comercial',                   mode: 'link', href: '/meu-dia/' },
       { slug: 'kanban-comercial',  label: 'Kanban Comercial',       roles: 'admin,crc,crc_comercial,mod_kanban_comercial', mode: 'link', href: '/kanban-comercial/' },
       { slug: 'comercial',         label: 'Comercial',              roles: 'admin,gestor,crc_comercial',                   mode: 'link', href: '/comercial/' },
       { slug: 'conferencia',       label: 'Conferência',            roles: 'admin,gestor,crc_comercial',                   mode: 'link', href: '/comercial/conferencia/' },

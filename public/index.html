@@ -2617,7 +2617,7 @@ let _kanbanDragging = false;
 const KANBAN_AGENDAMENTOS  = ['Novo','Em qualificação','Avaliação agendada','Compareceu'];
 const KANBAN_OFICIAL       = ['Novo','Em qualificação','Avaliação agendada','Compareceu'];
 const KANBAN_AVALIACAO     = ['Compareceu','Em negociação','Fechou','Perdido'];
-const COMERCIAL_STATUSES   = new Set(['Em negociação','Fechou','Perdido']);
+const COMERCIAL_STATUSES   = new Set(['Compareceu','Em negociação','Fechou','Perdido']);
 
 function _statusParaModo()  { return _chatMode === 'avaliacao' ? KANBAN_AVALIACAO : _chatMode === 'oficial' ? KANBAN_OFICIAL : KANBAN_AGENDAMENTOS; }
 function _filtrarParaModo(leads) {
@@ -6054,6 +6054,12 @@ async function loadCurrentUser() {
     const d = await api('/api/me');
     _currentUser = d;
     const roles = Array.isArray(d.roles) ? d.roles : [];
+    // Home padrão: CRC comercial pura cai no Meu Dia (só no landing inicial).
+    const _semParam = !new URLSearchParams(location.search).get('page') && !new URLSearchParams(location.search).get('abrir_lead');
+    if (_semParam && roles.includes('crc_comercial') && !roles.includes('admin') && !roles.includes('gestor')
+        && !location.pathname.startsWith('/meu-dia')) {
+      location.href = '/meu-dia/'; return;
+    }
     // Apply role-based nav visibility
     const _canSee = (rolesAttr) => roles.includes('admin') || rolesAttr.split(',').some(r => roles.includes(r));
     document.querySelectorAll('.nav-btn[data-roles],.nav-subitem[data-roles]').forEach(btn => {

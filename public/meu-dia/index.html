@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meu Dia -- CRM AMA</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root { --bg:#0f1115; --bg2:#171a21; --bg3:#1f2330; --border:#2a2f3d; --text:#e8eaf0; --muted:#8b93a7; --accent:#4f8ef7; --green:#22c55e; --red:#ef4444; --yellow:#f59e0b; }
+  [data-theme="light"] { --bg:#f5f6f8; --bg2:#fff; --bg3:#eef0f4; --border:#dde1e8; --text:#1a1d26; --muted:#6b7280; --accent:#2563eb; --green:#16a34a; --red:#dc2626; --yellow:#d97706; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+  main { padding:24px; max-width:1000px; min-width:0; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
+  .toolbar { margin-bottom:18px; }
+  .toolbar button { background:var(--bg2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  .toolbar button:hover { border-color:var(--accent); }
+  #erro { color:var(--red); font-size:13px; margin-bottom:14px; }
+  .secao { margin-bottom:22px; }
+  .secao h2 { font-size:14px; font-weight:600; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .secao h2 .count { background:var(--bg3); color:var(--muted); font-size:11.5px; font-weight:700; border-radius:999px; padding:1px 8px; min-width:22px; text-align:center; }
+  .bloco { display:flex; flex-direction:column; gap:8px; }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:11px 13px; font-size:13.5px; display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+  .card a { color:var(--text); font-weight:600; text-decoration:none; }
+  .card a:hover { color:var(--accent); text-decoration:underline; }
+  .card a[target="_blank"] { font-weight:400; text-decoration:none; }
+  .card button { margin-left:auto; background:var(--accent); border:none; color:#fff; border-radius:8px; padding:5px 14px; font-size:12.5px; cursor:pointer; }
+  .card button:disabled { opacity:.55; cursor:default; }
+  .vazio { color:var(--muted); font-size:13px; background:var(--bg2); border:1px dashed var(--border); border-radius:10px; padding:20px; text-align:center; }
+  @media (max-width:760px){
+    main { padding:12px; padding-bottom:80px; }
+  }
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="meu-dia"></script>
+<script src="/js/meu-dia/api.js"></script>
+<main>
+  <h1>📅 Meu Dia</h1>
+  <div class="sub">Seus atendimentos comerciais do dia — pegue leads sem dono, acompanhe comparecidos, negociações e follow-ups.</div>
+  <div class="toolbar"><button onclick="carregar()">Atualizar</button></div>
+  <div id="erro"></div>
+
+  <div class="secao">
+    <h2>Para pegar <span class="count" id="count-para-pegar">0</span></h2>
+    <div class="bloco" id="para-pegar"></div>
+  </div>
+
+  <div class="secao">
+    <h2>Meus comparecidos <span class="count" id="count-meus-comparecidos">0</span></h2>
+    <div class="bloco" id="meus-comparecidos"></div>
+  </div>
+
+  <div class="secao">
+    <h2>Minhas negociações <span class="count" id="count-minhas-negociacoes">0</span></h2>
+    <div class="bloco" id="minhas-negociacoes"></div>
+  </div>
+
+  <div class="secao">
+    <h2>Follow-ups <span class="count" id="count-followups">0</span></h2>
+    <div class="bloco" id="followups"></div>
+  </div>
+</main>
+
+<script>
+async function carregar() {
+  let d;
+  try { d = await request('GET', '/api/comercial/meu-dia'); }
+  catch (e) { document.getElementById('erro').textContent = 'Erro ao carregar: ' + e.message; return; }
+  document.getElementById('erro').textContent = '';
+  render('para-pegar', d.para_pegar, true);
+  render('meus-comparecidos', d.meus_comparecidos, false);
+  render('minhas-negociacoes', d.minhas_negociacoes, false);
+  render('followups', d.followups, false);
+}
+function _fone(t){ return (t||'').replace(/\D/g,''); }
+function render(elId, itens, comPegar) {
+  const el = document.getElementById(elId);
+  const cont = document.getElementById('count-' + elId);
+  itens = itens || [];
+  if (cont) cont.textContent = itens.length;
+  if (!itens.length) {
+    el.innerHTML = '<div class="vazio">' + (elId==='followups'
+      ? 'Nenhum follow-up marcado — use o 📅 no lead.' : 'Nada aqui por enquanto.') + '</div>';
+    return;
+  }
+  el.innerHTML = itens.map(l => {
+    const wa = _fone(l.telefone) ? '<a href="https://wa.me/55' + _fone(l.telefone) + '" target="_blank">💬</a>' : '';
+    const extra = l.etapa ? ' · ' + l.etapa : (l.proximo_contato ? ' · vence ' + new Date(l.proximo_contato).toLocaleDateString('pt-BR') : '');
+    const pegar = comPegar ? '<button onclick="pegar(' + l.id + ',this)">Pegar</button>' : '';
+    return '<div class="card"><a href="/?abrir_lead=' + l.id + '">' + (l.nome||'(sem nome)') + '</a>'
+      + extra + ' ' + wa + ' ' + pegar + '</div>';
+  }).join('');
+}
+async function pegar(id, btn) {
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const r = await request('POST', '/api/comercial/pegar/' + id);
+    if (r.ja_tem_dono) { alert('Outra CRC já pegou este lead.'); }
+    await carregar();
+  } catch (e) { btn.disabled = false; btn.textContent = 'Pegar'; alert('Erro: ' + e.message); }
+}
+carregar();
+</script>
+</body>
+</html>
