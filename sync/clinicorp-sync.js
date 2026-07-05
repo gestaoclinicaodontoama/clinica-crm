@@ -586,6 +586,7 @@ async function syncProducao() {
         amount,
         bill_type:              p.BillType || null,
         paciente_nome:          est.PatientName || null,
+        paciente_clinicorp_id:  String(est.PatientId || ''),
         atualizado_em:          new Date().toISOString(),
       });
     }
@@ -662,6 +663,7 @@ async function syncAgenda() {
       dentist_person_id:  a.Dentist_PersonId ? String(a.Dentist_PersonId) : null,
       dentist_name:       a.DentistName || a.ProfessionalName || null,
       patient_name:       a.PatientName || null,
+      paciente_clinicorp_id: String(a.Patient_PersonId || a.PatientId || ''),
       appointment_date:   apptDate,
       from_time:          fromTime,
       to_time:            toTime,
