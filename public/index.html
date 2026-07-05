@@ -461,6 +461,8 @@ textarea { resize: vertical; min-height: 80px; }
 .inad-res-titulo { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
 .inad-res-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 @media (max-width: 900px) { .inad-res-grid { grid-template-columns: 1fr; } }
+.inad-des-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { .inad-des-grid { grid-template-columns: 1fr; } }
 .inad-res-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .inad-res-card-tit { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
 .inad-res-sub { color: var(--muted); font-weight: 400; }
@@ -1267,6 +1269,22 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
       </div>
     </div>
     <div class="inad-res-nota">Meses recentes ainda estão em cobrança (taxa tende a subir). Histórico reconstruído dos pagamentos — renegociações antigas podem não aparecer.</div>
+  </div>
+
+  <div id="inad-desistencia" class="inad-resultado" style="display:none">
+    <div class="inad-res-titulo">Ponto de Desistência</div>
+    <div id="inad-des-resumo" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+    <div class="inad-des-grid">
+      <div class="inad-res-card">
+        <div class="inad-res-card-tit">Parou na parcela <span class="inad-res-sub">(do começo)</span></div>
+        <div id="inad-des-parou"></div>
+      </div>
+      <div class="inad-res-card">
+        <div class="inad-res-card-tit">Faltando pro fim <span class="inad-res-sub">(parcelas que restavam)</span></div>
+        <div id="inad-des-falta"></div>
+      </div>
+    </div>
+    <div class="inad-res-nota">Só planos parcelados que travaram (pagou, parou, e a próxima venceu). Tamanho do plano estimado pelas parcelas geradas; renegociações e planos com mais de 24 meses podem não aparecer completos.</div>
   </div>
 
   <div id="inad-error-bar" style="display:none;padding:12px 16px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;color:var(--red);font-size:13px;margin-bottom:14px"></div>
@@ -5482,13 +5500,44 @@ function _svgAging(aging) {
     `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:10px;color:var(--muted)">${legenda}</div>`;
 }
 
+// Histograma de barras verticais genérico (planos por bucket).
+function _svgDesistencia(dados, getLabel, cor) {
+  if (!dados || !dados.length) return '<div style="color:var(--muted);font-size:12px">Sem planos travados</div>';
+  const W = 300, H = 130, pad = 18, n = dados.length;
+  const esc = _svgEscala(dados.map(d => d.planos));
+  const slot = (W - pad * 2) / n, bw = Math.min(24, slot * 0.6);
+  let bars = '';
+  dados.forEach((d, i) => {
+    const x = pad + i * slot + slot / 2;
+    const h = esc(d.planos) * (H - 34);
+    bars += `<rect x="${(x - bw / 2).toFixed(1)}" y="${(H - 20 - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" fill="${cor}" opacity="0.9"/>`;
+    bars += `<text x="${x.toFixed(1)}" y="${(H - 20 - h - 3).toFixed(1)}" font-size="8" fill="var(--text)" text-anchor="middle">${d.planos}</text>`;
+    bars += `<text x="${x.toFixed(1)}" y="${H - 6}" font-size="8" fill="var(--muted)" text-anchor="middle">${getLabel(d)}</text>`;
+  });
+  return `<svg class="inad-res-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${bars}</svg>`;
+}
+
+function renderInadDesistencia(des) {
+  const box = document.getElementById('inad-desistencia');
+  if (!des || !des.totalTravados) { box.style.display = 'none'; return; }
+  const lblParou = d => d.parcela === 0 ? 'entrada' : d.parcela + 'ª';
+  const lblFalta = d => d.faltam >= 10 ? '10+' : String(d.faltam);
+  const moda = des.modaParouEm === 0 ? 'na entrada' : 'na ' + des.modaParouEm + 'ª parcela';
+  document.getElementById('inad-des-resumo').innerHTML =
+    `<span class="inad-res-manchete" style="color:var(--red)">${des.totalTravados}</span> planos travados · a maioria trava <b>${moda}</b>`;
+  document.getElementById('inad-des-parou').innerHTML = _svgDesistencia(des.parouEm, lblParou, 'var(--red)');
+  document.getElementById('inad-des-falta').innerHTML = _svgDesistencia(des.faltando, lblFalta, 'var(--yellow)');
+  box.style.display = 'block';
+}
+
 function renderInadResultado(resultado) {
   const box = document.getElementById('inad-resultado');
-  if (!resultado) { box.style.display = 'none'; return; }
+  if (!resultado) { box.style.display = 'none'; renderInadDesistencia(null); return; }
   document.getElementById('inad-res-recup').innerHTML   = _svgRecuperacao(resultado.recuperacao);
   document.getElementById('inad-res-vencido').innerHTML = _svgVencido(resultado.vencido);
   document.getElementById('inad-res-aging').innerHTML   = _svgAging(resultado.aging);
   box.style.display = 'block';
+  renderInadDesistencia(resultado.desistencia);
 }
 
 function _renderInadData(data) {
