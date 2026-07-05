@@ -634,6 +634,13 @@ async function syncAgenda() {
 
   const raw = await fetchRangeChunked('/appointment/list', AGENDA_DIAS);
 
+  // Consultas FUTURAS (~60d): sem isto agenda_appointments só tem passado, e a
+  // recuperação de falta não detecta remarcação nem trava o auto-Perdido.
+  const today    = new Date();
+  const future60 = new Date(today); future60.setDate(future60.getDate() + 60);
+  const futuras  = await api.get('/appointment/list', { from: dateStr(today), to: dateStr(future60) });
+  if (Array.isArray(futuras)) raw.push(...futuras);
+
   const rows = [];
   const seenIds = new Set();
   for (const a of raw) {
