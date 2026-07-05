@@ -4008,6 +4008,16 @@ async function _donoProvisorioRodizio() {
   return { dono, todos: lista };
 }
 
+// Read-only: lista de CRC de Leads sem avançar o índice do rodízio.
+// Usar no read-path (ex.: renotificação/lembrete); o avanço do índice
+// é exclusivo do momento em que um NOVO dono provisório é escolhido
+// (ver _donoProvisorioRodizio, usado só na atribuição de falta nova).
+async function _listaCrcLeads() {
+  const { data: cfg } = await supabase.from('app_config')
+    .select('recuperacao_falta_crc_leads').eq('id', 1).maybeSingle();
+  return Array.isArray(cfg?.recuperacao_falta_crc_leads) ? cfg.recuperacao_falta_crc_leads : [];
+}
+
 async function varrerFaltasAvaliacao() {
   const hoje = _hojeSP();
   // 1) NOVAS faltas
@@ -4078,7 +4088,7 @@ async function varrerFaltasAvaliacao() {
         continue;
       }
       // toque D+3 ou D+7: renotifica o dono (ou as 3 se sem dono)
-      const alvo = r.crc_responsavel_id ? [r.crc_responsavel_id] : (await _donoProvisorioRodizio()).todos;
+      const alvo = r.crc_responsavel_id ? [r.crc_responsavel_id] : (await _listaCrcLeads());
       for (const uid of alvo) {
         await criarNotificacao(uid, 'falta_recuperar_lembrete', 'Lembrete: recuperar falta',
           'D+' + marco + ' — ' + (r.patient_name || 'paciente') + ' ainda não voltou. Insista na remarcação.',
