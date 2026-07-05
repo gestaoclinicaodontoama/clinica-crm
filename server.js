@@ -3560,45 +3560,24 @@ async function processarInadimplentes(items, today) {
   const pacientes = _inad.agregarPorPaciente(items, today);
   const ids = pacientes.map(p => String(p.id));
 
-  // entregue por paciente (soma da produção realizada) — agregado no SQL (evita limite 1000).
+  // entregue por paciente (soma da produção realizada) + consultas futuras — agregado
+  // no SQL via RPC (evita somar no JS / limite 1000 do client e reduz egress).
   const entregueMap = new Map();
   const veioRecenteSet = new Set();
-  if (ids.length) {
-    const d90 = new Date(); d90.setDate(d90.getDate() - 90);
-    const d90str = d90.toISOString().slice(0, 10);
-    for (let i = 0; i < ids.length; i += 300) {
-      const chunk = ids.slice(i, i + 300);
-      const { data, error } = await supabase
-        .from('producao_procedimentos')
-        .select('paciente_clinicorp_id, amount, executed_date')
-        .in('paciente_clinicorp_id', chunk);
-      if (error) { console.error('[inad] entregue erro:', error.message); continue; }
-      for (const r of (data || [])) {
-        const id = String(r.paciente_clinicorp_id || '');
-        if (!id) continue;
-        entregueMap.set(id, (entregueMap.get(id) || 0) + (Number(r.amount) || 0));
-        if (r.executed_date && r.executed_date.slice(0, 10) >= d90str) veioRecenteSet.add(id);
-      }
-    }
-  }
-
-  // consultas futuras marcadas.
   const consultaFuturaSet = new Set();
-  if (ids.length) {
-    for (let i = 0; i < ids.length; i += 300) {
-      const chunk = ids.slice(i, i + 300);
-      const { data, error } = await supabase
-        .from('agenda_appointments')
-        .select('paciente_clinicorp_id, appointment_date, deleted')
-        .in('paciente_clinicorp_id', chunk)
-        .gte('appointment_date', today);
-      if (error) { console.error('[inad] agenda erro:', error.message); continue; }
-      for (const r of (data || [])) {
-        if (r.deleted) continue;
-        const id = String(r.paciente_clinicorp_id || '');
-        if (id) consultaFuturaSet.add(id);
-      }
+  for (let i = 0; i < ids.length; i += 300) {
+    const chunk = ids.slice(i, i + 300);
+    const { data: ent, error: e1 } = await supabase.rpc('inad_entregue_por_paciente', { p_ids: chunk, p_hoje: today });
+    if (e1) console.error('[inad] entregue rpc:', e1.message);
+    else for (const r of (ent || [])) {
+      const id = String(r.paciente_clinicorp_id || '');
+      if (!id) continue;
+      entregueMap.set(id, Number(r.total_entregue) || 0);
+      if (r.veio_recente) veioRecenteSet.add(id);
     }
+    const { data: cf, error: e2 } = await supabase.rpc('inad_consulta_futura_ids', { p_ids: chunk, p_hoje: today });
+    if (e2) console.error('[inad] consulta rpc:', e2.message);
+    else for (const r of (cf || [])) { const id = String(r.paciente_clinicorp_id || ''); if (id) consultaFuturaSet.add(id); }
   }
 
   return _inad.classificarESepararGrupos(pacientes, { entregueMap, consultaFuturaSet, veioRecenteSet });
