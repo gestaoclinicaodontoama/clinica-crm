@@ -75,6 +75,7 @@ async function carregar() {
   render('followups', d.followups, false);
 }
 function _fone(t){ return (t||'').replace(/\D/g,''); }
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function render(elId, itens, comPegar) {
   const el = document.getElementById(elId);
   const cont = document.getElementById('count-' + elId);
@@ -87,9 +88,9 @@ function render(elId, itens, comPegar) {
   }
   el.innerHTML = itens.map(l => {
     const wa = _fone(l.telefone) ? '<a href="https://wa.me/55' + _fone(l.telefone) + '" target="_blank">💬</a>' : '';
-    const extra = l.etapa ? ' · ' + l.etapa : (l.proximo_contato ? ' · vence ' + new Date(l.proximo_contato).toLocaleDateString('pt-BR') : '');
+    const extra = l.etapa ? ' · ' + escHtml(l.etapa) : (l.proximo_contato ? ' · vence ' + new Date(l.proximo_contato).toLocaleDateString('pt-BR') : '');
     const pegar = comPegar ? '<button onclick="pegar(' + l.id + ',this)">Pegar</button>' : '';
-    return '<div class="card"><a href="/?abrir_lead=' + l.id + '">' + (l.nome||'(sem nome)') + '</a>'
+    return '<div class="card"><a href="/?abrir_lead=' + l.id + '">' + escHtml(l.nome||'(sem nome)') + '</a>'
       + extra + ' ' + wa + ' ' + pegar + '</div>';
   }).join('');
 }
