@@ -3703,6 +3703,7 @@ async function fetchInadimplentesBackground() {
       recuperacao: _recuperacao.recuperacaoPorMes(allItems, today, 12),
       vencido:     _recuperacao.vencidoRetroativo(allItems, today, 24),
       aging:       _analiseParcelas.agingVencido(allItems, today),
+      desistencia: _recuperacao.pontoDesistencia(allItems, today),
     };
     await supabase.from('inadimplentes_cache').upsert({
       id: 1, data: processado, atualizado_em: Date.now(),
