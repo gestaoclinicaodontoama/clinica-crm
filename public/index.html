@@ -6068,6 +6068,12 @@ async function loadCurrentUser() {
       const first = document.querySelector('.nav-btn[data-page]:not([style*="none"])');
       if (first) setPage(first.dataset.page, first);
     }
+    // Página inicial do gestor/admin = Painel do Gestor (só se ainda está na tela padrão)
+    const pgBtn = document.querySelector('.nav-btn[data-page="painel-gestor"]');
+    if (pgBtn && (roles.includes('gestor') || roles.includes('admin'))
+        && (document.querySelector('.page.active') || {}).id === 'page-dashboard') {
+      setPage('painel-gestor', pgBtn);
+    }
     // Update nav label with user name
     const logo = document.querySelector('nav .logo');
     if (logo && d.nome) logo.title = d.nome + ' (' + roles.join(', ') + ')';
