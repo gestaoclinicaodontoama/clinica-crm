@@ -30,6 +30,7 @@ const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/finance
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
 const { agruparParcelasPorMes } = require('./lib/financeiro/fluxo-futuro');
 const _analiseParcelas = require('./lib/financeiro/analise-parcelas');
+const _inad = require('./lib/financeiro/inadimplencia');
 const { montarFatos: _dreMontarFatos, contasDetalhadas: _dreContasDetalhadas } = require('./lib/financeiro/avaliacao');
 // Janela do mês anterior + mês corrente em America/Sao_Paulo. "Só mês corrente" deixava
 // buracos: o sync das 02h do dia 30 não cobre o dia 30 inteiro, e a partir do dia 1º a
@@ -3555,62 +3556,52 @@ app.get('/api/pacientes/clinicorp/:termo', requireAuth, rateLimit, async (req, r
   }
 });
 
-function processarInadimplentes(items, today) {
-  const todayDate = new Date(today);
-  const patMap = {};
-  items.forEach(i => {
-    const patId = String(i.PatientId || i.patientId || i.Patient_PersonId || '').trim();
-    if (!patId) return;
-    const isPaid = i.PaymentReceived === 'X' ||
-      (i.ReceivedDate && i.ReceivedDate !== '' && i.ReceivedDate !== '0001-01-01');
-    if (isPaid) return;
-    const dueDate = i.DueDate || i.due_date || i.PostDate || i.ScheduledDate || '';
-    if (!dueDate) return;
-    const amount = Number(i.Amount || i.TotalPostAmount || i.AmountWithDiscounts || 0);
-    const isOverdue = dueDate < today;
-    const isFuture  = dueDate >= today;
-    if (!patMap[patId]) {
-      patMap[patId] = {
-        id: patId,
-        name: (i.PatientName || i.patientName || i.Patient_PersonName || 'Paciente ' + patId).replace(/\s*\(\d+\)\s*$/, ''),
-        phone: String(i.Phone || i.MobilePhone || i.phone || i.PayerPhone || ''),
-        overdueAmount: 0, futureAmount: 0, overdueCount: 0,
-        oldestDueDate: null, nextDueDate: null, treatmentValue: 0, paidValue: 0,
-      };
+async function processarInadimplentes(items, today) {
+  const pacientes = _inad.agregarPorPaciente(items, today);
+  const ids = pacientes.map(p => String(p.id));
+
+  // entregue por paciente (soma da produção realizada) — agregado no SQL (evita limite 1000).
+  const entregueMap = new Map();
+  const veioRecenteSet = new Set();
+  if (ids.length) {
+    const d90 = new Date(); d90.setDate(d90.getDate() - 90);
+    const d90str = d90.toISOString().slice(0, 10);
+    for (let i = 0; i < ids.length; i += 300) {
+      const chunk = ids.slice(i, i + 300);
+      const { data, error } = await supabase
+        .from('producao_procedimentos')
+        .select('paciente_clinicorp_id, amount, executed_date')
+        .in('paciente_clinicorp_id', chunk);
+      if (error) { console.error('[inad] entregue erro:', error.message); continue; }
+      for (const r of (data || [])) {
+        const id = String(r.paciente_clinicorp_id || '');
+        if (!id) continue;
+        entregueMap.set(id, (entregueMap.get(id) || 0) + (Number(r.amount) || 0));
+        if (r.executed_date && r.executed_date.slice(0, 10) >= d90str) veioRecenteSet.add(id);
+      }
     }
-    const p = patMap[patId];
-    if (isOverdue) {
-      p.overdueAmount += amount; p.overdueCount++;
-      if (!p.oldestDueDate || dueDate < p.oldestDueDate) p.oldestDueDate = dueDate;
-    } else if (isFuture) {
-      p.futureAmount += amount;
-      if (!p.nextDueDate || dueDate < p.nextDueDate) p.nextDueDate = dueDate;
+  }
+
+  // consultas futuras marcadas.
+  const consultaFuturaSet = new Set();
+  if (ids.length) {
+    for (let i = 0; i < ids.length; i += 300) {
+      const chunk = ids.slice(i, i + 300);
+      const { data, error } = await supabase
+        .from('agenda_appointments')
+        .select('paciente_clinicorp_id, appointment_date, deleted')
+        .in('paciente_clinicorp_id', chunk)
+        .gte('appointment_date', today);
+      if (error) { console.error('[inad] agenda erro:', error.message); continue; }
+      for (const r of (data || [])) {
+        if (r.deleted) continue;
+        const id = String(r.paciente_clinicorp_id || '');
+        if (id) consultaFuturaSet.add(id);
+      }
     }
-    const tv = Number(i.TotalPostAmount || i.TreatmentValue || 0);
-    if (tv) p.treatmentValue = Math.max(p.treatmentValue, tv);
-    const pv = Number(i.AmountWithDiscounts || i.PaidValue || 0);
-    if (pv) p.paidValue = Math.max(p.paidValue, pv);
-  });
-  const patients = Object.values(patMap).filter(p => p.overdueCount > 0);
-  patients.forEach(p => {
-    p.diasDeAtraso    = p.oldestDueDate ? Math.floor((todayDate - new Date(p.oldestDueDate)) / 86400000) : 0;
-    p.diasParaProximo = p.nextDueDate   ? Math.floor((new Date(p.nextDueDate) - todayDate) / 86400000) : null;
-    p.grupo = (p.futureAmount <= 0) ? 3 : (p.overdueCount === 1) ? 1 : 2;
-  });
-  const byOverdue = (a, b) => b.overdueAmount - a.overdueAmount;
-  const grupo1 = patients.filter(p => p.grupo === 1).sort(byOverdue);
-  const grupo2 = patients.filter(p => p.grupo === 2).sort(byOverdue);
-  const grupo3 = patients.filter(p => p.grupo === 3).sort(byOverdue);
-  return {
-    grupo1, grupo2, grupo3,
-    totais: {
-      pacientes:    patients.length,
-      valorTotal:   patients.reduce((s, p) => s + p.overdueAmount, 0),
-      emCobranca:   grupo1.length,
-      renegociacao: grupo2.length,
-      criticos:     grupo3.length,
-    },
-  };
+  }
+
+  return _inad.classificarESepararGrupos(pacientes, { entregueMap, consultaFuturaSet, veioRecenteSet });
 }
 
 async function mergeInadimplentesNotas(resultado) {
@@ -3650,7 +3641,7 @@ async function fetchInadimplentesBackground() {
       } catch(e) { console.log(`[Inadimplentes] chunk ${from} erro: ${e.message}`); }
       await sleep(400);
     }
-    const processado = processarInadimplentes(allItems, today);
+    const processado = await processarInadimplentes(allItems, today);
     await supabase.from('inadimplentes_cache').upsert({
       id: 1, data: processado, atualizado_em: Date.now(),
       endpoint: '/payment/list?postDate (24mo chunks)',
