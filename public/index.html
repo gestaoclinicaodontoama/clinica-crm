@@ -5273,7 +5273,9 @@ function inadExposicaoBadge(p) {
   const vermelho = p.exposicao === 'vermelho';
   const cls = vermelho ? 'inad-dias-crit' : 'inad-dias-ok';
   const titulo = `Pago ${_inadFmt(pago)} · Entregue ${_inadFmt(entregue)}`;
-  return `<span class="${cls}" title="${titulo}">${vermelho ? '▲' : '✓'} ${_inadFmt(entregue - pago)}</span>`;
+  // Exposto (vermelho): mostra o quanto entregamos além do pago. Em dia (verde): só o ✓
+  // — evita exibir delta negativo ("✓ -R$X"), o estado padrão antes do backfill.
+  return `<span class="${cls}" title="${titulo}">${vermelho ? '▲ ' + _inadFmt(entregue - pago) : '✓'}</span>`;
 }
 function inadEngajamentoBadge(p) {
   const map = {
