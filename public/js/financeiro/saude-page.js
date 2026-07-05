@@ -81,7 +81,107 @@
     renderTendencia(d, c);
     renderProjecao(d);
     renderAnalises(d, receber, c);
+    renderDiagnostico(d, receber, pagar, dif);
   }
+
+  // ── Diagnóstico da saúde financeira (semáforo + entenda por seção) ───────────
+  const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const EXPLICACOES = {
+    vencido: { oque: 'Parcelas de pacientes que já venceram e ainda não foram pagas.',
+      bom: 'Abaixo de 5% da carteira — inadimplência normal de clínica.',
+      ruim: 'Acima de 10%, ou quando a maior parte já está parada há mais de 6 meses (aí quase não se recupera).',
+      melhorar: 'Cobrar nos primeiros 30 dias (é quando se recupera), 2ª via por WhatsApp, e renegociar o antigo antes que vire perda.' },
+    diferenca: { oque: 'O que você tem a receber menos o que tem a pagar nos próximos meses — só do que já está contratado e lançado.',
+      bom: 'Positiva: os contratos já fechados cobrem as contas do período.',
+      ruim: 'Muito negativa. Mas cuidado: ela NÃO conta as vendas novas que ainda vão entrar (veja a projeção) — serve mais de alerta do que de sentença.',
+      melhorar: 'Puxar vendas novas e, nos meses apertados, adiantar recebíveis ou escalonar pagamentos.' },
+    taxaPerda: { oque: 'A fatia das parcelas vencidas que, historicamente, nunca foi recebida.',
+      bom: 'Abaixo de 5% — a grande maioria acaba entrando, mesmo com atraso.',
+      ruim: 'Acima de 10% — muito dinheiro virando perda definitiva.',
+      melhorar: 'Agir cedo na cobrança; quase todo calote vem de parcela que passou dos 180 dias sem tratamento.' },
+    agingAntigo: { oque: 'Quanto do valor vencido já está parado há mais de 6 meses.',
+      bom: 'Abaixo de 25% — o vencido é recente e ainda dá pra recuperar.',
+      ruim: 'Acima de 50% — a maior parte é antiga e dificilmente entra.',
+      melhorar: 'Priorizar a cobrança do que está entre 30 e 90 dias antes que envelheça; renegociar o de 180+.' },
+    concentracao: { oque: 'Quanto da sua carteira depende de um único pagador.',
+      bom: 'Abaixo de 10% — a receita está bem distribuída entre muitos pacientes.',
+      ruim: 'Acima de 20% — se esse pagador atrasar, mexe demais no caixa.',
+      melhorar: 'Diversificar a base; não deixar poucos contratos grandes responderem por muito da carteira.' },
+    renovacao: { oque: 'Compara o que entra de contrato novo com o que sai recebido a cada mês.',
+      bom: 'Entra mais do que sai — a carteira se repõe e cresce.',
+      ruim: 'Entra menos do que sai — a carteira está encolhendo e o caixa futuro cai.',
+      melhorar: 'Manter o ritmo de fechamento de novos tratamentos acima do que é recebido.' },
+    tendencia: { oque: 'Como o tamanho da carteira a receber vem mudando nos últimos meses.',
+      bom: 'Crescendo — mais tratamentos fechados do que recebidos/encerrados.',
+      ruim: 'Encolhendo — sinal de que as vendas não estão repondo o que é recebido.',
+      melhorar: 'Reforçar comercial e reativação de pacientes para sustentar o crescimento.' },
+    crescimento: { oque: 'O ritmo de crescimento do seu caixa, medido no histórico e projetado pra frente.',
+      bom: 'Acima de +5% ao ano — o negócio está crescendo de forma consistente.',
+      ruim: 'Negativo — o caixa vem encolhendo ano a ano.',
+      melhorar: 'Sustentar as vendas e a eficiência de custo que vêm puxando o crescimento.' },
+  };
+
+  function tendenciaPct3m(retro) {
+    if (!retro || retro.length < 4) return null;
+    const a = retro[retro.length - 4].receber, b = retro[retro.length - 1].receber;
+    return a ? (b - a) / a : null;
+  }
+
+  function linhaDiag(chave, s) {
+    const e = EXPLICACOES[chave] || {};
+    const id = 'ent-' + chave;
+    const item = (rot, txt) => txt ? `<span class="e-l"><b>${rot}:</b> ${escHtml(txt)}</span>` : '';
+    return `<div class="diag-linha"><span class="dot ${s.nivel}"></span>` +
+      `<span class="diag-frase"><b class="${s.nivel}">${escHtml(s.titulo)}:</b> ${escHtml(s.frase)}</span>` +
+      `<button class="entenda" data-alvo="${id}">▸ entenda</button></div>` +
+      `<div class="entenda-box" id="${id}">${item('O que é', e.oque)}${item('Quando é bom', e.bom)}` +
+      `${item('Quando é ruim', e.ruim)}${item('Como melhorar', e.melhorar)}</div>`;
+  }
+
+  function renderDiagnostico(d, receber, pagar, dif) {
+    if (!window.DiagnosticoSaude) return;
+    const a = d.analises || {};
+    const r = window.DiagnosticoSaude.diagnosticoSaude({
+      aReceber: receber,
+      diferenca: pagar > 0 ? dif : null,
+      vencido: d.vencido,
+      taxaPerda: a.perda?.taxa ?? null,
+      agingFaixas: a.aging?.faixas || null,
+      maiorPagador: a.top?.[0]?.valor ?? null,
+      renovacao: (a.renovacao || []).filter(x => x.mes !== ymAtual),
+      tendenciaPct: tendenciaPct3m(a.retroativo),
+      crescimentoCaixa: (projDados && !projDados.erro) ? projDados.gCaixa : null,
+    });
+
+    const rr = r.resumo;
+    $('diag-panel').style.display = '';
+    $('diag-contagem').innerHTML =
+      `<span class="dot vermelho"></span> ${rr.vermelhos} ${rr.vermelhos === 1 ? 'ponto crítico' : 'pontos críticos'} · ` +
+      `<span class="dot amarelo"></span> ${rr.amarelos} de atenção · ` +
+      `<span class="dot verde"></span> ${rr.verdes} ${rr.verdes === 1 ? 'saudável' : 'saudáveis'}`;
+    $('diag-prioridades').innerHTML = rr.prioridades.length
+      ? rr.prioridades.map(p => `<div class="diag-prio"><span class="dot ${p.nivel}"></span>` +
+          `<div><b>${escHtml(p.titulo)}</b> — <span class="acao">${escHtml(p.acao)}</span></div></div>`).join('')
+      : '<div class="diag-tudo-bem">✅ Nenhum ponto crítico — está tudo saudável.</div>';
+
+    const kpis = (r.secoes.vencido ? linhaDiag('vencido', r.secoes.vencido) : '')
+      + (r.secoes.diferenca ? linhaDiag('diferenca', r.secoes.diferenca) : '');
+    $('diag-kpis').innerHTML = kpis;
+    for (const chave of ['taxaPerda', 'agingAntigo', 'concentracao', 'renovacao', 'tendencia', 'crescimento']) {
+      const el = $('diag-' + chave);
+      if (el) el.innerHTML = r.secoes[chave] ? linhaDiag(chave, r.secoes[chave]) : '';
+    }
+  }
+
+  // toggle dos "entenda" (delegação — os blocos são recriados a cada render)
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.entenda');
+    if (!btn) return;
+    const box = document.getElementById(btn.dataset.alvo);
+    if (box) { const aberto = box.classList.toggle('aberto'); btn.textContent = (aberto ? '▾ ' : '▸ ') + 'entenda'; }
+  });
 
   // Projeção de crescimento: histórico (últimos 12m) + 24m projetados, 3 cenários.
   function renderProjecao(d) {

@@ -68,6 +68,26 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
 .proj-card .l { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; }
 .proj-card .v { font-size: 19px; font-weight: 700; margin: 4px 0 2px; }
 .proj-card .r { font-size: 12px; color: var(--muted); }
+/* Diagnóstico */
+.diag-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.diag-panel h2 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.diag-contagem { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+.diag-prio { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.diag-prio .dot { flex: none; margin-top: 2px; }
+.diag-prio b { font-weight: 600; }
+.diag-prio .acao { color: var(--muted); }
+.diag-tudo-bem { font-size: 13px; color: var(--green); font-weight: 600; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.dot.verde { background: var(--green); } .dot.amarelo { background: var(--yellow); } .dot.vermelho { background: var(--red); }
+/* semáforo + entenda em cada seção */
+.diag-linha { display: flex; gap: 8px; align-items: baseline; font-size: 13px; margin: 8px 0 2px; }
+.diag-linha .dot { align-self: center; }
+.diag-frase { flex: 1; }
+.diag-frase b.verde { color: var(--green); } .diag-frase b.amarelo { color: var(--yellow); } .diag-frase b.vermelho { color: var(--red); }
+.entenda { border: none; background: none; color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; }
+.entenda-box { display: none; background: var(--bg3); border-radius: 8px; padding: 10px 12px; margin: 6px 0 2px; font-size: 12.5px; line-height: 1.5; }
+.entenda-box.aberto { display: block; }
+.entenda-box .e-l { display: block; margin: 2px 0; } .entenda-box .e-l b { color: var(--text); }
 @media (max-width: 700px) { .fin-wrap { padding: 12px; } .chart-wrap { height: 240px; } }
 </style>
 </head>
@@ -80,12 +100,19 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
   </div>
   <div class="fin-sub" id="atualizado"></div>
 
+  <div class="diag-panel" id="diag-panel" style="display:none">
+    <h2>🩺 Diagnóstico da saúde financeira</h2>
+    <div class="diag-contagem" id="diag-contagem"></div>
+    <div id="diag-prioridades"></div>
+  </div>
+
   <div class="kpis">
     <div class="kpi"><div class="kpi-label">A receber (24m)</div><div class="kpi-valor" id="kpi-receber">—</div><div class="kpi-sub">parcelas de pacientes a vencer</div></div>
     <div class="kpi"><div class="kpi-label">A pagar</div><div class="kpi-valor" id="kpi-pagar">—</div><div class="kpi-sub" id="kpi-pagar-sub">contas lançadas no Clinicorp</div></div>
     <div class="kpi"><div class="kpi-label">Diferença</div><div class="kpi-valor" id="kpi-diferenca">—</div><div class="kpi-sub" id="kpi-dif-sub">receber − pagar</div></div>
     <div class="kpi"><div class="kpi-label">Vencido a receber</div><div class="kpi-valor" id="kpi-vencido">—</div><div class="kpi-sub"><a href="/?page=inadimplentes">ver Inadimplentes →</a></div></div>
   </div>
+  <div id="diag-kpis"></div>
 
   <div class="nota">⚠️ <b>A receber</b> = parcelas de pacientes por mês de vencimento (24 meses;
   convênio pendente e entradas avulsas não entram). <b>A pagar</b> = contas lançadas e
@@ -107,6 +134,7 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
     <h2>📈 Tendência da carteira</h2>
     <div class="chart-wrap"><canvas id="grafico-tendencia"></canvas></div>
     <div class="fin-sub" id="tendencia-resumo"></div>
+    <div id="diag-tendencia"></div>
   </div>
 
   <div class="card" id="sec-projecao" style="display:none">
@@ -121,30 +149,36 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
     <div class="proj-cards" id="proj-cards"></div>
     <div class="chart-wrap"><canvas id="grafico-projecao"></canvas></div>
     <div class="fin-sub" id="projecao-resumo"></div>
+    <div id="diag-crescimento"></div>
   </div>
 
   <div class="grid-analises" id="sec-analises" style="display:none">
     <div class="card">
       <h2>🧮 Expectativa de recebimento</h2>
       <div id="expectativa"></div>
+      <div id="diag-taxaPerda"></div>
     </div>
     <div class="card">
       <h2>⏳ Vencido por idade</h2>
       <table id="aging-tabela"></table>
+      <div id="diag-agingAntigo"></div>
     </div>
     <div class="card">
       <h2>👥 Maiores carteiras (pagador)</h2>
       <table id="top-tabela"></table>
+      <div id="diag-concentracao"></div>
     </div>
     <div class="card">
       <h2>🔄 Renovação da carteira (12m)</h2>
       <div class="chart-wrap"><canvas id="grafico-renovacao"></canvas></div>
+      <div id="diag-renovacao"></div>
     </div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
 <script src="/js/financeiro/api.js"></script>
 <script src="/js/financeiro/projecao-crescimento.js"></script>
+<script src="/js/financeiro/diagnostico-saude.js"></script>
 <script src="/js/financeiro/saude-page.js"></script>
 </body>
 </html>
