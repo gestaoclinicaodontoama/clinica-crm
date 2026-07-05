@@ -28,6 +28,10 @@ Colunas: `id` bigserial; `clinicorp_appt_id text unique not null`; `patient_name
 
 RLS: habilitada, política de leitura para papéis internos (padrão do projeto). Nunca exposta a anon.
 
+### 0. Pré-requisito — sincronizar consultas FUTURAS (correção de base)
+
+⚠️ Medido em produção: `agenda_appointments` hoje **só guarda passado até ~hoje** (0 consultas futuras; o poll de comparecimento puxa "30 dias atrás → amanhã", server.js ~3900). Sem consultas futuras, DUAS coisas do desenho quebram: não dá pra detectar remarcação ("tem consulta futura") e a trava do auto-Perdido ("sem consulta futura") daria **sempre verdadeiro → auto-perderia quem remarcou**. Correção obrigatória desta feature: o sync diário passa a puxar também uma **janela pra frente (~60 dias)** e faz upsert em `agenda_appointments` (a tabela já tem `appointment_date`/`deleted`/`checkin_time`). Assim consultas futuras (remarcações) ficam visíveis. Idempotente por `clinicorp_appt_id`.
+
 ### 2. Detecção (motor diário)
 
 Função `varrerFaltasAvaliacao()`, hospedada num `setInterval` **próprio e dedicado** (padrão dos outros crons do server; intervalo de ~3h — os dados de `agenda_appointments` só atualizam no sync 02h, então frequência baixa basta). Passo:
@@ -46,16 +50,16 @@ Janela de segurança: só cria faltas com `appointment_date >= hoje-30` (evita g
 - **D+0 (na detecção):**
   - Etiqueta **"Faltou"** no lead reencontrado (array `etiquetas` via read-modify-write ou RPC; idempotente, não duplica).
   - Cria **1 tarefa** em `tasks`: `titulo` "Recuperar falta — {paciente}", `descricao` com telefone/categoria/dentista/data da falta, `lead_id`, `categoria`='recuperacao_falta', `prazo` = hoje+1 dia, `prioridade` alta.
-  - **Atribuição:** `crc_responsavel_id` identificada → `assignee_id` = ela. Categoria CRC Pós → Cristiane (id configurável em `app_config`). Desconhecida → tarefa fica **sem dono** (`assignee_id` null, visível ao time) + `criarNotificacao` para as **três CRC de Leads** (ids configuráveis) tipo `falta_sem_responsavel`, corpo "Falta sem responsável identificada — {paciente}, {categoria}. Alguém assume." Guarda `task_id` na linha de controle.
+  - **Atribuição:** `crc_responsavel_id` identificada → `assignee_id` = ela. Categoria CRC Pós → Cristiane (id configurável em `app_config`). Desconhecida (79%) → **`tasks.assignee_id` é NOT NULL**, então a tarefa recebe um **dono provisório por rodízio** entre as três CRC de Leads (índice do rodízio guardado em `app_config`, distribui a carga) **E** dispara `criarNotificacao` para **as três** tipo `falta_sem_responsavel`, corpo "Falta sem responsável identificada — {paciente}, {categoria}. Atribuída provisoriamente a {dono}; remaneje se for de outra." A CRC certa remaneja pela Central de Tarefas (fluxo de reatribuição já existe). Guarda `task_id` na linha de controle. (Não usar `assignee_id` null: o schema não permite.)
 - **D+3 e D+7 (se ainda `aberta` e tarefa `pendente`):** renotifica (não cria tarefa nova — evita spam) a responsável, ou as três se sem dono. Incrementa `toques_enviados`, atualiza `ultimo_toque_em`.
-- **~D+10 (se ainda `aberta`):** **auto-Perdido** — só se TODAS: lead foi achado **E** `lead.status` em fase pré-fechamento (não `Fechou`/`Perdido`) **E** paciente sem consulta futura marcada **E** a tarefa de recuperação **não foi concluída pela CRC**. Faz `update leads {status:'Perdido', motivo_perda:'Faltou e não retornou'}` + `logEvento('status_mudou')` + fecha a tarefa. Marca linha `perdida`. **Se a CRC já concluiu a tarefa** (trabalhou a falta e o paciente ainda não voltou) → o sistema **respeita a decisão dela**: marca linha `encerrada`, NÃO auto-perde. Se o lead não foi achado (23%) → também marca `encerrada` (encerra a cadência sem mexer no funil).
+- **~D+10 (se ainda `aberta`):** **auto-Perdido** — só se TODAS: lead foi achado **E** `lead.status` em fase pré-fechamento (não `Fechou`/`Perdido`) **E** paciente sem consulta futura marcada (confiável só com o sync da seção 0) **E** a tarefa de recuperação **não foi concluída pela CRC**. Faz `update leads {status:'Perdido', motivo_perda:'Faltou e não retornou'}` + `logEvento('status_mudou')` + fecha a tarefa. Marca linha `perdida`. **Se a CRC já concluiu a tarefa** (trabalhou a falta e o paciente ainda não voltou) → o sistema **respeita a decisão dela**: marca linha `encerrada`, NÃO auto-perde. Se o lead não foi achado (23%) → também marca `encerrada` (encerra a cadência sem mexer no funil).
 
 Timezone: idades calculadas em America/São_Paulo (padrão dos outros crons).
 
 ### 4. Definição de "recuperado"
 
 Linha `aberta` vira `recuperada` (para a cadência, fecha tarefa) se qualquer um:
-- Paciente (por nome no `agenda_appointments`) tem consulta **posterior à falta** com check-in **ou** consulta **futura** marcada (remarcou).
+- Paciente (por nome no `agenda_appointments`) tem consulta **posterior à falta** com check-in (voltou e foi atendido) **ou** consulta **futura** marcada (remarcou) — este último só é confiável após o pré-requisito da seção 0 (sync das futuras).
 - Lead reencontrado avançou para `Compareceu`, `Em negociação` ou `Fechou`.
 
 ### 5. Notificações
@@ -64,7 +68,7 @@ Reusa `criarNotificacao(usuarioId, tipo, titulo, corpo, metadata)`. Tipos novos:
 
 ### 6. Config (`app_config`)
 
-`recuperacao_falta_crc_leads jsonb` (ids das três CRC de Leads a notificar quando sem dono) e `recuperacao_falta_crc_pos uuid` (Cristiane). Semear na migração por `nome ILIKE`. Editável sem deploy.
+`recuperacao_falta_crc_leads jsonb` (ids das três CRC de Leads — usado para notificar E para o rodízio de dono provisório), `recuperacao_falta_crc_pos uuid` (Cristiane) e `recuperacao_falta_rodizio_idx int` (índice do rodízio do dono provisório). Semear na migração por `nome ILIKE`. Editável sem deploy.
 
 ## Erros e bordas
 
