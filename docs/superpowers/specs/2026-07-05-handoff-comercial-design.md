@@ -48,17 +48,17 @@ Helper `assumirComercialSeSemDono(lead, userId)` (espelho de `assumirConversaSeS
 
 Chamado em (todos exigem `req.user` = a CRC logada):
 - **Botão "Pegar"** (Meu Dia): endpoint `POST /api/comercial/pegar/:leadId` → `assumirComercialSeSemDono` + retorna ok. Requer role `crc_comercial`.
-- **Drag no kanban comercial**: no `patchLead`, quando quem edita tem role `crc_comercial` e o lead está/entra em contexto comercial (Compareceu/Em negociação/D0–D5) e `crc_comercial_id` vazio → assume. (Estender o PATCH server-side; o kanban-comercial já faz o PATCH no drop, `public/kanban-comercial/index.html:399`.)
+- **Drag no kanban comercial**: no `patchLead`, quando quem edita tem role `crc_comercial` (via `req.user.profile.roles` — confirmado disponível: `patchLead` já usa `req.user?.id`/`req.user?.profile?.nome` em `server.js:754`) e o status alvo é comercial (`Compareceu`/`Em negociação`) e `crc_comercial_id` vazio → assume. (Estender o `patchLead` server-side; o kanban-comercial já faz o PATCH no drop, `public/kanban-comercial/index.html:399`.)
 - **WhatsApp comercial**: o mini-kanban já auto-seta em Em negociação/Fechou/Perdido (`public/index.html:2884`); estender o mesmo `COMERCIAL_STATUSES` client-side para incluir `Compareceu` (1 linha), mantendo o guard `!lead.crc_comercial_id`.
 
 ### 4. Tela "Meu Dia" (`/meu-dia/`)
 
 Página separada (padrão kanban-comercial): `public/meu-dia/index.html` + `public/js/meu-dia/api.js`. Item novo em `CRM_NAV` na seção "CRC Comercial" (`roles: 'admin,gestor,crc_comercial'`). Endpoint único `GET /api/comercial/meu-dia` (`requireRole('crc_comercial','gestor','admin')`), filtrado por `req.user.id`, retornando 4 blocos numa RPC/consulta server-side (resultados pequenos):
 
-- **📥 Para pegar** — `status='Compareceu'` AND `crc_comercial_id is null` AND `data_comparecimento >= hoje-30`, ordenado `data_comparecimento` desc. Cada item com botão **Pegar**. (Pool compartilhado; ~60 no arranque, some conforme pegos.)
+- **📥 Para pegar** — `status='Compareceu'` AND `crc_comercial_id is null` AND `data_comparecimento >= hoje-30`, ordenado `data_comparecimento` desc. Cada item com botão **Pegar**. (Pool compartilhado; **34 no arranque** medido em prod — o backlog de 1.412 fica de fora pelo filtro de 30 dias.)
 - **🤝 Meus comparecidos** — `status='Compareceu'` AND `crc_comercial_id = eu` (peguei, ainda não movi p/ negociação).
 - **💬 Minhas negociações** — `status='Em negociação'` AND `crc_comercial_id = eu`, mostrando `etapa_negociacao` (D0–D5).
-- **⏰ Follow-ups vencendo** — meus leads (`crc_comercial_id = eu`) com `proximo_contato <= hoje` (vira lista real; hoje só existe cosmético no chat).
+- **⏰ Follow-ups vencendo** — meus leads (`crc_comercial_id = eu`) com `proximo_contato <= hoje` (vira lista real; hoje só existe cosmético no chat). ⚠️ Medido: hoje **0 leads** têm `proximo_contato` preenchido (o campo é pouco usado — ver item 1 da análise). Logo o bloco **nasce vazio** e enche conforme as CRC marcarem follow-up; é esperado, não é bug. Estado vazio amigável ("nenhum follow-up marcado — use o 📅 no lead").
 
 Cada card: nome, telefone (link WhatsApp), status/etapa, data relevante, `proximo_contato`; clicar → abre o lead (perfil/conversa via `?abrir_lead=`). **Gestor/admin (v1):** vê o agregado das duas CRC comerciais (blocos "Meus comparecidos"/"Minhas negociações"/"Follow-ups" = de ambas; "Para pegar" = os sem dono). Sem seletor de CRC no v1 (fica pro item de métricas por CRC, futuro).
 
