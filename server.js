@@ -8033,7 +8033,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   const menosMeses = (n) => { const [y, m] = hoje.slice(0, 7).split('-').map(Number);
     return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
   try {
-    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR] = await Promise.all([
+    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR, agHR] = await Promise.all([
       supabase.rpc('fin_totais_periodo', { p_from: from, p_to: to }),
       supabase.rpc('fin_totais_periodo', { p_from: anoAntes(from), p_to: anoAntes(to) }),
       supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(6), p_to: hoje }),
@@ -8047,6 +8047,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       supabase.from('leads').select('*', { count: 'exact', head: true }).gte('criado_em', from).lte('criado_em', to + 'T23:59:59'),
       supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).gte('data', from).lte('data', to),
       supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).eq('compareceu', true).gte('data', from).lte('data', to),
+      supabase.rpc('agenda_horas_periodo', { p_from: from, p_to: to }),
     ]);
     // Faturamento (REVENUE do período) + crescimento vs o mesmo período do ano anterior
     const tot = (totR.data || [])[0] || {}, totLY = (totLYR.data || [])[0] || {};
@@ -8076,6 +8077,18 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
     const vals = aprov.map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v >= FECHAMENTO_MIN);
     const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 
+    // Ocupação da agenda = horas agendadas ÷ capacidade das cadeiras no período.
+    // Capacidade: 5 salas, seg-sex 8h-18h (10h) + sábado 8h-12h (4h). Conta os dias reais.
+    const SALAS = 5, H_SEMANA = 10, H_SABADO = 4;
+    let capacidadeH = 0;
+    for (let d = new Date(from + 'T12:00:00Z'), fim = new Date(to + 'T12:00:00Z'); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dow = d.getUTCDay(); // 0=dom ... 6=sáb
+      if (dow >= 1 && dow <= 5) capacidadeH += SALAS * H_SEMANA;
+      else if (dow === 6) capacidadeH += SALAS * H_SABADO;
+    }
+    const horasAgendadas = Number(agHR.data || 0) / 60;
+    const ocupacaoPct = capacidadeH > 0 ? horasAgendadas / capacidadeH : null;
+
     res.json({
       periodo: { from, to },
       atualizado_em: new Date().toISOString(),
@@ -8084,6 +8097,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda },
       ticketSemConvenio: { valor: ticket, n: vals.length, min: FECHAMENTO_MIN },
       funil: { leads: leadsR.count || 0, agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length },
+      ocupacao: { pct: ocupacaoPct, horasAgendadas: Math.round(horasAgendadas), horasCapacidade: Math.round(capacidadeH) },
     });
   } catch (e) {
     console.error('❌ /api/painel-gestor:', e.message);

@@ -11,7 +11,7 @@
   const semMargem = (m) => m > 0.15 ? 'verde' : m >= 0.08 ? 'amarelo' : 'vermelho';
   const semFolga = (f) => f > 0.25 ? 'verde' : f >= 0 ? 'amarelo' : 'vermelho';
   const semRoas = (r) => maiorMelhor(r, 3, 1.5);
-  const semOcupacao = (o) => maiorMelhor(o, 0.85, 0.70);
+  const semOcupacao = (o) => maiorMelhor(o, 0.80, 0.60);
   // etapa do funil vs a meta: bate a meta = verde; até 10% abaixo = amarelo; pior = vermelho
   const semFunil = (taxa, meta) => taxa >= meta ? 'verde' : taxa >= meta * 0.9 ? 'amarelo' : 'vermelho';
 

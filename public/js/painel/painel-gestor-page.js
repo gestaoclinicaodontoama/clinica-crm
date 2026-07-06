@@ -59,9 +59,9 @@
     ticket: { oque: 'Valor médio dos tratamentos particulares acima de R$ 1.000 (convênio e pequenos como limpeza ficam fora — poluiriam a média).',
       bom: 'Em tendência de alta.', ruim: 'Caindo, sinal de orçamentos fatiados ou desconto reflexo.',
       acoes: 'Oferecer plano completo, implante/alinhador, evitar fatiar o orçamento.' },
-    ocupacao: { oque: 'Horas de agenda preenchidas ÷ horas disponíveis dos dentistas.',
-      bom: 'Acima de 85%.', ruim: 'Cadeira vazia é receita que não volta.',
-      acoes: 'Falta ligar à escala dos dentistas (dentista_config) para calcular de verdade — hoje incompleto.' },
+    ocupacao: { oque: 'Horas agendadas ÷ capacidade das 5 salas (seg-sex 8h-18h + sábado 8h-12h).',
+      bom: 'Acima de 80% — agenda cheia.', ruim: 'Abaixo de 60% — muita cadeira vazia, e cadeira vazia é receita que não volta.',
+      acoes: 'Encaixar retornos e prevenção nos buracos, remarcar faltas no mesmo dia, abrir horários de pico.' },
     faturamento: { oque: 'O que foi vendido no mês (competência), com o crescimento vs o mesmo mês do ano anterior.',
       bom: 'Crescendo ano a ano e acima do ponto de equilíbrio.', ruim: 'Encolhendo vs o ano passado.',
       acoes: 'Sustentar o topo do funil e o ticket médio.' },
@@ -231,8 +231,16 @@
     cards.b.push(cardHTML('ticket', { label: 'Ticket médio (particular > R$ 1.000)', sev: 'neutro',
       val: tk ? fmt(tk.valor) : '–', nota: tk && tk.n ? `Média de ${tk.n} tratamentos acima de R$ 1.000 no período (limpezas e pequenos fora).` : 'Sem fechamentos no período.',
       modulo: 'Comercial' }));
-    cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: 'neutro', val: 'a conectar',
-      nota: 'Falta ligar à escala dos dentistas para calcular. Em breve.', modulo: 'Produção' }));
+    const oc = fin && fin.ocupacao;
+    if (oc && oc.pct != null) {
+      const sevOc = P.semOcupacao(oc.pct);
+      niveisContados.push(sevOc);
+      cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: sevOc, val: pct0(oc.pct),
+        nota: `${oc.horasAgendadas}h agendadas de ${oc.horasCapacidade}h de cadeira no período (5 salas).`, modulo: 'Produção' }));
+    } else {
+      cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: 'neutro', val: '–',
+        nota: 'Sem agenda no período.', modulo: 'Produção' }));
+    }
 
     // ── Elo 3: financeiro ──
     if (fin) {
