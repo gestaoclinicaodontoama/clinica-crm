@@ -210,7 +210,13 @@ async function main() {
       origem: c.leadRow['Origem'] || 'Importado',
       status: c.status,
       importado_historico: true,
-      ...(c.extraData.dataCadastro && { criado_em: c.extraData.dataCadastro.toISOString() }),
+      // Setar criado_em E data_lead com a data histórica. Sem data_lead aqui, a coluna
+      // caía no default now() e carimbava todos os importados na data da migração
+      // (bug corrigido 2026-07-06 — leads.data_lead ficou toda em jun/26). Ver memória.
+      ...(c.extraData.dataCadastro && {
+        criado_em: c.extraData.dataCadastro.toISOString(),
+        data_lead: c.extraData.dataCadastro.toISOString(),
+      }),
       ...(c.extraData.valor ? { valor: c.extraData.valor } : {}),
     });
   }
