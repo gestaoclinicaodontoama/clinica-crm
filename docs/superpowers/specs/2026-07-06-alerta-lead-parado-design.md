@@ -44,7 +44,7 @@ A RPC do item 3 (`comercial_meu_dia(p_uid uuid)`) já devolve jsonb com `para_pe
 
 e em ambos: `crc_comercial_id` bate (p_uid) e **NÃO** tem `proximo_contato` no futuro. A RPC lê os prazos de `app_config`. Campos por item: `id, nome, telefone, status, etapa, dias_parado` (dias desde a última atividade real). Ordenado por `dias_parado` desc (mais parado no topo). Matching 100% no Postgres — LATERAL para `max(lead_eventos.criado_em)` **filtrado pela allowlist de tipos de atividade** (não conta capi/broadcast/criação); `coalesce` com `data_comparecimento`/`data_avaliacao`/`criado_em` quando não há evento de atividade. Payload pequeno.
 
-⚠️ A RPC `comercial_meu_dia` tem `execute` revogado de anon/public (item 3) — a nova versão deve **manter o revoke** (recriar a função re-concede execute a PUBLIC por default; re-aplicar o revoke na mesma migração).
+⚠️ A RPC `comercial_meu_dia` tem `execute` revogado de anon/public (item 3) — a nova versão deve **manter o revoke** (recriar a função re-concede execute a PUBLIC por default; re-aplicar o revoke na mesma migração) e **continuar SECURITY INVOKER** (NÃO adicionar `SECURITY DEFINER` — há alerta sistêmico de ~27 RPCs abertas pra anon [[project-rpc-anon-exposure]]; INVOKER + revoke é o padrão seguro aqui, e a mesma regra vale para a nova RPC `leads_ultima_atividade`).
 
 ### 3. Bloco ⚠️ Parados no Meu Dia
 
@@ -52,7 +52,7 @@ Novo bloco **no topo** da tela `public/meu-dia/index.html` (antes de "Para pegar
 
 ### 4. Card vermelho no kanban comercial
 
-A query dos cards do kanban comercial (`buildComercialColFilter` / RPCs de coluna em `server.js`) passa a trazer `ultima_atividade` (max `lead_eventos.criado_em` **filtrado pela mesma allowlist de tipos de atividade** — não capi/broadcast/criação) por card — um timestamp por card (egress mínimo). No front (`public/kanban-comercial/index.html`), o card ganha selo/borda **vermelha "parado Xd"** quando `now - ultima_atividade` passa do prazo da etapa (3d Compareceu, **2d nas colunas D** — mesmo prazo por-passo do bloco). Mesmo critério do bloco do Meu Dia (última atividade), pra as duas telas não se contradizerem. Não altera ordenação nem filtros existentes.
+⚠️ Os cards do kanban são carregados por **PostgREST builder** (`buildComercialColFilter` → `supabase.from('leads').select(CARD_FIELDS)`, `server.js:978`), NÃO por SQL cru — logo **não dá pra computar `ultima_atividade` inline** (PostgREST não faz agregação lateral no select). Solução: **consulta-companheira** — depois de carregar os ~30 cards de uma coluna comercial (Compareceu e D0–D5), a rota faz UMA chamada a uma RPC `leads_ultima_atividade(p_ids bigint[])` que devolve `(lead_id, ultima_atividade)` (max `lead_eventos.criado_em` **filtrado pela allowlist de tipos**) para aqueles ids. A rota anexa `dias_parado` a cada card. Egress mínimo (1 query por coluna, ~30 ids, resultado pequeno). No front (`public/kanban-comercial/index.html`), o card ganha selo/borda **vermelha "parado Xd"** quando `dias_parado` passa do prazo da etapa (3d Compareceu, **2d nas colunas D**). Mesmo critério do bloco do Meu Dia — as duas telas não se contradizem. Não altera ordenação/filtros/paginação existentes. RPC `leads_ultima_atividade` também com `execute` revogado de anon/public.
 
 ### 5. Cobrança diária (varredura)
 
