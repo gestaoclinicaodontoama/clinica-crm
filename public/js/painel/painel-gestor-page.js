@@ -59,7 +59,7 @@
     ticket: { oque: 'Valor médio dos tratamentos particulares acima de R$ 1.000 (convênio e pequenos como limpeza ficam fora — poluiriam a média).',
       bom: 'Em tendência de alta.', ruim: 'Caindo, sinal de orçamentos fatiados ou desconto reflexo.',
       acoes: 'Oferecer plano completo, implante/alinhador, evitar fatiar o orçamento.' },
-    ocupacao: { oque: 'Horas agendadas ÷ capacidade das 5 salas (seg-sex 8h-18h + sábado 8h-12h).',
+    ocupacao: { oque: 'Horas agendadas ÷ capacidade das 5 salas (seg-sex 8h-18h menos 2h de almoço + sábado 8h-12h).',
       bom: 'Acima de 80% — agenda cheia.', ruim: 'Abaixo de 60% — muita cadeira vazia, e cadeira vazia é receita que não volta.',
       acoes: 'Encaixar retornos e prevenção nos buracos, remarcar faltas no mesmo dia, abrir horários de pico.' },
     faturamento: { oque: 'O que foi vendido no mês (competência), com o crescimento vs o mesmo mês do ano anterior.',

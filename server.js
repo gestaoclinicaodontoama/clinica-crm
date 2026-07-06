@@ -8078,8 +8078,9 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
     const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 
     // Ocupação da agenda = horas agendadas ÷ capacidade das cadeiras no período.
-    // Capacidade: 5 salas, seg-sex 8h-18h (10h) + sábado 8h-12h (4h). Conta os dias reais.
-    const SALAS = 5, H_SEMANA = 10, H_SABADO = 4;
+    // Capacidade: 5 salas, seg-sex 8h-18h menos 2h de almoço = 8h úteis + sábado
+    // 8h-12h (4h). Conta os dias reais do período.
+    const SALAS = 5, H_SEMANA = 8, H_SABADO = 4;
     let capacidadeH = 0;
     for (let d = new Date(from + 'T12:00:00Z'), fim = new Date(to + 'T12:00:00Z'); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
       const dow = d.getUTCDay(); // 0=dom ... 6=sáb
