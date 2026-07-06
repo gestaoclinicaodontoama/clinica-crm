@@ -6,6 +6,27 @@
   const P = window.PainelGestor;
   const META_FUNIL = { agendamento: 0.45, comparecimento: 0.50, fechamento: 0.25 };
 
+  const PRESETS = [
+    { k: 'hoje', l: 'Hoje' }, { k: 'ontem', l: 'Ontem' }, { k: 'semana', l: 'Esta semana' },
+    { k: 'mes', l: 'Este mês' }, { k: 'mes_passado', l: 'Mês passado' },
+    { k: 'trimestre', l: 'Este trimestre' }, { k: 'semestre', l: 'Este semestre' },
+  ];
+  const estado = { preset: 'mes_passado', from: null, to: null };
+  const isoLocal = (d) => d.toLocaleDateString('sv-SE'); // YYYY-MM-DD local
+  function periodoDatas(preset) {
+    const h = new Date(), y = h.getFullYear(), m = h.getMonth();
+    let from, to = isoLocal(h);
+    if (preset === 'hoje') from = isoLocal(h);
+    else if (preset === 'ontem') { const o = new Date(h); o.setDate(o.getDate() - 1); from = to = isoLocal(o); }
+    else if (preset === 'semana') { const o = new Date(h); o.setDate(o.getDate() - ((o.getDay() + 6) % 7)); from = isoLocal(o); }
+    else if (preset === 'mes_passado') { from = isoLocal(new Date(y, m - 1, 1)); to = isoLocal(new Date(y, m, 0)); }
+    else if (preset === 'trimestre') from = isoLocal(new Date(y, Math.floor(m / 3) * 3, 1));
+    else if (preset === 'semestre') from = isoLocal(new Date(y, m < 6 ? 0 : 6, 1));
+    else from = isoLocal(new Date(y, m, 1)); // mes (default)
+    return { from, to };
+  }
+  const presetLabel = (p) => p === 'custom' ? 'período' : ((PRESETS.find(x => x.k === p) || {}).l || 'período');
+
   function getToken() {
     for (const k of Object.keys(localStorage)) {
       if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
@@ -66,6 +87,11 @@
     .pg-dot.verde{background:var(--green);} .pg-dot.amarelo{background:var(--yellow);} .pg-dot.vermelho{background:var(--red);} .pg-dot.neutro{background:var(--muted);}
     .pg-jornada { color:var(--muted); font-size:12.5px; margin:14px 0 22px; padding-bottom:14px; border-bottom:1px solid var(--border); }
     .pg-jornada b { color:var(--text); font-weight:600; }
+    .pg-periodo { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0 2px; }
+    .pg-per { padding:5px 11px; border:1px solid var(--border); background:var(--bg2); color:var(--muted); font:inherit; font-size:12.5px; font-weight:600; border-radius:8px; cursor:pointer; }
+    .pg-per.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .pg-per-custom { display:inline-flex; gap:5px; align-items:center; margin-left:4px; }
+    .pg-per-custom input { padding:4px 7px; border:1px solid var(--border); border-radius:8px; background:var(--bg2); color:var(--text); font:inherit; font-size:12px; }
     .pg-bloco { margin-bottom:30px; }
     .pg-eyebrow { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.14em; color:var(--accent); }
     .pg-bloco h2 { font-size:16px; font-weight:700; margin:5px 0 2px; }
@@ -126,7 +152,7 @@
       .filter(Boolean);
   }
 
-  function funilHTML(f) {
+  function funilHTML(f, rotuloPer) {
     const taxa = (a, b) => (b > 0 ? a / b : null);
     const etapas = [
       { q: f.agendaram, e: 'Agendaram' }, { q: f.compareceram, e: 'Compareceram' }, { q: f.fecharam, e: 'Fecharam' },
@@ -147,7 +173,7 @@
     const e = EXPLICA.funil;
     return `<div class="pg-funil">
       <button class="pg-ent" data-alvo="pg-ent-funil">▸ entenda</button>
-      <div class="pg-label">Funil comercial — do agendamento ao fechamento (últimos 90 dias)</div>
+      <div class="pg-label">Funil comercial — do agendamento ao fechamento (${rotuloPer})</div>
       <div style="margin:4px 0"><span class="pg-sev ${pior}"><span class="pg-dot ${pior}"></span>${nFraco ? nFraco + ' etapa(s) abaixo da meta' : 'no ritmo'}</span></div>
       <div class="pg-funil-meta">Meta 2026: comparecimento <b>50%</b> · fechamento <b>25%</b> (saudável: 40% / 30%)</div>
       <div class="pg-flow">${flow}</div>
@@ -160,11 +186,16 @@
     injectCSS();
     const root = document.getElementById('painel-gestor-root');
     if (!root) return;
+    if (!estado.from) { const p = periodoDatas(estado.preset); estado.from = p.from; estado.to = p.to; }
+    const per = `from=${estado.from}&to=${estado.to}`;
+    const rotuloPer = estado.preset === 'custom'
+      ? `${estado.from.split('-').reverse().join('/')} a ${estado.to.split('-').reverse().join('/')}`
+      : presetLabel(estado.preset).toLowerCase();
     if (!root.dataset.init) { root.innerHTML = '<div class="pg-msg">Carregando indicadores…</div>'; }
 
     const [fin, mkt, abc] = await Promise.allSettled([
-      get('/api/painel-gestor'),
-      get('/api/meta-insights').catch(() => null),
+      get('/api/painel-gestor?' + per),
+      get(`/api/meta-insights?desde=${estado.from}&ate=${estado.to}`).catch(() => null),
       get('/api/campanhas/preview/abc?count_only=true'),
     ]).then(rs => rs.map(r => r.status === 'fulfilled' ? r.value : null));
 
@@ -188,7 +219,7 @@
     // ── Elo 2: funil + ticket + ocupação ──
     let funilBlock = '';
     if (fin && fin.funil) {
-      funilBlock = funilHTML(fin.funil);
+      funilBlock = funilHTML(fin.funil, rotuloPer);
       funilNiveis(fin.funil).forEach(n => niveisContados.push(n));
     } else {
       funilBlock = `<div class="pg-msg">Funil indisponível no momento.</div>`;
@@ -196,7 +227,7 @@
 
     const tk = fin && fin.ticketSemConvenio;
     cards.b.push(cardHTML('ticket', { label: 'Ticket médio (sem convênio)', sev: 'neutro',
-      val: tk ? fmt(tk.valor) : '–', nota: tk && tk.n ? `Média de ${tk.n} fechamentos particulares em 90 dias.` : 'Sem fechamentos no período.',
+      val: tk ? fmt(tk.valor) : '–', nota: tk && tk.n ? `Média de ${tk.n} fechamentos particulares no período.` : 'Sem fechamentos no período.',
       modulo: 'Comercial' }));
     cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: 'neutro', val: 'a conectar',
       nota: 'Falta ligar à escala dos dentistas para calcular. Em breve.', modulo: 'Produção' }));
@@ -206,9 +237,9 @@
       const f = fin.faturamento || {}, l = fin.lucro || {}, inad = fin.inadimplencia || {};
       const sevFat = f.crescimentoAnual != null ? P.semCrescimento(f.crescimentoAnual) : 'neutro';
       if (f.crescimentoAnual != null) niveisContados.push(sevFat);
-      cards.c.push(cardHTML('faturamento', { label: 'Faturamento do mês', sev: sevFat, val: fmt(f.valor),
-        trend: f.crescimentoAnual != null ? { ...trendGood(f.crescimentoAnual >= 0), t: pct0(Math.abs(f.crescimentoAnual)) + ' ao ano' } : null,
-        nota: f.mes ? `Competência de ${mesPt(f.mes)} (último mês fechado).` : '', modulo: 'DRE' }));
+      cards.c.push(cardHTML('faturamento', { label: 'Faturamento (' + rotuloPer + ')', sev: sevFat, val: fmt(f.valor),
+        trend: f.crescimentoAnual != null ? { ...trendGood(f.crescimentoAnual >= 0), t: pct0(Math.abs(f.crescimentoAnual)) + ' vs ano anterior' } : null,
+        nota: 'O que foi vendido no período (competência). Comparado com o mesmo período do ano passado.', modulo: 'DRE' }));
 
       const sevM = l.margem != null ? P.semMargem(l.margem) : 'neutro';
       const sevFolga = l.folga != null ? P.semFolga(l.folga) : 'neutro';
@@ -240,12 +271,33 @@
           <span class="pg-chip"><span class="pg-dot vermelho"></span>${r.vermelhos} críticos</span>
         </div>
       </div>
+      <div class="pg-periodo">
+        ${PRESETS.map(p => `<button class="pg-per ${p.k === estado.preset ? 'on' : ''}" data-preset="${p.k}">${p.l}</button>`).join('')}
+        <span class="pg-per-custom">
+          <input type="date" id="pg-de" value="${estado.preset === 'custom' ? estado.from : ''}">
+          <input type="date" id="pg-ate" value="${estado.preset === 'custom' ? estado.to : ''}">
+          <button class="pg-per ${estado.preset === 'custom' ? 'on' : ''}" id="pg-per-aplicar">Aplicar</button>
+        </span>
+      </div>
       <div class="pg-jornada">O caminho do dinheiro: <b>atrair</b> um paciente barato → <b>convertê-lo</b> em tratamento e entregar → transformar em <b>lucro que fica</b>.</div>
       <div class="pg-bloco"><div class="pg-eyebrow">Elo 1</div><h2>Atrair pacientes</h2><div class="pg-desc">O marketing traz gente certa a um custo que se paga?</div><div class="pg-grid">${cards.a.join('')}</div></div>
       <div class="pg-bloco"><div class="pg-eyebrow">Elo 2</div><h2>Converter e entregar</h2><div class="pg-desc">Quem chega vira tratamento fechado — e a agenda está cheia?</div>${funilBlock}<div class="pg-grid">${cards.b.join('')}</div></div>
       <div class="pg-bloco"><div class="pg-eyebrow">Elo 3</div><h2>Ganhar e sustentar</h2><div class="pg-desc">No fim, sobra dinheiro — e ele entra e se renova?</div><div class="pg-grid">${cards.c.join('')}</div></div>`;
     root.dataset.init = '1';
   };
+
+  // seletor de período
+  document.addEventListener('click', (e) => {
+    const pb = e.target.closest('.pg-per[data-preset]');
+    if (pb) { estado.preset = pb.dataset.preset; const p = periodoDatas(estado.preset);
+      estado.from = p.from; estado.to = p.to; window.loadPainelGestor(); return; }
+    const ap = e.target.closest('#pg-per-aplicar');
+    if (ap) {
+      const de = document.getElementById('pg-de').value, ate = document.getElementById('pg-ate').value;
+      if (!de || !ate || de > ate) { alert('Escolha um período válido (de ≤ até).'); return; }
+      estado.preset = 'custom'; estado.from = de; estado.to = ate; window.loadPainelGestor();
+    }
+  });
 
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.pg-ent'); if (!btn) return;

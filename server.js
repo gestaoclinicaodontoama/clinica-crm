@@ -8021,68 +8021,63 @@ app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res
 // números que exigem as RPCs financeiras (fora do alcance do role gestor puro).
 app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   const hoje = _finDataLocal(new Date());
-  const ymCorrente = hoje.slice(0, 7);
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  // Período selecionado (default: este mês). Rege faturamento/lucro/ticket/funil.
+  const from = re.test(req.query.from || '') ? req.query.from : hoje.slice(0, 8) + '01';
+  const to = re.test(req.query.to || '') ? req.query.to : hoje;
+  if (from > to) return res.status(400).json({ error: 'periodo invalido' });
+  const anoAntes = (iso) => (Number(iso.slice(0, 4)) - 1) + iso.slice(4);
   const menosMeses = (n) => { const [y, m] = hoje.slice(0, 7).split('-').map(Number);
     return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
-  const from90 = (() => { const d = new Date(hoje + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 90);
-    return d.toISOString().slice(0, 10); })();
   try {
-    const [serieR, aggR, vencR, recebR, analR, ticketR, avalR] = await Promise.all([
-      supabase.rpc('fin_series_mensais', { p_from: menosMeses(36), p_to: hoje }),
-      supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(8), p_to: hoje }),
+    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, agdR, cmpR] = await Promise.all([
+      supabase.rpc('fin_totais_periodo', { p_from: from, p_to: to }),
+      supabase.rpc('fin_totais_periodo', { p_from: anoAntes(from), p_to: anoAntes(to) }),
+      supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(6), p_to: hoje }),
       supabase.rpc('fin_vencido_total'),
       supabase.from('fin_recebiveis_mensal').select('valor'),
       supabase.from('fin_saude_analises').select('dados').eq('id', 1).maybeSingle(),
       supabase.from('orcamentos').select('valor_particular,valor_aprovado,revisao_status')
-        .eq('status', 'APPROVED').gt('valor_particular', 0).gte('data_fechamento', from90),
-      // Funil (agendou→compareceu→fechou) via avaliacoes — fonte confiável.
+        .eq('status', 'APPROVED').gt('valor_particular', 0).gte('data_fechamento', from).lte('data_fechamento', to),
+      // Funil (período) via avaliacoes — contagens (head:true, sem trazer linhas).
       // O topo leads→agendou NÃO é rastreável hoje (data_lead da base foi sobrescrita).
-      supabase.from('avaliacoes').select('compareceu').gte('data', from90),
+      supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).gte('data', from).lte('data', to),
+      supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).eq('compareceu', true).gte('data', from).lte('data', to),
     ]);
-    // Faturamento do último mês completo + crescimento ano-a-ano
-    const serie = (serieR.data || []).filter(r => String(r.ym) < ymCorrente)
-      .sort((a, b) => a.ym < b.ym ? -1 : 1)
-      .map(r => ({ ym: String(r.ym), faturamento: Number(r.faturamento) || 0,
-        caixa: Number(r.caixa) || 0, saidas: Number(r.saidas) || 0 }));
-    const ultimoMes = serie[serie.length - 1] || null;
-    const crescimentoFat = _PainelGestor.crescimentoAnual(serie, 'faturamento');
+    // Faturamento (REVENUE do período) + crescimento vs o mesmo período do ano anterior
+    const tot = (totR.data || [])[0] || {}, totLY = (totLYR.data || [])[0] || {};
+    const faturamento = Number(tot.faturamento) || 0, fatLY = Number(totLY.faturamento) || 0;
+    const crescimento = fatLY > 0 ? faturamento / fatLY - 1 : null;
+    // Lucro do período = caixa recebido − saídas (regime de caixa)
+    const caixa = Number(tot.caixa) || 0, saidas = Number(tot.saidas) || 0;
+    const resultado = caixa - saidas;
+    const margem = caixa > 0 ? resultado / caixa : null;
 
-    // Lucro/margem + ponto de equilíbrio (meses completos), via DRE + análise
-    const dreMeses = montarDREMensal(aggR.data || [], menosMeses(8), hoje);
-    const hojeDate = new Date();
-    const completos = dreMeses.filter(m => _DREAnalise.mesCompleto(m.ym, hojeDate));
-    const ult = completos[completos.length - 1] || null;
-    const sub = ult ? _DREAnalise.subtotais(ult) : null;
-    const margem = sub && sub.receitaBruta > 0 ? sub.resultadoFinal / sub.receitaBruta : null;
+    // Ponto de equilíbrio / folga: referência dos meses completos recentes (não muda com o período)
+    const completos = montarDREMensal(aggR.data || [], menosMeses(6), hoje)
+      .filter(m => _DREAnalise.mesCompleto(m.ym, new Date()));
     const pe = _DREAnalise.pontoEquilibrio(completos);
     const ms = _DREAnalise.margemSeguranca(completos);
 
-    // Inadimplência
+    // Inadimplência (estado atual, independe do período)
     const aReceber = (recebR.data || []).reduce((s, r) => s + (Number(r.valor) || 0), 0);
     const vencido = Number(vencR.data || 0);
     const inadPct = aReceber > 0 ? vencido / aReceber : null;
     const taxaPerda = analR.data?.dados?.perda?.taxa ?? null;
 
-    // Ticket médio SEM convênio (orçamentos particulares aprovados nos últimos 90 dias)
+    // Ticket sem convênio (período)
     const aprov = (ticketR.data || []).filter(o => o.revisao_status !== 'rejeitado');
     const vals = aprov.map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v > 0);
     const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 
-    // Funil (últimos 90 dias): agendaram (avaliações) → compareceram → fecharam.
-    const avals = avalR.data || [];
-    const agendaram = avals.length;
-    const compareceram = avals.filter(a => a.compareceu).length;
-    const fecharam = vals.length;
-
     res.json({
+      periodo: { from, to },
       atualizado_em: new Date().toISOString(),
-      faturamento: { mes: ultimoMes ? ultimoMes.ym : null, valor: ultimoMes ? ultimoMes.faturamento : null,
-        crescimentoAnual: crescimentoFat },
-      lucro: { margem, resultado: sub ? sub.resultadoFinal : null,
-        pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
+      faturamento: { valor: faturamento, crescimentoAnual: crescimento },
+      lucro: { margem, resultado, pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
       inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda },
       ticketSemConvenio: { valor: ticket, n: vals.length },
-      funil: { agendaram, compareceram, fecharam, dias: 90, leadsRastreavel: false },
+      funil: { agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length, leadsRastreavel: false },
     });
   } catch (e) {
     console.error('❌ /api/painel-gestor:', e.message);
