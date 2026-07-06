@@ -52,11 +52,11 @@
     marketing: { oque: 'De cada R$ 1 gasto em anúncio, quanto voltou em faturamento — e quanto custou cada paciente que fechou.',
       bom: 'Acima de 3× o anúncio se paga com folga.', ruim: 'Abaixo de 1,5× o anúncio está no prejuízo.',
       acoes: 'Cortar campanha abaixo da meta, escalar verba na que está acima. Fonte: Agente de Marketing.' },
-    funil: { oque: 'A % de gente que passa de uma etapa pra próxima: lead → agendou → compareceu → fechou.',
+    funil: { oque: 'A % de gente que passa de uma etapa pra próxima: lead → agendou → compareceu → fechou. Fechamento = tratamento acima de R$ 1.000 (limpezas não contam).',
       bom: 'Agendamento acima de 45%, comparecimento acima de 50% (bom em odontologia) e fechamento acima de 25%.',
       ruim: 'Etapa abaixo da meta trava tudo que vem depois. Hoje o agendamento (~37%) está abaixo dos 40% desde março, e o fechamento é o gargalo histórico.',
       acoes: 'Agendamento: responder o lead mais rápido e ter script de agendamento. Fechamento: treinar a CRC em objeção e preço, oferecer condições de pagamento.' },
-    ticket: { oque: 'Valor médio das vendas particulares aprovadas (convênio fora — margem baixa não entra na conta).',
+    ticket: { oque: 'Valor médio dos tratamentos particulares acima de R$ 1.000 (convênio e pequenos como limpeza ficam fora — poluiriam a média).',
       bom: 'Em tendência de alta.', ruim: 'Caindo, sinal de orçamentos fatiados ou desconto reflexo.',
       acoes: 'Oferecer plano completo, implante/alinhador, evitar fatiar o orçamento.' },
     ocupacao: { oque: 'Horas de agenda preenchidas ÷ horas disponíveis dos dentistas.',
@@ -228,8 +228,8 @@
     }
 
     const tk = fin && fin.ticketSemConvenio;
-    cards.b.push(cardHTML('ticket', { label: 'Ticket médio (sem convênio)', sev: 'neutro',
-      val: tk ? fmt(tk.valor) : '–', nota: tk && tk.n ? `Média de ${tk.n} fechamentos particulares no período.` : 'Sem fechamentos no período.',
+    cards.b.push(cardHTML('ticket', { label: 'Ticket médio (particular > R$ 1.000)', sev: 'neutro',
+      val: tk ? fmt(tk.valor) : '–', nota: tk && tk.n ? `Média de ${tk.n} tratamentos acima de R$ 1.000 no período (limpezas e pequenos fora).` : 'Sem fechamentos no período.',
       modulo: 'Comercial' }));
     cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: 'neutro', val: 'a conectar',
       nota: 'Falta ligar à escala dos dentistas para calcular. Em breve.', modulo: 'Produção' }));

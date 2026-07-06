@@ -8066,9 +8066,11 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
     const inadPct = aReceber > 0 ? vencido / aReceber : null;
     const taxaPerda = analR.data?.dados?.perda?.taxa ?? null;
 
-    // Ticket sem convênio (período)
+    // Fechamento = tratamento particular ACIMA de R$1.000 (decisão do Luiz: limpezas e
+    // outros < R$1k não contam como fechamento — poluíam o ticket). Rege ticket E funil.
+    const FECHAMENTO_MIN = 1000;
     const aprov = (ticketR.data || []).filter(o => o.revisao_status !== 'rejeitado');
-    const vals = aprov.map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v > 0);
+    const vals = aprov.map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v >= FECHAMENTO_MIN);
     const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 
     res.json({
@@ -8077,7 +8079,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       faturamento: { valor: faturamento, crescimentoAnual: crescimento },
       lucro: { margem, resultado, pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
       inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda },
-      ticketSemConvenio: { valor: ticket, n: vals.length },
+      ticketSemConvenio: { valor: ticket, n: vals.length, min: FECHAMENTO_MIN },
       funil: { leads: leadsR.count || 0, agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length },
     });
   } catch (e) {
