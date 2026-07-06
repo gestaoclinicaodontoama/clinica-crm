@@ -2431,8 +2431,15 @@ setInterval(async () => {
 
 app.get('/api/conversas', requireAuth, requireConversas, rateLimit, async (req, res) => {
   try {
+    // Poll incremental (economia de egress): se o front manda ?desde=<ISO>, a RPC
+    // devolve só as conversas com mensagem nova desde então. Sem desde = lista cheia.
+    let desde = null;
+    if (req.query.desde) {
+      const d = new Date(req.query.desde);
+      if (!Number.isNaN(d.getTime())) desde = d.toISOString();
+    }
     const { data, error } = await supabase.rpc('conversas_com_preview',
-      { sdr_phone: whatsapp.defaultPhoneId() || null });
+      { sdr_phone: whatsapp.defaultPhoneId() || null, desde });
     if (error) throw error;
     let rows = (data || []).map(r => ({
       ...r,

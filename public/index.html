@@ -2601,6 +2601,7 @@ const _midiaCache = new Map();
 let chatLeads = [];
 let chatPollInterval = null;
 let _convListInterval = null;
+let _convDesde = null; // ISO da msg mais recente já carregada — poll incremental (egress)
 let _chatGen = 0; // geração do abrirChat — previne double interval em cliques rápidos
 let _chatViewMode = 'lista';
 let _chatMode = 'agendamentos'; // 'agendamentos' | 'avaliacao'
@@ -2707,14 +2708,49 @@ async function carregarFiltroCampanhas() {
   } catch (e) { console.error('filtro campanhas:', e); }
 }
 
+// Merge por id (poll incremental): substitui/insere as conversas que mudaram e
+// reordena igual à RPC (fixada DESC, última mensagem DESC).
+function _mergeConversas(novas) {
+  if (!novas || !novas.length) return;
+  const byId = new Map(chatLeads.map(l => [l.id, l]));
+  for (const n of novas) byId.set(n.id, n);
+  chatLeads = Array.from(byId.values());
+  chatLeads.sort((a, b) => {
+    const fa = a.conversa_fixada ? 1 : 0, fb = b.conversa_fixada ? 1 : 0;
+    if (fa !== fb) return fb - fa;
+    return (Date.parse(b.ultima_mensagem_em) || 0) - (Date.parse(a.ultima_mensagem_em) || 0);
+  });
+}
+function _convMaxCriadaEm() {
+  let max = 0;
+  for (const l of chatLeads) {
+    const t = l.ultima_mensagem_em ? Date.parse(l.ultima_mensagem_em) : 0;
+    if (t > max) max = t;
+  }
+  return max;
+}
+
 async function loadConversas(silencioso = false) {
+  // Troca de view/filtro (não-silencioso) → próxima base é a lista COMPLETA.
+  // Zera aqui p/ evitar que um poll intercalado use um `desde` de outra view.
+  if (!silencioso) _convDesde = null;
   try {
     carregarFiltroCampanhas();
-    const modeParam = _chatMode === 'oficial' ? '?mode=oficial' : _chatMode === 'agendamentos' ? '?mode=lead' : '';
     const campId = (document.getElementById('filtro-campanha') || {}).value || '';
-    const sep = modeParam ? '&' : '?';
-    const convs = await api('/api/conversas' + modeParam + (campId ? sep + 'campanha_id=' + encodeURIComponent(campId) : ''));
-    chatLeads = convs;
+    // Poll silencioso na mesma view = incremental: manda ?desde e faz merge por id.
+    // A lista inteira (~360KB) só trafega na 1ª carga / troca de view.
+    const incremental = silencioso && _convDesde != null && chatLeads.length > 0;
+    const params = [];
+    if (_chatMode === 'oficial') params.push('mode=oficial');
+    else if (_chatMode === 'agendamentos') params.push('mode=lead');
+    if (campId) params.push('campanha_id=' + encodeURIComponent(campId));
+    if (incremental) params.push('desde=' + encodeURIComponent(_convDesde));
+    const convs = await api('/api/conversas' + (params.length ? '?' + params.join('&') : ''));
+    if (incremental) _mergeConversas(convs);
+    else chatLeads = convs;
+    // margem de 5s: nunca perder uma mensagem que commitou no mesmo instante do corte
+    const max = _convMaxCriadaEm();
+    if (max) _convDesde = new Date(max - 5000).toISOString();
     if (!silencioso) {
       const titulo = document.getElementById('conv-titulo');
       if (titulo) titulo.textContent = _chatMode === 'avaliacao' ? 'WhatsApp CRC Comercial' : _chatMode === 'oficial' ? 'WhatsApp API Oficial' : 'WhatsApp CRC Lead';
