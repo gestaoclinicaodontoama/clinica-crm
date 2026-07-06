@@ -52,10 +52,10 @@
     marketing: { oque: 'De cada R$ 1 gasto em anúncio, quanto voltou em faturamento — e quanto custou cada paciente que fechou.',
       bom: 'Acima de 3× o anúncio se paga com folga.', ruim: 'Abaixo de 1,5× o anúncio está no prejuízo.',
       acoes: 'Cortar campanha abaixo da meta, escalar verba na que está acima. Fonte: Agente de Marketing.' },
-    funil: { oque: 'A % de gente que passa de uma etapa pra próxima. Aqui do agendamento em diante (fonte confiável): agendou → compareceu → fechou.',
-      bom: 'Comparecimento acima de 50% (bom em odontologia) e fechamento acima de 25%.',
-      ruim: 'Etapa abaixo da meta trava tudo que vem depois. Historicamente o fechamento é o gargalo de vocês.',
-      acoes: 'Fechamento: treinar a CRC em objeção e preço, oferecer condições de pagamento. E consertar o rastreio de lead→agendamento pra medir o topo.' },
+    funil: { oque: 'A % de gente que passa de uma etapa pra próxima: lead → agendou → compareceu → fechou.',
+      bom: 'Agendamento acima de 45%, comparecimento acima de 50% (bom em odontologia) e fechamento acima de 25%.',
+      ruim: 'Etapa abaixo da meta trava tudo que vem depois. Hoje o agendamento (~37%) está abaixo dos 40% desde março, e o fechamento é o gargalo histórico.',
+      acoes: 'Agendamento: responder o lead mais rápido e ter script de agendamento. Fechamento: treinar a CRC em objeção e preço, oferecer condições de pagamento.' },
     ticket: { oque: 'Valor médio das vendas particulares aprovadas (convênio fora — margem baixa não entra na conta).',
       bom: 'Em tendência de alta.', ruim: 'Caindo, sinal de orçamentos fatiados ou desconto reflexo.',
       acoes: 'Oferecer plano completo, implante/alinhador, evitar fatiar o orçamento.' },
@@ -147,17 +147,20 @@
 
   function funilNiveis(f) {
     const taxa = (a, b) => (b > 0 ? a / b : null);
-    return [taxa(f.compareceram, f.agendaram), taxa(f.fecharam, f.compareceram)]
-      .map((t, i) => t == null ? null : P.semFunil(t, i === 0 ? META_FUNIL.comparecimento : META_FUNIL.fechamento))
-      .filter(Boolean);
+    return [[taxa(f.agendaram, f.leads), META_FUNIL.agendamento],
+            [taxa(f.compareceram, f.agendaram), META_FUNIL.comparecimento],
+            [taxa(f.fecharam, f.compareceram), META_FUNIL.fechamento]]
+      .map(([t, meta]) => t == null ? null : P.semFunil(t, meta)).filter(Boolean);
   }
 
   function funilHTML(f, rotuloPer) {
     const taxa = (a, b) => (b > 0 ? a / b : null);
     const etapas = [
-      { q: f.agendaram, e: 'Agendaram' }, { q: f.compareceram, e: 'Compareceram' }, { q: f.fecharam, e: 'Fecharam' },
+      { q: f.leads, e: 'Leads' }, { q: f.agendaram, e: 'Agendaram' },
+      { q: f.compareceram, e: 'Compareceram' }, { q: f.fecharam, e: 'Fecharam' },
     ];
     const convs = [
+      { taxa: taxa(f.agendaram, f.leads), meta: META_FUNIL.agendamento },
       { taxa: taxa(f.compareceram, f.agendaram), meta: META_FUNIL.comparecimento },
       { taxa: taxa(f.fecharam, f.compareceram), meta: META_FUNIL.fechamento },
     ];
@@ -173,11 +176,10 @@
     const e = EXPLICA.funil;
     return `<div class="pg-funil">
       <button class="pg-ent" data-alvo="pg-ent-funil">▸ entenda</button>
-      <div class="pg-label">Funil comercial — do agendamento ao fechamento (${rotuloPer})</div>
+      <div class="pg-label">Funil comercial — onde se perde paciente (${rotuloPer})</div>
       <div style="margin:4px 0"><span class="pg-sev ${pior}"><span class="pg-dot ${pior}"></span>${nFraco ? nFraco + ' etapa(s) abaixo da meta' : 'no ritmo'}</span></div>
-      <div class="pg-funil-meta">Meta 2026: comparecimento <b>50%</b> · fechamento <b>25%</b> (saudável: 40% / 30%)</div>
+      <div class="pg-funil-meta">Saudável: <b>40 / 40 / 30</b> · Meta 2026: <b>45 / 50 / 25</b> (agendamento / comparecimento / fechamento)</div>
       <div class="pg-flow">${flow}</div>
-      <div class="pg-nota" style="margin-top:10px">⚠️ A etapa <b>lead → agendamento</b> não é medível hoje: as datas de criação dos leads foram sobrescritas na base (tudo caiu em jun/26). Corrigir isso é um próximo passo.</div>
       <div class="pg-ent-box" id="pg-ent-funil"><span class="l"><b>O que é:</b> ${esc(e.oque)}</span><span class="l"><b>Quando é bom:</b> ${esc(e.bom)}</span><span class="l"><b>Quando é ruim:</b> ${esc(e.ruim)}</span><span class="l"><b>Ações:</b> ${esc(e.acoes)}</span></div>
     </div>`;
   }

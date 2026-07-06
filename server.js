@@ -8030,7 +8030,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   const menosMeses = (n) => { const [y, m] = hoje.slice(0, 7).split('-').map(Number);
     return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
   try {
-    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, agdR, cmpR] = await Promise.all([
+    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR] = await Promise.all([
       supabase.rpc('fin_totais_periodo', { p_from: from, p_to: to }),
       supabase.rpc('fin_totais_periodo', { p_from: anoAntes(from), p_to: anoAntes(to) }),
       supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(6), p_to: hoje }),
@@ -8039,8 +8039,9 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       supabase.from('fin_saude_analises').select('dados').eq('id', 1).maybeSingle(),
       supabase.from('orcamentos').select('valor_particular,valor_aprovado,revisao_status')
         .eq('status', 'APPROVED').gt('valor_particular', 0).gte('data_fechamento', from).lte('data_fechamento', to),
-      // Funil (período) via avaliacoes — contagens (head:true, sem trazer linhas).
-      // O topo leads→agendou NÃO é rastreável hoje (data_lead da base foi sobrescrita).
+      // Funil (período) — contagens (head:true, sem trazer linhas). Leads pela data REAL
+      // de criação (criado_em); data_lead da base foi sobrescrita p/ jun/26 e não serve.
+      supabase.from('leads').select('*', { count: 'exact', head: true }).gte('criado_em', from).lte('criado_em', to + 'T23:59:59'),
       supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).gte('data', from).lte('data', to),
       supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).eq('compareceu', true).gte('data', from).lte('data', to),
     ]);
@@ -8077,7 +8078,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       lucro: { margem, resultado, pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
       inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda },
       ticketSemConvenio: { valor: ticket, n: vals.length },
-      funil: { agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length, leadsRastreavel: false },
+      funil: { leads: leadsR.count || 0, agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length },
     });
   } catch (e) {
     console.error('❌ /api/painel-gestor:', e.message);
