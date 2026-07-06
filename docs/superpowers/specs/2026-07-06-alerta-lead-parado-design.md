@@ -20,23 +20,27 @@
 
 ## Decisões do Luiz (brainstorm 06/07)
 
-1. **Escopo:** só comercial — `Compareceu` (prazo 3 dias) e `Em negociação`/D0–D5 (prazo 5 dias). Prazos configuráveis.
-2. **"Parado" =** sem nenhum evento de **ATIVIDADE REAL** há mais que o prazo da etapa. ⚠️ NÃO conta qualquer `lead_eventos` — eventos de sistema/broadcast resetariam o relógio falsamente (medido em 30d: `capi_disparado` 982, `disparo_massa` 103, `leads_mesclados` 71, `lead_criado` 824). Atividade real = allowlist: **`mensagem_enviada`, `mensagem_recebida`, `ligacao`, `status_mudou`, `nota_sdr_editada`, `template_enviado`, `conversa_assumida`, `comercial_assumido`, `mensagem_falhou`** (tentativa de contato). Exclui quem tem `proximo_contato` marcado no FUTURO (a CRC já tem plano — não é abandono).
+1. **Escopo:** só comercial — `Compareceu` (prazo 3 dias) e `Em negociação`/D0–D5 (prazo **por passo do D: ~2 dias no MESMO D**). Prazos configuráveis. ⚠️ **Regra D0–D5 (Playbook Pós-D5 do Luiz):** D0→D5 é uma cadência de ~8–10 dias com ~5 toques = ~1 toque a cada ~2 dias. Logo a estagnação em negociação NÃO é "X dias em negociação" e sim "parado no mesmo D sem toque > ~2 dias". Avançar o D (D1→D2) conta como toque e reseta o relógio.
+2. **"Parado" =** sem nenhum evento de **ATIVIDADE REAL** há mais que o prazo da etapa. ⚠️ NÃO conta qualquer `lead_eventos` — eventos de sistema/broadcast resetariam o relógio falsamente (medido em 30d: `capi_disparado` 982, `disparo_massa` 103, `leads_mesclados` 71, `lead_criado` 824). Atividade real = allowlist: **`mensagem_enviada`, `mensagem_recebida`, `ligacao`, `status_mudou`, `etapa_mudou`, `nota_sdr_editada`, `template_enviado`, `conversa_assumida`, `comercial_assumido`, `mensagem_falhou`** (tentativa de contato). Exclui quem tem `proximo_contato` marcado no FUTURO (a CRC já tem plano — não é abandono).
 3. **Superfície:** bloco ⚠️ Parados no Meu Dia (topo) + card vermelho no kanban comercial + cobrança diária por notificação.
 4. Egress: tudo server-side filtrado (cota Supabase 155%).
 
 ## Componentes
 
+### 0. Pré-requisito — logar o avanço do D (`etapa_mudou`)
+
+⚠️ Medido no código: `patchLead` só loga `status_mudou` quando o **status** muda (`server.js:823`); mover D1→D2 (só muda `etapa_negociacao`, status segue "Em negociação") **não gera evento nenhum**. Sem isso, a regra "parado no mesmo D > 2 dias" contaria como parada uma CRC que está avançando o D corretamente. Correção obrigatória: no `patchLead`, quando `etapa_negociacao` muda de valor (e não é uma troca de status), logar `logEvento(id, 'etapa_mudou', 'Etapa: D_ant → D_novo', {de,para}, req.user?.id)`. Esse tipo entra na allowlist de atividade. (Leads que já estão num D antes desta feature não têm `etapa_mudou` histórico — o relógio deles cai no `coalesce` até o próximo toque; aceitável.)
+
 ### 1. Config (`app_config`)
 
-`parado_prazo_compareceu_dias int default 3`, `parado_prazo_negociacao_dias int default 5`, `parado_notif_hora text default '09:00'` (horário da cobrança diária, America/São_Paulo). Adicionar via migração com `add column if not exists` + defaults.
+`parado_prazo_compareceu_dias int default 3`, `parado_prazo_negociacao_dias int default 2` (por passo do D — ~2 dias/toque da cadência), `parado_notif_hora text default '09:00'` (horário da cobrança diária, America/São_Paulo). Adicionar via migração com `add column if not exists` + defaults.
 
 ### 2. Detecção — estender a RPC `comercial_meu_dia`
 
 A RPC do item 3 (`comercial_meu_dia(p_uid uuid)`) já devolve jsonb com `para_pegar / meus_comparecidos / minhas_negociacoes / followups`. Adicionar um 5º bloco **`parados`** — assim o Meu Dia continua num round-trip só (egress). Um lead entra em `parados` se, para a CRC (`p_uid`, ou agregado se null):
 
-- `status='Compareceu'` E sem `lead_eventos` há ≥ `parado_prazo_compareceu_dias` dias, **ou**
-- `status='Em negociação'` E sem `lead_eventos` há ≥ `parado_prazo_negociacao_dias` dias,
+- `status='Compareceu'` E sem evento de atividade há ≥ `parado_prazo_compareceu_dias` dias, **ou**
+- `status='Em negociação'` E sem evento de atividade há ≥ `parado_prazo_negociacao_dias` dias (2 dias — "parado no mesmo D"; como avançar o D gera `etapa_mudou` que está na allowlist, mover o D reseta o relógio),
 
 e em ambos: `crc_comercial_id` bate (p_uid) e **NÃO** tem `proximo_contato` no futuro. A RPC lê os prazos de `app_config`. Campos por item: `id, nome, telefone, status, etapa, dias_parado` (dias desde a última atividade real). Ordenado por `dias_parado` desc (mais parado no topo). Matching 100% no Postgres — LATERAL para `max(lead_eventos.criado_em)` **filtrado pela allowlist de tipos de atividade** (não conta capi/broadcast/criação); `coalesce` com `data_comparecimento`/`data_avaliacao`/`criado_em` quando não há evento de atividade. Payload pequeno.
 
@@ -48,7 +52,7 @@ Novo bloco **no topo** da tela `public/meu-dia/index.html` (antes de "Para pegar
 
 ### 4. Card vermelho no kanban comercial
 
-A query dos cards do kanban comercial (`buildComercialColFilter` / RPCs de coluna em `server.js`) passa a trazer `ultima_atividade` (max `lead_eventos.criado_em` **filtrado pela mesma allowlist de tipos de atividade** — não capi/broadcast/criação) por card — um timestamp por card (egress mínimo). No front (`public/kanban-comercial/index.html`), o card ganha selo/borda **vermelha "parado Xd"** quando `now - ultima_atividade` passa do prazo da etapa (3d Compareceu, 5d colunas D). Mesmo critério do bloco do Meu Dia (última atividade), pra as duas telas não se contradizerem. Não altera ordenação nem filtros existentes.
+A query dos cards do kanban comercial (`buildComercialColFilter` / RPCs de coluna em `server.js`) passa a trazer `ultima_atividade` (max `lead_eventos.criado_em` **filtrado pela mesma allowlist de tipos de atividade** — não capi/broadcast/criação) por card — um timestamp por card (egress mínimo). No front (`public/kanban-comercial/index.html`), o card ganha selo/borda **vermelha "parado Xd"** quando `now - ultima_atividade` passa do prazo da etapa (3d Compareceu, **2d nas colunas D** — mesmo prazo por-passo do bloco). Mesmo critério do bloco do Meu Dia (última atividade), pra as duas telas não se contradizerem. Não altera ordenação nem filtros existentes.
 
 ### 5. Cobrança diária (varredura)
 
