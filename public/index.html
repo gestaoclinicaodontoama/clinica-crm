@@ -5485,14 +5485,15 @@ function _svgVencido(venc) {
 // Barra horizontal empilhada do aging.
 function _svgAging(aging) {
   const faixas = (aging && aging.faixas) || [];
-  const tot = faixas.reduce((s, f) => s + f.valor, 0);
+  const tot = (aging && typeof aging.total === 'number') ? aging.total : faixas.reduce((s, f) => s + f.valor, 0);
   if (!tot) return '<div style="color:var(--muted);font-size:12px">Sem vencido</div>';
-  const cores = ['var(--green)', 'var(--yellow)', '#f59e0b', 'var(--red)', '#b91c1c'];
-  let x = 0, segs = '', legenda = '';
+  // Gradiente verde→vermelho derivado das cores do tema (claro/escuro).
+  const cores = ['var(--green)', 'var(--yellow)', 'color-mix(in srgb, var(--yellow), var(--red))', 'var(--red)', 'color-mix(in srgb, var(--red) 65%, var(--text))'];
+  let segs = '', legenda = '';
   faixas.forEach((f, i) => {
     const w = (f.valor / tot) * 100;
     segs += `<div style="width:${w}%;background:${cores[i] || 'var(--muted)'}" title="${f.faixa}: ${_inadFmt(f.valor)}"></div>`;
-    if (f.valor > 0) legenda += `<span style="white-space:nowrap"><span style="color:${cores[i]}">■</span> ${f.faixa}: ${_inadFmt(f.valor)}</span>`;
+    if (f.valor > 0) legenda += `<span style="white-space:nowrap"><span style="color:${cores[i] || 'var(--muted)'}">■</span> ${f.faixa}: ${_inadFmt(f.valor)}</span>`;
   });
   return `<div class="inad-res-manchete" style="color:var(--red)">${_inadFmt(tot)}</div>` +
     `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">total vencido em aberto</div>` +
