@@ -6622,8 +6622,10 @@ app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimi
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID || '945699087658457';
 app.get('/api/meta-insights', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
-    const TOKEN = process.env.META_ACCESS_TOKEN;
-    if (!TOKEN) return res.status(200).json({ error: 'META_ACCESS_TOKEN não configurado', sem_token: true, anuncios: [] });
+    // insights de gasto exigem ads_read — usa o token de ads quando houver (mesmo
+    // padrão de /api/marketing/*), caindo pro token geral.
+    const TOKEN = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+    if (!TOKEN) return res.status(200).json({ error: 'Token do Meta não configurado', sem_token: true, anuncios: [] });
 
     const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
     const periodo = parseInt(req.query.periodo, 10) || 30;
@@ -7971,10 +7973,11 @@ app.get('/api/financeiro/a-categorizar/resumo', requireAuth, requireFinanceiro, 
 // a pagar (out_forecast do cash_flow, fin_fluxo_futuro, ~12m — a_pagar=null além
 // do horizonte que o Clinicorp fornece, para não parecer "zero contas").
 app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res) => {
-  // Histórico mensal (faturamento/caixa/saídas) p/ a projeção de crescimento — 36 meses.
+  // Histórico mensal p/ a projeção de crescimento — 26 meses (precisa de 24 p/ o
+  // ano-a-ano). 36 meses varria lançamentos demais e estourava o timeout do banco.
   const hojeIso = _finDataLocal(new Date());
   const serieFrom = (() => { const [y, m] = hojeIso.slice(0, 7).split('-').map(Number);
-    return new Date(Date.UTC(y, m - 1 - 36, 1)).toISOString().slice(0, 10); })();
+    return new Date(Date.UTC(y, m - 1 - 26, 1)).toISOString().slice(0, 10); })();
   const [receb, fluxo, vencido, analises, snaps, serie] = await Promise.all([
     supabase.from('fin_recebiveis_mensal').select('mes,valor,atualizado_em').order('mes'),
     supabase.from('fin_fluxo_futuro').select('mes,a_receber,a_pagar,atualizado_em').order('mes'),
