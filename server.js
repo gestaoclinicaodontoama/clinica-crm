@@ -4880,6 +4880,9 @@ async function runGuardedSync(trigger) {
       const { from, to } = _finMesCorrente();
       await syncFinanceiro(from, to);
       console.log('[financeiro-sync] mês corrente sincronizado');
+      // Atualiza o resumo mensal materializado (só os meses recentes; passados não mudam)
+      await supabase.rpc('fin_series_cache_refresh', { p_from: from, p_to: _finDataLocal(new Date()) });
+      console.log('[fin-series-cache] meses recentes atualizados');
     } catch (e) { console.error('[financeiro-sync] erro:', e.message); }
     // A Receber / A Pagar (24m) — 1 chamada list_cash_flow, erro não derruba as demais fases
     try {
@@ -7973,18 +7976,19 @@ app.get('/api/financeiro/a-categorizar/resumo', requireAuth, requireFinanceiro, 
 // a pagar (out_forecast do cash_flow, fin_fluxo_futuro, ~12m — a_pagar=null além
 // do horizonte que o Clinicorp fornece, para não parecer "zero contas").
 app.get('/api/financeiro/saude', requireAuth, requireFinanceiro, async (req, res) => {
-  // Histórico mensal p/ a projeção de crescimento — 26 meses (precisa de 24 p/ o
-  // ano-a-ano). 36 meses varria lançamentos demais e estourava o timeout do banco.
+  // Histórico mensal p/ a projeção de crescimento — lê da tabela materializada
+  // fin_series_cache (instantâneo; atualizada no sync diário). Antes chamava
+  // fin_series_mensais ao vivo, que varria 66k lançamentos e estourava o timeout.
   const hojeIso = _finDataLocal(new Date());
-  const serieFrom = (() => { const [y, m] = hojeIso.slice(0, 7).split('-').map(Number);
-    return new Date(Date.UTC(y, m - 1 - 26, 1)).toISOString().slice(0, 10); })();
+  const serieFromYm = (() => { const [y, m] = hojeIso.slice(0, 7).split('-').map(Number);
+    const idx = y * 12 + (m - 1) - 36; return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`; })();
   const [receb, fluxo, vencido, analises, snaps, serie] = await Promise.all([
     supabase.from('fin_recebiveis_mensal').select('mes,valor,atualizado_em').order('mes'),
     supabase.from('fin_fluxo_futuro').select('mes,a_receber,a_pagar,atualizado_em').order('mes'),
     supabase.rpc('fin_vencido_total'),
     supabase.from('fin_saude_analises').select('dados,atualizado_em').eq('id', 1).maybeSingle(),
     supabase.from('fin_saude_snapshots').select('data,receber,pagar,resultado,origem').order('data').limit(800),
-    supabase.rpc('fin_series_mensais', { p_from: serieFrom, p_to: hojeIso }),
+    supabase.from('fin_series_cache').select('ym,faturamento,caixa,saidas').gte('ym', serieFromYm).order('ym'),
   ]);
   if (receb.error) return res.status(500).json({ error: receb.error.message });
   if (fluxo.error) return res.status(500).json({ error: fluxo.error.message });
@@ -8193,6 +8197,9 @@ app.post('/api/financeiro/sync', requireAuth, requireFinanceiro, async (req, res
   const { from, to } = _finMesCorrente();
   try {
     const r = await syncFinanceiro(from, to);
+    // atualiza o resumo mensal materializado dos meses recentes
+    try { await supabase.rpc('fin_series_cache_refresh', { p_from: from, p_to: _finDataLocal(new Date()) }); }
+    catch (e) { console.error('[fin-series-cache] erro:', e.message); }
     // fluxo futuro no mesmo botão; falha aqui não invalida o sync da DRE
     try { await syncFluxoFuturo(); }
     catch (e) { console.error('[fluxo-futuro] erro:', e.message); }
