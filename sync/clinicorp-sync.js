@@ -925,6 +925,15 @@ async function runSync(trigger = 'agendado') {
   // Fase 4: inserir novos pacientes detectados
   await step('novos_pacientes', () => insertNewPatients(payMap, apptMap));
 
+  // Fase 4b: enriquecer e-mail dos leads a partir de pacientes (sufixo-8 + nome) —
+  // alimenta o `em` do CAPI (EMQ). Isolada: falha aqui não derruba o resto.
+  await step('emails_leads', async () => {
+    const { data, error } = await supabase.rpc('enriquecer_emails_leads');
+    if (error) throw new Error(error.message);
+    result.steps.emails_leads = data ?? 0;
+    log(`E-mails de leads enriquecidos via pacientes: ${data ?? 0}`);
+  });
+
   // Fase 5: upsert em pacientes_abc
   await step('pacientes_abc', () => upsertAbcData(apptMap, payMap));
 
