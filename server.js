@@ -66,12 +66,17 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 // Converte QUALQUER áudio (webm do Chrome, mp4/AAC do iOS, mp3/m4a de upload) para
 // ogg/opus — único formato que o WhatsApp renderiza como mensagem de voz NATIVA.
 // ffmpeg detecta o formato de entrada sozinho (pipe:0). -ac 1 (mono) garante a UI de voz.
+// -ar 16000 é OBRIGATÓRIO: o WhatsApp do iPHONE só toca Opus a 16kHz — a 48kHz (padrão
+//   herdado do webm do Chrome) o áudio chega mas dá "Este áudio não está mais disponível"
+//   no iOS (Android e o player do CRM tocam a 48k, por isso o bug era SÓ no iPhone). O
+//   WhatsApp nativo grava a 16kHz; igualamos pra bater com o que o iOS aceita. Comprovado
+//   com testes A–F ao vivo: só o 16kHz REAMOSTRADO toca no iPhone (patch só de header não).
 // -b:a 16k mantém o arquivo pequeno: o WhatsApp só mostra o ícone de PLAY (onda) se o
 // áudio tiver ≤512KB; acima disso vira ícone de download. 16k mono cobre ~4min de fala.
 // Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
 function _audioParaOggOpus(buffer) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-b:a', '16k', '-f', 'ogg', 'pipe:1']);
+    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-ar', '16000', '-b:a', '16k', '-f', 'ogg', 'pipe:1']);
     const out = [];
     p.stdout.on('data', c => out.push(c));
     p.stderr.resume(); // descarta stderr para o processo não travar com o pipe cheio
