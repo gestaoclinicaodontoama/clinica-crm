@@ -62,10 +62,12 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 // Converte QUALQUER áudio (webm do Chrome, mp4/AAC do iOS, mp3/m4a de upload) para
 // ogg/opus — único formato que o WhatsApp renderiza como mensagem de voz NATIVA.
 // ffmpeg detecta o formato de entrada sozinho (pipe:0). -ac 1 (mono) garante a UI de voz.
+// -b:a 16k mantém o arquivo pequeno: o WhatsApp só mostra o ícone de PLAY (onda) se o
+// áudio tiver ≤512KB; acima disso vira ícone de download. 16k mono cobre ~4min de fala.
 // Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
 function _audioParaOggOpus(buffer) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-f', 'ogg', 'pipe:1']);
+    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-b:a', '16k', '-f', 'ogg', 'pipe:1']);
     const out = [];
     p.stdout.on('data', c => out.push(c));
     p.stderr.resume(); // descarta stderr para o processo não travar com o pipe cheio
@@ -2213,11 +2215,11 @@ app.post('/api/leads/:id/whatsapp/midia', requireAuth, requireConversas, rateLim
     if (mimetype.startsWith('image/')) tipo = 'image';
     else if (mimetype.startsWith('audio/')) tipo = 'audio';
     else if (mimetype.startsWith('video/')) tipo = 'video';
-    // WhatsApp só toca como áudio de voz NATIVO se for OGG/Opus. Chrome grava webm,
-    // iPhone/Safari grava mp4(AAC) e uploads vêm como mp3/m4a — qualquer um desses,
-    // enviado cru, faz o destinatário ver "Este áudio não está mais disponível" e o
-    // player aparecer como não-nativo. Por isso convertemos TODO áudio não-ogg.
-    if (tipo === 'audio' && !mimetype.startsWith('audio/ogg')) {
+    // WhatsApp só renderiza como mensagem de voz NATIVA se for OGG/Opus mono e pequeno.
+    // Chrome grava webm, iPhone/Safari grava mp4(AAC) e uploads vêm como mp3/m4a; até
+    // o ogg do Firefox pode vir estéreo/grande. Convertemos TODO áudio (mesmo ogg) para
+    // garantir mono + bitrate baixo — senão o destinatário recebe como arquivo/download.
+    if (tipo === 'audio') {
       buffer = await _audioParaOggOpus(buffer);
       mimetype = 'audio/ogg';
       originalname = originalname.replace(/\.[a-z0-9]+$/i, '') + '.ogg';

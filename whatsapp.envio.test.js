@@ -74,3 +74,36 @@ test('uploadMidia também usa retry em erro transitório', async () => {
   assert.strictEqual(id, 'MEDIA_1');
   assert.strictEqual(calls(), 2);
 });
+
+// Captura o corpo JSON da última requisição de envio (POST /messages).
+function captureFetch(body = OK) {
+  let last = null;
+  global.fetch = async (_url, init) => {
+    last = init?.body ? JSON.parse(init.body) : null;
+    return { ok: true, status: 200, json: async () => body };
+  };
+  return () => last;
+}
+
+test('enviarMidia de áudio marca voice:true → WhatsApp renderiza como mensagem de voz, não arquivo', async () => {
+  const last = captureFetch();
+  await wa.enviarMidia({ para: '5531999990000', mediaId: 'MEDIA_A', tipo: 'audio' });
+  const payload = last();
+  assert.strictEqual(payload.type, 'audio');
+  assert.strictEqual(payload.audio.id, 'MEDIA_A');
+  assert.strictEqual(payload.audio.voice, true);
+});
+
+test('enviarMidia de áudio ignora caption (mensagem de voz não aceita legenda)', async () => {
+  const last = captureFetch();
+  await wa.enviarMidia({ para: '5531999990000', mediaId: 'MEDIA_A', tipo: 'audio', caption: 'oi' });
+  assert.strictEqual(last().audio.caption, undefined);
+});
+
+test('enviarMidia de documento NÃO leva voice e mantém caption (regressão)', async () => {
+  const last = captureFetch();
+  await wa.enviarMidia({ para: '5531999990000', mediaId: 'MEDIA_D', tipo: 'document', caption: 'contrato' });
+  const payload = last();
+  assert.strictEqual(payload.document.voice, undefined);
+  assert.strictEqual(payload.document.caption, 'contrato');
+});

@@ -148,10 +148,16 @@ async function uploadMidia({ buffer, mimetype, filename, phoneNumberId }) {
 // Envio de mensagem com mídia já carregada (media_id)
 async function enviarMidia({ para, mediaId, tipo, caption, phoneNumberId }) {
   const pid = phoneNumberId || WA_PHONE_ID;
+  // Áudio: 'voice:true' faz o WhatsApp renderizar como MENSAGEM DE VOZ (PTT, bolinha
+  // com onda) em vez de arquivo p/ baixar. Sem esse flag, ogg/opus chega como arquivo.
+  // Mensagem de voz não aceita legenda, então caption é ignorado nesse caso.
+  const midia = tipo === 'audio'
+    ? { id: mediaId, voice: true }
+    : { id: mediaId, ...(caption ? { caption } : {}) };
   const payload = {
     messaging_product: 'whatsapp', to: limparNumero(para),
     type: tipo,
-    [tipo]: { id: mediaId, ...(caption ? { caption } : {}) },
+    [tipo]: midia,
   };
   return _post(pid, _tokenForPhone(pid), payload);
 }
