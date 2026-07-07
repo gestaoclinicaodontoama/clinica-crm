@@ -20,7 +20,7 @@ async function gget(path, params = {}) {
 
 async function coletarPerfil(supabase, chave, ig_id) {
   // 2 páginas de 25 = até 50 mídias mais recentes (feed + reels; stories não vêm em /media)
-  let url = `${ig_id}/media`;
+  const url = `${ig_id}/media`;
   let params = { fields: 'id,caption,media_type,timestamp,permalink', limit: '25' };
   let medias = [];
   for (let pag = 0; pag < 2; pag++) {
@@ -32,18 +32,22 @@ async function coletarPerfil(supabase, chave, ig_id) {
   }
   let gravadas = 0;
   for (const m of medias) {
-    let met = {};
     try {
-      const comPlays = m.media_type === 'VIDEO' ? [...METRICAS_BASE, 'plays'] : METRICAS_BASE;
-      let ins;
-      try { ins = await gget(`${m.id}/insights`, { metric: comPlays.join(',') }); }
-      catch { ins = await gget(`${m.id}/insights`, { metric: METRICAS_BASE.join(',') }); }
-      met = extrairMetricas(ins);
-    } catch { /* mídia sem insight (ex.: muito antiga) — grava só os dados básicos */ }
-    const row = montarLinhaIgPost(chave, m, met);
-    const { error } = await supabase.from('ig_posts').upsert(row, { onConflict: 'media_id' });
-    if (error) throw new Error(`upsert ig_posts ${m.id}: ${error.message}`);
-    gravadas++;
+      let met = {};
+      try {
+        const comPlays = m.media_type === 'VIDEO' ? [...METRICAS_BASE, 'plays'] : METRICAS_BASE;
+        let ins;
+        try { ins = await gget(`${m.id}/insights`, { metric: comPlays.join(',') }); }
+        catch { ins = await gget(`${m.id}/insights`, { metric: METRICAS_BASE.join(',') }); }
+        met = extrairMetricas(ins);
+      } catch { /* mídia sem insight (ex.: muito antiga) — grava só os dados básicos */ }
+      const row = montarLinhaIgPost(chave, m, met);
+      const { error } = await supabase.from('ig_posts').upsert(row, { onConflict: 'media_id' });
+      if (error) throw new Error(`upsert ig_posts ${m.id}: ${error.message}`);
+      gravadas++;
+    } catch (e) {
+      console.error(`[social-media-sync] mídia ${m.id} pulada: ${e.message}`);
+    }
   }
   return gravadas;
 }
@@ -71,7 +75,7 @@ async function runSocialMediaSync({ supabase, trigger = 'manual' }) {
       .insert({ trigger: `social-media-${trigger}`, started_at: new Date().toISOString() })
       .select('id').single();
     logId = ins && ins.id;
-  } catch { /* sync roda mesmo sem log */ }
+  } catch (e) { console.error('[social-media-sync] sync_log insert falhou: ' + e.message); }
 
   const step = async (nome, fn) => {
     try { steps[nome] = await fn() ?? 'ok'; }
@@ -121,7 +125,7 @@ async function runSocialMediaSync({ supabase, trigger = 'manual' }) {
         duration_s: Math.round((Date.now() - t0) / 100) / 10,
         steps, error: erros.join(' | ') || null,
       }).eq('id', logId);
-    } catch {}
+    } catch (e) { console.error('[social-media-sync] sync_log update falhou: ' + e.message); }
   }
   return { ok, steps };
 }
