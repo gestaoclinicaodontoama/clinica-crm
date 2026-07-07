@@ -2830,10 +2830,15 @@ function abrirEditarMeta() {
 function filtrarChats() {
   const q = (document.getElementById('chat-search').value || '').toLowerCase();
   const crcFiltro = document.getElementById('filtro-crc').value;
-  let base = _filtrarParaModo(chatLeads);
-  const _nAguard = base.filter(_isAguardando).length;
+  const doModo = _filtrarParaModo(chatLeads);
+  // Badge "aguardando" reflete SEMPRE a caixa do modo (não a busca).
+  const _nAguard = doModo.filter(_isAguardando).length;
   const _bAg = document.getElementById('badge-aguardando');
   if (_bAg) { _bAg.textContent = _nAguard; _bAg.style.display = _nAguard ? 'block' : 'none'; }
+  // Busca explícita varre TODAS as conversas carregadas — inclusive Perdido/Fechou/Em
+  // negociação, que ficam fora da caixa do modo. Sem isso, a CRC pesquisa um lead
+  // Perdido (ou cuja última msg foi enviada) e ele "não aparece". Sem busca = só a caixa.
+  let base = q ? chatLeads.slice() : doModo;
   const qDig = q.replace(/\D/g, ''); // 8 dígitos finais casam mesmo quando o telefone foi salvo sem o 9º dígito
   const qSuf = qDig.length >= 8 ? qDig.slice(-8) : '';
   if (q) base = base.filter(l => (l.nome||'').toLowerCase().includes(q) || (l.telefone||'').includes(q)
