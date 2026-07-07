@@ -43,6 +43,11 @@
   <div id="erro"></div>
 
   <div class="secao">
+    <h2>⚠️ Parados <span class="count" id="count-parados">0</span></h2>
+    <div class="bloco" id="parados"></div>
+  </div>
+
+  <div class="secao">
     <h2>Para pegar <span class="count" id="count-para-pegar">0</span></h2>
     <div class="bloco" id="para-pegar"></div>
   </div>
@@ -69,6 +74,7 @@ async function carregar() {
   try { d = await request('GET', '/api/comercial/meu-dia'); }
   catch (e) { document.getElementById('erro').textContent = 'Erro ao carregar: ' + e.message; return; }
   document.getElementById('erro').textContent = '';
+  render('parados', d.parados, false);
   render('para-pegar', d.para_pegar, true);
   render('meus-comparecidos', d.meus_comparecidos, false);
   render('minhas-negociacoes', d.minhas_negociacoes, false);
@@ -82,13 +88,16 @@ function render(elId, itens, comPegar) {
   itens = itens || [];
   if (cont) cont.textContent = itens.length;
   if (!itens.length) {
-    el.innerHTML = '<div class="vazio">' + (elId==='followups'
+    el.innerHTML = '<div class="vazio">' + (elId==='parados'
+      ? '🎉 Nada parado — tudo em dia.' : elId==='followups'
       ? 'Nenhum follow-up marcado — use o 📅 no lead.' : 'Nada aqui por enquanto.') + '</div>';
     return;
   }
   el.innerHTML = itens.map(l => {
     const wa = _fone(l.telefone) ? '<a href="https://wa.me/55' + _fone(l.telefone) + '" target="_blank">💬</a>' : '';
-    const extra = l.etapa ? ' · ' + escHtml(l.etapa) : (l.proximo_contato ? ' · vence ' + new Date(l.proximo_contato).toLocaleDateString('pt-BR') : '');
+    const extra = elId === 'parados'
+      ? ' · ' + escHtml(l.etapa) + ' · <b style="color:#dc2626">parado há ' + l.dias_parado + 'd</b>'
+      : (l.etapa ? ' · ' + escHtml(l.etapa) : (l.proximo_contato ? ' · vence ' + new Date(l.proximo_contato).toLocaleDateString('pt-BR') : ''));
     const pegar = comPegar ? '<button onclick="pegar(' + l.id + ',this)">Pegar</button>' : '';
     return '<div class="card"><a href="/?abrir_lead=' + l.id + '">' + escHtml(l.nome||'(sem nome)') + '</a>'
       + extra + ' ' + wa + ' ' + pegar + '</div>';

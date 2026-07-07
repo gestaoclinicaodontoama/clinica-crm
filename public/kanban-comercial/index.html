@@ -233,7 +233,8 @@ function renderCard(lead, slug) {
   const tel = lead.telefone || '';
   const telDigits = tel.replace(/\D/g, '');
   const crc = lead.crc_comercial_nome || lead.crc_agendamento_nome || '';
-  return `<div class="kb-card" draggable="true" data-id="${lead.id}" data-status="${esc(lead.status)}" data-slug="${esc(slug)}" data-etapa="${esc(lead.etapa_negociacao||'')}"
+  const paradoStyle = lead.parado ? ' style="border-left:3px solid #dc2626"' : '';
+  return `<div class="kb-card" draggable="true" data-id="${lead.id}" data-status="${esc(lead.status)}" data-slug="${esc(slug)}" data-etapa="${esc(lead.etapa_negociacao||'')}"${paradoStyle}
     ondragstart="onDragStart(event)" ondragend="onDragEnd(event)"
     onclick="if(!window._kbDragging)abrirLead(${lead.id})">
     <div class="kb-card-top">
@@ -242,6 +243,7 @@ function renderCard(lead, slug) {
     </div>
     <div class="kb-card-tel">${esc(fmtTel(tel))}${crc ? ` · ${esc(crc)}` : ''}</div>
     ${lead.ultimo_contato ? `<div class="kb-card-contato">contato ${timeAgo(lead.ultimo_contato)}</div>` : ''}
+    ${lead.parado ? `<div class="kb-card-contato" style="color:#dc2626;font-weight:700;opacity:1">⏳ parado ${lead.dias_parado}d</div>` : ''}
     <div class="kb-card-foot">
       <span class="kb-badge">${esc(lead.origem || '')}</span>
       ${lead.valor ? `<span class="kb-valor">${fmtBRL(lead.valor)}</span>` : ''}
