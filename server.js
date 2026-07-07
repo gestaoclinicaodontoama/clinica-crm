@@ -735,7 +735,7 @@ async function patchLead(req, res) {
     const { data: lead, error: fetchErr } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
     if (fetchErr) throw fetchErr;
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
-    const leadAntes = { status: lead.status, notas_sdr: lead.notas_sdr };
+    const leadAntes = { status: lead.status, notas_sdr: lead.notas_sdr, etapa_negociacao: lead.etapa_negociacao };
     const ALLOWED = [
       'nome','telefone','email','origem','status','valor','tipo_trat',
       'notas_sdr','notas_avaliacao','notas_comercial','observacao_interna',
@@ -835,6 +835,14 @@ async function patchLead(req, res) {
       if (updated.status === 'Fechou' && updated.gclid && !updated.enviado_google) {
         dispararConversaoGoogle(updated).catch(e => console.error('Google:', e.message));
       }
+    }
+    // Avançar/mudar o D (D1→D2) sem trocar status não gerava evento — logar p/ o
+    // alerta de lead parado (mover o D conta como toque da cadência D0–D5).
+    if (!statusMudou && req.body.etapa_negociacao !== undefined
+        && updated.etapa_negociacao !== leadAntes.etapa_negociacao) {
+      logEvento(updated.id, 'etapa_mudou',
+        'Etapa: ' + (leadAntes.etapa_negociacao || '—') + ' → ' + (updated.etapa_negociacao || '—'),
+        { de: leadAntes.etapa_negociacao, para: updated.etapa_negociacao }, req.user?.id || null);
     }
     if (req._claimComercial) assumirComercialSeSemDono(lead, req.user);
     if (req._notifCompareceu) notificarComercialCompareceu(lead);
@@ -1072,7 +1080,17 @@ app.get('/api/kanban/comercial/:coluna', requireAuth, requireKanbanComercial, ra
       .order(orderField, { ascending: false, nullsFirst: false })
       .range(offset, offset + 29);
     if (error) throw error;
-    res.json({ leads: data, total: count ?? 0, page, hasMore: offset + (data?.length ?? 0) < (count ?? 0) });
+    let leads = data || [];
+    if (['compareceu','d0','d1','d2','d3','d4','d5'].includes(coluna) && leads.length) {
+      const ids = leads.map(l => l.id);
+      const { data: ativ } = await supabase.rpc('leads_ultima_atividade', { p_ids: ids });
+      const mapa = new Map((ativ || []).map(a => [a.lead_id, a]));
+      leads = leads.map(l => {
+        const a = mapa.get(l.id);
+        return a ? { ...l, parado: a.parado, dias_parado: a.dias_parado } : l;
+      });
+    }
+    res.json({ leads, total: count ?? 0, page, hasMore: offset + leads.length < (count ?? 0) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3092,6 +3110,37 @@ async function enviarVarreduraAguardando() {
 
 setInterval(function() {
   enviarVarreduraAguardando().catch(function(e) { console.error('[varredura-aguardando]', e.message); });
+}, 60000);
+
+async function varrerLeadsParados() {
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  const hhmm = new Date().toLocaleTimeString('sv-SE', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  const { data: cfg } = await supabase.from('app_config')
+    .select('comercial_pool, parado_notif_hora, parado_notif_envios').eq('id', 1).maybeSingle();
+  if (!cfg) return;
+  const hora = cfg.parado_notif_hora || '09:00';
+  if (hhmm < hora) return;
+  const pool = Array.isArray(cfg.comercial_pool) ? cfg.comercial_pool : [];
+  const envios = cfg.parado_notif_envios || {};
+  let mudou = false;
+  for (const uid of pool) {
+    if (envios[uid] === hoje) continue;
+    const { data, error } = await supabase.rpc('comercial_meu_dia', { p_uid: uid });
+    if (error) { console.error('[lead-parado] rpc:', error.message); continue; }
+    // marca como enviado SÓ após a RPC ter sucesso (falha transitória → retry no próximo tick;
+    // mesmo bug de dedup-antes-do-sucesso já corrigido na varredura do item 1)
+    envios[uid] = hoje; mudou = true;
+    const n = Array.isArray(data?.parados) ? data.parados.length : 0;
+    if (n > 0) {
+      await criarNotificacao(uid, 'lead_parado', '⚠️ Leads parados',
+        'Você tem ' + n + ' lead' + (n>1?'s':'') + ' parado' + (n>1?'s':'') + ' — resolva no Meu Dia',
+        { url: '/meu-dia/' });
+    }
+  }
+  if (mudou) await supabase.from('app_config').update({ parado_notif_envios: envios }).eq('id', 1);
+}
+setInterval(function () {
+  varrerLeadsParados().catch(function (e) { console.error('[lead-parado]', e.message); });
 }, 60000);
 
 app.post('/api/internal/cron/resumo-crc', requireCronSecret, async (req, res) => {
