@@ -38,16 +38,30 @@ Migration `supabase/migrations/20260707*_enriquecer_emails_leads.sql`. Retorna
 
 1. **Candidatos (pacientes):** `pacientes` com e-mail **válido**
    (`email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'`) e celular com ≥ 8 dígitos.
-   Chave: `right(regexp_replace(telefone_celular,'\D','','g'), 8)`.
-2. **Anti-colisão:** agrupa por sufixo-8 e só mantém sufixos com
-   `count(distinct lower(trim(email))) = 1` — dois pacientes da mesma família com o
-   mesmo e-mail contam como 1 e passam; e-mails distintos no mesmo sufixo = ambíguo,
-   pula.
-3. **Alvos (leads):** `email IS NULL OR email = ''`, telefone com ≥ 8 dígitos, e
+   Chave: `right(regexp_replace(telefone_celular,'\D','','g'), 8)` + primeiro nome
+   normalizado sem acento (`translate(lower(split_part(nome,' ',1)), ...)`).
+2. **Checagem de primeiro nome (ADICIONADA na execução):** casa lead↔paciente por
+   **sufixo-8 E primeiro nome igual**. Descoberto no preview: o sufixo sozinho casava
+   **pessoas diferentes da mesma família** (~40% da amostra — ex.: lead "Fernando"
+   casando com paciente "Camila" no mesmo telefone). O telefone é compartilhado pela
+   família, mas o e-mail é pessoal; o **primeiro nome** distingue quem é quem (o
+   sobrenome a família compartilha, não serve). Exige primeiro nome com ≥ 2 letras
+   (descarta lixo tipo "."). Efeito: precisão alta, ~1.600 leads (vs 1.690 sem a
+   checagem, mas com ~40% de e-mail da pessoa errada).
+3. **Anti-colisão:** agrupa por **(sufixo, primeiro nome)** e só mantém combinações com
+   `count(distinct lower(trim(email))) = 1`. Dois parentes de nomes diferentes no mesmo
+   telefone agora se separam por nome (cada um casa com o seu); dois e-mails distintos
+   para o mesmo (sufixo, nome) = ambíguo, pula.
+4. **Alvos (leads):** `email IS NULL OR email = ''`, telefone com ≥ 8 dígitos, e
    **telefone que NÃO começa com `0`** — zero à esquerda é a convenção da casa para
-   familiar compartilhando o número do titular (regra: NUNCA mesclar); enriquecer
-   esses leads colocaria o e-mail da pessoa errada.
-4. **Update:** `leads.email = lower(trim(email))` do paciente casado.
+   familiar compartilhando o número do titular (regra: NUNCA mesclar).
+5. **Update:** `leads.email = lower(trim(email))` do paciente casado.
+
+**Limitação residual aceita:** o e-mail é o "de cadastro" do paciente no Clinicorp;
+às vezes é um e-mail de família (ex.: paciente Maria cadastrada com o e-mail do marido
+José). Como lead e paciente são a mesma pessoa (nome bate), é o melhor contato que
+temos para ela — aceitável. O que a checagem elimina é o caso pior: e-mail de **outra
+pessoa** (lead ≠ paciente).
 
 **Segurança (regra do CLAUDE.md):** função nasce trancada —
 `REVOKE ALL ... FROM PUBLIC, anon, authenticated; GRANT EXECUTE ... TO service_role`.
