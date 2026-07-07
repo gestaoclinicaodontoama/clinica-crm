@@ -51,6 +51,10 @@ const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16
 const webpush = require('web-push');
 const capiHealth = require('./lib/capi/health');
 const { METRICAS: MKT_METRICAS, metricaPorKey: mktMetricaPorKey } = require('./lib/marketing/qualidade');
+const { podeTransicionar, STATUS_VALIDOS } = require('./lib/social-media/status');
+const { sugerirVinculos } = require('./lib/social-media/matching');
+const { runSocialMediaSync } = require('./sync/social-media-sync');
+let _smSyncRodando = false; // usado pelas rotas /api/social-media/sync e pelo scheduler diário
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
     'mailto:gestao.clinicaodontoama@gmail.com',
@@ -4961,6 +4965,30 @@ async function runGuardedSync(trigger) {
   setInterval(() => verificarEExecutar().catch(() => {}), 10 * 60_000); // a cada 10 min
   console.log('[sync-diario] scheduler self-healing ativo (verifica a cada 10 min, janela 02:00 BRT)');
 })();
+
+// Sync diário do social media às 03:15 BRT (self-healing por polling, gate no sync_log)
+(function agendarSyncSocialMedia() {
+  function janelaHoje() {
+    const agora = Date.now();
+    const brt = new Date(agora - 3 * 3600e3);
+    const alvo = Date.UTC(brt.getUTCFullYear(), brt.getUTCMonth(), brt.getUTCDate(), 3 + 3, 15); // 03:15 BRT em UTC
+    return agora >= alvo ? new Date(alvo).toISOString() : null;
+  }
+  async function verificarEExecutar() {
+    const janela = janelaHoje();
+    if (!janela || _smSyncRodando) return;
+    try {
+      const { data } = await supabase.from('sync_log').select('id')
+        .eq('trigger', 'social-media-diario').gte('started_at', janela).limit(1);
+      if (data && data.length) return;
+      _smSyncRodando = true;
+      try { await runSocialMediaSync({ supabase, trigger: 'diario' }); }
+      finally { _smSyncRodando = false; }
+    } catch { _smSyncRodando = false; }
+  }
+  setTimeout(() => verificarEExecutar().catch(() => {}), 45_000);
+  setInterval(() => verificarEExecutar().catch(() => {}), 10 * 60_000);
+})();
 // ========== SYNC MANUAL ==========
 // POST /api/admin/sync-clinicorp  — dispara sync imediatamente (sem esperar as 2h)
 app.post('/api/admin/sync-clinicorp', requireAuth, async (req, res) => {
@@ -7104,6 +7132,138 @@ app.put('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), as
     if (error) throw new Error(error.message);
     res.json({ ok: true });
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// ==================== SOCIAL MEDIA (Agente de Social Media — Fase 1) ====================
+const requireSocialMedia = requireRole('admin', 'gestor', 'mod_social_media');
+const SM_CAMPOS_EDITAVEIS = ['data_hora','perfil','titulo','formato','redes','legenda','hashtags','link_drive','observacoes'];
+
+app.get('/api/social-media/config', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('sm_config').select('exigir_aprovacao, perfis').eq('id', 1).maybeSingle();
+    if (error) throw error;
+    res.json(data || {});
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/social-media/config', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+  try {
+    const patch = { id: 1, atualizado_em: new Date().toISOString() };
+    if (typeof req.body.exigir_aprovacao === 'boolean') patch.exigir_aprovacao = req.body.exigir_aprovacao;
+    const { error } = await supabase.from('sm_config').upsert(patch, { onConflict: 'id' });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/social-media/posts', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const desde = req.query.desde || new Date(Date.now() - 30 * 864e5).toISOString();
+    const ate = req.query.ate || new Date(Date.now() + 30 * 864e5).toISOString();
+    const { data, error } = await supabase.from('sm_posts').select('*')
+      .gte('data_hora', desde).lte('data_hora', ate).order('data_hora', { ascending: true }).limit(500);
+    if (error) throw error;
+    res.json({ posts: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/social-media/posts', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.data_hora || !b.perfil || !b.titulo) return res.status(400).json({ error: 'data_hora, perfil e titulo são obrigatórios' });
+    const row = { status: 'rascunho', criado_por: req.user.id };
+    for (const k of SM_CAMPOS_EDITAVEIS) if (b[k] !== undefined) row[k] = b[k];
+    const { data, error } = await supabase.from('sm_posts').insert(row).select('*').single();
+    if (error) throw error;
+    res.json({ post: data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/social-media/posts/:id', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const { data: atual, error: e1 } = await supabase.from('sm_posts').select('*').eq('id', id).maybeSingle();
+    if (e1) throw e1;
+    if (!atual) return res.status(404).json({ error: 'post não encontrado' });
+    const patch = { atualizado_em: new Date().toISOString() };
+    for (const k of SM_CAMPOS_EDITAVEIS) if (b[k] !== undefined) patch[k] = b[k];
+    if (b.status && b.status !== atual.status) {
+      if (!STATUS_VALIDOS.includes(b.status)) return res.status(400).json({ error: 'status inválido' });
+      const { data: cfg } = await supabase.from('sm_config').select('exigir_aprovacao').eq('id', 1).maybeSingle();
+      const roles = (req.user.profile && req.user.profile.roles) || [];
+      const t = podeTransicionar({ de: atual.status, para: b.status, roles, exigirAprovacao: cfg ? cfg.exigir_aprovacao : true });
+      if (!t.ok) return res.status(403).json({ error: t.motivo });
+      patch.status = b.status;
+      if (b.status === 'aprovado') { patch.aprovado_por = req.user.id; patch.aprovado_em = new Date().toISOString(); }
+    }
+    const { data, error } = await supabase.from('sm_posts').update(patch).eq('id', id).select('*').single();
+    if (error) throw error;
+    res.json({ post: data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/social-media/posts/:id/vincular', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const mediaId = req.body.media_id ? String(req.body.media_id) : null;
+    const { data: atual, error: e1 } = await supabase.from('sm_posts').select('*').eq('id', id).maybeSingle();
+    if (e1) throw e1;
+    if (!atual) return res.status(404).json({ error: 'post não encontrado' });
+    const patch = { ig_media_id: mediaId, atualizado_em: new Date().toISOString() };
+    if (mediaId) {
+      patch.redes = { ...(atual.redes || {}), instagram: 'publicado' };
+      if (atual.status === 'aprovado') patch.status = 'publicado';
+    }
+    const { data, error } = await supabase.from('sm_posts').update(patch).eq('id', id).select('*').single();
+    if (error) throw error;
+    res.json({ post: data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/social-media/ig-posts', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const dias = Math.min(Number(req.query.dias) || 30, 90);
+    let q = supabase.from('ig_posts').select('*')
+      .gte('ig_timestamp', new Date(Date.now() - dias * 864e5).toISOString())
+      .order('ig_timestamp', { ascending: false }).limit(200);
+    if (req.query.perfil) q = q.eq('perfil', req.query.perfil);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ posts: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/social-media/sugestoes', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const desde = new Date(Date.now() - 14 * 864e5).toISOString();
+    const { data: posts, error: e1 } = await supabase.from('sm_posts')
+      .select('id, perfil, data_hora').in('status', ['aprovado', 'publicado'])
+      .is('ig_media_id', null).gte('data_hora', desde).limit(200);
+    if (e1) throw e1;
+    const { data: vinc, error: e2 } = await supabase.from('sm_posts')
+      .select('ig_media_id').not('ig_media_id', 'is', null).limit(1000);
+    if (e2) throw e2;
+    const usados = new Set((vinc || []).map(v => v.ig_media_id));
+    const { data: medias, error: e3 } = await supabase.from('ig_posts')
+      .select('media_id, perfil, ig_timestamp, caption, permalink')
+      .gte('ig_timestamp', desde).order('ig_timestamp', { ascending: false }).limit(200);
+    if (e3) throw e3;
+    const livres = (medias || []).filter(m => !usados.has(m.media_id));
+    const porId = Object.fromEntries(livres.map(m => [m.media_id, m]));
+    const sugestoes = sugerirVinculos(posts || [], livres).map(s => ({
+      ...s, caption: (porId[s.media_id].caption || '').slice(0, 120), permalink: porId[s.media_id].permalink,
+    }));
+    res.json({ sugestoes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/social-media/sync', requireAuth, requireSocialMedia, async (req, res) => {
+  if (_smSyncRodando) return res.status(429).json({ error: 'sync já em andamento' });
+  _smSyncRodando = true;
+  try { res.json(await runSocialMediaSync({ supabase, trigger: 'manual' })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+  finally { _smSyncRodando = false; }
 });
 
 // Cache de thumbnails de anúncios (em memória, TTL 6h)
