@@ -46,10 +46,10 @@
       for (const p of doDia) {
         const c = document.createElement('div'); c.className = 'card';
         c.innerHTML = `
-          <span class="pill perfil-${p.perfil}">${p.perfil === 'ama' ? 'AMA' : 'Dr. Marcos'}</span>
-          <span class="pill p-${p.status}">${p.status.replace('_', ' ')}</span>
+          <span class="pill perfil-${esc(p.perfil)}">${p.perfil === 'ama' ? 'AMA' : 'Dr. Marcos'}</span>
+          <span class="pill p-${esc(p.status)}">${esc(p.status.replace('_', ' '))}</span>
           <div class="t">${esc(p.titulo)}</div>
-          <div class="h">${fmtHora(p.data_hora)} · ${p.formato}</div>
+          <div class="h">${fmtHora(p.data_hora)} · ${esc(p.formato)}</div>
           <div class="redes">${REDES.map(r => {
             const on = p.redes && p.redes[r] === 'publicado';
             return `<span class="rede ${on ? 'on' : ''}" data-post="${p.id}" data-rede="${r}">${on ? '✓ ' : ''}${REDE_LBL[r]}</span>`;
@@ -72,9 +72,9 @@
       const p = posts.find(x => x.id === s.post_id);
       const div = document.createElement('div'); div.className = 'sug';
       div.innerHTML = `🔗 <b>${esc(p ? p.titulo : 'post #' + s.post_id)}</b> parece ser
-        <a href="${s.permalink || '#'}" target="_blank" rel="noopener">este post do IG</a>
+        <a href="${esc(safeUrl(s.permalink))}" target="_blank" rel="noopener">este post do IG</a>
         (Δ ${s.delta_horas}h) — “${esc(s.caption || '')}”
-        <button class="btn-primary" data-post="${s.post_id}" data-media="${s.media_id}">Vincular</button>`;
+        <button class="btn-primary" data-post="${esc(s.post_id)}" data-media="${esc(s.media_id)}">Vincular</button>`;
       div.querySelector('button').addEventListener('click', async (ev) => {
         await smApi(`/api/social-media/posts/${ev.target.dataset.post}/vincular`, { method: 'PUT', body: { media_id: ev.target.dataset.media } });
         carregar();
@@ -101,7 +101,7 @@
     $('#f-legenda').value = p ? p.legenda : '';
     $('#f-hashtags').value = p ? p.hashtags : '';
     $('#f-obs').value = p ? p.observacoes : '';
-    $('#mp-status').innerHTML = p ? `Status: <span class="pill p-${p.status}">${p.status.replace('_', ' ')}</span>` : '';
+    $('#mp-status').innerHTML = p ? `Status: <span class="pill p-${esc(p.status)}">${esc(p.status.replace('_', ' '))}</span>` : '';
     montarAcoes(p);
     $('#modal-post-bg').style.display = 'flex';
   }
@@ -149,6 +149,7 @@
     return new Date(+d - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
   }
   const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const safeUrl = (u) => (typeof u === 'string' && /^https:\/\//i.test(u)) ? u : '#';
 
   // Config modal
   $('#bt-cfg').addEventListener('click', async () => {
