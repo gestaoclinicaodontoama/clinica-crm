@@ -165,7 +165,7 @@ select has_function_privilege('anon','public.comercial_meu_dia(uuid)','EXECUTE')
        has_function_privilege('anon','public.leads_ultima_atividade(bigint[])','EXECUTE') as anon_lua,
        has_function_privilege('service_role','public.leads_ultima_atividade(bigint[])','EXECUTE') as svc_lua;
 ```
-Expected: `parados` > 0 (esperado ~21 Compareceu + alguns negociação); `leads_ultima_atividade` retorna 5 linhas com `dias_parado`/`parado`; `anon_cmd=false`, `anon_lua=false`, `svc_lua=true`. Conferir `list_migrations`.
+Expected: ⚠️ `parados` = **0 HOJE e isso é CORRETO** — o bloco exige `crc_comercial_id` preenchido (parados = travados DE ALGUÉM) e o dono comercial começou a popular agora no item 3; medido em prod: com dono=0, sem exigir dono=44. NÃO "conserte" o 0 relaxando o filtro. A cobertura dos 44 sem-dono vem de: "para_pegar" (Meu Dia) + card vermelho do kanban (a `leads_ultima_atividade` NÃO exige dono — teste dela abaixo deve mostrar `parado=true` em vários). `leads_ultima_atividade` retorna 5 linhas com `dias_parado`/`parado` (espera-se true na maioria — Compareceu está 84% parado); `anon_cmd=false`, `anon_lua=false`, `svc_lua=true`. Conferir `list_migrations`.
 
 - [ ] **Step 3: Commit**
 
@@ -235,9 +235,11 @@ async function varrerLeadsParados() {
   let mudou = false;
   for (const uid of pool) {
     if (envios[uid] === hoje) continue;
-    envios[uid] = hoje; mudou = true;
     const { data, error } = await supabase.rpc('comercial_meu_dia', { p_uid: uid });
     if (error) { console.error('[lead-parado] rpc:', error.message); continue; }
+    // marca como enviado SÓ após a RPC ter sucesso (falha transitória → retry no próximo tick;
+    // mesmo bug de dedup-antes-do-sucesso já corrigido na varredura do item 1)
+    envios[uid] = hoje; mudou = true;
     const n = Array.isArray(data?.parados) ? data.parados.length : 0;
     if (n > 0) {
       await criarNotificacao(uid, 'lead_parado', '⚠️ Leads parados',

@@ -60,6 +60,8 @@ Uma função `varrerLeadsParados()` num `setInterval` (padrão da varredura de f
 
 ## Erros e bordas
 
+- ⚠️ **O bloco `parados` nasce em ~0 e isso é correto:** ele exige dono (`crc_comercial_id`), que começou a popular no item 3 (hoje=0). Os 44 travados SEM dono (medido 06/07) são cobertos por "para_pegar" (Meu Dia) e pelo card vermelho do kanban (que NÃO exige dono). O bloco enche conforme as CRC pegarem leads.
+
 - Lead sem nenhum evento de atividade real (só teve capi/criação) → `ultima_atividade` cai no `coalesce` (data_comparecimento/data_avaliacao/criado_em), então conta desde aí — correto (nunca foi trabalhado = parado).
 - `proximo_contato` no futuro exclui o lead do "parado" (respeitando o plano da CRC); se a data passar sem atividade, volta a contar.
 - Duas telas (Meu Dia bloco + kanban card) usam o MESMO critério (última atividade + prazo da etapa) — consistência garantida.
