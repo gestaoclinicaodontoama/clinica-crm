@@ -3238,6 +3238,11 @@ async function _enviarEventoMetaUnico(lead, eventName) {
   if (lead.telefone) user_data.ph = [sha256(lead.telefone)];
   if (lead.email) user_data.em = [sha256(lead.email)];
   if (lead.nome) user_data.fn = [sha256(lead.nome.split(' ')[0])];
+  // external_id: identificador estável da pessoa (hash). Prefere o telefone
+  // (mesma normalização do ph → casável com públicos, 100% de cobertura) e cai
+  // para o id do lead quando não houver telefone. Adiciona match key (melhora o
+  // EMQ) e conecta os eventos do funil da mesma pessoa.
+  user_data.external_id = [sha256(lead.telefone || ('lead_' + lead.id))];
   if (isCTWA) {
     user_data.ctwa_clid = lead.ctwa_clid;
     // Prefere a Página resolvida pelo próprio anúncio; cai para o fallback por env.
