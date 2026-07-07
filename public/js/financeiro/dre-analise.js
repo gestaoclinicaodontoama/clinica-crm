@@ -154,8 +154,9 @@
     const ultimo = mesesCompletos[mesesCompletos.length - 1];
     const porConta = new Map(); // codigo → { nome, porMes: {ym: total} }
     for (const m of mesesCompletos) for (const g of (m.grupos || [])) {
-      // 2 = imposto segue a receita (subir junto não é estouro); 8 = distribuição é decisão
-      if (g.codigo === '1' || g.codigo === '2' || g.codigo === '8') continue;
+      // 2 = imposto segue a receita (subir junto não é estouro); 8 = distribuição é decisão;
+      // 9 = provisão é reserva, não custo de operar
+      if (g.codigo === '1' || g.codigo === '2' || g.codigo === '8' || g.codigo === '9') continue;
       for (const c of (g.contas || [])) {
         if (!porConta.has(c.codigo)) porConta.set(c.codigo, { nome: c.nome, porMes: {} });
         porConta.get(c.codigo).porMes[m.ym] = c.total;

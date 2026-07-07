@@ -20,6 +20,9 @@
     // Distribuição de lucro: abaixo da linha — sem alerta de anomalia (é decisão, não estouro)
     { tipo: 'grupo', codigo: '8', natureza: 'saida', semAnomalia: true },
     { tipo: 'subtotal', chave: 'resultadoAposDistribuicoes', label: 'RESULTADO APÓS DISTRIBUIÇÕES' },
+    // Provisões: reserva p/ gasto futuro. Memorando — não afeta o resultado, sem anomalia,
+    // e SEM subtotal depois (não existe "resultado após provisões"). Ver spec 2026-07-07.
+    { tipo: 'grupo', codigo: '9', natureza: 'saida', semAnomalia: true },
   ];
 
   const $ = (id) => document.getElementById(id);
