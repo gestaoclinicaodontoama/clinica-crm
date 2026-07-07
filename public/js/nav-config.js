@@ -68,7 +68,7 @@
       { slug: 'conv-avaliacao',    label: 'WhatsApp CRC Comercial', roles: 'admin,gestor,crc_comercial,crc_sucesso',        mode: 'spa' },
     ]},
 
-    { id: 'marketing', label: 'Marketing', icon: 'marketing', roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso,mod_publicos', items: [
+    { id: 'marketing', label: 'Marketing', icon: 'marketing', roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso,mod_publicos,mod_social_media', items: [
       { slug: 'funil',               label: 'Funil',                roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso', mode: 'spa' },
       { slug: 'comercial-dashboard', label: 'Dashboard Comercial',  roles: 'admin,gestor,crc_comercial',                      mode: 'link', href: '/comercial/dashboard.html' },
       { slug: 'disparos',            label: 'Disparos',             roles: 'admin,gestor,crc_comercial',                      mode: 'spa', badge: { id: 'nav-disp-badge', inline: true } },
@@ -76,6 +76,7 @@
       { slug: 'publicos',            label: 'Públicos',             roles: 'admin,gestor,crc_comercial,mod_publicos',          mode: 'link', href: '/publicos/' },
       { slug: 'capi-saude',          label: 'Saúde do CAPI',        roles: 'admin,gestor',                                    mode: 'link', href: '/capi-saude/' },
       { slug: 'marketing-agente',    label: 'Agente de Marketing',  roles: 'admin,gestor',                                    mode: 'link', href: '/marketing-agente/' },
+      { slug:'social-media', label:'Social Media', roles:'admin,gestor,mod_social_media', mode:'link', href:'/social-media/' },
     ]},
 
     { id: 'crc-sucesso', label: 'CRC Sucesso do Cliente', icon: 'sucesso', roles: 'admin,gestor,crc_sucesso,crc_comercial', items: [
