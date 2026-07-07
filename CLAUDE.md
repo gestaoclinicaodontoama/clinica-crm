@@ -123,3 +123,33 @@ Incluir o novo role no `roles` do item em `public/js/nav-config.js` (fonte únic
 Project ID: `mtqdpjhhqzvuklnlfpvi`
 Aplicar via MCP Supabase em ordem crescente de timestamp.
 Após aplicar, verificar com `list_migrations`.
+
+## ⚠️ Segurança Postgres — RLS e funções (OBRIGATÓRIO)
+
+> Contexto: o **servidor** conecta com `SUPABASE_SERVICE_ROLE_KEY` (ignora RLS e
+> grants). O **front** usa a anon key + login (`signInWithPassword`) → papel
+> `authenticated`. Por padrão o Postgres/PostgREST **expõe tabela e função nova ao
+> `anon`** — ou seja, qualquer um com a anon key (que é pública, fica no navegador)
+> acessa **sem login**, contornando o `requireAuth`/`requireRole` do Express. Já
+> houve vazamento assim (07/2026: 27 tabelas + ~23 funções abertas a `anon`).
+
+**Toda TABELA nova** (mesmo backup/temporária) nasce com:
+```sql
+ALTER TABLE public.<tabela> ENABLE ROW LEVEL SECURITY;
+-- adicionar policy só se o FRONT ler a tabela direto (logado); senão deixar sem policy
+-- (o servidor via service_role acessa mesmo sem policy).
+```
+
+**Toda FUNÇÃO nova `SECURITY DEFINER`** (e, por segurança, qualquer RPC exposta) nasce trancada:
+```sql
+REVOKE ALL ON FUNCTION public.<nome>(<args>) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.<nome>(<args>) TO service_role;
+-- + TO authenticated SÓ se o front chamar a função LOGADO via supabase-js .rpc()
+```
+⚠️ Revogar só de `anon` **não basta** — o grant a `PUBLIC` continua valendo. Sempre
+`FROM PUBLIC, anon, authenticated`. Nunca deixe `authenticated` numa função de
+gestão de usuário/dados sensíveis (qualquer logado poderia chamá-la direto).
+
+**Regra de ouro:** o front só deve tocar o banco direto para leitura logada de coisas
+não-sensíveis. Toda ação sensível (financeiro, usuários, PII de paciente) passa pelo
+`/api` do servidor, que checa `requireRole` e usa service_role.
