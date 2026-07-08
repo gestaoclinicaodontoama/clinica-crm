@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saúde dos Syncs — Clínica AMA</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --border:#334155; --text:#e2e8f0; --muted:#94a3b8;
+          --green:#4ade80; --yellow:#facc15; --red:#f87171; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f1f5f9; --card:#fff; --border:#e2e8f0; --text:#0f172a; --muted:#64748b; }
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; }
+  main { max-width:1000px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.3rem; margin:8px 0 2px; }
+  h2 { font-size:1.05rem; margin:22px 0 8px; display:flex; align-items:center; gap:8px; }
+  .pill { padding:2px 10px; border-radius:999px; font-size:.78rem; font-weight:600; }
+  .pill.ok  { background:rgba(74,222,128,.15); color:var(--green); }
+  .pill.bad { background:rgba(248,113,113,.15); color:var(--red); }
+  .sub { color:var(--muted); font-size:.85rem; margin-bottom:14px; }
+  button { background:var(--card); color:var(--text); border:1px solid var(--border);
+           border-radius:8px; padding:6px 14px; cursor:pointer; font-size:.85rem; }
+  table { width:100%; border-collapse:collapse; background:var(--card);
+          border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  th, td { padding:8px 10px; text-align:left; font-size:.86rem; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:600; font-size:.78rem; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+  .dot.ok{background:var(--green)} .dot.bad{background:var(--red)}
+  .dot.warn{background:var(--yellow)} .dot.mut{background:var(--muted)}
+  .just { color:var(--muted); font-size:.8rem; padding:4px 10px 10px 26px; }
+  .just b { color:var(--text); }
+  .hist { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .hist span { font-size:.75rem; padding:3px 8px; border-radius:6px; background:var(--card);
+               border:1px solid var(--border); color:var(--muted); }
+  .hist span.bad { color:var(--red); border-color:var(--red); }
+  .erro-item { background:var(--card); border:1px solid var(--border); border-radius:8px;
+               padding:8px 10px; font-size:.82rem; margin-top:6px; color:var(--red); }
+  .erro-item small { color:var(--muted); display:block; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🩺 Saúde dos Syncs</h1>
+  <div class="sub" id="sub">carregando…</div>
+  <button id="recheck">Re-checar agora</button>
+  <div id="jobs"></div>
+</main>
+<script src="/js/sync-saude/api.js"></script>
+<script>
+const ESTADO_LBL = {
+  ok: ['ok', '✅ rodou normal'], falhou: ['bad', '🔴 última rodada FALHOU'],
+  travou: ['bad', '🔴 começou e não terminou (travou)'], nao_rodou: ['bad', '🔴 NÃO RODOU na janela de hoje'],
+};
+const ST = { ok:['ok','normal'], erro:['bad','ERRO'], zerou:['bad','ZEROU'],
+             abaixo:['warn','abaixo do normal'], neutro:['mut','—'], sumiu:['mut','sumiu da última rodada'] };
+
+// Verbetes: o que a fase faz · o que significa desviar · o que checar primeiro.
+const FASE_INFO = {
+  agendamentos: 'Puxa agendamentos do Clinicorp (30d passados + 60d futuros). Zerar quase nunca é "dia sem consulta" — desconfie da API do Clinicorp. Checar: erros na fase e se pagamentos também caiu.',
+  pagamentos: 'Pagamentos dos últimos 30 dias no Clinicorp. Zerado em dia útil é implausível — provável falha da API financeira.',
+  orcamentos_abertos: 'Orçamentos em aberto. Queda brusca já aconteceu por mudança no endpoint do Clinicorp (passou a exigir datas).',
+  novos_pacientes: 'Cadastra pacientes novos detectados. 0 pode ser dia fraco; vários dias em 0 com clínica cheia = investigar.',
+  emails_leads: 'Preenche e-mail dos leads com o cadastro do Clinicorp (alimenta o CAPI/EMQ). 0 é normal em dia sem paciente novo; desconfie se novos_pacientes também caiu.',
+  pacientes_abc: 'Atualiza a base da Curva ABC. Segue agendamentos+pagamentos — se eles caíram, esta cai junto.',
+  funil_config: 'Carrega a configuração do funil (avaliadores). Só alarma se der erro.',
+  avaliacoes_funil: 'Avaliações do funil comercial (Dashboard/Conferência). Zerado = funil de avaliações congelado.',
+  orcamentos_funil: 'Orçamentos do funil (alimenta a Conferência). Zerado = aprovações novas param de chegar.',
+  producao: 'Procedimentos executados (90d) — alimenta a Análise por Dentista.',
+  prevencao: 'Eventos de prevenção — alimenta Retorno de Prevenção/Curva ABC.',
+  agenda: 'Consultas da agenda (90d) — alimenta ocupação e recuperação de falta. Zerado quebra a detecção de remarcação.',
+  leads_vinculados: 'Liga avaliações/orçamentos aos leads por telefone. 0 pode ser normal; dias seguidos em 0 com leads novos = investigar.',
+  leads_fechados: 'Avança leads para Fechou quando o orçamento aprova (dispara Purchase no CAPI). 0 é comum.',
+  entradas: 'Casa o 1º pagamento dos leads fechados. 0 é comum em dia fraco.',
+  avaliacoes_validas: 'Marca avaliações com orçamento em 60d. Acompanha as fases do funil.',
+  fechamentos_reabertos: 'Reabre fechados cujo tratamento mudou. Quase sempre 0 — normal.',
+  pendentes_notificados: 'Avisa a CRC de pendências novas na Conferência.',
+  config: 'Carrega a configuração do social media. Só alarma se der erro.',
+  resolver_perfis: 'Resolve os IDs de IG/página no Meta. "sem mudança" é o normal.',
+  midias_dr_marcos: 'Posts do IG do Dr. Marcos + métricas. Erro (#10) = permissão do token no BM.',
+  midias_ama: 'Posts do IG da Clínica AMA. "pulado (sem ig_id)" é a pendência conhecida do BM — vira número quando o acesso for liberado.',
+  snapshot_dr_marcos: 'Snapshot diário de seguidores do Dr. Marcos.',
+};
+const GENERICO = 'Fase nova (sem verbete ainda). Se estiver 🔴/🟡, confira a mensagem de erro e compare com o típico.';
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDt = iso => iso ? new Date(iso).toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo' }) : '—';
+
+function renderJob(j) {
+  const [cls, lbl] = ESTADO_LBL[j.estado] || ['mut', j.estado];
+  let html = `<h2>${esc(j.label)} <span class="pill ${cls === 'ok' ? 'ok' : 'bad'}">${esc(lbl)}</span></h2>`;
+  if (j.ultima) html += `<div class="sub">última rodada: ${fmtDt(j.ultima.quando)} · ${esc(j.ultima.duracao_s)}s · gatilho ${esc(j.ultima.trigger)}</div>`;
+  else html += `<div class="sub">nenhuma rodada registrada ainda</div>`;
+  if (j.fases.length) {
+    html += '<table><tr><th></th><th>Fase</th><th>Hoje</th><th>Típico</th><th>Status</th></tr>';
+    const ordem = { erro:0, zerou:1, abaixo:2, sumiu:3, ok:4, neutro:5 };
+    for (const f of [...j.fases].sort((a,b) => (ordem[a.status]??9) - (ordem[b.status]??9))) {
+      const [dcls, dlbl] = ST[f.status] || ['mut', f.status];
+      html += `<tr><td><span class="dot ${dcls}"></span></td><td>${esc(f.fase)}</td>`
+        + `<td>${esc(f.hoje == null ? '—' : f.hoje)}</td><td>${esc(f.tipico == null ? '—' : f.tipico)}</td><td>${esc(dlbl)}</td></tr>`;
+      if (['erro','zerou','abaixo','sumiu'].includes(f.status)) {
+        const info = FASE_INFO[f.fase] || GENERICO;
+        html += `<tr><td colspan="5" class="just"><b>Por que importa:</b> ${esc(info)}`
+          + (f.msg ? `<br><b>Erro:</b> ${esc(f.msg)}` : '') + `</td></tr>`;
+      }
+    }
+    html += '</table>';
+  }
+  if (j.erros.length) {
+    html += j.erros.map(e => `<div class="erro-item">${esc(e.msg)}<small>${fmtDt(e.quando)}</small></div>`).join('');
+  }
+  html += '<div class="hist">' + j.historico.map(hh =>
+    `<span class="${hh.ok === false ? 'bad' : ''}">${fmtDt(hh.quando).slice(0, 10)} ${hh.ok === false ? '✗' : (hh.ok ? '✓' : '…')}</span>`).join('') + '</div>';
+  return html;
+}
+
+async function carregar(recheck) {
+  const d = recheck ? await api('/api/admin/sync-saude/recheck', { method: 'POST' })
+                    : await api('/api/admin/sync-saude');
+  const ruins = d.jobs.filter(j => j.estado !== 'ok').length
+    + d.jobs.reduce((n, j) => n + j.fases.filter(f => ['erro','zerou','abaixo'].includes(f.status)).length, 0);
+  document.getElementById('sub').innerHTML =
+    `<span class="pill ${ruins ? 'bad' : 'ok'}">${ruins ? '⚠️ ' + ruins + ' ponto(s) de atenção' : '✅ tudo normal'}</span>`
+    + ` · atualizado ${fmtDt(d.atualizadoEm)}`;
+  document.getElementById('jobs').innerHTML = d.jobs.map(renderJob).join('');
+}
+
+document.getElementById('recheck').onclick = () => carregar(true).catch(e => alert(e.message));
+carregar().catch(e => { document.getElementById('sub').textContent = 'Erro: ' + e.message; });
+</script>
+<script src="/js/shared-nav.js" data-active="sync-saude"></script>
+</body>
+</html>

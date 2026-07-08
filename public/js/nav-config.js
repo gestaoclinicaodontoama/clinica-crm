@@ -75,6 +75,7 @@
       { slug: 'conv-oficial',        label: 'WhatsApp API Oficial', roles: 'admin,gestor',                                    mode: 'spa' },
       { slug: 'publicos',            label: 'Públicos',             roles: 'admin,gestor,crc_comercial,mod_publicos',          mode: 'link', href: '/publicos/' },
       { slug: 'capi-saude',          label: 'Saúde do CAPI',        roles: 'admin,gestor',                                    mode: 'link', href: '/capi-saude/' },
+      { slug: 'sync-saude',          label: 'Saúde dos Syncs',      roles: 'admin,gestor',                                    mode: 'link', href: '/sync-saude/' },
       { slug: 'marketing-agente',    label: 'Agente de Marketing',  roles: 'admin,gestor',                                    mode: 'link', href: '/marketing-agente/' },
       { slug:'social-media', label:'Social Media', roles:'admin,gestor,mod_social_media', mode:'link', href:'/social-media/' },
     ]},
