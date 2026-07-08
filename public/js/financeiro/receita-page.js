@@ -56,32 +56,55 @@
       `sozinho, menos o resultado depende de vender naquele mês.`;
   }
 
-  function renderMeta(d) {
-    $('meta-lucro').value = d.lucroAlvo || '';
-    const m = d.meta;
-    if (!m || m.erro) {
-      $('meta-linhas').innerHTML = '<div class="meta-linha"><span>Réguas indisponíveis — a DRE precisa de meses fechados.</span></div>';
-      return;
+  function renderCalculadora(d) {
+    const mi = d.metaInputs || {}, m = d.meta || {};
+    $('calc-fat').value = mi.metaFaturamento ?? '';
+    if (mi.lucroPct != null) { $('calc-lucro-modo').value = 'pct'; $('calc-lucro').value = Math.round(mi.lucroPct * 1000) / 10; }
+    else { $('calc-lucro-modo').value = 'reais'; $('calc-lucro').value = mi.lucroReais ?? ''; }
+    $('calc-receb').value = mi.recebiveisLiquidos ?? '';
+    $('calc-pagar').value = mi.contasAPagar ?? '';
+    const det = mi.detalhe || {};
+    $('calc-receb-det').textContent = `medido: ${fmt(det.recorrenteCru)} contratados × ${pct(det.taxa)} de realização + convênio ${fmt(det.convenio)}`;
+    $('calc-pagar-det').textContent = `medido: média das saídas dos últimos 6 meses (${fmt(mi.defaults?.pagar)})`;
+    if (m.erro) { $('calc-resultados').innerHTML = `<div class="meta-linha"><span>${m.erro === 'contas a pagar indisponiveis' ? 'Contas a pagar indisponíveis — a DRE precisa de meses fechados.' : m.erro}</span></div>`; return; }
+    const linha = (rot, v) => `<div class="meta-linha"><span>${rot}</span><b>${v}</b></div>`;
+    const pctFat = (a) => a.pctFat != null ? ` (${pct(a.pctFat)} da meta de faturamento)` : '';
+    let html = '<div class="calc-res">';
+    html += `<div class="meta-destaque">Empatar o mês</div>`;
+    html += linha('Entrada mínima', fmt(m.breakEven.entrada) + pctFat(m.breakEven));
+    if (m.comLucro) {
+      html += `<div class="meta-destaque">Com o lucro desejado</div>`;
+      html += linha('Caixa total necessário', fmt(m.comLucro.fluxoNecessario));
+      html += linha('Lucro projetado', fmt(m.comLucro.lucroProjetado));
+      html += linha('Entrada necessária', fmt(m.comLucro.entrada) + pctFat(m.comLucro));
     }
-    const linha = (rot, alvo) => {
-      if (!alvo) return '';
-      const fech = alvo.fechamentos != null ? ` · ~${alvo.fechamentos} fechamentos` : '';
-      const vend = alvo.vendasNecessarias != null ? ` (≈ ${fmt(alvo.vendasNecessarias)} em vendas${fech})` : '';
-      return `<div class="meta-linha"><span>${rot} — meta de entrada ${fmt(alvo.metaEntrada)}</span>` +
-        (alvo.batida ? '<b class="ok">✅ meta batida</b>'
-          : `<b>faltam ${fmt(alvo.restante)}${vend}</b>`) + '</div>';
-    };
-    $('meta-linhas').innerHTML =
-      `<div class="meta-destaque">${$('meta-lucro').value ? '' : 'Defina um lucro-alvo acima, ou acompanhe o empate:'}</div>` +
-      linha('Empatar o mês', m.empate) +
-      linha(`Com lucro de ${fmt(d.lucroAlvo)}`, m.comLucro) +
-      `<div class="meta-linha"><span>Entrada já recebida no mês</span><b>${fmt(d.mesCorrente?.entradaRecebida)}</b></div>` +
-      `<div class="meta-linha"><span>Dias úteis restantes</span><b>${(d.diasUteisRestantes ?? '—').toLocaleString('pt-BR')}</b></div>`;
-    $('meta-entenda').textContent =
-      `Meta de entrada = saída total média (${fmt(d.reguas?.saidaTotal)}) + lucro-alvo − convênio médio ` +
-      `(${fmt(d.reguas?.convenioMedio)}) − recorrente previsto (${fmt(d.mesCorrente?.recorrentePrevisto)}). ` +
-      `A tradução em vendas usa a razão histórica entrada÷venda (${pct(d.razaoEntradaVenda?.razao)}) ` +
-      `e o valor médio por fechamento do mês (${fmt(d.ticket)}).`;
+    const p = m.progresso || {};
+    html += `<div class="meta-destaque">Andamento do mês</div>`;
+    html += linha('Entrada já recebida', fmt(d.mesCorrente?.entradaRecebida));
+    html += p.batida ? linha('Situação', '<span style="color:var(--green)">✅ meta de entrada batida</span>')
+      : linha('Faltam', fmt(p.restante) +
+          (p.vendasNecessarias != null ? ` · ≈ ${fmt(p.vendasNecessarias)} em vendas` : '') +
+          (p.fechamentos != null ? ` · ~${p.fechamentos} fechamentos` : '') +
+          ` · ${(d.diasUteisRestantes ?? '—').toLocaleString('pt-BR')} dias úteis`);
+    if (m.viabilidade) {
+      const t = { confortavel: '🟢 Confortável', justo: '🟡 Justo', apertado: '🔴 Apertado' }[m.viabilidade.status];
+      html += `<div class="verd ${m.viabilidade.status}">${t}: você precisa que ${pct(m.viabilidade.necessarioPct)} do faturamento vire entrada — historicamente ${pct(m.viabilidade.historicoPct)} vira.` +
+        (m.viabilidade.status === 'apertado' ? ' Venda acima da meta, negocie entradas maiores ou aceite lucro menor.' : '') + `</div>`;
+    }
+    $('calc-resultados').innerHTML = html + '</div>';
+  }
+
+  function renderSafras(d) {
+    const arr = d.safra || [];
+    const mesTxt = (v) => v == null ? '—' : v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'm';
+    $('safra-contratado').innerHTML =
+      '<thead><tr><th>Safra</th><th>Aprovado</th><th>Prazo contratado</th></tr></thead><tbody>' +
+      arr.map(s => `<tr><td>${rotulo(s.safra)}</td><td>${fmt(s.aprovado)}</td><td>${mesTxt(s.prazoContratado)}</td></tr>`).join('') + '</tbody>';
+    $('safra-real').innerHTML =
+      '<thead><tr><th>Safra</th><th>Contratado</th><th>Real até agora</th><th>% recebido</th></tr></thead><tbody>' +
+      arr.map(s => `<tr class="${s.emCurso ? 'em-curso' : ''}"><td>${rotulo(s.safra)}${s.emCurso ? ' *' : ''}</td>` +
+        `<td>${mesTxt(s.prazoContratado)}</td><td>${mesTxt(s.prazoReal)}</td><td>${pct(s.pctRecebido)}</td></tr>`).join('') +
+      '</tbody><tfoot><tr><td colspan="4" style="font-size:11px;color:var(--muted);text-align:left">* em curso — prazo real ainda provisório</td></tr></tfoot>';
   }
 
   function renderDecomposicao(d, c) {
@@ -168,7 +191,8 @@
     $('nota-velho').style.display = (Date.now() - quando.getTime() > 36 * 3600 * 1000) ? '' : 'none';
     const c = cores();
     renderSintese(d, c);
-    renderMeta(d);
+    renderCalculadora(d);
+    renderSafras(d);
     renderDecomposicao(d, c);
     renderRumo(d, c);
     renderColchao(d, c);
@@ -181,12 +205,24 @@
     render(dados);
   }
 
-  $('meta-salvar').addEventListener('click', async () => {
-    const v = Number($('meta-lucro').value);
-    if (!(v >= 0)) { alert('Informe um valor de lucro maior ou igual a zero.'); return; }
-    const b = $('meta-salvar'); b.disabled = true;
-    try { await FinAPI.analiseReceitaMeta(ymAtual + '-01', v); await carregar(); }
-    catch (e) { alert('Erro ao salvar a meta: ' + e.message); }
+  $('calc-salvar').addEventListener('click', async () => {
+    const num = (id) => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
+    const lucro = num('calc-lucro');
+    const modoPct = $('calc-lucro-modo').value === 'pct';
+    if (modoPct && lucro != null && (lucro < 0 || lucro >= 95)) { alert('Lucro em % deve ficar entre 0 e 94.'); return; }
+    const body = { mes: ymAtual + '-01',
+      meta_faturamento: num('calc-fat'),
+      lucro_alvo: modoPct ? null : lucro,
+      lucro_alvo_pct: modoPct && lucro != null ? Math.round(lucro * 10) / 1000 : null,
+      recebiveis_override: num('calc-receb'),
+      pagar_override: num('calc-pagar') };
+    // campo igual ao default medido → null (volta a acompanhar o medido)
+    const mi = dados?.metaInputs || {};
+    if (body.recebiveis_override === mi.defaults?.recebiveis) body.recebiveis_override = null;
+    if (body.pagar_override === mi.defaults?.pagar) body.pagar_override = null;
+    const b = $('calc-salvar'); b.disabled = true;
+    try { await FinAPI.analiseReceitaMeta(body); await carregar(); }
+    catch (e) { alert('Erro ao salvar: ' + e.message); }
     finally { b.disabled = false; }
   });
 

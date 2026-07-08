@@ -51,6 +51,18 @@ th:first-child,td:first-child { text-align:left; }
 th { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
 .tot td { font-weight:700; border-top:2px solid var(--border); }
 @media (max-width:700px){ .wrap{padding:12px} .chart-wrap{height:240px} }
+.calc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin-bottom:12px; }
+.calc-grid label { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:4px; }
+.calc-grid input, .calc-grid select { padding:7px 10px; border-radius:8px; border:1px solid var(--border);
+  background:var(--bg3); color:var(--text); font-family:inherit; font-size:13px; width:100%; }
+.calc-grid small { font-size:10.5px; color:var(--muted); }
+.calc-res { margin-top:14px; }
+.calc-res .meta-destaque { font-size:15px; font-weight:700; margin:10px 0 4px; }
+.verd { padding:8px 12px; border-radius:8px; font-size:13px; font-weight:600; margin-top:10px; }
+.verd.confortavel { background:rgba(34,197,94,.12); color:var(--green); }
+.verd.justo { background:rgba(245,158,11,.14); color:var(--yellow); }
+.verd.apertado { background:rgba(239,68,68,.12); color:var(--red); }
+tr.em-curso td { color:var(--muted); font-style:italic; }
 </style>
 </head>
 <body>
@@ -79,14 +91,28 @@ th { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--
   </div>
 
   <div class="card">
-    <h2>🎯 Meta do mês</h2>
-    <div class="meta-input">
-      <label>Quero fechar o mês com lucro de R$</label>
-      <input type="number" id="meta-lucro" min="0" step="1000" placeholder="0">
-      <button class="btn btn-primary" id="meta-salvar">Salvar</button>
+    <h2>🧮 Calculadora do mês</h2>
+    <div class="calc-grid">
+      <label>Meta de faturamento do mês (R$)<input type="number" id="calc-fat" min="0" step="1000" placeholder="ex.: 400000"></label>
+      <label>Meta de lucro
+        <span style="display:flex;gap:6px">
+          <input type="number" id="calc-lucro" min="0" step="1" placeholder="0">
+          <select id="calc-lucro-modo"><option value="pct">%</option><option value="reais">R$</option></select>
+        </span>
+      </label>
+      <label>Recebíveis líquidos do mês (R$)<input type="number" id="calc-receb" min="0" step="1000"><small id="calc-receb-det"></small></label>
+      <label>Contas a pagar do mês (R$)<input type="number" id="calc-pagar" min="0" step="1000"><small id="calc-pagar-det"></small></label>
     </div>
-    <div id="meta-linhas"></div>
-    <details class="entenda"><summary>▸ entenda</summary><p id="meta-entenda"></p></details>
+    <button class="btn btn-primary" id="calc-salvar">Salvar e recalcular</button>
+    <div id="calc-resultados"></div>
+    <details class="entenda"><summary>▸ entenda</summary>
+      <p>Réplica da sua planilha: entrada mínima para empatar = contas a pagar −
+      recebíveis líquidos; entrada para o lucro = (contas a pagar ÷ (1 − lucro%)) −
+      recebíveis. Os campos já vêm com os números MEDIDOS (recebíveis = recorrente
+      contratado × realização histórica + convênio médio; contas a pagar = média real
+      dos últimos 6 meses) — edite para simular. O veredito compara a entrada
+      necessária (% da meta de faturamento) com o que historicamente vira entrada
+      a cada venda.</p></details>
   </div>
 
   <div class="card">
@@ -118,6 +144,26 @@ th { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--
       vencem nos próximos meses, ajustadas pela taxa histórica de queda real.
       "Meses garantidos" = por quantos meses seguidos esse valor cobre as
       despesas fixas.</p></details>
+  </div>
+
+  <div class="card">
+    <h2>🌾 Prazo contratado por safra</h2>
+    <table id="safra-contratado"></table>
+    <details class="entenda"><summary>▸ entenda</summary>
+      <p>Cada safra = os contratos lançados naquele mês. Prazo contratado = em quantos
+      meses, na média (ponderada pelo valor), esse dinheiro foi combinado de entrar.
+      Número definitivo desde o dia da venda: se ele cresce, você está parcelando mais
+      longo e o caixa futuro escorre mais devagar.</p></details>
+  </div>
+  <div class="card">
+    <h2>🌾 Contratado × realidade</h2>
+    <table id="safra-real"></table>
+    <details class="entenda"><summary>▸ entenda</summary>
+      <p>Compara o prazo combinado com o prazo em que o dinheiro está caindo DE FATO,
+      e mostra quanto da safra já virou caixa. Safras com menos de 6 meses aparecem
+      "em curso": o prazo real delas ainda vai crescer (só viram os primeiros
+      pagamentos). Real sistematicamente MAIOR que o contratado = recebíveis
+      escorregando.</p></details>
   </div>
 
   <div class="card">
