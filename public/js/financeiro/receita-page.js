@@ -26,7 +26,11 @@
   async function comRetry(fn) {
     for (let i = 0; ; i++) {
       try { return await fn(); }
-      catch (e) { if (i >= 2) throw e; await new Promise(r => setTimeout(r, i === 0 ? 1500 : 3000)); }
+      catch (e) {
+        const retriavel = e.status == null || e.status >= 500;
+        if (!retriavel || i >= 2) throw e;
+        await new Promise(r => setTimeout(r, i === 0 ? 1500 : 3000));
+      }
     }
   }
 
@@ -65,7 +69,7 @@
       const vend = alvo.vendasNecessarias != null ? ` (≈ ${fmt(alvo.vendasNecessarias)} em vendas${fech})` : '';
       return `<div class="meta-linha"><span>${rot} — meta de entrada ${fmt(alvo.metaEntrada)}</span>` +
         (alvo.batida ? '<b class="ok">✅ meta batida</b>'
-          : `<b>faltam ${fmt(alvo.restante)}${vend}</b></div>`) + '</div>';
+          : `<b>faltam ${fmt(alvo.restante)}${vend}</b>`) + '</div>';
     };
     $('meta-linhas').innerHTML =
       `<div class="meta-destaque">${$('meta-lucro').value ? '' : 'Defina um lucro-alvo acima, ou acompanhe o empate:'}</div>` +
