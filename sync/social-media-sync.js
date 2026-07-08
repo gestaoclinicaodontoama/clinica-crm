@@ -66,7 +66,8 @@ async function snapshotPerfil(supabase, chave, ig_id) {
   if (error) throw new Error(`upsert snapshot ${chave}: ${error.message}`);
 }
 
-async function coletarRadar(supabase, config) {
+// persistir=false: dry-run (smoke/teste) — coleta sem gravar status no sm_config de produção
+async function coletarRadar(supabase, config, { persistir = true } = {}) {
   const radar = Array.isArray(config.radar) ? config.radar : [];
   if (!radar.length) return 'sem perfis configurados';
   const anchor = config.perfis && config.perfis.dr_marcos && config.perfis.dr_marcos.ig_id;
@@ -102,7 +103,7 @@ async function coletarRadar(supabase, config) {
       console.error(`[social-media-sync] radar @${item.username}: ${e.message}`);
     }
   }
-  if (mudou) {
+  if (mudou && persistir) {
     try {
       const { error } = await supabase.from('sm_config').update({ radar, atualizado_em: new Date().toISOString() }).eq('id', 1);
       if (error) console.error('[social-media-sync] persistir status do radar falhou: ' + error.message);
