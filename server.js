@@ -70,6 +70,7 @@ const syncHealth = require('./lib/sync/health');
 const { METRICAS: MKT_METRICAS, metricaPorKey: mktMetricaPorKey } = require('./lib/marketing/qualidade');
 const { podeTransicionar, STATUS_VALIDOS } = require('./lib/social-media/status');
 const { mediana, montarSelos, agregarPorChave, bucketHorarioBRT, gerarDestaques } = require('./lib/social-media/desempenho');
+const { montarCobertura, rankRadar, validarSugestoes, montarFatosPauta, montarFatosAnalise } = require('./lib/social-media/ia');
 const { sugerirVinculos } = require('./lib/social-media/matching');
 const { runSocialMediaSync } = require('./sync/social-media-sync');
 let _smSyncRodando = false; // usado pelas rotas /api/social-media/sync e pelo scheduler diário
@@ -7356,7 +7357,7 @@ const SM_CAMPOS_EDITAVEIS = ['data_hora','perfil','titulo','formato','redes','le
 
 app.get('/api/social-media/config', requireAuth, requireSocialMedia, async (req, res) => {
   try {
-    const { data, error } = await supabase.from('sm_config').select('exigir_aprovacao, perfis').eq('id', 1).maybeSingle();
+    const { data, error } = await supabase.from('sm_config').select('exigir_aprovacao, perfis, radar').eq('id', 1).maybeSingle();
     if (error) throw error;
     res.json(data || {});
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -7366,6 +7367,15 @@ app.put('/api/social-media/config', requireAuth, requireRole('admin', 'gestor'),
   try {
     const patch = { id: 1, atualizado_em: new Date().toISOString() };
     if (typeof req.body.exigir_aprovacao === 'boolean') patch.exigir_aprovacao = req.body.exigir_aprovacao;
+    if (Array.isArray(req.body.radar)) {
+      let atuais = {};
+      try {
+        const { data: cfgAtual } = await supabase.from('sm_config').select('radar').eq('id', 1).maybeSingle();
+        for (const r of (cfgAtual && cfgAtual.radar) || []) atuais[r.username] = r;
+      } catch (e) { console.error('[social-media] ler radar atual falhou: ' + e.message); }
+      const lista = [...new Set(req.body.radar.map(u => String(u).replace(/^@/, '').trim().toLowerCase()).filter(u => /^[a-z0-9._]{1,30}$/.test(u)))].slice(0, 10);
+      patch.radar = lista.map(u => atuais[u] || { username: u, status: 'pendente', followers: null });
+    }
     const { error } = await supabase.from('sm_config').upsert(patch, { onConflict: 'id' });
     if (error) throw error;
     res.json({ ok: true });
@@ -7482,42 +7492,153 @@ app.post('/api/social-media/sync', requireAuth, requireSocialMedia, async (req, 
   finally { _smSyncRodando = false; }
 });
 
-app.get('/api/social-media/desempenho/tatico', requireAuth, requireSocialMedia, async (req, res) => {
+const _smHojeBRT = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+
+async function _smCobertura(perfil, dTaticos) {
+  let snapshotDias = 0, amaAtiva = false;
   try {
-    const perfil = req.query.perfil === 'ama' ? 'ama' : 'dr_marcos';
-    const { data: ult, error } = await supabase.from('ig_posts').select('*')
-      .eq('perfil', perfil).order('ig_timestamp', { ascending: false }).limit(30);
+    const { count, error } = await supabase.from('ig_perfil_snapshot').select('data', { count: 'exact', head: true }).eq('perfil', perfil);
     if (error) throw error;
-    const posts30 = ult || [];
-    if (!posts30.length) return res.json({ sem_dados: true, posts: [], formatos: [], temas: [], sem_tema: 0, horarios: [], destaques: [] });
+    snapshotDias = count || 0;
+  } catch (e) { console.error('[social-media] cobertura snapshot: ' + e.message); }
+  try {
+    const { data: cfg } = await supabase.from('sm_config').select('perfis').eq('id', 1).maybeSingle();
+    amaAtiva = !!(cfg && cfg.perfis && cfg.perfis.ama && cfg.perfis.ama.ig_id);
+  } catch (e) { console.error('[social-media] cobertura config: ' + e.message); }
+  const total = (dTaticos.posts30 || []).length;
+  return montarCobertura({
+    snapshotDias, amaAtiva,
+    postsComTema: total - (dTaticos.semTema || 0),
+    totalPosts: total,
+    radarColetados: new Set((dTaticos.radar || []).map(r => r.username)).size,
+  });
+}
 
-    const medianas = {
-      reach: mediana(posts30.map(p => p.reach)),
-      total_interactions: mediana(posts30.map(p => p.total_interactions)),
-      shares: mediana(posts30.map(p => p.shares)),
-      saved: mediana(posts30.map(p => p.saved)),
-    };
-    const { data: vinc, error: e2 } = await supabase.from('sm_posts')
-      .select('ig_media_id, tema').in('ig_media_id', posts30.map(p => p.media_id)).not('tema', 'is', null).limit(200);
-    if (e2) throw e2;
-    const temaPor = Object.fromEntries((vinc || []).map(v => [v.ig_media_id, v.tema]));
-
-    const posts15 = posts30.slice(0, 15).map(p => ({ ...p, selos: montarSelos(p, medianas), tema: temaPor[p.media_id] || null }));
-    const formatos = agregarPorChave(posts30, p => p.media_type || null);
-    const comTema = posts30.filter(p => temaPor[p.media_id]).map(p => ({ ...p, tema: temaPor[p.media_id] }));
-    const temas = agregarPorChave(comTema, p => p.tema);
-    const horarios = agregarPorChave(posts30.filter(p => p.ig_timestamp), p => {
-      const b = bucketHorarioBRT(p.ig_timestamp);
-      return `${b.dia} · ${b.faixa}`;
-    });
-    const destaques = gerarDestaques(posts15, medianas, formatos);
-    res.json({ posts: posts15, medianas, formatos, temas, sem_tema: posts30.length - comTema.length, horarios, destaques });
+app.post('/api/social-media/ia/pauta', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const perfil = (req.body && req.body.perfil) === 'ama' ? 'ama' : 'dr_marcos';
+    const force = !!(req.body && (req.body.force === true || req.body.force === 1 || req.body.force === '1'));
+    const chave = `pauta:${perfil}:${_smHojeBRT()}`;
+    if (!force) {
+      const { data: c } = await supabase.from('sm_ia_cache').select('*').eq('chave', chave).maybeSingle();
+      if (c && (Date.now() - new Date(c.atualizado_em).getTime()) < 24 * 3600e3)
+        return res.json({ ...c.payload, atualizado_em: c.atualizado_em, cache: true });
+    }
+    const d = await _smDadosTaticos(perfil);
+    if (d.sem_dados) return res.status(400).json({ error: 'sem dados de posts para este perfil ainda' });
+    const cobertura = await _smCobertura(perfil, d);
+    // fronteira financeira: este pacote NÃO contém nenhum dado de gasto/faturamento/funil
+    const fatos = montarFatosPauta({ perfil, posts30: d.posts30, medianas: d.medianas, formatos: d.formatos, temas: d.temas, semTema: d.semTema, horarios: d.horarios, destaques: d.destaques, radarTop: d.radar, cobertura });
+    const { data: out } = await geminiLib().sugerirPautaSocial({ fatos, hoje: _smHojeBRT() });
+    const v = validarSugestoes(out.sugestoes, _smHojeBRT());
+    if (!v.ok) return res.status(502).json({ error: 'IA devolveu sugestões inválidas — tente 🔄. Detalhe: ' + v.erros.join('; ') });
+    const payload = { sugestoes: out.sugestoes, observacoes_cobertura: out.observacoes_cobertura };
+    try {
+      await supabase.from('sm_ia_cache').upsert({ chave, fatos, payload, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+    } catch (e) { console.error('[social-media] cache pauta falhou: ' + e.message); }
+    res.json({ ...payload, atualizado_em: new Date().toISOString(), cache: false });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/social-media/desempenho/mensal', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+async function _smFatosAnalise(mesQuery) {
+  const dadosMensais = await _smDadosMensais(mesQuery);
+  let funil = null;
   try {
-    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7);
+    const ini = dadosMensais.mes + '-01';
+    const [yy, mm] = dadosMensais.mes.split('-').map(Number);
+    const fim = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10); // último dia do mês
+    const { data: rows, error } = await supabase.rpc('marketing_qualidade_lead', { p_desde: ini, p_ate: fim });
+    if (error) throw error;
+    const lista = (rows || []).sort((a, b) => (b.total || 0) - (a.total || 0)).slice(0, 10)
+      .map(r => ({ campanha_id: r.campanha_id || '(sem campanha)', leads: r.total, por_status: r.por_status }));
+    funil = { total_leads: (rows || []).reduce((s, r) => s + (r.total || 0), 0), top_campanhas: lista };
+  } catch (e) { console.error('[social-media] funil na análise falhou: ' + e.message); }
+  const dTat = await _smDadosTaticos('dr_marcos');
+  const cobertura = await _smCobertura('dr_marcos', dTat);
+  return montarFatosAnalise({ dadosMensais, radarTop: dTat.radar || [], funil, cobertura });
+}
+
+app.get('/api/social-media/ia/analise', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : _smHojeBRT().slice(0, 7);
+    const chave = `analise:${mes}`;
+    if (req.query.force !== '1') {
+      const { data: c } = await supabase.from('sm_ia_cache').select('*').eq('chave', chave).maybeSingle();
+      if (c && (Date.now() - new Date(c.atualizado_em).getTime()) < 24 * 3600e3)
+        return res.json({ ...c.payload, atualizado_em: c.atualizado_em, cache: true });
+    }
+    const fatos = await _smFatosAnalise(mes);
+    const { data: out } = await geminiLib().analisarSocialMedia({ fatos });
+    try {
+      await supabase.from('sm_ia_cache').upsert({ chave, fatos, payload: out, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+    } catch (e) { console.error('[social-media] cache análise falhou: ' + e.message); }
+    res.json({ ...out, atualizado_em: new Date().toISOString(), cache: false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/social-media/ia/pergunta', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+  try {
+    const pergunta = String((req.body && req.body.pergunta) || '').trim();
+    if (!pergunta || pergunta.length > 300) return res.status(400).json({ error: 'pergunta vazia ou longa demais (máx. 300 caracteres)' });
+    const mes = /^\d{4}-\d{2}$/.test((req.body && req.body.mes) || '') ? req.body.mes : _smHojeBRT().slice(0, 7);
+    const fatos = await _smFatosAnalise(mes);
+    const { data: out } = await geminiLib().perguntarSocialMedia({ fatos, pergunta });
+    res.json({ resposta: out.resposta });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+async function _smDadosTaticos(perfil) {
+  const { data: ult, error } = await supabase.from('ig_posts').select('*')
+    .eq('perfil', perfil).order('ig_timestamp', { ascending: false }).limit(30);
+  if (error) throw error;
+  const posts30 = ult || [];
+
+  // radar é buscado ANTES do early-return de sem_dados (o bloco 📡 funciona sem posts próprios)
+  let radar = [];
+  try {
+    const { data: rrows, error: eRad } = await supabase.from('radar_posts').select('*')
+      .gte('ig_timestamp', new Date(Date.now() - 30 * 864e5).toISOString())
+      .order('ig_timestamp', { ascending: false }).limit(200);
+    if (eRad) throw eRad;
+    radar = rankRadar(rrows || []);
+  } catch (e) { console.error('[social-media] radar no tático falhou: ' + e.message); }
+
+  if (!posts30.length) return { sem_dados: true, radar };
+
+  const medianas = {
+    reach: mediana(posts30.map(p => p.reach)),
+    total_interactions: mediana(posts30.map(p => p.total_interactions)),
+    shares: mediana(posts30.map(p => p.shares)),
+    saved: mediana(posts30.map(p => p.saved)),
+  };
+  const { data: vinc, error: e2 } = await supabase.from('sm_posts')
+    .select('ig_media_id, tema').in('ig_media_id', posts30.map(p => p.media_id)).not('tema', 'is', null).limit(200);
+  if (e2) throw e2;
+  const temaPor = Object.fromEntries((vinc || []).map(v => [v.ig_media_id, v.tema]));
+
+  const posts15 = posts30.slice(0, 15).map(p => ({ ...p, selos: montarSelos(p, medianas), tema: temaPor[p.media_id] || null }));
+  const formatos = agregarPorChave(posts30, p => p.media_type || null);
+  const comTema = posts30.filter(p => temaPor[p.media_id]).map(p => ({ ...p, tema: temaPor[p.media_id] }));
+  const temas = agregarPorChave(comTema, p => p.tema);
+  const horarios = agregarPorChave(posts30.filter(p => p.ig_timestamp), p => {
+    const b = bucketHorarioBRT(p.ig_timestamp);
+    return `${b.dia} · ${b.faixa}`;
+  });
+  const destaques = gerarDestaques(posts15, medianas, formatos);
+  return { posts30, medianas, posts15, formatos, temas, semTema: posts30.length - comTema.length, horarios, destaques, radar };
+}
+
+app.get('/api/social-media/desempenho/tatico', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const perfil = req.query.perfil === 'ama' ? 'ama' : 'dr_marcos';
+    const d = await _smDadosTaticos(perfil);
+    if (d.sem_dados) return res.json({ sem_dados: true, posts: [], formatos: [], temas: [], sem_tema: 0, horarios: [], destaques: [], radar: d.radar || [] });
+    res.json({ posts: d.posts15, medianas: d.medianas, formatos: d.formatos, temas: d.temas, sem_tema: d.semTema, horarios: d.horarios, destaques: d.destaques, radar: d.radar });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+async function _smDadosMensais(mesQuery) {
+    const mes = /^\d{4}-\d{2}$/.test(mesQuery || '') ? mesQuery : new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7);
     const ini = new Date(mes + '-01T03:00:00Z'); // 00:00 BRT
     const fim = new Date(ini); fim.setUTCMonth(fim.getUTCMonth() + 1);
     const iniAnt = new Date(ini); iniAnt.setUTCMonth(iniAnt.getUTCMonth() - 1);
@@ -7588,7 +7709,12 @@ app.get('/api/social-media/desempenho/mensal', requireAuth, requireRole('admin',
       }
     } catch { /* metade RPC fica null */ }
 
-    res.json({ mes, perfis, disciplina, pago, cobertura: 'coleta ativa desde jul/2026 — meses anteriores incompletos' });
+    return { mes, perfis, disciplina, pago, cobertura: 'coleta ativa desde jul/2026 — meses anteriores incompletos' };
+}
+
+app.get('/api/social-media/desempenho/mensal', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+  try {
+    res.json(await _smDadosMensais(req.query.mes));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
