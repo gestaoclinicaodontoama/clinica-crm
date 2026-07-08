@@ -53,6 +53,7 @@ const capiHealth = require('./lib/capi/health');
 const syncHealth = require('./lib/sync/health');
 const { METRICAS: MKT_METRICAS, metricaPorKey: mktMetricaPorKey } = require('./lib/marketing/qualidade');
 const { podeTransicionar, STATUS_VALIDOS } = require('./lib/social-media/status');
+const { mediana, montarSelos, agregarPorChave, bucketHorarioBRT, gerarDestaques } = require('./lib/social-media/desempenho');
 const { sugerirVinculos } = require('./lib/social-media/matching');
 const { runSocialMediaSync } = require('./sync/social-media-sync');
 let _smSyncRodando = false; // usado pelas rotas /api/social-media/sync e pelo scheduler diário
@@ -7267,7 +7268,7 @@ app.put('/api/marketing/config', requireAuth, requireRole('admin', 'gestor'), as
 
 // ==================== SOCIAL MEDIA (Agente de Social Media — Fase 1) ====================
 const requireSocialMedia = requireRole('admin', 'gestor', 'mod_social_media');
-const SM_CAMPOS_EDITAVEIS = ['data_hora','perfil','titulo','formato','redes','legenda','hashtags','link_drive','observacoes'];
+const SM_CAMPOS_EDITAVEIS = ['data_hora','perfil','titulo','formato','redes','legenda','hashtags','link_drive','observacoes','tema'];
 
 app.get('/api/social-media/config', requireAuth, requireSocialMedia, async (req, res) => {
   try {
@@ -7395,6 +7396,116 @@ app.post('/api/social-media/sync', requireAuth, requireSocialMedia, async (req, 
   try { res.json(await runSocialMediaSync({ supabase, trigger: 'manual' })); }
   catch (e) { res.status(500).json({ error: e.message }); }
   finally { _smSyncRodando = false; }
+});
+
+app.get('/api/social-media/desempenho/tatico', requireAuth, requireSocialMedia, async (req, res) => {
+  try {
+    const perfil = req.query.perfil === 'ama' ? 'ama' : 'dr_marcos';
+    const { data: ult, error } = await supabase.from('ig_posts').select('*')
+      .eq('perfil', perfil).order('ig_timestamp', { ascending: false }).limit(30);
+    if (error) throw error;
+    const posts30 = ult || [];
+    if (!posts30.length) return res.json({ sem_dados: true, posts: [], formatos: [], temas: [], sem_tema: 0, horarios: [], destaques: [] });
+
+    const medianas = {
+      reach: mediana(posts30.map(p => p.reach)),
+      total_interactions: mediana(posts30.map(p => p.total_interactions)),
+      shares: mediana(posts30.map(p => p.shares)),
+      saved: mediana(posts30.map(p => p.saved)),
+    };
+    const { data: vinc, error: e2 } = await supabase.from('sm_posts')
+      .select('ig_media_id, tema').in('ig_media_id', posts30.map(p => p.media_id)).not('tema', 'is', null).limit(200);
+    if (e2) throw e2;
+    const temaPor = Object.fromEntries((vinc || []).map(v => [v.ig_media_id, v.tema]));
+
+    const posts15 = posts30.slice(0, 15).map(p => ({ ...p, selos: montarSelos(p, medianas), tema: temaPor[p.media_id] || null }));
+    const formatos = agregarPorChave(posts30, p => p.media_type || null);
+    const comTema = posts30.filter(p => temaPor[p.media_id]).map(p => ({ ...p, tema: temaPor[p.media_id] }));
+    const temas = agregarPorChave(comTema, p => p.tema);
+    const horarios = agregarPorChave(posts30.filter(p => p.ig_timestamp), p => {
+      const b = bucketHorarioBRT(p.ig_timestamp);
+      return `${b.dia} · ${b.faixa}`;
+    });
+    const destaques = gerarDestaques(posts15, medianas, formatos);
+    res.json({ posts: posts15, medianas, formatos, temas, sem_tema: posts30.length - comTema.length, horarios, destaques });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/social-media/desempenho/mensal', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7);
+    const ini = new Date(mes + '-01T03:00:00Z'); // 00:00 BRT
+    const fim = new Date(ini); fim.setUTCMonth(fim.getUTCMonth() + 1);
+    const iniAnt = new Date(ini); iniAnt.setUTCMonth(iniAnt.getUTCMonth() - 1);
+
+    async function somaMes(perfil, de, ate) {
+      const { data, error } = await supabase.from('ig_posts').select('reach, total_interactions')
+        .eq('perfil', perfil).gte('ig_timestamp', de.toISOString()).lt('ig_timestamp', ate.toISOString()).limit(500);
+      if (error) throw error;
+      const rows = data || [];
+      return {
+        posts: rows.length,
+        alcance: rows.reduce((s, r) => s + (r.reach || 0), 0),
+        interacoes: rows.reduce((s, r) => s + (r.total_interactions || 0), 0),
+      };
+    }
+    async function seguidoresMes(perfil) {
+      const { data, error } = await supabase.from('ig_perfil_snapshot').select('data, followers')
+        .eq('perfil', perfil).gte('data', mes + '-01').lt('data', fim.toISOString().slice(0, 10))
+        .order('data', { ascending: true }).limit(40);
+      if (error) throw error;
+      const rows = (data || []).filter(r => r.followers != null);
+      return rows.length ? { serie: rows, ganho: rows[rows.length - 1].followers - rows[0].followers } : { serie: [], ganho: null };
+    }
+
+    const perfis = {};
+    for (const perfil of ['dr_marcos', 'ama']) {
+      perfis[perfil] = {
+        atual: await somaMes(perfil, ini, fim),
+        anterior: await somaMes(perfil, iniAnt, ini),
+        seguidores: await seguidoresMes(perfil),
+      };
+    }
+
+    const { data: smRows, error: eSm } = await supabase.from('sm_posts').select('status')
+      .gte('data_hora', ini.toISOString()).lt('data_hora', fim.toISOString()).limit(500);
+    if (eSm) throw eSm;
+    const { count: atrasados, error: eAt } = await supabase.from('sm_posts')
+      .select('id', { count: 'exact', head: true }).eq('status', 'aprovado').lt('data_hora', new Date().toISOString());
+    if (eAt) throw eAt;
+    const disciplina = {
+      planejados: (smRows || []).filter(r => r.status !== 'cancelado').length,
+      publicados: (smRows || []).filter(r => r.status === 'publicado').length,
+      atrasados: atrasados || 0,
+    };
+
+    // Pago — cada metade degrada separada (null = indisponível)
+    const pago = { gasto: null, leads: null, faturamento: null, caixa: null };
+    const ymdIni = mes + '-01';
+    const ymdFim = new Date(+fim - 864e5).toISOString().slice(0, 10);
+    try {
+      const TOKEN = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
+      const tr = encodeURIComponent(JSON.stringify({ since: ymdIni, until: ymdFim }));
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const r = await fetch(`https://graph.facebook.com/${META_API_VERSION}/act_${META_AD_ACCOUNT_ID}/insights?level=account&fields=spend&time_range=${tr}`,
+          { headers: { Authorization: 'Bearer ' + TOKEN }, signal: ctrl.signal });
+        const j = await r.json();
+        if (!j.error && j.data && j.data[0]) pago.gasto = Number(j.data[0].spend) || 0;
+      } finally { clearTimeout(to); }
+    } catch { /* pago.gasto fica null */ }
+    try {
+      const { data: rpc, error: eR } = await supabase.rpc('marketing_campanhas', { p_desde: ymdIni, p_ate: ymdFim, p_lente: 'safra' });
+      if (!eR) {
+        const rows = rpc || [];
+        pago.leads = rows.reduce((s, r) => s + (r.leads_total || 0), 0);
+        pago.faturamento = rows.reduce((s, r) => s + (Number(r.faturamento) || 0), 0);
+        pago.caixa = rows.reduce((s, r) => s + (Number(r.caixa) || 0), 0);
+      }
+    } catch { /* metade RPC fica null */ }
+
+    res.json({ mes, perfis, disciplina, pago, cobertura: 'coleta ativa desde jul/2026 — meses anteriores incompletos' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Cache de thumbnails de anúncios (em memória, TTL 6h)
