@@ -1296,6 +1296,25 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <div class="card"><div class="card-label">Em Cobrança</div><div class="card-value" id="inad-kpi-g1" style="color:var(--green)">–</div><div style="font-size:11px;color:var(--muted);margin-top:2px">1 parcela vencida</div></div>
     <div class="card"><div class="card-label">Renegociação</div><div class="card-value" id="inad-kpi-g2" style="color:var(--yellow)">–</div><div style="font-size:11px;color:var(--muted);margin-top:2px">2+ parcelas vencidas</div></div>
     <div class="card"><div class="card-label">Críticos</div><div class="card-value" id="inad-kpi-g3" style="color:var(--red)">–</div><div style="font-size:11px;color:var(--muted);margin-top:2px">sem parcelas futuras</div></div>
+    <div class="card"><div class="card-label">Reneg. de contrato</div><div class="card-value" id="inad-kpi-reneg">–</div><div id="inad-kpi-reneg-sub" style="font-size:11px;color:var(--muted);margin-top:2px">–</div></div>
+  </div>
+
+  <div class="cards" id="inad-real-row" style="display:none;margin-bottom:20px">
+    <div class="card inad-classe" data-classe="real" style="cursor:pointer" onclick="inadFiltrarClasse('real')">
+      <div class="card-label">🔴 Inadimplência REAL <span style="font-weight:400">(parou de pagar + sumiu + fez mais que pagou)</span></div>
+      <div class="card-value" id="inad-real-a" style="color:var(--red)">–</div>
+      <div id="inad-real-sub" style="font-size:11px;color:var(--muted);margin-top:2px">–</div>
+    </div>
+    <div class="card inad-classe" data-classe="exposto_vem" style="cursor:pointer" onclick="inadFiltrarClasse('exposto_vem')">
+      <div class="card-label">🟡 Expostos que ainda vêm</div>
+      <div class="card-value" id="inad-expvem" style="color:var(--yellow)">–</div>
+      <div id="inad-expvem-sub" style="font-size:11px;color:var(--muted);margin-top:2px">cobrar na cadeira</div>
+    </div>
+    <div class="card inad-classe" data-classe="credor" style="cursor:pointer" onclick="inadFiltrarClasse('credor')">
+      <div class="card-label">🟢 Pagaram mais do que fizeram</div>
+      <div class="card-value" id="inad-credor" style="color:var(--green)">–</div>
+      <div id="inad-credor-sub" style="font-size:11px;color:var(--muted);margin-top:2px">atraso de parcela, não risco</div>
+    </div>
   </div>
 
   <div id="inad-empty" style="display:none;text-align:center;padding:60px 20px;color:var(--muted)">
@@ -5349,9 +5368,21 @@ const _INAD_PAGE_SIZE = 25;
 let _inadData  = { grupo1: [], grupo2: [], grupo3: [] };
 let _inadPages = { 1: 1, 2: 1, 3: 1 };
 
+let _inadFiltroClasse = null;
+const _inadFiltrar = arr => _inadFiltroClasse ? (arr || []).filter(p => p.classeReal === _inadFiltroClasse) : (arr || []);
+function inadFiltrarClasse(c) {
+  _inadFiltroClasse = _inadFiltroClasse === c ? null : c;
+  document.querySelectorAll('.inad-classe').forEach(el =>
+    el.style.outline = el.dataset.classe === _inadFiltroClasse ? '2px solid var(--accent)' : 'none');
+  _inadPages = { 1: 1, 2: 1, 3: 1 };
+  renderInadSection(1, _inadFiltrar(_inadData.grupo1), false);
+  renderInadSection(2, _inadFiltrar(_inadData.grupo2), false);
+  renderInadSection(3, _inadFiltrar(_inadData.grupo3), true);
+}
+
 function inadSetPage(num, page) {
   _inadPages[num] = page;
-  renderInadSection(num, _inadData['grupo' + num], num === 3);
+  renderInadSection(num, _inadFiltrar(_inadData['grupo' + num]), num === 3);
 }
 
 function inadDiasBadge(d) {
@@ -5362,7 +5393,7 @@ function inadDiasBadge(d) {
 
 function inadExposicaoBadge(p) {
   const entregue = Number(p.entregue || 0), pago = Number(p.pago || 0);
-  if (!entregue && !pago) return '<span style="color:var(--muted)">–</span>';
+  if (!entregue) return '<span style="color:var(--muted)" title="Produção não atribuída ao paciente — pode haver exposição não medida">?</span>';
   const vermelho = p.exposicao === 'vermelho';
   const cls = vermelho ? 'inad-dias-crit' : 'inad-dias-ok';
   const titulo = `Pago ${_inadFmt(pago)} · Entregue ${_inadFmt(entregue)}`;
@@ -5430,7 +5461,7 @@ function renderInadSection(num, patients, isCritico) {
 
     if (isCritico) {
       return `<tr>
-        <td class="inad-td"><div style="font-weight:600">${safeN}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
+        <td class="inad-td"><div style="font-weight:600">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
         <td class="inad-td-c">${p.overdueCount}</td>
         <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
         <td class="inad-td-c">${inadDiasBadge(p.diasDeAtraso)}</td>
@@ -5445,7 +5476,7 @@ function renderInadSection(num, patients, isCritico) {
     }
     const qtdCol = num === 1 ? '' : `<td class="inad-td-c">${p.overdueCount}</td>`;
     return `<tr>
-      <td class="inad-td"><div style="font-weight:600">${safeN}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
+      <td class="inad-td"><div style="font-weight:600">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
       ${qtdCol}
       <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
       <td class="inad-td-r" style="color:var(--green)">${_inadFmt(p.futureAmount)}</td>
@@ -5589,6 +5620,23 @@ function _renderInadData(data) {
   document.getElementById('inad-kpi-g1').textContent    = t.emCobranca   || 0;
   document.getElementById('inad-kpi-g2').textContent    = t.renegociacao || 0;
   document.getElementById('inad-kpi-g3').textContent    = t.criticos     || 0;
+  const ren = t.renegociado;
+  document.getElementById('inad-kpi-reneg').textContent = ren ? _inadFmt(ren.total) : '–';
+  document.getElementById('inad-kpi-reneg-sub').textContent = ren && ren.pctReincidencia != null
+    ? `${Math.round(ren.pctReincidencia * 100)}% voltou a atrasar · ${ren.nPacientes} pacientes` : 'sem renegociação detectada';
+  const real = t.real;
+  document.getElementById('inad-real-row').style.display = real ? '' : 'none';
+  if (real) {
+    document.getElementById('inad-real-a').textContent = _inadFmt(real.real.vencidoA);
+    document.getElementById('inad-real-sub').textContent =
+      `${real.real.n} pacientes · exposição real (fez − pagou): ${_inadFmt(real.real.exposicaoB)}`;
+    document.getElementById('inad-expvem').textContent = _inadFmt(real.exposto_vem.vencidoA);
+    document.getElementById('inad-expvem-sub').textContent = `${real.exposto_vem.n} pacientes · cobrar na cadeira`;
+    document.getElementById('inad-credor').textContent = _inadFmt(real.credor.vencidoA);
+    document.getElementById('inad-credor-sub').textContent =
+      `${real.credor.n} pacientes · atraso de parcela, não risco` +
+      (real.semProducao ? ` · ${real.semProducao} sem produção atribuída (?)` : '');
+  }
   renderInadResultado(data.resultado);
 
   const badge = document.getElementById('badge-inadimplentes');
@@ -5600,9 +5648,9 @@ function _renderInadData(data) {
 
   _inadData = { grupo1: data.grupo1 || [], grupo2: data.grupo2 || [], grupo3: data.grupo3 || [] };
   _inadPages = { 1: 1, 2: 1, 3: 1 };
-  renderInadSection(1, _inadData.grupo1, false);
-  renderInadSection(2, _inadData.grupo2, false);
-  renderInadSection(3, _inadData.grupo3, true);
+  renderInadSection(1, _inadFiltrar(_inadData.grupo1), false);
+  renderInadSection(2, _inadFiltrar(_inadData.grupo2), false);
+  renderInadSection(3, _inadFiltrar(_inadData.grupo3), true);
 
   const upd = document.getElementById('inad-ultima-atualizacao');
   if (data.from_cache && data.cache_min > 0) {
