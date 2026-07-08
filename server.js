@@ -9,6 +9,11 @@ const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
 const { execSync, spawn } = require('child_process');
+// ffmpeg da distro (Alpine/Debian) gera Opus que o WhatsApp do iPHONE rejeita. O binário
+// estático (ffmpeg-static, libopus vanilla) gera voz tocável no iOS — comprovado 07-08/07.
+// Usado SÓ na conversão de áudio p/ WhatsApp; demais usos seguem no ffmpeg do sistema.
+let FFMPEG_AUDIO_BIN = 'ffmpeg';
+try { const _p = require('ffmpeg-static'); if (_p && require('fs').existsSync(_p)) FFMPEG_AUDIO_BIN = _p; } catch (_) {}
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 const totalvoice = require('./totalvoice');
@@ -79,7 +84,7 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 // Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
 function _audioParaOggOpus(buffer) {
   return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-ar', '16000', '-b:a', '16k', '-f', 'ogg', 'pipe:1']);
+    const p = spawn(FFMPEG_AUDIO_BIN, ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-ar', '16000', '-b:a', '16k', '-f', 'ogg', 'pipe:1']);
     const out = [];
     p.stdout.on('data', c => out.push(c));
     p.stderr.resume(); // descarta stderr para o processo não travar com o pipe cheio
