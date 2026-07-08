@@ -3750,7 +3750,7 @@ async function mergeInadimplentesNotas(resultado) {
 let _inadimplentesRefreshing = false;
 
 async function fetchInadimplentesBackground() {
-  if (_inadimplentesRefreshing) return;
+  if (_inadimplentesRefreshing) return { ok: true, skipped: true };
   _inadimplentesRefreshing = true;
   console.log('[Inadimplentes] Background refresh iniciado...');
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -3794,8 +3794,10 @@ async function fetchInadimplentesBackground() {
     catch(e){ console.error('[saude_analises] erro:', e.message); }
     try { await gravarSnapshotSaude(today); }
     catch(e){ console.error('[saude_snapshot] erro:', e.message); }
+    return { ok: true, pacientes: processado.totais.pacientes };
   } catch(e) {
     console.error('[Inadimplentes] Background refresh erro:', e.message);
+    return { ok: false, error: e.message };
   } finally {
     _inadimplentesRefreshing = false;
   }
@@ -4019,9 +4021,10 @@ app.post('/api/leads/:id/agendar-clinicorp', requireAuth, rateLimit, async (req,
 const normPhone = s => String(s || '').replace(/\D/g, '').slice(-11);
 
 async function syncComparecimentos() {
-  if (!process.env.CLINICORP_TOKEN) return;
+  if (!process.env.CLINICORP_TOKEN) return { ok: true, movidos: 0 };
   // Inclui Nutrir/Reclassificar: leads históricos que podem ter comparecido sem passar pelo CRM
   const PRE_COMPARECEU = ['Novo', 'Em qualificação', 'Avaliação agendada'];
+  let movidos = 0;
   try {
     const d30ago  = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -4057,6 +4060,7 @@ async function syncComparecimentos() {
         continue;
       }
       const dataComp = apt.CheckinTime ? new Date(apt.CheckinTime).toISOString() : new Date().toISOString();
+      movidos++;
       await supabase.from('leads').update({ status: 'Compareceu', data_comparecimento: dataComp }).eq('id', lead.id);
       logEvento(lead.id, 'status_mudou', 'Status: Agendado → Compareceu (detectado via Clinicorp)',
         { de: lead.status, para: 'Compareceu' }, null);
@@ -4076,7 +4080,7 @@ async function syncComparecimentos() {
     }
 
     const phones11 = Object.keys(phoneCheckin);
-    if (!phones11.length) return;
+    if (!phones11.length) return { ok: true, movidos };
 
     // Busca leads em status pré-Compareceu e sem apt_id (para não duplicar Phase 1)
     const { data: candidates } = await supabase.from('leads')
@@ -4088,6 +4092,7 @@ async function syncComparecimentos() {
       const p11 = normPhone(lead.telefone);
       const dataComp = phoneCheckin[p11];
       if (!dataComp) continue;
+      movidos++;
       await supabase.from('leads').update({ status: 'Compareceu', data_comparecimento: dataComp }).eq('id', lead.id);
       logEvento(lead.id, 'status_mudou', 'Status: → Compareceu (detectado via Clinicorp por telefone)',
         { de: lead.status, para: 'Compareceu', telefone: lead.telefone }, null);
@@ -4095,11 +4100,20 @@ async function syncComparecimentos() {
       console.log(`[sync-compareceu] lead ${lead.id} → Compareceu (phone match)`);
     }
 
+    return { ok: true, movidos };
   } catch(e) {
     console.error('[sync-compareceu]', e.message);
+    return { ok: false, error: e.message };
   }
 }
-setInterval(syncComparecimentos, 10 * 60 * 1000);
+setInterval(async () => {
+  const t0 = Date.now();
+  const r = await syncComparecimentos();
+  await registrarJob('comparecimentos', {
+    ok: r.ok, durationS: (Date.now() - t0) / 1000,
+    detalhe: r.movidos != null ? { movidos: r.movidos } : null, error: r.error,
+  });
+}, 10 * 60 * 1000);
 
 // ===== Recuperação de falta de avaliação (spec 2026-07-05) =====
 // Detecta no-shows pela agenda, cria etiqueta+tarefa, roda cadência D+0/3/7/10.
@@ -4922,6 +4936,28 @@ async function runGuardedSync(trigger) {
   finally { _syncRunning = false; }
 }
 
+// ── Heartbeat dos jobs de fundo (Fase 2 do monitor de syncs) ────────────────
+const JOB_HEARTBEAT = {
+  financeiro_mes:  { label: 'Financeiro (mês corrente)',              cadenciaMin: 1440, margemMin: 180 },
+  fluxo_futuro:    { label: 'Fluxo futuro 24m (A Receber/Pagar)',     cadenciaMin: 1440, margemMin: 180 },
+  inadimplentes:   { label: 'Financeiro por paciente / Inadimplentes', cadenciaMin: 1440, margemMin: 180 },
+  comparecimentos: { label: 'Detecção de comparecimento',            cadenciaMin: 10,   margemMin: 50 },
+};
+
+async function registrarJob(job, resultado) {
+  const meta = JOB_HEARTBEAT[job];
+  if (!meta) return;
+  try {
+    const agora = new Date().toISOString();
+    await supabase.from('job_health').upsert({
+      job, label: meta.label, cadencia_min: meta.cadenciaMin, margem_min: meta.margemMin,
+      last_run_at: agora, ok: resultado.ok,
+      duration_s: resultado.durationS ?? null, detalhe: resultado.detalhe ?? null,
+      error: resultado.error ?? null, atualizado_em: agora,
+    }, { onConflict: 'job' });
+  } catch (e) { console.error('[registrarJob] ' + job + ':', e.message); }
+}
+
 // ── Sync diário Clinicorp: self-healing (sobrevive a restart do container) ──
 // O estado fica no banco (sync_log), não em memória: a cada tick, se já passou
 // das 02:00 BRT de hoje e nenhuma execução foi registrada desde então, dispara.
@@ -4950,21 +4986,28 @@ async function runGuardedSync(trigger) {
     runGuardedSync('agendado').catch(e => console.error('[sync-diario] erro:', e.message));
     // sync financeiro do mês corrente — mesma janela diária, sem derrubar o processo
     try {
+      const t0 = Date.now();
       const { from, to } = _finMesCorrente();
       await syncFinanceiro(from, to);
       console.log('[financeiro-sync] mês corrente sincronizado');
       // Atualiza o resumo mensal materializado (só os meses recentes; passados não mudam)
       await supabase.rpc('fin_series_cache_refresh', { p_from: from, p_to: _finDataLocal(new Date()) });
       console.log('[fin-series-cache] meses recentes atualizados');
-    } catch (e) { console.error('[financeiro-sync] erro:', e.message); }
+      await registrarJob('financeiro_mes', { ok: true, durationS: (Date.now() - t0) / 1000 });
+    } catch (e) { console.error('[financeiro-sync] erro:', e.message); await registrarJob('financeiro_mes', { ok: false, error: e.message }); }
     // A Receber / A Pagar (24m) — 1 chamada list_cash_flow, erro não derruba as demais fases
     try {
+      const t0 = Date.now();
       await syncFluxoFuturo();
       console.log('[fluxo-futuro] 24m sincronizado');
-    } catch (e) { console.error('[fluxo-futuro] erro:', e.message); }
+      await registrarJob('fluxo_futuro', { ok: true, durationS: (Date.now() - t0) / 1000 });
+    } catch (e) { console.error('[fluxo-futuro] erro:', e.message); await registrarJob('fluxo_futuro', { ok: false, error: e.message }); }
     // Financeiro por paciente + inadimplentes (/payment/list) — diário, não só sob demanda.
-    try { await fetchInadimplentesBackground(); }
-    catch (e) { console.error('[inadimplentes-diario] erro:', e.message); }
+    try {
+      const t0 = Date.now();
+      const r = await fetchInadimplentesBackground();
+      await registrarJob('inadimplentes', { ok: r.ok, durationS: (Date.now() - t0) / 1000, detalhe: r.pacientes != null ? { pacientes: r.pacientes } : null, error: r.error });
+    } catch (e) { console.error('[inadimplentes-diario] erro:', e.message); await registrarJob('inadimplentes', { ok: false, error: e.message }); }
   }
 
   setTimeout(() => verificarEExecutar().catch(() => {}), 30_000);       // logo após o boot
