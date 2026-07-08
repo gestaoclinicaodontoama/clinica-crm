@@ -157,10 +157,12 @@
     $('#cfg-aprovacao').checked = !!config.exigir_aprovacao;
     $('#cfg-perfis').innerHTML = Object.entries(config.perfis || {}).map(([k, p]) =>
       `<div>• <b>${esc(p.nome || k)}</b> — IG ${p.ig_id ? 'conectado ✅' : '<span style="color:var(--yellow)">não vinculado (vincular no Business Suite)</span>'}</div>`).join('');
+    $('#cfg-radar').value = ((config.radar || []).map(r => '@' + r.username)).join('\n');
+    $('#cfg-radar-status').innerHTML = (config.radar || []).map(r => `@${esc(r.username)}: ${esc(r.status || 'pendente')}${r.followers ? ` · ${fmtNum(r.followers)} seguidores` : ''}`).join('<br>');
     $('#modal-cfg-bg').style.display = 'flex';
   });
   $('#cfg-salvar').addEventListener('click', async () => {
-    await smApi('/api/social-media/config', { method: 'PUT', body: { exigir_aprovacao: $('#cfg-aprovacao').checked } });
+    await smApi('/api/social-media/config', { method: 'PUT', body: { exigir_aprovacao: $('#cfg-aprovacao').checked, radar: $('#cfg-radar').value.split('\n').map(s => s.trim()).filter(Boolean) } });
     $('#modal-cfg-bg').style.display = 'none'; carregar();
   });
   $('#cfg-fechar').addEventListener('click', () => { $('#modal-cfg-bg').style.display = 'none'; });
@@ -209,6 +211,7 @@
     $('#dsp-destaques').innerHTML = (r.destaques || []).map(d => `<div>${esc(d)}</div>`).join('');
     renderTabelaTatica();
     renderAgregados(r);
+    renderRadar(r.radar || []); $('#dsp-pauta').innerHTML = '';
   }
 
   function renderTabelaTatica() {
@@ -247,6 +250,46 @@
       bloco('Por formato', r.formatos || [], c => FORMATO_LBL[c] || c) +
       bloco('Por tema' + (r.sem_tema ? ` <span class="dsp-muted">(${r.sem_tema} sem tema)</span>` : ''), r.temas || [], c => c) +
       bloco('Dia · horário (BRT)', (r.horarios || []).slice(0, 6), c => c);
+  }
+
+  // ===== IA: sugestão de pauta (fase 3) =====
+  async function gerarPauta(force) {
+    const box = $('#dsp-pauta');
+    box.innerHTML = '<div class="dsp-muted" style="padding:8px">🤖 gerando pauta…</div>';
+    let r;
+    try { r = await smApi('/api/social-media/ia/pauta', { method: 'POST', body: { perfil: $('#dsp-perfil').value, force: !!force } }); }
+    catch (e) { box.innerHTML = `<div class="dsp-muted" style="padding:8px">IA indisponível — tente 🔄. (${esc(String(e))})</div>`; return; }
+    if (!r || r.error || !Array.isArray(r.sugestoes)) { box.innerHTML = `<div class="dsp-muted" style="padding:8px">${esc((r && r.error) || 'IA indisponível — tente 🔄.')}</div>`; return; }
+    box.innerHTML = `<div class="dsp-muted" style="margin:4px 0">${esc(r.observacoes_cobertura || '')}${r.cache ? ' · (gerada hoje — 🔄 pra refazer)' : ''}</div>` +
+      r.sugestoes.map((s, i) => `<div class="pauta-card" data-i="${i}">
+        <div class="meta">${esc(s.perfil === 'ama' ? 'Clínica AMA' : 'Dr. Marcos')} · ${esc(s.tema)} · ${esc(s.formato)} · ${esc(s.dia_sugerido)}</div>
+        <b>${esc(s.titulo)}</b>
+        <div>${esc(s.gancho)}</div>
+        <div class="just">📊 ${esc(s.justificativa)}</div>
+        <div class="acoes"><button class="btn-primary bt-rascunho" data-i="${i}">➕ Criar rascunho</button></div>
+      </div>`).join('');
+    box.querySelectorAll('.bt-rascunho').forEach(b => b.addEventListener('click', async () => {
+      const s = r.sugestoes[Number(b.dataset.i)];
+      b.disabled = true; b.textContent = '…';
+      try {
+        await smApi('/api/social-media/posts', { method: 'POST', body: {
+          data_hora: new Date(`${s.dia_sugerido}T18:00:00-03:00`).toISOString(),
+          perfil: s.perfil === 'ama' ? 'ama' : 'dr_marcos',
+          titulo: s.titulo, formato: s.formato, tema: s.tema,
+          observacoes: `${s.gancho} — ${s.justificativa}`,
+        }});
+        b.textContent = '✓ rascunho criado';
+      } catch (e) { b.disabled = false; b.textContent = '➕ Criar rascunho'; alert('Erro: ' + e); }
+    }));
+  }
+  $('#bt-pauta').addEventListener('click', () => gerarPauta(false));
+  $('#bt-pauta-refresh').addEventListener('click', () => gerarPauta(true));
+
+  function renderRadar(radar) {
+    const box = $('#dsp-radar');
+    if (!radar || !radar.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<div class="dsp-card" style="margin-top:8px"><h5>📡 Radar de referência (últimos 30 dias, por engajamento relativo)</h5>` +
+      radar.map(p => `<div>@${esc(p.username)} — ${esc(p.caption60)} · ${p.engajamento_pct}% ${p.sem_likes ? '(sem curtidas públicas — só comentários)' : `(${fmtNum(p.likes)} curtidas, ${fmtNum(p.comments)} coment.)`} ${p.permalink ? `<a href="${esc(safeUrl(p.permalink))}" target="_blank" rel="noopener">↗</a>` : ''}</div>`).join('') + '</div>';
   }
 
   $('#dsp-modo-tatico').addEventListener('click', () => {
@@ -296,6 +339,36 @@
           <div>faturamento: <b>${moeda(pago.faturamento)}</b> · caixa: <b>${moeda(pago.caixa)}</b></div></div>
       </div>`;
     $('#dsp-mes').addEventListener('change', (e) => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { dspMes = e.target.value; carregarMensal(); } });
+
+    $('#dsp-mensal').insertAdjacentHTML('beforeend', `
+      <div class="ia-box" id="ia-analise"><h5>🤖 Análise do consultor</h5><div id="ia-analise-corpo" class="dsp-muted">carregando…</div>
+        <div class="acoes"><button id="ia-analise-refresh">🔄 Gerar de novo</button></div></div>
+      <div class="ia-box"><h5>💬 Pergunta livre</h5>
+        <div style="display:flex;gap:8px"><input id="ia-perg" maxlength="300" placeholder="ex.: por que o alcance caiu?" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 9px;font:inherit">
+        <button class="btn-primary" id="ia-perg-bt">Perguntar</button></div>
+        <div id="ia-perg-resp" style="margin-top:8px"></div></div>`);
+    carregarAnaliseIA(false);
+    $('#ia-analise-refresh').addEventListener('click', () => carregarAnaliseIA(true));
+    $('#ia-perg-bt').addEventListener('click', async () => {
+      const p = $('#ia-perg').value.trim(); if (!p) return;
+      $('#ia-perg-resp').innerHTML = '<span class="dsp-muted">pensando…</span>';
+      try { const r = await smApi('/api/social-media/ia/pergunta', { method: 'POST', body: { mes: dspMes, pergunta: p } });
+        $('#ia-perg-resp').innerHTML = esc((r && r.resposta) || 'sem resposta');
+      } catch (e) { $('#ia-perg-resp').innerHTML = '<span class="dsp-muted">IA indisponível.</span>'; }
+    });
+  }
+
+  async function carregarAnaliseIA(force) {
+    const corpo = $('#ia-analise-corpo'); if (!corpo) return;
+    corpo.innerHTML = '<span class="dsp-muted">🤖 analisando o mês…</span>';
+    try {
+      const r = await smApi(`/api/social-media/ia/analise?mes=${dspMes}${force ? '&force=1' : ''}`);
+      if (!r || r.error) { corpo.innerHTML = `<span class="dsp-muted">${esc((r && r.error) || 'IA indisponível')}</span>`; return; }
+      corpo.innerHTML = `<div>${esc(r.resumo || '')}</div>
+        <div style="margin-top:6px">${(r.pontos || []).map(p => `<div>${esc(p)}</div>`).join('')}</div>
+        <div style="margin-top:6px"><b>Ações:</b>${(r.acoes || []).map(a => `<div>👉 ${esc(a)}</div>`).join('')}</div>
+        <div class="dsp-muted" style="margin-top:6px">Limitações: ${esc(r.limitacoes || '')}${r.cache ? ' · (análise de hoje — 🔄 pra refazer)' : ''}</div>`;
+    } catch (e) { corpo.innerHTML = '<span class="dsp-muted">IA indisponível.</span>'; }
   }
 
   carregar();
