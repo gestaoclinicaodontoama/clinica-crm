@@ -22,7 +22,8 @@
     { tipo: 'subtotal', chave: 'resultadoAposDistribuicoes', label: 'RESULTADO APÓS DISTRIBUIÇÕES' },
     // Provisões: reserva p/ gasto futuro. Memorando — não afeta o resultado, sem anomalia,
     // e SEM subtotal depois (não existe "resultado após provisões"). Ver spec 2026-07-07.
-    { tipo: 'grupo', codigo: '9', natureza: 'saida', semAnomalia: true },
+    { tipo: 'grupo', codigo: '9', natureza: 'saida', semAnomalia: true,
+      nota: 'não saíram do caixa — dinheiro só separado' },
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -259,7 +260,8 @@
     const mediaVal = A.media(mesesCompletos.map(m => (acharGrupo(m, cod) || {}).total || 0));
 
     let html = `<tr class="grupo${aberto ? ' aberto' : ''}" data-grupo="${cod}">` +
-      `<td class="col-conta"><span class="chev">▸</span>${grupoTotal.titulo}</td>`;
+      `<td class="col-conta"><span class="chev">▸</span>${grupoTotal.titulo}` +
+      (linha.nota ? `<span class="grupo-nota">${linha.nota}</span>` : '') + `</td>`;
     if (multi) {
       valores.forEach((v, i) => {
         html += celulaValor({
