@@ -35,4 +35,8 @@ window.FinAPI = {
   pessoas: () => api('/api/financeiro/pessoas'),
   criarPessoa: (b) => api('/api/financeiro/pessoas', { method: 'POST', body: JSON.stringify(b) }),
   sync: () => api('/api/financeiro/sync', { method: 'POST' }),
+  analiseReceita: () => api('/api/analise-receita'),
+  analiseReceitaMeta: (mes, lucroAlvo) => api('/api/analise-receita/meta',
+    { method: 'POST', body: JSON.stringify({ mes, lucro_alvo: lucroAlvo }) }),
+  analiseReceitaSync: () => api('/api/analise-receita/sync', { method: 'POST' }),
 };

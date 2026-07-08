@@ -8639,6 +8639,60 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   }
 });
 
+// ── Análise de Receita (entrada nova × base recorrente) ─────────────────────
+app.get('/api/analise-receita', requireAuth, requireGestor, async (req, res) => {
+  try {
+    const hoje = _finDataLocal(new Date());
+    const [anal, meta, orc] = await Promise.all([
+      supabase.from('fin_receita_analises').select('dados,atualizado_em').eq('id', 1).maybeSingle(),
+      supabase.from('fin_receita_metas').select('lucro_alvo').eq('mes', hoje.slice(0, 7) + '-01').maybeSingle(),
+      supabase.from('orcamentos').select('valor_particular,valor_aprovado,revisao_status')
+        .eq('status', 'APPROVED').gt('valor_particular', 0)
+        .gte('data_fechamento', hoje.slice(0, 8) + '01').lte('data_fechamento', hoje),
+    ]);
+    if (anal.error) return res.status(500).json({ error: anal.error.message });
+    const d = anal.data?.dados;
+    if (!d) return res.json({ vazio: true });
+    // Ticket do mês corrente — mesmo critério do Painel do Gestor (≥ R$1.000).
+    const vals = (orc.data || []).filter(o => o.revisao_status !== 'rejeitado')
+      .map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v >= 1000);
+    const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    const lucroAlvo = Number(meta.data?.lucro_alvo) || 0;
+    res.json({
+      ...d,
+      atualizado_em: anal.data.atualizado_em,
+      lucroAlvo, ticket,
+      diasUteisRestantes: _receitaMotor.diasUteisRestantes(hoje),
+      meta: _receitaMotor.metaDoMes({
+        saidaTotalMedia: d.reguas?.saidaTotal, convenioMedio: d.reguas?.convenioMedio,
+        recorrentePrevisto: d.mesCorrente?.recorrentePrevisto,
+        entradaRecebida: d.mesCorrente?.entradaRecebida,
+        lucroAlvo, razao: d.razaoEntradaVenda?.razao, ticket,
+      }),
+    });
+  } catch (e) {
+    console.error('❌ /api/analise-receita:', e.message);
+    res.status(500).json({ error: 'Falha ao montar a análise de receita' });
+  }
+});
+
+app.post('/api/analise-receita/meta', requireAuth, requireGestor, async (req, res) => {
+  const { mes, lucro_alvo } = req.body || {};
+  if (!/^\d{4}-\d{2}-01$/.test(mes || '') || !(Number(lucro_alvo) >= 0))
+    return res.status(400).json({ error: 'mes (YYYY-MM-01) e lucro_alvo (>= 0) obrigatorios' });
+  const { error } = await supabase.from('fin_receita_metas')
+    .upsert({ mes, lucro_alvo: Number(lucro_alvo), atualizado_em: new Date().toISOString() },
+      { onConflict: 'mes' });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+app.post('/api/analise-receita/sync', requireAuth, requireGestor, (req, res) => {
+  // Guard interno do fetchInadimplentesBackground evita execução dupla.
+  fetchInadimplentesBackground().catch(e => console.error('[analise-receita-sync] erro:', e.message));
+  res.status(202).json({ ok: true });
+});
+
 // Classificar 1 lançamento. body: { conta_id, alcance: 'so_esta'|'todas', metodo, padrao }
 app.post('/api/financeiro/lancamentos/:id/classificar', requireAuth, requireFinanceiro, async (req, res) => {
   const { conta_id, alcance, metodo, padrao } = req.body || {};
