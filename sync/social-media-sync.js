@@ -66,6 +66,51 @@ async function snapshotPerfil(supabase, chave, ig_id) {
   if (error) throw new Error(`upsert snapshot ${chave}: ${error.message}`);
 }
 
+async function coletarRadar(supabase, config) {
+  const radar = Array.isArray(config.radar) ? config.radar : [];
+  if (!radar.length) return 'sem perfis configurados';
+  const anchor = config.perfis && config.perfis.dr_marcos && config.perfis.dr_marcos.ig_id;
+  if (!anchor) throw new Error('sem IG âncora para business discovery');
+  let ok = 0, mudou = false;
+  for (const item of radar) {
+    try {
+      const campos = `business_discovery.username(${item.username}){username,followers_count,media.limit(15){id,like_count,comments_count,media_type,timestamp,caption,permalink}}`;
+      const j = await gget(anchor, { fields: campos });
+      const bd = j.business_discovery || {};
+      const followers = Number.isFinite(bd.followers_count) ? bd.followers_count : null;
+      for (const m of (bd.media && bd.media.data) || []) {
+        try {
+          const { error } = await supabase.from('radar_posts').upsert({
+            media_id: String(m.id), username: item.username,
+            ig_timestamp: m.timestamp || null,
+            caption: (m.caption || '').slice(0, 2000),
+            media_type: m.media_type || null,
+            permalink: m.permalink || null,
+            like_count: Number.isFinite(m.like_count) ? m.like_count : null,
+            comments_count: m.comments_count || 0,
+            followers_no_dia: followers,
+            atualizado_em: new Date().toISOString(),
+          }, { onConflict: 'media_id' });
+          if (error) throw new Error(error.message);
+        } catch (e) { console.error(`[social-media-sync] radar @${item.username} mídia ${m.id}: ${e.message}`); }
+      }
+      if (item.status !== 'ok' || item.followers !== followers) { item.status = 'ok'; item.followers = followers; mudou = true; }
+      ok++;
+    } catch (e) {
+      const st = 'erro: ' + String(e.message).slice(0, 80);
+      if (item.status !== st) { item.status = st; mudou = true; }
+      console.error(`[social-media-sync] radar @${item.username}: ${e.message}`);
+    }
+  }
+  if (mudou) {
+    try {
+      const { error } = await supabase.from('sm_config').update({ radar, atualizado_em: new Date().toISOString() }).eq('id', 1);
+      if (error) console.error('[social-media-sync] persistir status do radar falhou: ' + error.message);
+    } catch (e) { console.error('[social-media-sync] persistir status do radar falhou: ' + e.message); }
+  }
+  return `${ok}/${radar.length} perfis`;
+}
+
 async function runSocialMediaSync({ supabase, trigger = 'manual' }) {
   const t0 = Date.now();
   let logId = null;
@@ -115,6 +160,8 @@ async function runSocialMediaSync({ supabase, trigger = 'manual' }) {
       await step(`midias_${chave}`, async () => `${await coletarPerfil(supabase, chave, p.ig_id)} mídias`);
       await step(`snapshot_${chave}`, async () => { await snapshotPerfil(supabase, chave, p.ig_id); return 'ok'; });
     }
+
+    await step('radar', () => coletarRadar(supabase, config));
   }
 
   const ok = erros.length === 0;
@@ -130,4 +177,4 @@ async function runSocialMediaSync({ supabase, trigger = 'manual' }) {
   return { ok, steps };
 }
 
-module.exports = { runSocialMediaSync };
+module.exports = { runSocialMediaSync, coletarRadar };
