@@ -5164,9 +5164,21 @@ async function syncSaudeCarregarRows() {
   return data || [];
 }
 
+async function syncSaudeMontar(agora) {
+  const saude = syncHealth.montarSaude(await syncSaudeCarregarRows(), agora);
+  const { data: jobRows } = await supabase.from('job_health').select('*');
+  const mapa = Object.fromEntries((jobRows || []).map(r => [r.job, r]));
+  saude.jobsHeartbeat = Object.entries(JOB_HEARTBEAT).map(([job, meta]) =>
+    syncHealth.classificarJob(mapa[job] || {
+      job, label: meta.label, cadencia_min: meta.cadenciaMin, margem_min: meta.margemMin,
+      last_run_at: null, ok: null, error: null,
+    }, agora));
+  return saude;
+}
+
 app.get('/api/admin/sync-saude', requireAuth, requireGestor, async (req, res) => {
   try {
-    res.json(syncHealth.montarSaude(await syncSaudeCarregarRows(), new Date()));
+    res.json(await syncSaudeMontar(new Date()));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -5175,6 +5187,7 @@ function _textoAlertaSync(n) {
     sync_falha: 'Sync falhou',
     sync_nao_rodou: 'Sync não rodou na janela',
     sync_fase: 'Fase do sync fora do normal',
+    sync_job: 'Job de fundo parado ou falhou',
   };
   return (map[n.gatilho] || n.gatilho) + (n.escopo ? ` — ${n.escopo}` : '');
 }
@@ -5185,9 +5198,13 @@ async function syncSaudeChecarGatilhos() {
   _syncSaudeChecando = true;
   try {
     const agora = new Date();
-    const atuais = syncHealth.avaliarGatilhosSync(await syncSaudeCarregarRows(), agora);
+    const { data: jobRows } = await supabase.from('job_health').select('*');
+    const atuais = [
+      ...syncHealth.avaliarGatilhosSync(await syncSaudeCarregarRows(), agora),
+      ...syncHealth.avaliarGatilhosJobs(jobRows || [], agora),
+    ];
     const { data: salvos } = await supabase.from('capi_monitor_estado').select('*')
-      .in('gatilho', ['sync_falha', 'sync_nao_rodou', 'sync_fase']);
+      .in('gatilho', ['sync_falha', 'sync_nao_rodou', 'sync_fase', 'sync_job']);
     const { notificar, upserts } = capiHealth.decidirAlertas(atuais, salvos || [], agora);
     for (const u of upserts) {
       await supabase.from('capi_monitor_estado')
@@ -5212,7 +5229,7 @@ console.log('[sync-saude] scheduler de alertas ativo (30 min)');
 app.post('/api/admin/sync-saude/recheck', requireAuth, requireGestor, async (req, res) => {
   await syncSaudeChecarGatilhos();
   try {
-    res.json(syncHealth.montarSaude(await syncSaudeCarregarRows(), new Date()));
+    res.json(await syncSaudeMontar(new Date()));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
