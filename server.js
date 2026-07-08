@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
-const { execSync, spawn } = require('child_process');
+const { execSync, execFileSync, spawn } = require('child_process');
 // ffmpeg da distro (Alpine/Debian) gera Opus que o WhatsApp do iPHONE rejeita. O binário
 // estático (ffmpeg-static, libopus vanilla) gera voz tocável no iOS — comprovado 07-08/07.
 // Usado SÓ na conversão de áudio p/ WhatsApp; demais usos seguem no ffmpeg do sistema.
@@ -235,7 +235,11 @@ setInterval(() => {
 
 // ========== VERSION ==========
 app.get('/api/version', (req, res) => {
-  res.json({ commit: _buildCommit, deployedAt: _buildDeployedAt });
+  // ffmpegAudio: confirma qual binário converte áudio de voz (deve ser o ffmpeg-static,
+  // não o do sistema) — diagnóstico do fix de áudio no iPhone.
+  let ffAudio = { bin: FFMPEG_AUDIO_BIN, isStatic: FFMPEG_AUDIO_BIN !== 'ffmpeg', version: null };
+  try { ffAudio.version = execFileSync(FFMPEG_AUDIO_BIN, ['-version'], { encoding: 'utf8', stdio: ['pipe','pipe','ignore'] }).split('\n')[0]; } catch (_) {}
+  res.json({ commit: _buildCommit, deployedAt: _buildDeployedAt, ffmpegAudio: ffAudio });
 });
 
 // ========== CONFIG PÚBLICO ==========
