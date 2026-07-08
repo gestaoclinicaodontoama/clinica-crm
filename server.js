@@ -50,6 +50,7 @@ function _finMesCorrente() {
 const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const webpush = require('web-push');
 const capiHealth = require('./lib/capi/health');
+const syncHealth = require('./lib/sync/health');
 const { METRICAS: MKT_METRICAS, metricaPorKey: mktMetricaPorKey } = require('./lib/marketing/qualidade');
 const { podeTransicionar, STATUS_VALIDOS } = require('./lib/social-media/status');
 const { sugerirVinculos } = require('./lib/social-media/matching');
@@ -5105,6 +5106,71 @@ console.log('[capi-monitor] scheduler de alertas ativo (30 min)');
 app.post('/api/admin/capi-saude/recheck', requireAuth, requireGestor, async (req, res) => {
   res.json({ ok: true, msg: 'Re-checagem disparada' });
   capiChecarGatilhos().catch(e => console.error('[capi-monitor] recheck:', e.message));
+});
+
+// ── Monitor de Saúde dos Syncs (spec 2026-07-07) ────────────────────────────
+// Lê o sync_log (Clinicorp 02h + social media), compara cada fase com o típico
+// e alerta gestores em falha / não-rodou / fase zerada. Reusa a máquina de
+// dedup do CAPI (decidirAlertas + capi_monitor_estado) — sem tabela nova.
+async function syncSaudeCarregarRows() {
+  const { data, error } = await supabase.from('sync_log')
+    .select('started_at, finished_at, ok, trigger, duration_s, steps, error')
+    .order('started_at', { ascending: false })
+    .limit(syncHealth.LIMITES.historico);
+  if (error) throw error;
+  return data || [];
+}
+
+app.get('/api/admin/sync-saude', requireAuth, requireGestor, async (req, res) => {
+  try {
+    res.json(syncHealth.montarSaude(await syncSaudeCarregarRows(), new Date()));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+function _textoAlertaSync(n) {
+  const map = {
+    sync_falha: 'Sync falhou',
+    sync_nao_rodou: 'Sync não rodou na janela',
+    sync_fase: 'Fase do sync fora do normal',
+  };
+  return (map[n.gatilho] || n.gatilho) + (n.escopo ? ` — ${n.escopo}` : '');
+}
+
+let _syncSaudeChecando = false;
+async function syncSaudeChecarGatilhos() {
+  if (_syncSaudeChecando) return;
+  _syncSaudeChecando = true;
+  try {
+    const agora = new Date();
+    const atuais = syncHealth.avaliarGatilhosSync(await syncSaudeCarregarRows(), agora);
+    const { data: salvos } = await supabase.from('capi_monitor_estado').select('*')
+      .in('gatilho', ['sync_falha', 'sync_nao_rodou', 'sync_fase']);
+    const { notificar, upserts } = capiHealth.decidirAlertas(atuais, salvos || [], agora);
+    for (const u of upserts) {
+      await supabase.from('capi_monitor_estado')
+        .upsert({ ...u, atualizado_em: agora.toISOString() }, { onConflict: 'gatilho,escopo' });
+    }
+    if (notificar.length) {
+      const { data: gestores } = await supabase.from('profiles').select('id').or('roles.cs.{admin},roles.cs.{gestor}');
+      for (const n of notificar) {
+        const corpo = _textoAlertaSync(n) + ' — veja o detalhe no monitor.';
+        for (const g of gestores || []) await criarNotificacao(g.id, 'sync_alerta', 'Alerta Sync', corpo, { url: '/sync-saude/' });
+      }
+      console.log('[sync-saude] alertas enviados:', notificar.map(_textoAlertaSync).join(' | '));
+    }
+  } catch (e) { console.error('[sync-saude] checagem falhou:', e.message); }
+  finally { _syncSaudeChecando = false; }
+}
+
+setTimeout(() => syncSaudeChecarGatilhos(), 90_000);
+setInterval(() => syncSaudeChecarGatilhos(), 30 * 60_000); // a cada 30 min
+console.log('[sync-saude] scheduler de alertas ativo (30 min)');
+
+app.post('/api/admin/sync-saude/recheck', requireAuth, requireGestor, async (req, res) => {
+  await syncSaudeChecarGatilhos();
+  try {
+    res.json(syncHealth.montarSaude(await syncSaudeCarregarRows(), new Date()));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ========== WhatsApp — Monitor de saúde dos números (Cloud API) ==========
