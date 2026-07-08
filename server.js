@@ -9,18 +9,20 @@ const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
 const { execSync, execFileSync, spawn } = require('child_process');
-// ffmpeg da distro (Alpine/Debian) gera Opus que o WhatsApp do iPHONE rejeita. O binário
-// estático (ffmpeg-static, libopus vanilla) gera voz tocável no iOS — comprovado 07-08/07.
-// Usado SÓ na conversão de áudio p/ WhatsApp; demais usos seguem no ffmpeg do sistema.
+// Conversão de áudio de voz usa um ffmpeg com libopus >=1.6 (/usr/local/bin/ffmpeg-voice,
+// instalado no Dockerfile a partir do build estático BtbN). MOTIVO: o libopus da distro e
+// o do ffmpeg-static (jvs = 1.3.1) e o 1.5.x geram Opus/SILK que o WhatsApp do iPHONE
+// rejeita ("áudio não disponível"); libopus 1.4 e 1.6 tocam (comprovado 07-08/07, testes
+// A–N). Fallback: ffmpeg do sistema. Usado SÓ no áudio de voz; demais usos = ffmpeg do sistema.
 let FFMPEG_AUDIO_BIN = 'ffmpeg';
-try { const _p = require('ffmpeg-static'); if (_p && require('fs').existsSync(_p)) FFMPEG_AUDIO_BIN = _p; } catch (_) {}
+try { if (require('fs').existsSync('/usr/local/bin/ffmpeg-voice')) FFMPEG_AUDIO_BIN = '/usr/local/bin/ffmpeg-voice'; } catch (_) {}
 // Versão resolvida UMA vez no boot (não por request: evita bloquear o event loop e
-// não expõe o caminho absoluto/banner completo). Guarda só o token curto (ex.: "7.0.2").
+// não expõe o caminho absoluto/banner completo). Guarda só o token curto (ex.: "7.1").
 const FFMPEG_AUDIO_STATIC = FFMPEG_AUDIO_BIN !== 'ffmpeg';
 let FFMPEG_AUDIO_VERSION = null;
 try {
   const _v = execFileSync(FFMPEG_AUDIO_BIN, ['-version'], { encoding: 'utf8', stdio: ['pipe','pipe','ignore'] });
-  FFMPEG_AUDIO_VERSION = (_v.match(/ffmpeg version (\d+\.\d+(?:\.\d+)?)/) || [])[1] || null;
+  FFMPEG_AUDIO_VERSION = ((_v.match(/ffmpeg version (\S+)/) || [])[1] || '').slice(0, 24) || null;
 } catch (_) {}
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
