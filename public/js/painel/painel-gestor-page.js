@@ -68,6 +68,12 @@
     lucro: { oque: 'Quanto sobra no fim (margem) e quanto a receita pode cair antes do prejuízo (folga sobre o ponto de equilíbrio).',
       bom: 'Margem acima de 15% e folga acima de 25%.', ruim: 'Margem fina = pouco colchão pra um mês ruim.',
       acoes: 'Atacar inadimplência e o funil, controlar custo variável e juros.' },
+    metaEntrada: {
+      oque: 'Quanto de dinheiro NOVO (entradas de contratos fechados) ainda precisa entrar neste mês para bater o alvo — empatar as contas ou fechar com o lucro que você definiu na Análise de Receita.',
+      bom: 'Verde: a entrada está caindo no ritmo do mês (ou a meta já foi batida).',
+      ruim: 'Vermelho: o mês está passando mais rápido que a entrada está chegando — sem reação, o mês fecha abaixo do alvo.',
+      acoes: 'Priorizar fechamentos pendentes, negociar entradas maiores, acionar a lista de orçamentos parados.',
+    },
     inadimplencia: { oque: 'Quanto da carteira já venceu e não entrou.',
       bom: 'Abaixo de 5% da carteira.', ruim: 'Acima de 10%, e pior quando já está velho (não se recupera).',
       acoes: 'Régua de cobrança e 2ª via nos primeiros 30 dias; renegociar o antigo.' },
@@ -129,7 +135,8 @@
 
   const trendGood = (up) => up ? { a: '▲', c: 'good' } : { a: '▼', c: 'bad' };
 
-  function cardHTML(chave, { label, val, sev, trend, nota, modulo }) {
+  function cardHTML(chave, opts) {
+    const { label, val, sev, trend, nota, modulo, href } = opts;
     const e = EXPLICA[chave] || {};
     const id = 'pg-ent-' + chave;
     const sevTxt = { verde: 'Saudável', amarelo: 'Atenção', vermelho: 'Crítico', neutro: 'Informação' }[sev];
@@ -140,7 +147,7 @@
       <div class="pg-val">${val}${trend ? `<span class="pg-trend ${trend.c}">${trend.a} ${esc(trend.t)}</span>` : ''}</div>
       <div><span class="pg-sev ${sev}"><span class="pg-dot ${sev}"></span>${sevTxt}</span></div>
       <div class="pg-nota">${esc(nota)}</div>
-      <div class="pg-mod">${esc(modulo)}</div>
+      <div class="pg-mod">${opts.href ? `<a href="${opts.href}" style="color:var(--accent);text-decoration:none">${esc(modulo)} →</a>` : esc(modulo)}</div>
       <div class="pg-ent-box" id="${id}">${it('O que é', e.oque)}${it('Quando é bom', e.bom)}${it('Quando é ruim', e.ruim)}${it('Ações', e.acoes)}</div>
     </div>`;
   }
@@ -195,10 +202,11 @@
       : presetLabel(estado.preset).toLowerCase();
     if (!root.dataset.init) { root.innerHTML = '<div class="pg-msg">Carregando indicadores…</div>'; }
 
-    const [fin, mkt, abc] = await Promise.allSettled([
+    const [fin, mkt, abc, receita] = await Promise.allSettled([
       get('/api/painel-gestor?' + per),
       get(`/api/meta-insights?desde=${estado.from}&ate=${estado.to}`).catch(() => null),
       get('/api/campanhas/preview/abc?count_only=true'),
+      get('/api/analise-receita').catch(() => null),
     ]).then(rs => rs.map(r => r.status === 'fulfilled' ? r.value : null));
 
     const cards = { a: [], b: [], c: [] };
@@ -259,10 +267,33 @@
         val: 'Margem ' + pct0(l.margem),
         nota: l.folga != null ? `Folga de ${pct0(l.folga)} sobre o mínimo (${fmt(l.pontoEquilibrio)}/mês).` : '', modulo: 'DRE' }));
 
+      // Meta de entrada do mês (Análise de Receita) — sempre o mês corrente,
+      // não muda com o seletor de período. Semáforo = RITMO (progresso ÷ fração do mês).
+      const pr = receita && !receita.vazio && receita.meta && !receita.meta.erro ? receita.meta.progresso : null;
+      if (pr) {
+        const hoje = new Date();
+        const fracao = hoje.getDate() / new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+        const progresso = pr.alvo > 0 ? 1 - pr.restante / pr.alvo : 1;
+        const razao = fracao > 0 ? progresso / fracao : 1;
+        const sevME = pr.batida || razao >= 0.9 ? 'verde' : razao >= 0.6 ? 'amarelo' : 'vermelho';
+        niveisContados.push(sevME);
+        cards.c.push(cardHTML('metaEntrada', { label: 'Meta de entrada do mês', sev: sevME,
+          val: pr.batida ? '✅ batida' : 'faltam ' + fmt(pr.restante),
+          nota: (pr.fechamentos != null ? `~${pr.fechamentos} fechamentos · ` : '') +
+            `${receita.diasUteisRestantes ?? '–'} dias úteis · alvo: ${receita.meta.comLucro ? 'lucro desejado' : 'empatar o mês'}`,
+          modulo: 'Análise de Receita', href: '/financeiro/receita/' }));
+      } else {
+        cards.c.push(cardHTML('metaEntrada', { label: 'Meta de entrada do mês', sev: 'neutro', val: '–',
+          nota: 'Sem análise ainda — abra a Análise de Receita e clique em Atualizar dados.',
+          modulo: 'Análise de Receita', href: '/financeiro/receita/' }));
+      }
+
       const sevInad = inad.pct != null ? P.semInadimplencia(inad.pct) : 'neutro';
       if (inad.pct != null) niveisContados.push(sevInad);
       cards.c.push(cardHTML('inadimplencia', { label: 'Inadimplência', sev: sevInad, val: pct0(inad.pct),
-        nota: inad.vencido ? `${fmt(inad.vencido)} vencidos da carteira a receber.` : '', modulo: 'A Receber / A Pagar' }));
+        nota: (inad.vencido ? `${fmt(inad.vencido)} vencidos da carteira a receber.` : '') +
+          (inad.real ? ` Real (parou de pagar e de vir, fez mais que pagou): ${fmt(inad.real.vencidoA)} vencido · exposição ${fmt(inad.real.exposicaoB)}.` : ''),
+        modulo: 'A Receber / A Pagar' }));
     }
     if (abc) {
       niveisContados.push('amarelo');
