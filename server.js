@@ -3754,7 +3754,19 @@ async function processarInadimplentes(items, today) {
     else for (const r of (cf || [])) { const id = String(r.paciente_clinicorp_id || ''); if (id) consultaFuturaSet.add(id); }
   }
 
-  return _inad.classificarESepararGrupos(pacientes, { entregueMap, consultaFuturaSet, veioRecenteSet });
+  // Renegociação: flags ANTES de classificar (o sort dos grupos prioriza quem quebrou).
+  const reneg = _inad.detectarRenegociados(items, today);
+  for (const p of pacientes) {
+    const r = reneg.porPaciente.get(String(p.id));
+    p.renegociou = !!r;
+    p.quebrouReneg = !!(r && r.quebrouReneg);
+  }
+  const resultado = _inad.classificarESepararGrupos(pacientes, { entregueMap, consultaFuturaSet, veioRecenteSet });
+  // Inadimplência REAL (classes por paciente + agregados) e resumo da renegociação.
+  resultado.totais.real = _inad.inadimplenciaReal(pacientes);
+  resultado.totais.renegociado = { total: reneg.total, reincidente: reneg.reincidente,
+    pctReincidencia: reneg.pctReincidencia, nPacientes: reneg.nPacientes };
+  return resultado;
 }
 
 async function mergeInadimplentesNotas(resultado) {
@@ -3964,6 +3976,7 @@ async function atualizarAnaliseReceita(items, today) {
     razaoEntradaVenda: _receitaMotor.razaoEntradaVenda(decomposicao, vendasPorMes, today),
     colchao: _receitaMotor.colchao(items, today, realizacao.geral.taxa, reguas.fixas),
     rumo: _receitaMotor.rumoAoDegrau(decomposicao, today, reguas),
+    safra: _receitaMotor.safras(items, today),
     vendasPorMes,
   };
   const { error } = await supabase.from('fin_receita_analises')
