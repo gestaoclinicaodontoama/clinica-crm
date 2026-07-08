@@ -32,6 +32,7 @@ const { syncPeriodo: syncFinanceiro, syncFluxoFuturo } = require('./sync/finance
 const { dataLocal: _finDataLocal } = require('./lib/financeiro/data');
 const { agruparParcelasPorMes } = require('./lib/financeiro/fluxo-futuro');
 const _analiseParcelas = require('./lib/financeiro/analise-parcelas');
+const _receitaMotor = require('./lib/financeiro/receita-motor');
 const _recuperacao = require('./lib/financeiro/recuperacao');
 const _inad = require('./lib/financeiro/inadimplencia');
 const { montarFatos: _dreMontarFatos, contasDetalhadas: _dreContasDetalhadas } = require('./lib/financeiro/avaliacao');
@@ -3795,6 +3796,9 @@ async function fetchInadimplentesBackground() {
     catch(e){ console.error('[saude_analises] erro:', e.message); }
     try { await gravarSnapshotSaude(today); }
     catch(e){ console.error('[saude_snapshot] erro:', e.message); }
+    // Análise de Receita (entrada × recorrente) — mesmos itens.
+    try { await atualizarAnaliseReceita(allItems, today); }
+    catch(e){ console.error('[analise_receita] erro:', e.message); }
     return { ok: true, pacientes: processado.totais.pacientes };
   } catch(e) {
     console.error('[Inadimplentes] Background refresh erro:', e.message);
@@ -3885,6 +3889,66 @@ async function gravarSnapshotSaude(today) {
   }, { onConflict: 'data' });
   if (error) throw new Error(error.message);
   console.log(`[saude_snapshot] ${today}: receber ${Math.round(receber)} × pagar ${Math.round(pagar)}`);
+}
+
+// Análise de Receita (entrada nova × base recorrente) — spec 2026-07-08.
+// Réguas = médias dos últimos 6 meses FECHADOS da DRE; vendas = orcamentos
+// APPROVED ≥ R$1.000 (mesmo critério de fechamento do Painel do Gestor).
+async function atualizarAnaliseReceita(items, today) {
+  const primeiroDiaMenos = (n) => { const [y, m] = today.slice(0, 7).split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
+  const agg = await supabase.rpc('fin_dre_agg_mensal', { p_from: primeiroDiaMenos(7), p_to: today });
+  if (agg.error) throw new Error(agg.error.message);
+  const completos = montarDREMensal(agg.data || [], primeiroDiaMenos(7), today)
+    .filter(m => _DREAnalise.mesCompleto(m.ym, new Date())).slice(-6);
+  const somaGrupos = (m, codigos) => (m.grupos || [])
+    .filter(g => codigos.includes(g.codigo)).reduce((s, g) => s + g.total, 0);
+  const somaConta = (m, codigo) => (m.grupos || []).flatMap(g => g.contas || [])
+    .filter(c => c.codigo === codigo).reduce((s, c) => s + c.total, 0);
+  const media = (fn) => completos.length
+    ? completos.reduce((s, m) => s + Math.abs(fn(m)), 0) / completos.length : null;
+  const reguas = {
+    fixas: media(m => _DREAnalise.fixasDe(m)),
+    // Saída total = grupos 2–7 (impostos, custos, fixas, financeiras, investimentos).
+    // Distribuição (8) e provisões (9) ficam fora — não são conta do mês.
+    saidaTotal: media(m => somaGrupos(m, ['2', '3.0', '3.1', '3.2', '3.3', '4', '5', '7'])),
+    convenioMedio: media(m => somaConta(m, '1.1')),
+    nMeses: completos.length,
+  };
+  // Vendas fechadas por mês (6 meses fechados) — ~200 linhas, longe do teto de 1000.
+  const { data: orc, error: orcErr } = await supabase.from('orcamentos')
+    .select('valor_particular,valor_aprovado,revisao_status,data_fechamento')
+    .eq('status', 'APPROVED').gt('valor_particular', 0)
+    .gte('data_fechamento', primeiroDiaMenos(6)).lt('data_fechamento', today.slice(0, 8) + '01');
+  if (orcErr) throw new Error(orcErr.message);
+  const porMes = {};
+  for (const o of (orc || [])) {
+    if (o.revisao_status === 'rejeitado') continue;
+    const v = Number(o.valor_aprovado ?? o.valor_particular) || 0;
+    if (v < 1000) continue;
+    const k = String(o.data_fechamento).slice(0, 7);
+    porMes[k] = (porMes[k] || 0) + v;
+  }
+  const vendasPorMes = Object.entries(porMes).map(([mes, vendas]) => ({ mes, vendas }));
+
+  const realizacao = _receitaMotor.taxaRealizacao(items, today);
+  const decomposicao = _receitaMotor.decomposicao12m(items, today, 12);
+  const dados = {
+    hoje: today,
+    decomposicao,
+    realizacao,
+    realizacaoMes: _receitaMotor.realizacaoPorMes(items, today),
+    mesCorrente: _receitaMotor.mesCorrente(items, today, realizacao),
+    reguas,
+    razaoEntradaVenda: _receitaMotor.razaoEntradaVenda(decomposicao, vendasPorMes, today),
+    colchao: _receitaMotor.colchao(items, today, realizacao.geral.taxa, reguas.fixas),
+    rumo: _receitaMotor.rumoAoDegrau(decomposicao, today, reguas),
+    vendasPorMes,
+  };
+  const { error } = await supabase.from('fin_receita_analises')
+    .upsert({ id: 1, dados, atualizado_em: new Date().toISOString() }, { onConflict: 'id' });
+  if (error) throw new Error(error.message);
+  console.log('[analise_receita] atualizada');
 }
 
 // ========== AGENDAMENTO CLINICORP ==========
