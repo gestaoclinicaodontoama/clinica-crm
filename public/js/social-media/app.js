@@ -221,7 +221,8 @@
         : (va || 0) - (vb || 0);
       return dspOrdem.desc ? -cmp : cmp;
     });
-    const th = COLS.map(([k, lbl]) => `<th data-col="${k === 'legenda' ? 'caption' : k === 'data' ? 'ig_timestamp' : k}">${lbl}${(dspOrdem.col === k || (k === 'data' && dspOrdem.col === 'ig_timestamp')) ? (dspOrdem.desc ? ' ▼' : ' ▲') : ''}</th>`).join('');
+    const keyOf = (c) => ({ data: 'ig_timestamp', legenda: 'caption', formato: 'media_type' }[c] || c);
+    const th = COLS.map(([k, lbl]) => `<th data-col="${keyOf(k)}">${lbl}${dspOrdem.col === keyOf(k) ? (dspOrdem.desc ? ' ▼' : ' ▲') : ''}</th>`).join('');
     const tr = posts.map(p => `<tr>
       <td>${p.ig_timestamp ? new Date(p.ig_timestamp).toLocaleDateString('pt-BR') : '—'}</td>
       <td>${esc((p.caption || '(sem legenda)').slice(0, 60))} <a href="${esc(safeUrl(p.permalink))}" target="_blank" rel="noopener">↗</a></td>
