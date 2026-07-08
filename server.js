@@ -14,6 +14,14 @@ const { execSync, execFileSync, spawn } = require('child_process');
 // Usado SÓ na conversão de áudio p/ WhatsApp; demais usos seguem no ffmpeg do sistema.
 let FFMPEG_AUDIO_BIN = 'ffmpeg';
 try { const _p = require('ffmpeg-static'); if (_p && require('fs').existsSync(_p)) FFMPEG_AUDIO_BIN = _p; } catch (_) {}
+// Versão resolvida UMA vez no boot (não por request: evita bloquear o event loop e
+// não expõe o caminho absoluto/banner completo). Guarda só o token curto (ex.: "7.0.2").
+const FFMPEG_AUDIO_STATIC = FFMPEG_AUDIO_BIN !== 'ffmpeg';
+let FFMPEG_AUDIO_VERSION = null;
+try {
+  const _v = execFileSync(FFMPEG_AUDIO_BIN, ['-version'], { encoding: 'utf8', stdio: ['pipe','pipe','ignore'] });
+  FFMPEG_AUDIO_VERSION = (_v.match(/ffmpeg version (\d+\.\d+(?:\.\d+)?)/) || [])[1] || null;
+} catch (_) {}
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 const totalvoice = require('./totalvoice');
@@ -235,11 +243,12 @@ setInterval(() => {
 
 // ========== VERSION ==========
 app.get('/api/version', (req, res) => {
-  // ffmpegAudio: confirma qual binário converte áudio de voz (deve ser o ffmpeg-static,
-  // não o do sistema) — diagnóstico do fix de áudio no iPhone.
-  let ffAudio = { bin: FFMPEG_AUDIO_BIN, isStatic: FFMPEG_AUDIO_BIN !== 'ffmpeg', version: null };
-  try { ffAudio.version = execFileSync(FFMPEG_AUDIO_BIN, ['-version'], { encoding: 'utf8', stdio: ['pipe','pipe','ignore'] }).split('\n')[0]; } catch (_) {}
-  res.json({ commit: _buildCommit, deployedAt: _buildDeployedAt, ffmpegAudio: ffAudio });
+  // ffmpegAudio: confirma que a conversão de voz usa o ffmpeg-static (não o da distro),
+  // que gera Opus tocável no iPhone. Valores cacheados no boot; sem caminho/banner.
+  res.json({
+    commit: _buildCommit, deployedAt: _buildDeployedAt,
+    ffmpegAudio: { static: FFMPEG_AUDIO_STATIC, version: FFMPEG_AUDIO_VERSION },
+  });
 });
 
 // ========== CONFIG PÚBLICO ==========
