@@ -8725,7 +8725,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   const menosMeses = (n) => { const [y, m] = hoje.slice(0, 7).split('-').map(Number);
     return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
   try {
-    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR, agHR] = await Promise.all([
+    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR, agHR, inadCacheR] = await Promise.all([
       supabase.rpc('fin_totais_periodo', { p_from: from, p_to: to }),
       supabase.rpc('fin_totais_periodo', { p_from: anoAntes(from), p_to: anoAntes(to) }),
       supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(6), p_to: hoje }),
@@ -8740,6 +8740,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).gte('data', from).lte('data', to),
       supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).eq('compareceu', true).gte('data', from).lte('data', to),
       supabase.rpc('agenda_horas_periodo', { p_from: from, p_to: to }),
+      supabase.from('inadimplentes_cache').select('data').eq('id', 1).maybeSingle(),
     ]);
     // Faturamento (REVENUE do período) + crescimento vs o mesmo período do ano anterior
     const tot = (totR.data || [])[0] || {}, totLY = (totLYR.data || [])[0] || {};
@@ -8787,7 +8788,8 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       atualizado_em: new Date().toISOString(),
       faturamento: { valor: faturamento, crescimentoAnual: crescimento },
       lucro: { margem, resultado, pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
-      inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda },
+      inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda,
+        real: inadCacheR.data?.data?.totais?.real?.real || null },
       ticketSemConvenio: { valor: ticket, n: vals.length, min: FECHAMENTO_MIN },
       funil: { leads: leadsR.count || 0, agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length },
       ocupacao: { pct: ocupacaoPct, horasAgendadas: Math.round(horasAgendadas), horasCapacidade: Math.round(capacidadeH) },
@@ -8804,7 +8806,9 @@ app.get('/api/analise-receita', requireAuth, requireGestor, async (req, res) => 
     const hoje = _finDataLocal(new Date());
     const [anal, meta, orc] = await Promise.all([
       supabase.from('fin_receita_analises').select('dados,atualizado_em').eq('id', 1).maybeSingle(),
-      supabase.from('fin_receita_metas').select('lucro_alvo').eq('mes', hoje.slice(0, 7) + '-01').maybeSingle(),
+      supabase.from('fin_receita_metas')
+        .select('lucro_alvo,lucro_alvo_pct,meta_faturamento,recebiveis_override,pagar_override')
+        .eq('mes', hoje.slice(0, 7) + '-01').maybeSingle(),
       supabase.from('orcamentos').select('valor_particular,valor_aprovado,revisao_status')
         .eq('status', 'APPROVED').gt('valor_particular', 0)
         .gte('data_fechamento', hoje.slice(0, 8) + '01').lte('data_fechamento', hoje),
@@ -8816,18 +8820,30 @@ app.get('/api/analise-receita', requireAuth, requireGestor, async (req, res) => 
     const vals = (orc.data || []).filter(o => o.revisao_status !== 'rejeitado')
       .map(o => Number(o.valor_aprovado ?? o.valor_particular) || 0).filter(v => v >= 1000);
     const ticket = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    const lucroAlvo = Number(meta.data?.lucro_alvo) || 0;
+    const m = meta.data || {};
+    const arred2 = (v) => Math.round(v * 100) / 100;
+    const defaults = {
+      recebiveis: arred2((d.mesCorrente?.recorrentePrevisto || 0) + (d.reguas?.convenioMedio || 0)),
+      pagar: d.reguas?.saidaTotal != null ? arred2(d.reguas.saidaTotal) : null,
+    };
+    const inputs = {
+      metaFaturamento: Number(m.meta_faturamento) || null,
+      lucroPct: m.lucro_alvo_pct != null ? Number(m.lucro_alvo_pct) : null,
+      lucroReais: Number(m.lucro_alvo) || null,
+      recebiveisLiquidos: m.recebiveis_override != null ? Number(m.recebiveis_override) : defaults.recebiveis,
+      contasAPagar: m.pagar_override != null ? Number(m.pagar_override) : defaults.pagar,
+    };
     res.json({
       ...d,
       atualizado_em: anal.data.atualizado_em,
-      lucroAlvo, ticket,
+      ticket,
       diasUteisRestantes: _receitaMotor.diasUteisRestantes(hoje),
-      meta: _receitaMotor.metaDoMes({
-        saidaTotalMedia: d.reguas?.saidaTotal, convenioMedio: d.reguas?.convenioMedio,
-        recorrentePrevisto: d.mesCorrente?.recorrentePrevisto,
+      meta: _receitaMotor.calculadoraMes({ ...inputs,
         entradaRecebida: d.mesCorrente?.entradaRecebida,
-        lucroAlvo, razao: d.razaoEntradaVenda?.razao, ticket,
-      }),
+        razaoHistorica: d.razaoEntradaVenda?.razao, ticket }),
+      metaInputs: { ...inputs, defaults,
+        detalhe: { recorrenteCru: d.mesCorrente?.recorrenteCru,
+          taxa: d.realizacao?.geral?.taxa, convenio: d.reguas?.convenioMedio } },
     });
   } catch (e) {
     console.error('❌ /api/analise-receita:', e.message);
@@ -8836,12 +8852,18 @@ app.get('/api/analise-receita', requireAuth, requireGestor, async (req, res) => 
 });
 
 app.post('/api/analise-receita/meta', requireAuth, requireGestor, async (req, res) => {
-  const { mes, lucro_alvo } = req.body || {};
-  if (!/^\d{4}-\d{2}-01$/.test(mes || '') || !(Number(lucro_alvo) >= 0))
-    return res.status(400).json({ error: 'mes (YYYY-MM-01) e lucro_alvo (>= 0) obrigatorios' });
-  const { error } = await supabase.from('fin_receita_metas')
-    .upsert({ mes, lucro_alvo: Number(lucro_alvo), atualizado_em: new Date().toISOString() },
-      { onConflict: 'mes' });
+  const { mes, lucro_alvo, lucro_alvo_pct, meta_faturamento, recebiveis_override, pagar_override } = req.body || {};
+  const okNum = (v) => v == null || (typeof v === 'number' && isFinite(v) && v >= 0);
+  const okPct = lucro_alvo_pct == null ||
+    (typeof lucro_alvo_pct === 'number' && lucro_alvo_pct >= 0 && lucro_alvo_pct < 0.95);
+  if (!/^\d{4}-\d{2}-01$/.test(mes || '') || !okPct ||
+      ![lucro_alvo, meta_faturamento, recebiveis_override, pagar_override].every(okNum))
+    return res.status(400).json({ error: 'campos invalidos (mes YYYY-MM-01; numeros >= 0; lucro % como fracao < 0,95)' });
+  const { error } = await supabase.from('fin_receita_metas').upsert({
+    mes, lucro_alvo: lucro_alvo ?? 0, lucro_alvo_pct: lucro_alvo_pct ?? null,
+    meta_faturamento: meta_faturamento ?? null, recebiveis_override: recebiveis_override ?? null,
+    pagar_override: pagar_override ?? null, atualizado_em: new Date().toISOString(),
+  }, { onConflict: 'mes' });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
 });
