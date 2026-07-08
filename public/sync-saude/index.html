@@ -83,6 +83,35 @@ const FASE_INFO = {
 };
 const GENERICO = 'Fase nova (sem verbete ainda). Se estiver 🔴/🟡, confira a mensagem de erro e compare com o típico.';
 
+const JOB_ST = { ok:['ok','🟢 no ar'], parado:['bad','🔴 parado'], falhou:['bad','🔴 última falhou'], aguardando:['mut','⚪ aguardando 1ª execução'] };
+const JOB_INFO = {
+  financeiro_mes: 'Sincroniza o mês corrente do Financeiro/DRE e atualiza o cache das séries. Parado = DRE do mês pode ficar defasada.',
+  fluxo_futuro: 'Reconstrói A Receber / A Pagar (24 meses). Parado = a página do fluxo mostra dados velhos.',
+  inadimplentes: 'Financeiro por paciente + inadimplência (via /payment/list). Parado = inadimplência e perfis financeiros defasados.',
+  comparecimentos: 'A cada 10 min detecta no Clinicorp quem compareceu e avança o lead. Parado = comparecimentos deixam de virar "Compareceu" no funil.',
+};
+function fmtIdade(min) {
+  if (min == null) return '';
+  if (min < 90) return 'há ' + Math.round(min) + ' min';
+  if (min < 60 * 48) return 'há ' + Math.round(min / 60) + ' h';
+  return 'há ' + Math.round(min / 1440) + ' d';
+}
+function renderHeartbeat(list) {
+  if (!list || !list.length) return '';
+  let html = '<h2>Outros jobs (batimento)</h2><table><tr><th></th><th>Job</th><th>Última</th><th>Status</th></tr>';
+  const ordem = { falhou:0, parado:1, aguardando:2, ok:3 };
+  for (const j of [...list].sort((a,b) => (ordem[a.status]??9) - (ordem[b.status]??9))) {
+    const [cls, lbl] = JOB_ST[j.status] || ['mut', j.status];
+    html += `<tr><td><span class="dot ${cls}"></span></td><td>${esc(j.label)}</td>`
+      + `<td>${j.ultima ? esc(fmtIdade(j.idadeMin)) : '—'}</td><td>${esc(lbl)}</td></tr>`;
+    if (['parado','falhou'].includes(j.status)) {
+      html += `<tr><td colspan="4" class="just"><b>Por que importa:</b> ${esc(JOB_INFO[j.job] || GENERICO)}`
+        + (j.error ? `<br><b>Erro:</b> ${esc(j.error)}` : '') + `</td></tr>`;
+    }
+  }
+  return html + '</table>';
+}
+
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDt = iso => iso ? new Date(iso).toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo' }) : '—';
 
@@ -118,11 +147,12 @@ async function carregar(recheck) {
   const d = recheck ? await api('/api/admin/sync-saude/recheck', { method: 'POST' })
                     : await api('/api/admin/sync-saude');
   const ruins = d.jobs.filter(j => j.estado !== 'ok').length
-    + d.jobs.reduce((n, j) => n + j.fases.filter(f => ['erro','zerou','abaixo'].includes(f.status)).length, 0);
+    + d.jobs.reduce((n, j) => n + j.fases.filter(f => ['erro','zerou','abaixo'].includes(f.status)).length, 0)
+    + (d.jobsHeartbeat || []).filter(j => ['parado','falhou'].includes(j.status)).length;
   document.getElementById('sub').innerHTML =
     `<span class="pill ${ruins ? 'bad' : 'ok'}">${ruins ? '⚠️ ' + ruins + ' ponto(s) de atenção' : '✅ tudo normal'}</span>`
     + ` · atualizado ${fmtDt(d.atualizadoEm)}`;
-  document.getElementById('jobs').innerHTML = d.jobs.map(renderJob).join('');
+  document.getElementById('jobs').innerHTML = d.jobs.map(renderJob).join('') + renderHeartbeat(d.jobsHeartbeat);
 }
 
 document.getElementById('recheck').onclick = () => carregar(true).catch(e => alert(e.message));
