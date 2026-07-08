@@ -38,6 +38,11 @@
     .shell { display:block !important; height:auto !important; overflow:visible !important; }
     main { height:auto !important; min-height:100vh; padding:64px 14px calc(64px + env(safe-area-inset-bottom,0)) !important;
       overflow-x:hidden !important; }
+    /* Páginas que usam .main-content (financeiro, pacientes) em vez de <main>: sem o respiro
+       do rodapé a última linha (ex.: bloco Provisões da DRE) fica atrás da tabbar fixa e não
+       dá pra tocar. Espelha o padding do <main> (topo p/ a topbar + baixo p/ a tabbar). */
+    .main-content { padding-top:64px !important;
+      padding-bottom:calc(64px + env(safe-area-inset-bottom,0)) !important; }
     .mnav-sheet-bg { display:block; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:70; opacity:0; transition:opacity .2s; }
     .mnav-sheet-bg.open { opacity:1; }
     .mnav-sheet { position:fixed; left:0; right:0; bottom:0; z-index:71; background:var(--bg2);
