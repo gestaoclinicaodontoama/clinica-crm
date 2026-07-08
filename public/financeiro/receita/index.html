@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Análise de Receita — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] { --bg:#0f1117; --bg2:#181b24; --bg3:#1e2230; --border:#2a2f42;
+  --text:#e8eaf0; --muted:#6b7280; --accent:#4f8ef7; --accent-hover:#3a78e0;
+  --green:#22c55e; --yellow:#f59e0b; --red:#ef4444; --nota-bg:rgba(245,158,11,.16); }
+:root[data-theme="light"] { --bg:#f7f8fa; --bg2:#fff; --bg3:#f1f3f7; --border:#e3e6ed;
+  --text:#1a1d29; --muted:#6b7280; --accent:#3b82f6; --accent-hover:#2563eb;
+  --green:#16a34a; --yellow:#d97706; --red:#dc2626; --nota-bg:rgba(217,119,6,.14); }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+.wrap { padding:20px 24px; max-width:1100px; }
+.header { display:flex; align-items:center; gap:12px; margin-bottom:6px; flex-wrap:wrap; }
+.header h1 { font-size:20px; font-weight:700; flex:1; min-width:220px; }
+.sub { font-size:12px; color:var(--muted); margin-bottom:16px; }
+.btn { padding:7px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;
+  border:none; font-family:inherit; transition:all .15s; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent-hover); }
+.btn-primary:disabled { opacity:.6; cursor:default; }
+.card { background:var(--bg2); border:1px solid var(--border); border-radius:12px;
+  padding:16px; margin-bottom:16px; }
+.card h2 { font-size:14px; font-weight:700; margin-bottom:12px; }
+.chart-wrap { height:300px; position:relative; }
+.nota { padding:10px 14px; margin-bottom:16px; border-radius:10px; font-size:13px;
+  background:var(--nota-bg); border:1px solid var(--yellow); display:none; }
+.sintese-num { font-size:28px; font-weight:700; margin-bottom:10px; }
+.degrau { margin:10px 0; }
+.degrau .rot { display:flex; justify-content:space-between; font-size:12px;
+  color:var(--muted); margin-bottom:4px; }
+.barra { height:14px; border-radius:7px; background:var(--bg3); overflow:hidden; }
+.barra > div { height:100%; border-radius:7px; transition:width .4s; }
+.meta-input { display:flex; gap:8px; align-items:center; margin:6px 0 12px; flex-wrap:wrap; font-size:13px; }
+.meta-input input { width:140px; padding:6px 10px; border-radius:8px; border:1px solid var(--border);
+  background:var(--bg3); color:var(--text); font-family:inherit; font-size:13px; }
+.meta-linha { display:flex; justify-content:space-between; padding:7px 0; font-size:13px;
+  border-bottom:1px solid var(--border); }
+.meta-linha b.ok { color:var(--green); }
+.meta-destaque { font-size:16px; font-weight:700; margin:10px 0 2px; }
+details.entenda { margin-top:10px; font-size:12px; color:var(--muted); }
+details.entenda summary { cursor:pointer; color:var(--accent); font-weight:600; list-style:none; }
+details.entenda p { margin-top:6px; line-height:1.5; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th,td { padding:8px 10px; text-align:right; border-bottom:1px solid var(--border); }
+th:first-child,td:first-child { text-align:left; }
+th { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
+.tot td { font-weight:700; border-top:2px solid var(--border); }
+@media (max-width:700px){ .wrap{padding:12px} .chart-wrap{height:240px} }
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="analise-receita"></script>
+<div class="wrap">
+  <div class="header">
+    <h1>📈 Análise de Receita</h1>
+    <button class="btn btn-primary" id="btn-sync">🔄 Atualizar dados</button>
+  </div>
+  <div class="sub" id="atualizado">Carregando…</div>
+  <div class="nota" id="nota-velho">⚠️ Dados com mais de 36 horas — clique em "Atualizar dados".</div>
+  <div class="nota" id="nota-vazio">Ainda não há análise gravada. Clique em "Atualizar dados" e recarregue em ~2 minutos.</div>
+
+  <div class="card">
+    <h2>🫀 O mês já nasceu pago?</h2>
+    <div class="sintese-num" id="sintese-num">—</div>
+    <div class="degrau">
+      <div class="rot"><span>Degrau 1 — despesas fixas do mês</span><span id="deg1-rot">—</span></div>
+      <div class="barra"><div id="deg1-bar" style="width:0%;background:var(--green)"></div></div>
+    </div>
+    <div class="degrau">
+      <div class="rot"><span>Degrau 2 — saída total média do mês</span><span id="deg2-rot">—</span></div>
+      <div class="barra"><div id="deg2-bar" style="width:0%;background:var(--accent)"></div></div>
+    </div>
+    <details class="entenda"><summary>▸ entenda</summary><p id="sintese-entenda"></p></details>
+  </div>
+
+  <div class="card">
+    <h2>🎯 Meta do mês</h2>
+    <div class="meta-input">
+      <label>Quero fechar o mês com lucro de R$</label>
+      <input type="number" id="meta-lucro" min="0" step="1000" placeholder="0">
+      <button class="btn btn-primary" id="meta-salvar">Salvar</button>
+    </div>
+    <div id="meta-linhas"></div>
+    <details class="entenda"><summary>▸ entenda</summary><p id="meta-entenda"></p></details>
+  </div>
+
+  <div class="card">
+    <h2>📊 Entrada nova × Base recorrente (12 meses)</h2>
+    <div class="chart-wrap"><canvas id="grafico-decomposicao"></canvas></div>
+    <table id="tabela-decomposicao"></table>
+    <details class="entenda"><summary>▸ entenda</summary>
+      <p>Entrada nova = 1º pagamento de cada contrato (dinheiro de venda recente).
+      Base recorrente = parcelas seguintes (boletos e cartão da carteira antiga).
+      Convênio não entra — é faturado direto para a operadora.</p></details>
+  </div>
+
+  <div class="card">
+    <h2>📈 Rumo ao degrau</h2>
+    <div class="sub" id="rumo-texto" style="margin-bottom:10px">—</div>
+    <div class="chart-wrap"><canvas id="grafico-rumo"></canvas></div>
+    <details class="entenda"><summary>▸ entenda</summary>
+      <p>Linha do recorrente mês a mês contra as duas réguas (fixas e saída total).
+      A projeção usa a tendência dos meses fechados: se o crescimento atual se
+      mantiver, mostra em que mês a base recorrente passa a cobrir cada régua.</p></details>
+  </div>
+
+  <div class="card">
+    <h2>🛡️ Colchão da carteira</h2>
+    <div class="sub" id="colchao-texto" style="margin-bottom:10px">—</div>
+    <div class="chart-wrap"><canvas id="grafico-colchao"></canvas></div>
+    <details class="entenda"><summary>▸ entenda</summary>
+      <p>Se a clínica parasse de vender hoje: as parcelas já contratadas que
+      vencem nos próximos meses, ajustadas pela taxa histórica de queda real.
+      "Meses garantidos" = por quantos meses seguidos esse valor cobre as
+      despesas fixas.</p></details>
+  </div>
+
+  <div class="card">
+    <h2>🧪 Qualidade do recorrente</h2>
+    <table id="qualidade-tabela"></table>
+    <details class="entenda"><summary>▸ entenda</summary>
+      <p>Do que venceu em cada mês, quanto caiu dentro do próprio mês. Cartão
+      de crédito cai sozinho (a operadora repassa); boleto depende do paciente
+      pagar — por isso os dois aparecem separados. Pagamento atrasado conta
+      como recuperação, não como recorrência confiável.</p></details>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
+<script src="/js/financeiro/api.js"></script>
+<script src="/js/financeiro/receita-page.js"></script>
+</body>
+</html>
