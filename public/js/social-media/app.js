@@ -249,5 +249,54 @@
       bloco('Dia · horário (BRT)', (r.horarios || []).slice(0, 6), c => c);
   }
 
+  $('#dsp-modo-tatico').addEventListener('click', () => {
+    $('#dsp-modo-tatico').classList.add('on'); $('#dsp-modo-mensal').classList.remove('on');
+    $('#dsp-mensal').style.display = 'none'; $('#dsp-tatico').style.display = '';
+    carregarTatico();
+  });
+  $('#dsp-modo-mensal').addEventListener('click', () => {
+    $('#dsp-modo-mensal').classList.add('on'); $('#dsp-modo-tatico').classList.remove('on');
+    $('#dsp-tatico').style.display = 'none'; $('#dsp-mensal').style.display = '';
+    carregarMensal();
+  });
+
+  let dspMes = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7);
+  const NOME_PERFIL = { dr_marcos: 'Dr. Marcos', ama: 'Clínica AMA' };
+  const seta = (atual, anterior) => (anterior == null || atual === anterior) ? '' : (atual > anterior ? ' <span style="color:var(--green)">▲</span>' : ' <span style="color:var(--red)">▼</span>');
+
+  async function carregarMensal() {
+    const r = await smApi(`/api/social-media/desempenho/mensal?mes=${dspMes}`).catch(() => null);
+    if (!r) { $('#dsp-mensal').innerHTML = '<div class="msg">Não foi possível carregar o mensal.</div>'; return; }
+    $('#dsp-nota').textContent = r.cobertura || '';
+    const blocos = Object.entries(r.perfis || {}).map(([perfil, d]) => {
+      if (!d.atual.posts && !d.anterior.posts && !d.seguidores.serie.length) {
+        return `<div class="dsp-card"><h5>${esc(NOME_PERFIL[perfil] || perfil)}</h5><div class="dsp-muted">sem dados ainda</div></div>`;
+      }
+      const linha = (lbl, a, b) => `<div>${lbl}: <b>${fmtNum(a)}</b>${seta(a, b)} <span class="dsp-muted">(mês ant.: ${fmtNum(b)})</span></div>`;
+      const seg = d.seguidores.ganho == null ? '<div class="dsp-muted">seguidores: sem snapshot no mês</div>'
+        : `<div>seguidores no mês: <b>${d.seguidores.ganho >= 0 ? '+' : ''}${fmtNum(d.seguidores.ganho)}</b> <span class="dsp-muted">(${fmtNum(d.seguidores.serie[d.seguidores.serie.length - 1].followers)} atuais)</span></div>`;
+      return `<div class="dsp-card"><h5>${esc(NOME_PERFIL[perfil] || perfil)}</h5>
+        ${linha('posts publicados', d.atual.posts, d.anterior.posts)}
+        ${linha('alcance somado dos posts', d.atual.alcance, d.anterior.alcance)}
+        ${linha('interações somadas', d.atual.interacoes, d.anterior.interacoes)}
+        ${seg}</div>`;
+    }).join('');
+    const disc = r.disciplina || {};
+    const pago = r.pago || {};
+    const moeda = (n) => n == null ? 'indisponível' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    $('#dsp-mensal').innerHTML = `
+      <div class="sm-top" style="margin:4px 0 10px"><label class="dsp-muted">Mês: <input type="month" id="dsp-mes" value="${dspMes}"></label></div>
+      <div class="dsp-grid">${blocos}</div>
+      <div class="dsp-grid">
+        <div class="dsp-card"><h5>Disciplina de execução (calendário)</h5>
+          <div>planejados: <b>${fmtNum(disc.planejados)}</b> · publicados: <b>${fmtNum(disc.publicados)}</b></div>
+          <div class="dsp-muted">${disc.atrasados ? `⚠️ ${disc.atrasados} aprovado(s) com data no passado` : 'sem atrasos'}</div></div>
+        <div class="dsp-card"><h5>Pago no mês (contexto — Agente de Marketing)</h5>
+          <div>gasto: <b>${moeda(pago.gasto)}</b> · leads: <b>${pago.leads == null ? 'indisponível' : fmtNum(pago.leads)}</b></div>
+          <div>faturamento: <b>${moeda(pago.faturamento)}</b> · caixa: <b>${moeda(pago.caixa)}</b></div></div>
+      </div>`;
+    $('#dsp-mes').addEventListener('change', (e) => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { dspMes = e.target.value; carregarMensal(); } });
+  }
+
   carregar();
 })();
