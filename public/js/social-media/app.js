@@ -97,6 +97,7 @@
     $('#f-perfil').value = p ? p.perfil : 'ama';
     $('#f-titulo').value = p ? p.titulo : '';
     $('#f-formato').value = p ? p.formato : 'reel';
+    $('#f-tema').value = p ? (p.tema || '') : '';
     $('#f-drive').value = p ? p.link_drive : '';
     $('#f-legenda').value = p ? p.legenda : '';
     $('#f-hashtags').value = p ? p.hashtags : '';
@@ -130,7 +131,7 @@
     const body = {
       data_hora: new Date($('#f-data').value).toISOString(),
       perfil: $('#f-perfil').value, titulo: $('#f-titulo').value.trim(),
-      formato: $('#f-formato').value, link_drive: $('#f-drive').value.trim(),
+      formato: $('#f-formato').value, tema: $('#f-tema').value || null, link_drive: $('#f-drive').value.trim(),
       legenda: $('#f-legenda').value, hashtags: $('#f-hashtags').value, observacoes: $('#f-obs').value,
     };
     if (!body.titulo) return alert('Título é obrigatório');
@@ -175,6 +176,77 @@
     b.disabled = false; b.textContent = '🔄 Atualizar dados'; carregar();
   });
   document.querySelectorAll('.modal-bg').forEach(m => m.addEventListener('click', (e) => { if (e.target === m) m.style.display = 'none'; }));
+
+  // ======== Aba Desempenho (Fase 2) ========
+  const FORMATO_LBL = { VIDEO: 'Reels/vídeos', IMAGE: 'Imagens', CAROUSEL_ALBUM: 'Carrosséis' };
+  const COLS = [
+    ['data', 'Data'], ['legenda', 'Post'], ['formato', 'Formato'], ['tema', 'Tema'],
+    ['reach', 'Alcance'], ['total_interactions', 'Interações'], ['likes', 'Curtidas'],
+    ['comments', 'Coment.'], ['shares', 'Compart.'], ['saved', 'Salvos'],
+  ];
+  let dspDados = null, dspOrdem = { col: 'ig_timestamp', desc: true };
+  const fmtNum = (n) => n == null ? '—' : Number(n).toLocaleString('pt-BR');
+  const fmtX = (n) => String(n).replace('.', ',') + '×';
+
+  document.querySelectorAll('.tabs .tab[data-tab]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs .tab[data-tab]').forEach(x => x.classList.toggle('on', x === b));
+    $('#tab-calendario').style.display = b.dataset.tab === 'calendario' ? '' : 'none';
+    $('#tab-desempenho').style.display = b.dataset.tab === 'desempenho' ? '' : 'none';
+    if (b.dataset.tab === 'desempenho') carregarTatico();
+  }));
+  $('#dsp-perfil').addEventListener('change', () => { $('#dsp-mensal').style.display = 'none'; $('#dsp-tatico').style.display = ''; carregarTatico(); });
+
+  async function carregarTatico() {
+    $('#dsp-modo-mensal').style.display = isGestor() ? '' : 'none';
+    const r = await smApi(`/api/social-media/desempenho/tatico?perfil=${$('#dsp-perfil').value}`).catch(() => null);
+    dspDados = r;
+    if (!r || r.sem_dados) {
+      $('#dsp-destaques').innerHTML = '';
+      $('#dsp-tabela').innerHTML = '<div class="msg">Sem dados ainda para este perfil.</div>';
+      $('#dsp-agregados').innerHTML = '';
+      return;
+    }
+    $('#dsp-destaques').innerHTML = (r.destaques || []).map(d => `<div>${esc(d)}</div>`).join('');
+    renderTabelaTatica();
+    renderAgregados(r);
+  }
+
+  function renderTabelaTatica() {
+    const r = dspDados; if (!r) return;
+    const posts = [...r.posts].sort((a, b) => {
+      const k = dspOrdem.col === 'data' ? 'ig_timestamp' : dspOrdem.col;
+      const va = a[k], vb = b[k];
+      const cmp = (typeof va === 'string' || typeof vb === 'string')
+        ? String(va || '').localeCompare(String(vb || ''))
+        : (va || 0) - (vb || 0);
+      return dspOrdem.desc ? -cmp : cmp;
+    });
+    const th = COLS.map(([k, lbl]) => `<th data-col="${k === 'legenda' ? 'caption' : k === 'data' ? 'ig_timestamp' : k}">${lbl}${(dspOrdem.col === k || (k === 'data' && dspOrdem.col === 'ig_timestamp')) ? (dspOrdem.desc ? ' ▼' : ' ▲') : ''}</th>`).join('');
+    const tr = posts.map(p => `<tr>
+      <td>${p.ig_timestamp ? new Date(p.ig_timestamp).toLocaleDateString('pt-BR') : '—'}</td>
+      <td>${esc((p.caption || '(sem legenda)').slice(0, 60))} <a href="${esc(safeUrl(p.permalink))}" target="_blank" rel="noopener">↗</a></td>
+      <td>${esc(FORMATO_LBL[p.media_type] || p.media_type || '—')}</td>
+      <td>${esc(p.tema || '—')}</td>
+      ${['reach', 'total_interactions', 'likes', 'comments', 'shares', 'saved'].map(k =>
+        `<td>${fmtNum(p[k])}${p.selos && p.selos[k] ? `<span class="selo">${fmtX(p.selos[k])}</span>` : ''}</td>`).join('')}
+    </tr>`).join('');
+    $('#dsp-tabela').innerHTML = `<table class="dsp"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+    document.querySelectorAll('#dsp-tabela th').forEach(el => el.addEventListener('click', () => {
+      const col = el.dataset.col;
+      dspOrdem = { col, desc: dspOrdem.col === col ? !dspOrdem.desc : true };
+      renderTabelaTatica();
+    }));
+  }
+
+  function renderAgregados(r) {
+    const bloco = (titulo, itens, rotulo) => `<div class="dsp-card"><h5>${titulo}</h5>` +
+      (itens.length ? itens.map(a => `<div>${esc(rotulo(a.chave))} — ${a.qtd} posts · alcance med. ${fmtNum(a.reach_mediano)}${a.poucos_dados ? ' <span class="dsp-muted">(poucos dados)</span>' : ''}</div>`).join('')
+        : '<div class="dsp-muted">dados insuficientes</div>') + '</div>';
+    $('#dsp-agregados').innerHTML =
+      bloco('Por formato', r.formatos || [], c => FORMATO_LBL[c] || c) +
+      bloco('Por tema' + (r.sem_tema ? ` <span class="dsp-muted">(${r.sem_tema} sem tema)</span>` : ''), r.temas || [], c => c) +
+      bloco('Dia · horário (BRT)', (r.horarios || []).slice(0, 6), c => c);
+  }
 
   carregar();
 })();

@@ -43,6 +43,20 @@ button,.btn{background:var(--bg3);border:1px solid var(--border);color:var(--tex
 .rede.on{border-color:var(--green);color:var(--green)}
 .msg{color:var(--muted);padding:30px;text-align:center}
 @media (max-width:900px){ .semana{grid-template-columns:1fr 1fr} .frm{grid-template-columns:1fr} }
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tab{border-radius:8px 8px 0 0;border-bottom:none;opacity:.65}
+.tab.on{opacity:1;background:var(--bg2);border-color:var(--accent)}
+.dsp-destaques{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.dsp-destaques div{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 12px}
+table.dsp{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:12.5px}
+table.dsp th,table.dsp td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+table.dsp th{cursor:pointer;color:var(--muted);user-select:none}
+table.dsp th:first-child,table.dsp td:first-child{text-align:left;white-space:normal}
+.selo{display:inline-block;margin-left:5px;padding:0 5px;border-radius:6px;font-size:10.5px;font-weight:700;background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green)}
+.dsp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin:10px 0}
+.dsp-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.dsp-card h5{margin:0 0 6px;font-size:12px;color:var(--muted)}
+.dsp-muted{color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -56,9 +70,33 @@ button,.btn{background:var(--bg3);border:1px solid var(--border);color:var(--tex
     <button id="bt-sync" title="Buscar métricas novas do Instagram">🔄 Atualizar dados</button>
     <button id="bt-cfg">⚙️</button>
   </div>
-  <div id="sugestoes"></div>
-  <div id="grade" class="semana"></div>
-  <div id="vazio" class="msg" style="display:none">Nenhum post nesta semana — clique em “+ Novo post”.</div>
+  <div class="tabs">
+    <button class="tab on" data-tab="calendario">📅 Calendário</button>
+    <button class="tab" data-tab="desempenho">📊 Desempenho</button>
+  </div>
+  <section id="tab-calendario">
+    <div id="sugestoes"></div>
+    <div id="grade" class="semana"></div>
+    <div id="vazio" class="msg" style="display:none">Nenhum post nesta semana — clique em “+ Novo post”.</div>
+  </section>
+  <section id="tab-desempenho" style="display:none">
+    <div class="sm-top" style="margin-bottom:6px">
+      <select id="dsp-perfil">
+        <option value="dr_marcos">Dr. Marcos (25–45/Invisalign)</option>
+        <option value="ama">Clínica AMA (45+/protocolo)</option>
+      </select>
+      <button id="dsp-modo-tatico" class="tab on">Tática</button>
+      <button id="dsp-modo-mensal" class="tab" style="display:none">Mensal</button>
+      <span style="flex:1"></span>
+      <span class="dsp-muted" id="dsp-nota"></span>
+    </div>
+    <div id="dsp-tatico">
+      <div class="dsp-destaques" id="dsp-destaques"></div>
+      <div id="dsp-tabela"></div>
+      <div class="dsp-grid" id="dsp-agregados"></div>
+    </div>
+    <div id="dsp-mensal" style="display:none"></div>
+  </section>
 </main>
 
 <div class="modal-bg" id="modal-post-bg"><div class="modal">
@@ -68,6 +106,7 @@ button,.btn{background:var(--bg3);border:1px solid var(--border);color:var(--tex
     <label>Perfil<select id="f-perfil"><option value="ama">Clínica AMA (45+/protocolo)</option><option value="dr_marcos">Dr. Marcos (25–45/Invisalign)</option></select></label>
     <label class="full">Título<input id="f-titulo" placeholder="Reel Maçã — mordida de volta"></label>
     <label>Formato<select id="f-formato"><option>reel</option><option>carrossel</option><option>foto</option><option>story</option></select></label>
+    <label>Tema<select id="f-tema"><option value="">— sem tema —</option><option value="depoimento">Depoimento</option><option value="educativo">Educativo</option><option value="oferta">Oferta</option><option value="bastidor">Bastidor</option><option value="institucional">Institucional</option></select></label>
     <label>Link do Drive<input id="f-drive" placeholder="https://drive.google.com/..."></label>
     <label class="full">Legenda<textarea id="f-legenda" rows="5"></textarea></label>
     <label class="full">Hashtags<textarea id="f-hashtags" rows="2"></textarea></label>
