@@ -430,7 +430,7 @@ async function syncOrcamentos() {
     byId.set(id, {
       clinicorp_estimate_id: id,
       treatment_id:          o.TreatmentId != null ? String(o.TreatmentId) : null,
-      paciente_clinicorp_id: String(o.PatientId || '') || extrairPacienteId(o.PatientName),
+      paciente_clinicorp_id: String(o.PatientId || ''),
       telefone:              normalizarTelefone(o.PatientMobilePhone),
       profissional_nome:     o.ProfessionalName || '',
       valor:                 Number(o.Amount || 0),
@@ -587,7 +587,7 @@ async function syncProducao() {
         amount,
         bill_type:              p.BillType || null,
         paciente_nome:          est.PatientName || null,
-        paciente_clinicorp_id:  String(est.PatientId || ''),
+        paciente_clinicorp_id:  String(est.PatientId || '') || extrairPacienteId(est.PatientName),
         atualizado_em:          new Date().toISOString(),
       });
     }

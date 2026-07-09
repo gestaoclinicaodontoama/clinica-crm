@@ -3761,7 +3761,7 @@ async function processarInadimplentes(items, today) {
     nPacientes: 0, porMes: [], flags: new Map() };
   try {
     const { data: evs, error: evErr } = await supabase.from('fin_renegociacoes')
-      .select('data,tipo,treatment_id,patient_id,valor_novo').limit(5000);
+      .select('data,tipo,treatment_id,patient_id,valor_novo').order('data').limit(5000);
     if (evErr) throw new Error(evErr.message);
     renegAgg = _inad.agregarRenegociacoes(evs || [], items, today);
   } catch (e) { console.error('[reneg_agg] erro:', e.message); }
