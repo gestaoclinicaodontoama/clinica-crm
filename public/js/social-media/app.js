@@ -200,12 +200,18 @@
 
   async function carregarTatico() {
     $('#dsp-modo-mensal').style.display = isGestor() ? '' : 'none';
-    const r = await smApi(`/api/social-media/desempenho/tatico?perfil=${$('#dsp-perfil').value}`).catch(() => null);
+    let r = null, erroReq = null;
+    try { r = await smApi(`/api/social-media/desempenho/tatico?perfil=${$('#dsp-perfil').value}`); }
+    catch (e) { erroReq = (e && e.message) ? e.message : String(e); }
     dspDados = r;
     if (!r || r.sem_dados) {
       $('#dsp-destaques').innerHTML = '';
-      $('#dsp-tabela').innerHTML = '<div class="msg">Sem dados ainda para este perfil.</div>';
+      // erro de rede/servidor NÃO é "sem dados" — mostrar a causa pra não mascarar problema real
+      $('#dsp-tabela').innerHTML = erroReq
+        ? `<div class="msg">⚠️ Erro ao carregar o desempenho: ${esc(erroReq)}<br><button class="btn-primary" onclick="location.reload()" style="margin-top:8px">Recarregar</button></div>`
+        : '<div class="msg">Sem dados ainda para este perfil.</div>';
       $('#dsp-agregados').innerHTML = '';
+      if (!erroReq && r && r.sem_dados) renderRadar(r.radar || []);
       return;
     }
     $('#dsp-destaques').innerHTML = (r.destaques || []).map(d => `<div>${esc(d)}</div>`).join('');
