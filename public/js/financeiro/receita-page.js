@@ -107,6 +107,24 @@
       '</tbody><tfoot><tr><td colspan="4" style="font-size:11px;color:var(--muted);text-align:left">* em curso — prazo real ainda provisório</td></tr></tfoot>';
   }
 
+  function renderCurvaSafra(d) {
+    const cs = d.curvaSafra || [];
+    const el = $('safra-curva');
+    if (!el) return;
+    if (!cs.length || cs.every(s => !(s.curva || []).length)) { el.innerHTML = ''; return; }
+    const maxIdade = Math.max(...cs.map(s => (s.curva || []).length));
+    let html = '<thead><tr><th>Safra</th>' +
+      Array.from({ length: maxIdade }, (_, i) => `<th>${i}m</th>`).join('') + '</tr></thead><tbody>';
+    for (const s of cs) {
+      html += `<tr><td>${rotulo(s.safra)}</td>` + Array.from({ length: maxIdade }, (_, i) => {
+        const v = (s.curva || [])[i];
+        if (v == null) return '<td></td>';
+        return `<td style="background:rgba(34,197,94,${(0.06 + v * 0.5).toFixed(2)});text-align:center">${Math.round(v * 100)}%</td>`;
+      }).join('') + '</tr>';
+    }
+    el.innerHTML = html + '</tbody>';
+  }
+
   function renderDecomposicao(d, c) {
     const dec = d.decomposicao || [];
     novoChart('grafico-decomposicao', {
@@ -193,6 +211,7 @@
     renderSintese(d, c);
     renderCalculadora(d);
     renderSafras(d);
+    renderCurvaSafra(d);
     renderDecomposicao(d, c);
     renderRumo(d, c);
     renderColchao(d, c);
