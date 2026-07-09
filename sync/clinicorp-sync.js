@@ -13,6 +13,7 @@ const { normalizarTelefone } = require('../lib/funil/telefone');
 const { planejarNovosPacientes } = require('../lib/sync/planejar-novos-pacientes');
 const { classificarOrcamento } = require('../lib/funil/orcamento');
 const { classificar, normalizarNome } = require('../lib/prevencao/classificacao');
+const { extrairPacienteId } = require('../lib/sync/extrair-paciente-id');
 
 const FUNIL_DIAS = 180; // janela de coleta do funil comercial
 
@@ -429,7 +430,7 @@ async function syncOrcamentos() {
     byId.set(id, {
       clinicorp_estimate_id: id,
       treatment_id:          o.TreatmentId != null ? String(o.TreatmentId) : null,
-      paciente_clinicorp_id: String(o.PatientId || ''),
+      paciente_clinicorp_id: String(o.PatientId || '') || extrairPacienteId(o.PatientName),
       telefone:              normalizarTelefone(o.PatientMobilePhone),
       profissional_nome:     o.ProfessionalName || '',
       valor:                 Number(o.Amount || 0),
