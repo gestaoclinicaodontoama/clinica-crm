@@ -3754,19 +3754,65 @@ async function processarInadimplentes(items, today) {
     else for (const r of (cf || [])) { const id = String(r.paciente_clinicorp_id || ''); if (id) consultaFuturaSet.add(id); }
   }
 
-  // Renegociação: flags ANTES de classificar (o sort dos grupos prioriza quem quebrou).
-  const reneg = _inad.detectarRenegociados(items, today);
+  // Renegociação (Fase 3): agregados e flags vêm dos EVENTOS detectados por
+  // snapshot (fin_renegociacoes) — a detecção por cancelada da F2 nunca disparava
+  // (payment/list não devolve canceladas).
+  let renegAgg = { desde: null, total: 0, reincidente: 0, pctReincidencia: null,
+    nPacientes: 0, porMes: [], flags: new Map() };
+  try {
+    const { data: evs, error: evErr } = await supabase.from('fin_renegociacoes')
+      .select('data,tipo,treatment_id,patient_id,valor_novo').limit(5000);
+    if (evErr) throw new Error(evErr.message);
+    renegAgg = _inad.agregarRenegociacoes(evs || [], items, today);
+  } catch (e) { console.error('[reneg_agg] erro:', e.message); }
   for (const p of pacientes) {
-    const r = reneg.porPaciente.get(String(p.id));
-    p.renegociou = !!r;
-    p.quebrouReneg = !!(r && r.quebrouReneg);
+    const f = renegAgg.flags.get(String(p.id));
+    p.renegociou = !!f;
+    p.quebrouReneg = !!(f && f.quebrouReneg);
   }
   const resultado = _inad.classificarESepararGrupos(pacientes, { entregueMap, consultaFuturaSet, veioRecenteSet });
-  // Inadimplência REAL (classes por paciente + agregados) e resumo da renegociação.
   resultado.totais.real = _inad.inadimplenciaReal(pacientes);
-  resultado.totais.renegociado = { total: reneg.total, reincidente: reneg.reincidente,
-    pctReincidencia: reneg.pctReincidencia, nPacientes: reneg.nPacientes };
+  const { flags, ...renegTotais } = renegAgg;
+  resultado.totais.renegociado = renegTotais;
   return resultado;
+}
+
+// Fase 3: lê a foto de ontem, difere com o payload de hoje, grava eventos e
+// substitui a foto. Guardas anti-falso-positivo na função pura (diffSnapshotParcelas).
+async function atualizarSnapshotRenegociacoes(items, today) {
+  const anterior = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from('fin_parcelas_abertas_snapshot')
+      .select('posicao,treatment_id,installment,patient_id,patient_name,due_date,valor')
+      .order('posicao')                       // paginação estável (range sem order pula/repete)
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    anterior.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  const { eventos, abertasAtuais, abortado } = _inad.diffSnapshotParcelas(anterior, items, today);
+  if (abortado) { console.log(`[reneg_snapshot] freio de anomalia (${abortado}) — snapshot mantido`); return; }
+  if (!anterior.length) {
+    const { data: ini } = await supabase.from('fin_renegociacoes').select('id').eq('tipo', 'inicio').limit(1);
+    if (!ini || !ini.length) {
+      const { error } = await supabase.from('fin_renegociacoes').insert({ data: today, tipo: 'inicio' });
+      if (error) throw new Error(error.message);
+    }
+  }
+  if (eventos.length) {
+    const { error } = await supabase.from('fin_renegociacoes')
+      .insert(eventos.map(e => ({ ...e, data: today })));
+    if (error) throw new Error(error.message);
+  }
+  const del = await supabase.from('fin_parcelas_abertas_snapshot').delete().neq('posicao', '');
+  if (del.error) throw new Error(del.error.message);
+  const agora = new Date().toISOString();
+  for (let i = 0; i < abertasAtuais.length; i += 500) {
+    const { error } = await supabase.from('fin_parcelas_abertas_snapshot')
+      .insert(abertasAtuais.slice(i, i + 500).map(p => ({ ...p, atualizado_em: agora })));
+    if (error) throw new Error(error.message);
+  }
+  console.log(`[reneg_snapshot] ${eventos.length} eventos · snapshot ${abertasAtuais.length} posições`);
 }
 
 async function mergeInadimplentesNotas(resultado) {
@@ -3792,6 +3838,7 @@ async function fetchInadimplentesBackground() {
   try {
     const today = nowLocal().slice(0, 10);
     const allItems = [];
+    let chunksOk = 0;
     for (let i = 0; i < 12; i++) {
       const toDate   = new Date(); toDate.setMonth(toDate.getMonth() - i * 2);
       const fromDate = new Date(); fromDate.setMonth(fromDate.getMonth() - (i + 1) * 2);
@@ -3801,11 +3848,18 @@ async function fetchInadimplentesBackground() {
         const r = await clinicorpGet('/payment/list', { from, to, date_type: 'postDate' });
         if (r.status === 200 && Array.isArray(r.data)) {
           allItems.push(...r.data);
+          chunksOk++;
           console.log(`[Inadimplentes] chunk ${from}~${to}: ${r.data.length} itens (total ${allItems.length})`);
         }
       } catch(e) { console.log(`[Inadimplentes] chunk ${from} erro: ${e.message}`); }
       await sleep(400);
     }
+    // Fase 3: detector de renegociação por snapshot — SÓ com coleta 100% completa
+    // (chunk faltando = centenas de posições "sumiriam" = eventos falsos em massa).
+    if (chunksOk === 12) {
+      try { await atualizarSnapshotRenegociacoes(allItems, today); }
+      catch (e) { console.error('[reneg_snapshot] erro:', e.message); }
+    } else console.log(`[reneg_snapshot] coleta incompleta (${chunksOk}/12) — diff adiado`);
     const processado = await processarInadimplentes(allItems, today);
     processado.resultado = {
       recuperacao: _recuperacao.recuperacaoPorMes(allItems, today, 12),
@@ -3977,6 +4031,7 @@ async function atualizarAnaliseReceita(items, today) {
     colchao: _receitaMotor.colchao(items, today, realizacao.geral.taxa, reguas.fixas),
     rumo: _receitaMotor.rumoAoDegrau(decomposicao, today, reguas),
     safra: _receitaMotor.safras(items, today),
+    curvaSafra: _receitaMotor.curvaSafra(items, today),
     vendasPorMes,
   };
   const { error } = await supabase.from('fin_receita_analises')
