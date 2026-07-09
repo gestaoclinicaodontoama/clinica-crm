@@ -1,7 +1,9 @@
 // Boilerplate de auth/refresh/retry padrão do projeto (cópia de meu-dia/api.js, que por sua vez é
 // cópia de avaliacao-dentista/api.js). Carregado como <script> clássico (não módulo).
 // public/js/social-media/api.js expõe `smApi(path, { method, body })` (ver adaptador no fim do arquivo).
-const BASE = '/api';
+// ⚠️ BASE = '' (não '/api'): o app.js do social-media chama caminhos JÁ com o prefixo /api
+// (ex.: smApi('/api/social-media/config')). Com BASE='/api' virava /api/api/... => 404.
+const BASE = '';
 const RETRY_DELAY_MS = 5000;
 const _SB_URL = 'https://mtqdpjhhqzvuklnlfpvi.supabase.co';
 const _SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10cWRwamhocXp2dWtsbmxmcHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2Nzg0MjIsImV4cCI6MjA5NDI1NDQyMn0.pNA_AwaFDoT7ReinDMB6Sz0RT_gMZO2IwbAKOq5Ypzw';
