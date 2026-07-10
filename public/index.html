@@ -1273,6 +1273,17 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
 
   <div id="inad-reneg-meses" style="display:none"></div>
 
+  <div id="inad-ficha-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this)fecharFichaInad()">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:720px;width:92%;max-height:85vh;overflow-y:auto;padding:18px 20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
+        <h3 style="font-size:16px">🔍 Ficha de auditoria — <span id="ficha-nome"></span> <span id="ficha-chips"></span></h3>
+        <button class="btn btn-sm" onclick="fecharFichaInad()">✕</button>
+      </div>
+      <div id="ficha-corpo"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:12px;border-top:1px solid var(--border);padding-top:8px">Janela de 24 meses · só particular (convênio fora) · produção com "?" pode estar sem dono. Para conferir no Clinicorp: financeiro do paciente (pagamentos e parcelas), plano de tratamento (executados) e agenda.</div>
+    </div>
+  </div>
+
   <div id="inad-desistencia" class="inad-resultado" style="display:none">
     <div class="inad-res-titulo">Ponto de Desistência</div>
     <div id="inad-des-resumo" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
@@ -5463,7 +5474,7 @@ function renderInadSection(num, patients, isCritico) {
 
     if (isCritico) {
       return `<tr>
-        <td class="inad-td"><div style="font-weight:600">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
+        <td class="inad-td"><div style="font-weight:600;cursor:pointer" title="Abrir ficha de auditoria" onclick="abrirFichaInad('${escHtml(String(pid))}')">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
         <td class="inad-td-c">${p.overdueCount}</td>
         <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
         <td class="inad-td-c">${inadDiasBadge(p.diasDeAtraso)}</td>
@@ -5478,7 +5489,7 @@ function renderInadSection(num, patients, isCritico) {
     }
     const qtdCol = num === 1 ? '' : `<td class="inad-td-c">${p.overdueCount}</td>`;
     return `<tr>
-      <td class="inad-td"><div style="font-weight:600">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
+      <td class="inad-td"><div style="font-weight:600;cursor:pointer" title="Abrir ficha de auditoria" onclick="abrirFichaInad('${escHtml(String(pid))}')">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
       ${qtdCol}
       <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
       <td class="inad-td-r" style="color:var(--green)">${_inadFmt(p.futureAmount)}</td>
@@ -5760,6 +5771,78 @@ function toggleInadSection(bodyId, togId) {
   const isOpen = body.classList.contains('open');
   body.classList.toggle('open', !isOpen);
   tog.classList.toggle('open', !isOpen);
+}
+
+let _fichaAberta = null;
+function abrirFichaInad(pid) {
+  const p = [..._inadData.grupo1, ..._inadData.grupo2, ..._inadData.grupo3]
+    .find(x => String(x.id) === String(pid));
+  if (!p) return;
+  _fichaAberta = String(pid);
+  document.getElementById('ficha-nome').textContent = p.name || ('Paciente ' + pid);
+  document.getElementById('ficha-chips').innerHTML = inadEngajamentoBadge(p) +
+    (p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px">🔁 quebrou reneg.</span>' : '');
+  document.getElementById('ficha-corpo').innerHTML = _fichaSecoesCache(p) +
+    '<div id="ficha-live"><div style="color:var(--muted);padding:8px 0">Carregando procedimentos e agenda…</div></div>';
+  document.getElementById('inad-ficha-bg').style.display = 'flex';
+  _fichaCarregarLive(p);
+}
+function fecharFichaInad() {
+  document.getElementById('inad-ficha-bg').style.display = 'none';
+  _fichaAberta = null;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && _fichaAberta) fecharFichaInad(); });
+
+function _fichaData(x) { return x ? String(x).slice(0, 10).split('-').reverse().join('/') : '—'; }
+function _fichaTabelaParcelas(lista, comAtraso) {
+  const hoje = new Date();
+  return '<table style="margin:6px 0 2px"><thead><tr><th style="text-align:left">Vencimento</th><th>Valor</th><th>Forma</th>' +
+    (comAtraso ? '<th>Atraso</th>' : '') + '</tr></thead><tbody>' +
+    lista.map(x => {
+      const dias = comAtraso ? Math.max(0, Math.floor((hoje - new Date(x.due)) / 86400000)) : null;
+      return `<tr><td>${_fichaData(x.due)}</td><td style="text-align:right">${_inadFmt(x.valor)}</td>` +
+        `<td style="text-align:center">${escHtml(x.forma || '—')}</td>` +
+        (comAtraso ? `<td style="text-align:center">${dias}d</td>` : '') + '</tr>';
+    }).join('') + '</tbody></table>';
+}
+function _fichaSecoesCache(p) {
+  let html = '';
+  if (Array.isArray(p.parcelasVencidas)) {
+    html += `<div style="font-weight:700;margin:10px 0 2px">Vencido — ${_inadFmt(p.overdueAmount)} (${p.parcelasVencidas.length} parcela${p.parcelasVencidas.length === 1 ? '' : 's'})</div>` +
+      (p.parcelasVencidas.length ? _fichaTabelaParcelas(p.parcelasVencidas, true) : '<div style="color:var(--muted)">nenhuma</div>');
+    html += `<div style="font-weight:700;margin:10px 0 2px">A vencer — ${_inadFmt(p.futureAmount)}</div>` +
+      (p.parcelasFuturas.length ? _fichaTabelaParcelas(p.parcelasFuturas, false) : '<div style="color:var(--muted)">nenhuma parcela futura</div>');
+  } else {
+    html += '<div style="padding:8px 12px;border-radius:8px;background:rgba(245,158,11,.15);border:1px solid var(--yellow);font-size:12.5px">Detalhe das parcelas disponível após a próxima atualização (job das 02h ou botão "Atualizar dados").</div>';
+  }
+  html += `<div style="font-weight:700;margin:10px 0 2px">Pago (janela de 24 meses) — ${_inadFmt(p.pago)}</div>`;
+  return html;
+}
+async function _fichaCarregarLive(p) {
+  const alvo = () => document.getElementById('ficha-live');
+  try {
+    const d = await api('/api/inadimplentes/ficha/' + encodeURIComponent(p.id));
+    if (_fichaAberta !== String(p.id) || !alvo()) return;
+    let html = `<div style="font-weight:700;margin:10px 0 2px">Fez (entregue) — ${_inadFmt(d.totalEntregue)}</div>`;
+    if ((d.procedimentos || []).length) {
+      html += '<div style="max-height:220px;overflow-y:auto"><table><thead><tr><th style="text-align:left">Data</th><th style="text-align:left">Procedimento</th><th style="text-align:left">Dentista</th><th>Valor</th></tr></thead><tbody>' +
+        d.procedimentos.map(x => `<tr><td>${_fichaData(x.data)}</td><td>${escHtml(x.nome)}</td><td>${escHtml(x.dentista)}</td><td style="text-align:right">${_inadFmt(x.valor)}</td></tr>`).join('') +
+        '</tbody></table></div>';
+    } else {
+      html += '<div style="padding:8px 12px;border-radius:8px;background:rgba(245,158,11,.15);border:1px solid var(--yellow);font-size:12.5px">Sem produção atribuída — pode haver tratamento executado não medido ("?").</div>';
+    }
+    html += '<div style="font-weight:700;margin:10px 0 2px">Vem à clínica?</div>' +
+      `<div style="font-size:13px">Última visita (procedimento executado): <b>${_fichaData(d.ultimaVisita)}</b> · Próxima consulta marcada: <b>${_fichaData(d.proximaConsulta)}</b><br>` +
+      '<span style="color:var(--muted);font-size:12px">Regra do selo: "sumiu" = sem consulta futura e sem procedimento nos últimos 90 dias.</span></div>';
+    alvo().innerHTML = html;
+  } catch (e) {
+    if (alvo()) alvo().innerHTML = `<div style="padding:8px 12px;border-radius:8px;background:rgba(239,68,68,.12);border:1px solid var(--red);font-size:12.5px">Erro ao carregar procedimentos/agenda: ${escHtml(e.message)} <button class="btn btn-sm" onclick="_fichaRetry('${escHtml(String(p.id))}')">tentar de novo</button></div>`;
+  }
+}
+function _fichaRetry(pid) {
+  const p = [..._inadData.grupo1, ..._inadData.grupo2, ..._inadData.grupo3]
+    .find(x => String(x.id) === String(pid));
+  if (p) _fichaCarregarLive(p);
 }
 
 // ===== CAPTCHA MANUAL =====
