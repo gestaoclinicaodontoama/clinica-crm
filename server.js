@@ -3511,7 +3511,7 @@ app.patch('/api/notas-fiscais/:id', rateLimit, requireAuth, requireNotasFiscais,
   }
 });
 
-app.post('/api/notas-fiscais/:id/cancelar', rateLimit, requireAuth, requireNotasFiscais, async (req, res) => {
+app.post('/api/notas-fiscais/:id/cancelar', rateLimit, requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { motivo, codigo = '2' } = req.body || {};
