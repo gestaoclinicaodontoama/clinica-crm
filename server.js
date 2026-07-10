@@ -3420,7 +3420,9 @@ app.post('/api/notas-fiscais/emitir', rateLimit, requireAuth, requireNotasFiscai
   const s = nfse.statusJob();
   if (s.rodando) return res.json({ ok: false, erro: 'Emissão já em andamento' });
   // dispara em background; a UI acompanha pelo /status
-  nfse.processarPendentes(supabase).catch((e) => console.error('[nfse] processarPendentes:', e.message));
+  nfse.processarPendentes(supabase)
+    .then((r) => registrarJob('nf_emissao', { ok: (r.erros || 0) === 0, detalhe: { emitidas: r.emitidas || 0, erros: r.erros || 0 } }))
+    .catch((e) => { console.error('[nfse] processarPendentes:', e.message); registrarJob('nf_emissao', { ok: false, error: e.message }); });
   res.json({ ok: true });
 });
 
@@ -5177,6 +5179,7 @@ const JOB_HEARTBEAT = {
   fluxo_futuro:    { label: 'Fluxo futuro 24m (A Receber/Pagar)',     cadenciaMin: 1440, margemMin: 180 },
   inadimplentes:   { label: 'Financeiro por paciente / Inadimplentes', cadenciaMin: 1440, margemMin: 180 },
   comparecimentos: { label: 'Detecção de comparecimento',            cadenciaMin: 10,   margemMin: 50 },
+  nf_emissao:      { label: 'Emissão de NFS-e (sob demanda)',            cadenciaMin: 64800, margemMin: 43200 },
 };
 
 async function registrarJob(job, resultado) {
