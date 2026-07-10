@@ -3491,6 +3491,7 @@ app.patch('/api/notas-fiscais/:id', rateLimit, requireAuth, requireNotasFiscais,
       if (!(k in req.body)) continue;
       let v = req.body[k];
       if (k === 'status' && !NF_STATUS.includes(v)) return res.status(400).json({ error: 'status inválido. Use: ' + NF_STATUS.join(', ') });
+      if (k === 'status' && v === 'Cancelada') return res.status(400).json({ error: 'Use o botão Cancelar (rota /cancelar) — cancelamento precisa ser feito na prefeitura' });
       if (k === 'sistema' && !NF_SISTEMAS.includes(v)) continue;
       if (k === 'tipo_tomador') v = v === 'CNPJ' ? 'CNPJ' : 'CPF';
       if (k === 'competencia' && !/^\d{2}-\d{4}$/.test(String(v))) continue;
