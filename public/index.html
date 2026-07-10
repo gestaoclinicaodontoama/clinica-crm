@@ -847,6 +847,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-img').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar imagem">🖼️</button>
                 <button class="btn btn-ghost" id="btn-gravar" onclick="toggleGravacao()" style="height:34px;font-size:16px;padding:0 10px;transition:all .2s" title="Gravar áudio de voz">🎙️</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-audio').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo de áudio">🎵</button>
+                <button class="btn btn-ghost" onclick="document.getElementById('midia-video').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar vídeo (reproduzível, não como arquivo)">🎬</button>
                 <button class="btn btn-ghost" onclick="document.getElementById('midia-doc').click()" style="height:34px;font-size:16px;padding:0 10px" title="Enviar arquivo">📎</button>
                 <select id="chat-via-select" style="display:none;font-size:11px;font-weight:600;color:#10b981;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);border-radius:6px;padding:2px 8px;margin-left:auto;cursor:pointer;outline:none;height:26px" title="Número de envio"></select>
                 <span id="rec-indicator" style="display:none;align-items:center;gap:4px;font-size:12px;color:var(--red);font-weight:600">
@@ -855,6 +856,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
                 </span>
                 <input type="file" id="midia-img" accept="image/*" style="display:none" onchange="enviarMidiaChat(this,'image')">
                 <input type="file" id="midia-audio" accept="audio/*" style="display:none" onchange="enviarMidiaChat(this,'audio')">
+                <input type="file" id="midia-video" accept="video/*" style="display:none" onchange="enviarMidiaChat(this,'video')">
                 <input type="file" id="midia-doc" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" style="display:none" onchange="enviarMidiaChat(this,'document')">
               </div>
               <div id="agendar-msg-area" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;display:none;flex-direction:column;gap:8px">
