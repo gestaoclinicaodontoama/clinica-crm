@@ -4886,7 +4886,7 @@ app.get('/api/inadimplentes/ficha/:id', requireAuth, rateLimit, async (req, res)
         .gte('appointment_date', hoje)
         .order('appointment_date').limit(1),
     ]);
-    if (proc.error) return res.status(500).json({ error: proc.error.message });
+    if (proc.error || ag.error) return res.status(500).json({ error: (proc.error || ag.error).message });
     const procedimentos = (proc.data || []).map(r => ({
       data: r.executed_date,
       nome: r.procedure_name || '',

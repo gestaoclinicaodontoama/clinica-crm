@@ -5474,7 +5474,7 @@ function renderInadSection(num, patients, isCritico) {
 
     if (isCritico) {
       return `<tr>
-        <td class="inad-td"><div style="font-weight:600;cursor:pointer" title="Abrir ficha de auditoria" onclick="abrirFichaInad('${escHtml(String(pid))}')">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
+        <td class="inad-td"><div style="font-weight:600;cursor:pointer" data-pid="${escHtml(String(pid))}" onclick="abrirFichaInadEl(this)" title="Abrir ficha de auditoria">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
         <td class="inad-td-c">${p.overdueCount}</td>
         <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
         <td class="inad-td-c">${inadDiasBadge(p.diasDeAtraso)}</td>
@@ -5489,7 +5489,7 @@ function renderInadSection(num, patients, isCritico) {
     }
     const qtdCol = num === 1 ? '' : `<td class="inad-td-c">${p.overdueCount}</td>`;
     return `<tr>
-      <td class="inad-td"><div style="font-weight:600;cursor:pointer" title="Abrir ficha de auditoria" onclick="abrirFichaInad('${escHtml(String(pid))}')">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
+      <td class="inad-td"><div style="font-weight:600;cursor:pointer" data-pid="${escHtml(String(pid))}" onclick="abrirFichaInadEl(this)" title="Abrir ficha de auditoria">${safeN}${p.quebrouReneg ? ' <span class="inad-dias-crit" style="font-size:10px" title="Renegociou e voltou a atrasar — prioridade de cobrança">🔁 quebrou reneg.</span>' : ''}</div><div style="font-size:10.5px;color:var(--muted)">#${escHtml(String(pid))}</div></td>
       ${qtdCol}
       <td class="inad-td-r" style="color:var(--red);font-weight:600">${_inadFmt(p.overdueAmount)}</td>
       <td class="inad-td-r" style="color:var(--green)">${_inadFmt(p.futureAmount)}</td>
@@ -5774,6 +5774,8 @@ function toggleInadSection(bodyId, togId) {
 }
 
 let _fichaAberta = null;
+function abrirFichaInadEl(el) { abrirFichaInad(el.dataset.pid); }
+function _fichaRetryEl(el) { _fichaRetry(el.dataset.pid); }
 function abrirFichaInad(pid) {
   const p = [..._inadData.grupo1, ..._inadData.grupo2, ..._inadData.grupo3]
     .find(x => String(x.id) === String(pid));
@@ -5822,6 +5824,7 @@ async function _fichaCarregarLive(p) {
   const alvo = () => document.getElementById('ficha-live');
   try {
     const d = await api('/api/inadimplentes/ficha/' + encodeURIComponent(p.id));
+    if (d && d.error) throw new Error(d.error);
     if (_fichaAberta !== String(p.id) || !alvo()) return;
     let html = `<div style="font-weight:700;margin:10px 0 2px">Fez (entregue) — ${_inadFmt(d.totalEntregue)}</div>`;
     if ((d.procedimentos || []).length) {
@@ -5836,7 +5839,7 @@ async function _fichaCarregarLive(p) {
       '<span style="color:var(--muted);font-size:12px">Regra do selo: "sumiu" = sem consulta futura e sem procedimento nos últimos 90 dias.</span></div>';
     alvo().innerHTML = html;
   } catch (e) {
-    if (alvo()) alvo().innerHTML = `<div style="padding:8px 12px;border-radius:8px;background:rgba(239,68,68,.12);border:1px solid var(--red);font-size:12.5px">Erro ao carregar procedimentos/agenda: ${escHtml(e.message)} <button class="btn btn-sm" onclick="_fichaRetry('${escHtml(String(p.id))}')">tentar de novo</button></div>`;
+    if (alvo()) alvo().innerHTML = `<div style="padding:8px 12px;border-radius:8px;background:rgba(239,68,68,.12);border:1px solid var(--red);font-size:12.5px">Erro ao carregar procedimentos/agenda: ${escHtml(e.message)} <button class="btn btn-sm" data-pid="${escHtml(String(p.id))}" onclick="_fichaRetryEl(this)">tentar de novo</button></div>`;
   }
 }
 function _fichaRetry(pid) {
