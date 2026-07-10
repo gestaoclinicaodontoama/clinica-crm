@@ -385,13 +385,8 @@ textarea { resize: vertical; min-height: 80px; }
 .nf-status-Processando  { background: rgba(79,142,247,.15); color: var(--b-lead); }
 .nf-status-Emitida      { background: rgba(34,197,94,.15);  color: var(--green); }
 .nf-status-Erro         { background: rgba(239,68,68,.15);  color: var(--red); }
+.nf-status-Cancelada    { background: rgba(107,114,128,.15); color: var(--muted); }
 .nf-sheet tbody tr.nf-row-clickable { cursor: pointer; }
-.captcha-modal-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1100;align-items:center;justify-content:center }
-.captcha-modal-overlay.ativo { display:flex }
-.captcha-modal { background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:28px 24px;max-width:480px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.35) }
-.captcha-modal img { width:100%;max-width:420px;border:1px solid var(--border);border-radius:6px;margin:14px auto;display:block;image-rendering:pixelated }
-.captcha-modal input { width:140px;text-align:center;font-size:22px;font-family:'DM Mono',monospace;letter-spacing:8px;padding:10px;border:2px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--text);outline:none }
-.captcha-modal input:focus { border-color:var(--accent) }
 .nf-drawer-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999 }
 .nf-drawer { display:none;position:fixed;right:0;top:0;height:100vh;width:460px;max-width:100vw;background:var(--bg2);border-left:1px solid var(--border);z-index:1000;overflow-y:auto;box-shadow:-6px 0 24px rgba(0,0,0,.18) }
 .nfd-section { padding:20px 22px;border-bottom:1px solid var(--border) }
@@ -1129,10 +1124,15 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <button class="btn btn-ghost" style="font-size:12px" onclick="loadNotasFiscais()">↺ Atualizar</button>
   </div>
 
-  <!-- Agente local de emissão -->
+  <!-- Banner ambiente de homologacao -->
+  <div id="nf-banner-homolog" style="display:none;margin-bottom:14px;padding:10px 16px;background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid var(--yellow);border-radius:8px;font-size:13px;font-weight:600">
+    ⚠️ AMBIENTE DE TREINO — notas emitidas aqui NÃO têm valor fiscal
+  </div>
+
+  <!-- Motor de emissão -->
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding:12px 16px;background:var(--bg2);border-radius:8px;border:1px solid var(--border);flex-wrap:wrap">
     <span id="nf-agente-dot" style="font-size:18px;line-height:1">⚫</span>
-    <span id="nf-agente-msg" style="font-size:13px;color:var(--muted);flex:1;min-width:160px">Verificando agente local...</span>
+    <span id="nf-agente-msg" style="font-size:13px;color:var(--muted);flex:1;min-width:160px">Verificando motor de emissão...</span>
     <button id="nf-btn-emitir" class="btn btn-primary" style="font-size:13px;white-space:nowrap" onclick="agenteEmitir()" disabled>🖨️ Emitir Pendentes</button>
   </div>
   <div id="nf-agente-log-wrap" style="display:none;margin-bottom:14px">
@@ -4755,10 +4755,24 @@ function nfSistemaBadge(s) {
   return `<span class="badge ${cls[s]||''}">${escHtml(s)}</span>`;
 }
 function nfStatusBadge(s) {
-  const cls = {'Pendente':'nf-status-Pendente','Processando':'nf-status-Processando','Emitida':'nf-status-Emitida','Erro':'nf-status-Erro'};
+  const cls = {'Pendente':'nf-status-Pendente','Processando':'nf-status-Processando','Emitida':'nf-status-Emitida','Erro':'nf-status-Erro','Cancelada':'nf-status-Cancelada'};
   return `<span class="badge ${cls[s]||''}">${escHtml(s)}</span>`;
 }
 function nfFmt(v) { return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2}); }
+function _isAdminGestor() {
+  const roles = (_currentUser && _currentUser.roles) || [];
+  return roles.includes('admin') || roles.includes('gestor');
+}
+async function nfAbrirPdf(id) {
+  try {
+    const headers = _sbSession && _sbSession.access_token ? { Authorization: 'Bearer ' + _sbSession.access_token } : {};
+    const r = await fetch(`/api/notas-fiscais/${id}/pdf`, { headers });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); toast('❌ ' + (j.error || 'PDF não disponível'), true); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  } catch(e) { toast('❌ Erro ao abrir PDF', true); }
+}
 function nfMask(cpf) {
   if (!cpf) return '—';
   const d = cpf.replace(/\D/g,'');
@@ -4806,9 +4820,10 @@ function nfViewRowHtml(n) {
   const desc = n.descricao
     ? `<span title="${escHtml(n.descricao)}" style="color:var(--muted);font-size:11px;max-width:130px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(n.descricao)}</span>` : '<span style="color:var(--muted)">—</span>';
   const nota_num = n.num_nota
-    ? `<a href="/api/notas-fiscais/${n.id}/pdf" target="_blank" onclick="event.stopPropagation()" title="Abrir PDF" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);text-decoration:underline dotted">${escHtml(n.num_nota)}</a>`
+    ? `<a href="#" onclick="event.stopPropagation();event.preventDefault();nfAbrirPdf(${n.id})" title="Abrir PDF" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);text-decoration:underline dotted">${escHtml(n.num_nota)}</a>${n.drive_link ? `<a href="${escHtml(n.drive_link)}" target="_blank" onclick="event.stopPropagation()" title="Abrir no Drive" style="margin-left:5px;text-decoration:none">📁</a>` : ''}`
     : '<span style="color:var(--muted)">—</span>';
   const canEdit = ['Pendente','Erro'].includes(n.status);
+  const podeCancelar = n.status === 'Emitida' && _isAdminGestor();
   return `<tr id="nf-vrow-${n.id}" class="nf-row-clickable" onclick="abrirDetalheNota(${n.id})">
     <td>${nfSistemaBadge(n.sistema)}</td>
     <td style="font-family:'DM Mono',monospace;font-size:12px">${escHtml(n.competencia||'—')}</td>
@@ -4823,6 +4838,7 @@ function nfViewRowHtml(n) {
       ${n.status === 'Erro' ? `<button class="rst" title="Resetar para Pendente" onclick="resetarNota(${n.id})">↩</button>` : ''}
       ${canEdit ? `<button onclick="nfEditRow(${n.id})">✎</button>` : ''}
       ${canEdit ? `<button class="del" onclick="deletarNota(${n.id})">✕</button>` : ''}
+      ${podeCancelar ? `<button class="del" title="Cancelar na prefeitura" onclick="nfCancelar(${n.id})">🚫</button>` : ''}
     </div></td>
   </tr>`;
 }
@@ -5080,6 +5096,16 @@ async function resetarNota(id) {
   } catch(e) { toast('❌ Erro: ' + e.message, true); }
 }
 
+async function nfCancelar(id) {
+  const motivo = prompt('Motivo do cancelamento (obrigatório, mín. 5 caracteres):');
+  if (!motivo || motivo.trim().length < 5) return;
+  try {
+    const r = await api(`/api/notas-fiscais/${id}/cancelar`, { method: 'POST', body: JSON.stringify({ motivo }) });
+    if (r.ok) { toast('✅ Nota cancelada na prefeitura'); loadNotasFiscais(); }
+    else toast('❌ ' + (r.error || 'falha ao cancelar'), true);
+  } catch(e) { toast('❌ Erro: ' + e.message, true); }
+}
+
 // ======= IMPORT EM LOTE =======
 let _nfImportBuffer = [];
 
@@ -5305,26 +5331,35 @@ async function nfGradeSalvar() {
   nfAbrirPreview(notas);
 }
 
-// ===== AGENTE LOCAL =====
-const AGENTE = 'https://plataformaama-nf-agente.uc5as5.easypanel.host';
+// ===== MOTOR DE EMISSÃO (interno, via server.js) =====
 let _agentePoll = null;
 
 async function agenteVerificar() {
   try {
-    const r = await fetch(AGENTE + '/status', { signal: AbortSignal.timeout(1500) });
-    const d = await r.json();
+    const d = await api('/api/notas-fiscais/emitir/status');
+    if (d.error) throw new Error(d.error);
     document.getElementById('nf-agente-dot').textContent = d.rodando ? '🟡' : '🟢';
     document.getElementById('nf-agente-msg').textContent = d.rodando
-      ? 'Emitindo notas...' : 'Agente conectado — pronto para emitir';
+      ? 'Emitindo notas...' : `Motor de emissão pronto (ambiente: ${d.ambiente})`;
     const btn = document.getElementById('nf-btn-emitir');
     btn.disabled = d.rodando;
     btn.textContent = d.rodando ? '⏳ Emitindo...' : '🖨️ Emitir Pendentes';
+    const banner = document.getElementById('nf-banner-homolog');
+    if (banner) banner.style.display = d.ambiente === 'homologacao' ? '' : 'none';
+    if (d.log && d.log.length) {
+      document.getElementById('nf-agente-log-wrap').style.display = '';
+      const pre = document.getElementById('nf-agente-log');
+      pre.textContent = d.log.join('\n');
+      pre.scrollTop = pre.scrollHeight;
+    }
+    return d;
   } catch(e) {
     document.getElementById('nf-agente-dot').textContent = '⚫';
     document.getElementById('nf-agente-msg').innerHTML =
-      'Serviço offline &mdash; aguarde o servidor inicializar ou contate o suporte';
+      'Motor de emissão indisponível &mdash; tente novamente ou contate o suporte';
     document.getElementById('nf-btn-emitir').disabled = true;
     document.getElementById('nf-btn-emitir').textContent = '🖨️ Emitir Pendentes';
+    return null;
   }
 }
 
@@ -5348,30 +5383,21 @@ async function agenteEmitir() {
   document.getElementById('nf-agente-log-wrap').style.display = '';
   document.getElementById('nf-agente-log').textContent = 'Iniciando...\n';
   try {
-    const r = await fetch(AGENTE + '/emitir', { method: 'POST' });
-    const d = await r.json();
-    if (!d.ok) { toast('❌ ' + d.erro, true); agenteVerificar(); return; }
+    const d = await api('/api/notas-fiscais/emitir', { method: 'POST' });
+    if (d.error) { toast('❌ ' + d.error, true); agenteVerificar(); return; }
+    if (!d.ok) { toast('❌ ' + (d.erro || 'falha ao iniciar emissão'), true); agenteVerificar(); return; }
     if (_agentePoll) clearInterval(_agentePoll);
     _agentePoll = setInterval(async () => {
-      await agenteVerificar();
-      try {
-        const rp = await fetch(AGENTE + '/progresso');
-        const dp = await rp.json();
-        if (dp.log?.length) {
-          const pre = document.getElementById('nf-agente-log');
-          pre.textContent = dp.log.join('\n');
-          pre.scrollTop = pre.scrollHeight;
-        }
-        if (!dp.rodando) {
-          clearInterval(_agentePoll); _agentePoll = null;
-          loadNotasFiscais();
-          toast('✅ Emissão concluída!');
-          _notificarConclusao(dp.log || []);
-        }
-      } catch(e) {}
+      const s = await agenteVerificar();
+      if (s && !s.rodando) {
+        clearInterval(_agentePoll); _agentePoll = null;
+        loadNotasFiscais();
+        toast('✅ Emissão concluída!');
+        _notificarConclusao(s.log || []);
+      }
     }, 2000);
   } catch(e) {
-    toast('❌ Agente não respondeu', true);
+    toast('❌ ' + e.message, true);
     agenteVerificar();
   }
 }
@@ -5850,47 +5876,6 @@ function _fichaRetry(pid) {
   if (p) _fichaCarregarLive(p);
 }
 
-// ===== CAPTCHA MANUAL =====
-let _captchaToken = null;        // token atualmente exibido
-const _captchasHandled = new Set(); // tokens já respondidos ou cancelados
-
-async function captchaVerificar() {
-  try {
-    const r = await api('/api/nf-captcha');
-    if (r.pendente && !_captchasHandled.has(r.token)) {
-      _captchaToken = r.token;
-      _captchasHandled.add(r.token);
-      document.getElementById('captcha-img').src = 'data:image/png;base64,' + r.img_b64;
-      document.getElementById('captcha-input').value = '';
-      document.getElementById('captcha-overlay').classList.add('ativo');
-      setTimeout(() => document.getElementById('captcha-input').focus(), 100);
-      if ('Notification' in window && Notification.permission === 'granted')
-        new Notification('Clínica CRM — Captcha', { body: 'Digite o código para continuar a emissão de notas.', icon: '/favicon.ico' });
-    }
-  } catch (_) {}
-}
-
-async function enviarCaptcha() {
-  const digitos = document.getElementById('captcha-input').value.replace(/\D/g,'');
-  if (digitos.length !== 4) { toast('Digite exatamente 4 dígitos', true); return; }
-  if (!_captchaToken) return;
-  try {
-    await api(`/api/nf-captcha/${_captchaToken}/resposta`, {
-      method: 'POST', body: JSON.stringify({ digitos })
-    });
-    fecharCaptchaModal();
-    toast('Captcha enviado — automação continuando...');
-  } catch(e) { toast('❌ Erro ao enviar captcha: ' + e.message, true); }
-}
-
-function fecharCaptchaModal() {
-  document.getElementById('captcha-overlay').classList.remove('ativo');
-  // Não reseta _captchaToken para não reabrir o mesmo modal
-}
-
-
-
-
 // ===== DRAWER DETALHE NOTA FISCAL =====
 function abrirDetalheNota(id) {
   const n = _nfData[id];
@@ -5940,7 +5925,8 @@ function _renderDetalheNota(n) {
         ${nfSistemaBadge(n.sistema)}
         ${nfStatusBadge(n.status)}
         ${n.num_nota ? `<span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)">NF# ${escHtml(n.num_nota)}</span>` : ''}
-        ${n.num_nota ? `<a href="/api/notas-fiscais/${n.id}/pdf" target="_blank" title="Abrir Nota Fiscal" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500">⬇ PDF</a>` : ''}
+        ${n.num_nota ? `<a href="#" onclick="event.preventDefault();nfAbrirPdf(${n.id})" title="Abrir Nota Fiscal" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500">⬇ PDF</a>` : ''}
+        ${n.drive_link ? `<a href="${escHtml(n.drive_link)}" target="_blank" title="Abrir no Drive" style="font-size:16px;text-decoration:none">📁</a>` : ''}
       </div>
       <button onclick="fecharDetalheNota()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:2px 8px;line-height:1">✕</button>
     </div>
@@ -5980,6 +5966,7 @@ function _renderDetalheNota(n) {
     <div class="nfd-section" style="border:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${['Pendente','Erro'].includes(n.status) ? `<button class="btn btn-ghost" style="font-size:12px;color:var(--red)" onclick="fecharDetalheNota();deletarNota(${n.id})">🗑 Excluir nota</button>` : ''}
+        ${n.status === 'Emitida' && _isAdminGestor() ? `<button class="btn btn-ghost" style="font-size:12px;color:var(--red)" onclick="nfCancelar(${n.id})">🚫 Cancelar na prefeitura</button>` : ''}
       </div>
       <div style="margin-top:10px;font-size:11px;color:var(--muted)">
         Criada em ${n.criado_em||'—'} · Atualizada em ${n.atualizado_em||'—'}
@@ -6143,21 +6130,6 @@ function carregarMaisTrajeto() { if (_trajetoLeadId) carregarTrajeto(_trajetoLea
 <div class="nf-drawer-overlay" id="nf-drawer-overlay" onclick="fecharDetalheNota()"></div>
 <div class="nf-drawer" id="nf-drawer"></div>
 
-<!-- Modal Captcha Manual -->
-<div class="captcha-modal-overlay" id="captcha-overlay">
-  <div class="captcha-modal">
-    <div style="font-size:15px;font-weight:700;margin-bottom:4px">Captcha necessário</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">A IA não conseguiu ler o captcha. Digite os 4 dígitos:</div>
-    <img id="captcha-img" src="" alt="captcha">
-    <input id="captcha-input" type="text" inputmode="numeric" maxlength="4" placeholder="0000"
-           onkeydown="if(event.key==='Enter')enviarCaptcha()">
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:16px">
-      <button class="btn btn-ghost" style="font-size:13px" onclick="fecharCaptchaModal()">Cancelar</button>
-      <button class="btn btn-primary" style="font-size:13px" onclick="enviarCaptcha()">Confirmar</button>
-    </div>
-  </div>
-</div>
-
 
 <script>
 // ========== SUPABASE AUTH ==========
@@ -6224,7 +6196,6 @@ function iniciarApp() {
   try { if (window.CRMNav) window.CRMNav.initFeatures(document.querySelector('nav')); } catch (e) {}
   // Segurança: garante que a sidebar apareça mesmo se loadCurrentUser falhar
   setTimeout(() => { const _n = document.querySelector('nav'); if (_n) _n.removeAttribute('hidden'); }, 1500);
-  setInterval(captchaVerificar, 3000);
   api('/api/config/wa').then(r => { if (r?.numbers) _waNumbers = r.numbers; if (r?.defaultPhoneId) _waDefaultId = r.defaultPhoneId; }).catch(() => {});
 
   // Abre lead vindo de outro módulo (ex: kanban) — deve rodar após auth
