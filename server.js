@@ -3565,7 +3565,7 @@ app.delete('/api/notas-fiscais/:id', rateLimit, requireAuth, requireNotasFiscais
     if (isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
     const { data: nota } = await supabase.from('notas_fiscais').select('id,status').eq('id', id).maybeSingle();
     if (!nota) return res.status(404).json({ error: 'Nota não encontrada' });
-    if (['Emitida','Processando'].includes(nota.status)) return res.status(400).json({ error: 'Não é possível excluir uma nota já emitida ou em processamento' });
+    if (['Emitida','Processando','Cancelada'].includes(nota.status)) return res.status(400).json({ error: 'Não é possível excluir uma nota emitida, em processamento ou cancelada' });
     const { error } = await supabase.from('notas_fiscais').delete().eq('id', id);
     if (error) throw error;
     res.json({ ok: true });
