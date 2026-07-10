@@ -3410,9 +3410,25 @@ app.get('/api/nf-captcha/:token/aguardar', (req, res) => {
 
 // ========== NOTAS FISCAIS ==========
 const NF_SISTEMAS = ['Vieira', 'Martins', 'Receita Saude'];
-const NF_STATUS   = ['Pendente', 'Processando', 'Emitida', 'Erro'];
+const NF_STATUS   = ['Pendente', 'Processando', 'Emitida', 'Erro', 'Cancelada'];
+const nfse = require('./lib/nfse/emitir');
+const { montarCancelarNfseEnvio } = require('./lib/nfse/montar-xml');
+const { chamarWs: nfseChamarWs, parseCancelarNfse } = require('./lib/nfse/cliente');
+const requireNotasFiscais = requireRole('admin', 'gestor', 'mod_notas_fiscais');
 
-app.get('/api/notas-fiscais', async (req, res) => {
+app.post('/api/notas-fiscais/emitir', rateLimit, requireAuth, requireNotasFiscais, async (req, res) => {
+  const s = nfse.statusJob();
+  if (s.rodando) return res.json({ ok: false, erro: 'Emissão já em andamento' });
+  // dispara em background; a UI acompanha pelo /status
+  nfse.processarPendentes(supabase).catch((e) => console.error('[nfse] processarPendentes:', e.message));
+  res.json({ ok: true });
+});
+
+app.get('/api/notas-fiscais/emitir/status', requireAuth, requireNotasFiscais, (req, res) => {
+  res.json({ ...nfse.statusJob(), ambiente: process.env.NFSE_AMBIENTE === 'producao' ? 'producao' : 'homologacao' });
+});
+
+app.get('/api/notas-fiscais', requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const { sistema, status, competencia } = req.query;
     let query = supabase.from('notas_fiscais').select('*').order('id', { ascending: false });
@@ -3427,7 +3443,7 @@ app.get('/api/notas-fiscais', async (req, res) => {
   }
 });
 
-app.get('/api/notas-fiscais/pendentes', async (req, res) => {
+app.get('/api/notas-fiscais/pendentes', requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const { data, error } = await supabase.from('notas_fiscais').select('*').eq('status', 'Pendente');
     if (error) throw error;
@@ -3437,7 +3453,7 @@ app.get('/api/notas-fiscais/pendentes', async (req, res) => {
   }
 });
 
-app.post('/api/notas-fiscais', rateLimit, async (req, res) => {
+app.post('/api/notas-fiscais', rateLimit, requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const { sistema, competencia, tipo_tomador = 'CPF', cpf_tomador, nome_tomador,
       cpf_paciente = '', nome_paciente = '', parentesco = '', data_pagamento, valor, descricao = '' } = req.body;
@@ -3459,7 +3475,7 @@ app.post('/api/notas-fiscais', rateLimit, async (req, res) => {
   }
 });
 
-app.patch('/api/notas-fiscais/:id', rateLimit, async (req, res) => {
+app.patch('/api/notas-fiscais/:id', rateLimit, requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
@@ -3495,7 +3511,33 @@ app.patch('/api/notas-fiscais/:id', rateLimit, async (req, res) => {
   }
 });
 
-app.get('/api/notas-fiscais/:id/pdf', async (req, res) => {
+app.post('/api/notas-fiscais/:id/cancelar', rateLimit, requireAuth, requireNotasFiscais, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { motivo, codigo = '2' } = req.body || {};
+    if (isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
+    if (!motivo || String(motivo).trim().length < 5) return res.status(400).json({ error: 'Motivo obrigatório (mín. 5 caracteres)' });
+    const { data: nota } = await supabase.from('notas_fiscais').select('*').eq('id', id).maybeSingle();
+    if (!nota) return res.status(404).json({ error: 'Nota não encontrada' });
+    if (nota.status !== 'Emitida' || !nota.num_nota) return res.status(400).json({ error: 'Só nota Emitida pode ser cancelada' });
+    const { data: emissor } = await supabase.from('nf_emissores').select('*').eq('sistema', nota.sistema).maybeSingle();
+    if (!emissor) return res.status(400).json({ error: `Emissor não configurado: ${nota.sistema}` });
+
+    const xml = montarCancelarNfseEnvio({ numeroNfse: nota.num_nota, emissor, codigoCancelamento: String(codigo) });
+    const resp = await nfseChamarWs('CancelarNfse', xml);
+    const r = parseCancelarNfse(resp);
+    if (!r.ok) return res.status(422).json({ error: (r.erros || []).map((e) => `${e.codigo}: ${e.mensagem}`).join(' | ') });
+
+    const hist = Array.isArray(nota.historico) ? nota.historico : [];
+    hist.push({ de: 'Emitida', para: 'Cancelada', quando: nowLocal(), quem: req.user?.email || 'manual', motivo: sanitizeStr(motivo, 300) });
+    await supabase.from('notas_fiscais').update({ status: 'Cancelada', historico: hist, xml_retorno: resp }).eq('id', id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/notas-fiscais/:id/pdf', requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
@@ -3516,7 +3558,7 @@ app.get('/api/notas-fiscais/:id/pdf', async (req, res) => {
   }
 });
 
-app.delete('/api/notas-fiscais/:id', rateLimit, async (req, res) => {
+app.delete('/api/notas-fiscais/:id', rateLimit, requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'ID invalido' });
@@ -3531,7 +3573,7 @@ app.delete('/api/notas-fiscais/:id', rateLimit, async (req, res) => {
   }
 });
 
-app.post('/api/notas-fiscais/lote', rateLimit, async (req, res) => {
+app.post('/api/notas-fiscais/lote', rateLimit, requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const { notas } = req.body;
     if (!Array.isArray(notas) || !notas.length) return res.status(400).json({ error: 'Campo notas deve ser um array não vazio' });
@@ -3559,7 +3601,7 @@ app.post('/api/notas-fiscais/lote', rateLimit, async (req, res) => {
   }
 });
 
-app.get('/api/notas-fiscais/stats', async (req, res) => {
+app.get('/api/notas-fiscais/stats', requireAuth, requireNotasFiscais, async (req, res) => {
   try {
     const { sistema, status, competencia } = req.query;
     let query = supabase.from('notas_fiscais').select('status,valor');
