@@ -4767,10 +4767,11 @@ async function nfAbrirPdf(id) {
   try {
     const headers = _sbSession && _sbSession.access_token ? { Authorization: 'Bearer ' + _sbSession.access_token } : {};
     const r = await fetch(`/api/notas-fiscais/${id}/pdf`, { headers });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); toast('❌ ' + (j.error || 'PDF não disponível'), true); return; }
+    if (!r.ok) { if (r.status === 401) { handleLogout(); return; } const j = await r.json().catch(()=>({})); toast('❌ ' + (j.error || 'PDF não disponível'), true); return; }
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch(e) { toast('❌ Erro ao abrir PDF', true); }
 }
 function nfMask(cpf) {
