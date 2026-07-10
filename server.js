@@ -4867,6 +4867,44 @@ app.patch('/api/inadimplentes/nota/:patientId', requireAuth, rateLimit, async (r
   }
 });
 
+// Ficha de auditoria: componentes do "entregue" (mesma tabela/filtro da RPC
+// inad_entregue_por_paciente) + agenda. As parcelas já vão no cache
+// (agregarPorPaciente anexa) — aqui só o que é consultado ao vivo.
+app.get('/api/inadimplentes/ficha/:id', requireAuth, rateLimit, async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'id invalido' });
+  try {
+    const hoje = _finDataLocal(new Date());
+    const [proc, ag] = await Promise.all([
+      supabase.from('producao_procedimentos')
+        .select('executed_date,procedure_name,dentist_name,amount')
+        .eq('paciente_clinicorp_id', id)
+        .order('executed_date', { ascending: false }).limit(500),
+      supabase.from('agenda_appointments')
+        .select('appointment_date')
+        .eq('paciente_clinicorp_id', id).eq('deleted', false)
+        .gte('appointment_date', hoje)
+        .order('appointment_date').limit(1),
+    ]);
+    if (proc.error) return res.status(500).json({ error: proc.error.message });
+    const procedimentos = (proc.data || []).map(r => ({
+      data: r.executed_date,
+      nome: r.procedure_name || '',
+      dentista: r.dentist_name || '',
+      valor: Math.round((Number(r.amount) || 0) * 100) / 100,
+    }));
+    res.json({
+      procedimentos,
+      totalEntregue: Math.round(procedimentos.reduce((s, x) => s + x.valor, 0) * 100) / 100,
+      ultimaVisita: procedimentos.length ? procedimentos[0].data : null,
+      proximaConsulta: (ag.data && ag.data[0]) ? ag.data[0].appointment_date : null,
+    });
+  } catch (e) {
+    console.error('❌ ficha inad:', e.message);
+    res.status(500).json({ error: 'Falha ao montar a ficha' });
+  }
+});
+
 // ========== CRC POS TRATAMENTO ==========
 app.post('/api/crc/sincronizar-novos', async (req, res) => {
   try {
