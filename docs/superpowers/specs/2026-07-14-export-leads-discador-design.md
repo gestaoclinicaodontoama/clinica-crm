@@ -2,7 +2,7 @@
 
 **Data:** 2026-07-14
 **Autor:** Luiz + Claude
-**Status:** aprovado (aguardando revisão final do spec)
+**Status:** aprovado — 3 rodadas de review (14/07) até restarem só cosméticos
 
 ## Problema
 
@@ -25,7 +25,7 @@ e baixa a lista com as colunas de contexto, para importar em qualquer discador.
 | Permissão | **Mesmas roles do board de Leads** (`requireKanbanLeads`: `crc_leads`, `crc_comercial`, `crc` legado, `mod_kanban_leads`, gestor, admin). Revisão 14/07: `crc_sucesso` não acessa o board onde o botão mora — permissão de API sem porta de entrada seria fantasma. |
 | Coluna "anúncio" | **Nome legível** resolvido pela tabela `anuncios` (sem chamar a Meta) |
 | Auditoria | **Sim** — registrar quem exportou, quantos leads, quando |
-| Cabeçalho CSV | Padrão `nome,telefone,telefone_wa,status,origem,anuncio` (com **BOM** `﻿` — a CRC abre no Excel; sem BOM os acentos quebram) |
+| Cabeçalho CSV | Padrão `nome,telefone,telefone_wa,status,origem,anuncio` (com **BOM** U+FEFF no início — a CRC abre no Excel; sem BOM os acentos quebram) |
 | Sem telefone | Leads sem telefone **ficam fora do CSV** (linha inútil pro discador); o modal avisa quantos ficaram de fora |
 
 ## Reuso (nada greenfield)
@@ -46,7 +46,7 @@ e baixa a lista com as colunas de contexto, para importar em qualquer discador.
 nº de linhas descartadas por falta de telefone).
 
 - Cabeçalho: `nome,telefone,telefone_wa,status,origem,anuncio`
-- **BOM**: a string começa com `﻿` — a CRC abre no Excel do Windows, que sem
+- **BOM**: a string começa com U+FEFF — a CRC abre no Excel do Windows, que sem
   BOM renderiza UTF-8 como "JoÃ£o". (O CSV de Públicos não tem BOM porque o
   consumidor é a Meta; aqui o consumidor é humano + discador.)
 - **Filtra linhas sem telefone**: `rows.filter(r => r.telefone?.trim())` — linha
@@ -64,10 +64,10 @@ nº de linhas descartadas por falta de telefone).
 ### 2. Nova rota — `POST /api/leads/exportar`
 
 ```
-app.post('/api/leads/exportar', requireAuth, requireExportLeads, rateLimit, handler)
+app.post('/api/leads/exportar', requireAuth, requireKanbanLeads, rateLimit, handler)
 ```
 
-- **Middleware:** reusar o **`requireKanbanLeads`** existente (`server.js:443`) —
+- **Middleware:** o **`requireKanbanLeads`** existente (`server.js:443`) —
   mesmas roles do board onde o botão mora. Não criar middleware novo.
 - **Body (dois modos, mutuamente exclusivos):**
   - `{ ids: [<leadId>...] }` → exporta exatamente os leads marcados (o que a CRC
@@ -78,6 +78,8 @@ app.post('/api/leads/exportar', requireAuth, requireExportLeads, rateLimit, hand
     filtro daquela coluna, reusando `buildLeadsColFilter` e **paginando** (range
     de 1000) até esvaziar — mesmo padrão de `/api/publicos/exportar` (nunca
     somar/cortar no client — ver `feedback_supabase_1000_limit`).
+    **Validar `coluna`:** `buildLeadsColFilter` devolve `null` para coluna
+    desconhecida → responder 400 ("Coluna inválida"), não deixar virar 500.
     ⚠️ Refactor pequeno necessário: `buildLeadsColFilter` hardcoda `CARD_FIELDS`;
     adicionar parâmetro opcional `fields` (default `CARD_FIELDS`) para o export
     pedir `id,nome,telefone,status,origem,campanha` sem duplicar a query.
@@ -109,8 +111,8 @@ alter table public.leads_export_log enable row level security;
 ```
 
 - O handler insere **1 linha por exportação** (usuario_id/nome de `req.user`,
-  `qtd` = nº de linhas, `modo`, `filtros`). Insert best-effort: não derruba o
-  download se o log falhar (loga warn).
+  `qtd` = nº de linhas **do CSV entregue** (pós-descarte de sem-telefone), `modo`,
+  `filtros`). Insert best-effort: não derruba o download se o log falhar (loga warn).
 - Segue a regra de segurança do `CLAUDE.md`: tabela nova nasce com RLS ligado e
   **sem** policy (só service_role acessa).
 
@@ -127,6 +129,12 @@ enganando a CRC silenciosamente.
   canto do card, guardando o `lead.id`. Estado em memória: `Set` de ids marcados.
   Clicar no checkbox **não** abre a ficha nem inicia drag (stopPropagation no
   clique e `draggable=false`/guard no dragstart do input).
+  ⚠️ **Re-render restaura o estado:** `renderCol` re-renderiza os cards (carregar
+  mais, reload, drag). O `renderCard` deve marcar `checked` a partir do `Set` —
+  senão os checks somem da tela mas continuam no `Set`, e a CRC exportaria leads
+  que não vê marcados. Corolário: `reload()` (mudança de filtro/busca) **limpa o
+  `Set`** — filtro novo = seleção nova, nunca seleção invisível de itens que
+  saíram da tela.
 - **Contador visível:** chip no `.kb-header` — "🗹 12 selecionados · limpar" —
   aparece só quando há seleção. "Limpar" zera o `Set` e re-renderiza.
 - **Botão "Exportar CSV"** no `.kb-header` (ao lado dos filtros):
@@ -134,9 +142,10 @@ enganando a CRC silenciosamente.
     tamanho do `Set`, local, sem chamada extra) → `POST {ids}`.
   - **Sem nada marcado** → modal: "Exportar uma coluna inteira" com **dropdown de
     coluna** (Novo / Em qualificação / Agendado / Faltou / Nutrir 30-180-365… —
-    as `LEADS_COLUNAS`, com os mesmos rótulos do board) → contagem exibida vem do
-    **`/api/kanban/leads/counts`** (endpoint que já existe e respeita os mesmos
-    filtros `q/crc/origem` — sem endpoint novo de contagem) → texto explícito:
+    as `LEADS_COLUNAS`, com os mesmos rótulos do board) → contagem exibida =
+    **`state[coluna].total`**, que o board **já tem em memória** (vem de
+    `data.total` em `loadColCards` e é recarregado a cada mudança de filtro) —
+    zero chamada de rede, sem endpoint novo → texto explícito:
     "Vai baixar os **512** leads de *Nutrir 30-180* (filtros atuais aplicados)"
     → `POST {coluna, filtros:{_searchQ,_crcQ,_origemQ}}`.
     (MVP: **uma coluna por exportação**; multi-coluna é evolução futura.)
@@ -152,7 +161,7 @@ enganando a CRC silenciosamente.
 CRC no board de Leads
    ├── filtra (busca/CRC/origem)  ── e/ou ──  marca cards (checkbox)
    └── clica "Exportar CSV"
-        → modal mostra contagem (Set local | /api/kanban/leads/counts)
+        → modal mostra contagem (Set local | state[coluna].total já em memória)
         → POST /api/leads/exportar  {ids}  ou  {coluna, filtros}
              → requireKanbanLeads (mesmas roles do board)
              → busca leads (ids em lotes de 500 | buildLeadsColFilter paginado)
