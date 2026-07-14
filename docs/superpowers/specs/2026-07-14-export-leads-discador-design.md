@@ -21,11 +21,12 @@ e baixa a lista com as colunas de contexto, para importar em qualquer discador.
 
 | Tema | Decisão |
 |---|---|
-| Seleção | **Filtro atual + marcar/desmarcar** (checkbox por card) |
-| Permissão | **Todos os CRC** (`crc_leads`, `crc_comercial`, `crc_sucesso`) + gestor/admin |
+| Seleção | **Duas vias claras**: marcou cards → exporta os marcados; não marcou nada → escolhe a coluna no modal e exporta a **coluna inteira do banco**. Sem "selecionar todos" no header (revisão 14/07: colunas são paginadas — select-all marcaria só os carregados e enganaria a CRC). |
+| Permissão | **Mesmas roles do board de Leads** (`requireKanbanLeads`: `crc_leads`, `crc_comercial`, `crc` legado, `mod_kanban_leads`, gestor, admin). Revisão 14/07: `crc_sucesso` não acessa o board onde o botão mora — permissão de API sem porta de entrada seria fantasma. |
 | Coluna "anúncio" | **Nome legível** resolvido pela tabela `anuncios` (sem chamar a Meta) |
 | Auditoria | **Sim** — registrar quem exportou, quantos leads, quando |
-| Cabeçalho CSV | Padrão `nome,telefone,telefone_wa,status,origem,anuncio` |
+| Cabeçalho CSV | Padrão `nome,telefone,telefone_wa,status,origem,anuncio` (com **BOM** `﻿` — a CRC abre no Excel; sem BOM os acentos quebram) |
+| Sem telefone | Leads sem telefone **ficam fora do CSV** (linha inútil pro discador); o modal avisa quantos ficaram de fora |
 
 ## Reuso (nada greenfield)
 
@@ -41,9 +42,17 @@ e baixa a lista com as colunas de contexto, para importar em qualquer discador.
 
 ### 1. Novo helper de CSV — `lib/leads/exportCsv.js`
 
-`montarCsvDiscador(rows, anunciosMap)` → string CSV.
+`montarCsvDiscador(rows, anunciosMap)` → `{ csv, descartados }` (string CSV +
+nº de linhas descartadas por falta de telefone).
 
 - Cabeçalho: `nome,telefone,telefone_wa,status,origem,anuncio`
+- **BOM**: a string começa com `﻿` — a CRC abre no Excel do Windows, que sem
+  BOM renderiza UTF-8 como "JoÃ£o". (O CSV de Públicos não tem BOM porque o
+  consumidor é a Meta; aqui o consumidor é humano + discador.)
+- **Filtra linhas sem telefone**: `rows.filter(r => r.telefone?.trim())` — linha
+  sem telefone é inútil no discador e pode quebrar o import. Mesmo critério do
+  fluxo 3cplus (`/api/campanhas/lancar`). A função retorna também `descartados`
+  (quantos caíram) para o modal avisar.
 - Reutiliza os helpers de escape (`_esc`) e de WhatsApp (`_wa`, prefixa `55` só
   quando faltar; respeita telefones de família com 0 à esquerda — ver
   `feedback_telefone_zero_familia`) já provados em `lib/publicos/csv.js`. Extrair
@@ -58,19 +67,22 @@ e baixa a lista com as colunas de contexto, para importar em qualquer discador.
 app.post('/api/leads/exportar', requireAuth, requireExportLeads, rateLimit, handler)
 ```
 
-- **Middleware:** `const requireExportLeads = requireRole('crc_leads','crc_comercial','crc_sucesso','gestor','admin');`
+- **Middleware:** reusar o **`requireKanbanLeads`** existente (`server.js:443`) —
+  mesmas roles do board onde o botão mora. Não criar middleware novo.
 - **Body (dois modos, mutuamente exclusivos):**
   - `{ ids: [<leadId>...] }` → exporta exatamente os leads marcados (o que a CRC
-    desmarcou não vem). Limite defensivo (ex.: 5000 ids).
+    desmarcou não vem). Validar: array de números, limite defensivo de 5000.
+    **Buscar em lotes de ~500 ids** (`.in('id', lote)`) — `.in()` vira query
+    string no PostgREST; milhares de ids estouram o limite de URL.
   - `{ coluna, filtros: { q, crc, origem } }` → exporta **tudo** que casa o
-    filtro daquela coluna, reusando `buildLeadsColFilter(coluna, q, crc, false, origem)`
-    e **paginando** (range de 1000) até esvaziar — mesmo padrão de
-    `/api/publicos/exportar` (nunca somar/cortar no client — ver
-    `feedback_supabase_1000_limit`).
+    filtro daquela coluna, reusando `buildLeadsColFilter` e **paginando** (range
+    de 1000) até esvaziar — mesmo padrão de `/api/publicos/exportar` (nunca
+    somar/cortar no client — ver `feedback_supabase_1000_limit`).
+    ⚠️ Refactor pequeno necessário: `buildLeadsColFilter` hardcoda `CARD_FIELDS`;
+    adicionar parâmetro opcional `fields` (default `CARD_FIELDS`) para o export
+    pedir `id,nome,telefone,status,origem,campanha` sem duplicar a query.
 - **Resolução do anúncio:** uma consulta `from('anuncios').select('chave,nome').eq('ativo',true)`
   → monta `anunciosMap` em memória (catálogo é pequeno). Sem chamada à Meta.
-- **Seleção de campos do banco:** precisa de `campanha` além dos `CARD_FIELDS`
-  atuais — usar select próprio: `id,nome,telefone,status,origem,campanha`.
 - **Resposta:**
   - `Content-Type: text/csv; charset=utf-8`
   - `Content-Disposition: attachment; filename="leads-discador-YYYY-MM-DD.csv"`
@@ -104,20 +116,34 @@ alter table public.leads_export_log enable row level security;
 
 ### 4. Frontend — `public/kanban-leads/index.html`
 
+**Regra de ouro de UX: duas vias, impossível de errar.** A CRC nunca precisa
+entender paginação. Ou ela marcou cards (leva exatamente os marcados), ou não
+marcou nada (escolhe uma coluna e leva a coluna **inteira**, direto do banco).
+**Não existe "selecionar todos" no header de coluna** — as colunas são paginadas
+(`loadColCards`/`loadMore`) e um select-all marcaria só os ~30 carregados,
+enganando a CRC silenciosamente.
+
 - **Checkbox por card:** em `renderCard()` (L253), um `<input type=checkbox>` no
   canto do card, guardando o `lead.id`. Estado em memória: `Set` de ids marcados.
-  Clicar no checkbox **não** abre a ficha nem inicia drag (stopPropagation).
-- **"Selecionar todos da coluna":** um checkbox no header de cada coluna que marca
-  os cards já carregados daquela coluna.
+  Clicar no checkbox **não** abre a ficha nem inicia drag (stopPropagation no
+  clique e `draggable=false`/guard no dragstart do input).
+- **Contador visível:** chip no `.kb-header` — "🗹 12 selecionados · limpar" —
+  aparece só quando há seleção. "Limpar" zera o `Set` e re-renderiza.
 - **Botão "Exportar CSV"** no `.kb-header` (ao lado dos filtros):
-  - Se houver ids marcados → modal "Exportar N leads marcados" → `POST {ids}`.
-  - Se nada marcado → modal "Exportar todos os leads do filtro atual" com um
-    **dropdown de coluna** (Novo / Em qualificação / Agendado / Nutrir… — as
-    `LEADS_COLUNAS`) e manda `POST {coluna, filtros:{_searchQ,_crcQ,_origemQ}}`.
-    (MVP: **uma coluna por exportação**; multi-coluna fica como evolução para não
-    inflar o escopo.)
-  - O modal mostra a **contagem** antes de baixar (chama a rota; o browser recebe
-    o CSV como download via `Blob` + `<a download>` — padrão já usado no front).
+  - **Com cards marcados** → modal: "Exportar **12 leads marcados**" (contagem =
+    tamanho do `Set`, local, sem chamada extra) → `POST {ids}`.
+  - **Sem nada marcado** → modal: "Exportar uma coluna inteira" com **dropdown de
+    coluna** (Novo / Em qualificação / Agendado / Faltou / Nutrir 30-180-365… —
+    as `LEADS_COLUNAS`, com os mesmos rótulos do board) → contagem exibida vem do
+    **`/api/kanban/leads/counts`** (endpoint que já existe e respeita os mesmos
+    filtros `q/crc/origem` — sem endpoint novo de contagem) → texto explícito:
+    "Vai baixar os **512** leads de *Nutrir 30-180* (filtros atuais aplicados)"
+    → `POST {coluna, filtros:{_searchQ,_crcQ,_origemQ}}`.
+    (MVP: **uma coluna por exportação**; multi-coluna é evolução futura.)
+  - Após o download, o modal informa quantos leads **ficaram de fora por não ter
+    telefone** (header `X-Descartados-Sem-Telefone` na resposta, lido pelo front).
+  - Download via `fetch` autenticado + `Blob` + `<a download>` (a página usa
+    Bearer token — link direto não autentica).
 - Retry 5xx padrão das páginas do CRM (1.5s/3s, 2x — ver `feedback_502_retry_pattern`).
 
 ## Fluxo de dados
@@ -126,15 +152,16 @@ alter table public.leads_export_log enable row level security;
 CRC no board de Leads
    ├── filtra (busca/CRC/origem)  ── e/ou ──  marca cards (checkbox)
    └── clica "Exportar CSV"
-        → modal mostra contagem
+        → modal mostra contagem (Set local | /api/kanban/leads/counts)
         → POST /api/leads/exportar  {ids}  ou  {coluna, filtros}
-             → requireExportLeads (roles)
-             → busca leads (por ids | por buildLeadsColFilter paginado)
+             → requireKanbanLeads (mesmas roles do board)
+             → busca leads (ids em lotes de 500 | buildLeadsColFilter paginado)
              → carrega anunciosMap (tabela anuncios)
-             → monta CSV (nome,telefone,telefone_wa,status,origem,anuncio)
+             → monta CSV com BOM, descartando linhas sem telefone
              → grava leads_export_log (best-effort)
-             → responde text/csv como attachment
+             → responde text/csv attachment + X-Descartados-Sem-Telefone
         → browser baixa leads-discador-AAAA-MM-DD.csv
+        → modal confirma: "512 baixados, 3 sem telefone ficaram de fora"
 ```
 
 ## Não-objetivos (YAGNI)
@@ -148,12 +175,20 @@ CRC no board de Leads
 
 - **Anúncio vazio:** lead sem `campanha` ou fora do catálogo → coluna vazia (ok).
 - **Telefone de família (0 à esquerda):** preservar intacto — reusar `_wa` de Públicos.
-- **Volume:** paginação obrigatória no modo filtro (limite 1000 do client Supabase).
-- **PII saindo do sistema:** mitigado pela `leads_export_log`; roles restritas a CRC+.
+- **Volume:** paginação obrigatória no modo filtro (limite 1000 do client
+  Supabase); modo ids busca em lotes de 500 (limite de URL do PostgREST).
+- **Seleção × recarregar página:** o `Set` de marcados vive em memória — F5 perde
+  a seleção. Aceitável no MVP (comportamento padrão de checkbox em lista).
+- **PII saindo do sistema:** mitigado pela `leads_export_log`; roles = as mesmas
+  do board (`crc_sucesso` fora — não acessa o board).
 
 ## Teste
 
-- Unit: `montarCsvDiscador` — cabeçalho, escape de vírgula/aspas, `telefone_wa`
-  com/sem 55, telefone de família, anúncio resolvido e vazio.
-- Integração (manual, logado): exportar por ids; exportar por filtro; conferir a
-  linha em `leads_export_log`; abrir o CSV no discador/Excel.
+- Unit: `montarCsvDiscador` — cabeçalho, **BOM presente**, escape de
+  vírgula/aspas, `telefone_wa` com/sem 55, telefone de família intacto,
+  **linha sem telefone descartada + contagem de descartados**, anúncio
+  resolvido e vazio.
+- Integração (manual, logado): exportar por ids (marcando/desmarcando); exportar
+  coluna inteira com filtros ativos e conferir que a contagem do modal bate com o
+  nº de linhas do arquivo; conferir a linha em `leads_export_log`; abrir o CSV no
+  **Excel** (acentos ok) e importar no discador.
