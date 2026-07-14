@@ -87,6 +87,12 @@ body.crm-shell .crm-content{height:100vh;overflow:hidden;}
 .km-btn-secondary:hover{background:var(--border);}
 .km-btn-green{background:var(--green);color:#fff;}
 .km-btn-green:hover{filter:brightness(1.1);}
+.kb-card{position:relative;}
+.kb-check{width:15px;height:15px;margin:1px 6px 0 0;cursor:pointer;accent-color:var(--accent);flex-shrink:0;}
+.kb-export{padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;}
+.kb-export:hover{border-color:var(--accent);}
+.kb-sel-chip{font-size:13px;color:var(--muted);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;}
+.kb-sel-chip a{color:var(--accent);cursor:pointer;text-decoration:none;}
 </style>
 <script src="/js/shared-nav.js" data-active="kanban-leads" defer></script>
 </head>
@@ -107,6 +113,8 @@ body.crm-shell .crm-content{height:100vh;overflow:hidden;}
       <option value="Google">Google</option>
       <option value="Outros">Outros</option>
     </select>
+    <span class="kb-sel-chip" id="kb-sel-chip" style="display:none">☑ <b id="kb-sel-count">0</b> selecionados · <a onclick="limparSelecao()">limpar</a></span>
+    <button class="kb-export" id="kb-export" onclick="abrirExport()">⬇ Exportar CSV</button>
   </div>
   <div class="kb-board" id="kb-board"></div>
 </div>
@@ -226,6 +234,23 @@ COLUNAS.forEach(c => { state[c.slug] = { leads:[], total:0, page:0, hasMore:fals
 const collapsed = JSON.parse(localStorage.getItem('kb-leads-collapsed') || '{}');
 let _searchQ = '', _crcQ = '', _origemQ = '', _searchTimer = null, _draggingId = null, _draggingStatus = null;
 
+const _selecao = new Set(); // ids de leads marcados p/ export
+function toggleSelecao(id, on) {
+  if (on) _selecao.add(id); else _selecao.delete(id);
+  renderSelChip();
+}
+function limparSelecao() {
+  _selecao.clear();
+  renderSelChip();
+  COLUNAS.forEach(renderCol); // desmarca os checkboxes na tela
+}
+function renderSelChip() {
+  const chip = document.getElementById('kb-sel-chip');
+  if (!chip) return;
+  chip.style.display = _selecao.size ? '' : 'none';
+  document.getElementById('kb-sel-count').textContent = _selecao.size;
+}
+
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function timeAgo(iso) {
   if (!iso) return '';
@@ -253,10 +278,14 @@ function esc(s) {
 function renderCard(lead) {
   const age = timeAgo(lead.criado_em);
   const tel = lead.telefone || '';
+  const checked = _selecao.has(lead.id) ? 'checked' : '';
   return `<div class="kb-card" draggable="true" data-id="${lead.id}" data-status="${esc(lead.status)}"
     ondragstart="onDragStart(event)" ondragend="onDragEnd(event)"
     onclick="if(!window._kbDragging)abrirLead(${lead.id})">
     <div class="kb-card-top">
+      <input type="checkbox" class="kb-check" ${checked} draggable="false"
+        onclick="event.stopPropagation();toggleSelecao(${lead.id}, this.checked)"
+        ondragstart="event.preventDefault();event.stopPropagation();">
       <span class="kb-card-nome">${esc(lead.nome || 'Sem nome')}</span>
       <span class="kb-card-age">${age}</span>
     </div>
@@ -361,6 +390,7 @@ async function loadAll() {
 }
 
 async function reload() {
+  _selecao.clear(); renderSelChip();
   COLUNAS.forEach(c => { state[c.slug].leads = []; state[c.slug].page = 0; });
   await loadAll();
 }
@@ -481,6 +511,105 @@ document.getElementById('kb-search').addEventListener('input', function() {
 document.getElementById('kb-crc').addEventListener('change', function() {
   _crcQ = this.value; reload();
 });
+
+// ── EXPORTAR CSV (discador) ───────────────────────────────────────────────────
+async function _fetchExport(body, _retry = 0) {
+  const r = await fetch('/api/leads/exportar', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + _token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.status >= 500 && _retry < 2) {
+    await new Promise(res => setTimeout(res, 1500 * (_retry + 1)));
+    return _fetchExport(body, _retry + 1);
+  }
+  return r;
+}
+
+async function _baixarExport(body, btnOk, msgEl) {
+  btnOk.disabled = true; btnOk.textContent = 'Gerando…';
+  try {
+    const r = await _fetchExport(body);
+    if (!r.ok) throw new Error(await r.text());
+    const descartados = parseInt(r.headers.get('X-Descartados-Sem-Telefone') || '0', 10);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'leads-discador-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    msgEl.style.color = '';
+    msgEl.textContent = descartados > 0
+      ? `✅ Arquivo baixado. ${descartados} lead(s) sem telefone ficaram de fora.`
+      : '✅ Arquivo baixado.';
+    btnOk.style.display = 'none';
+    return true;
+  } catch (e) {
+    msgEl.style.color = 'var(--red, #dc2626)';
+    msgEl.textContent = 'Erro: ' + (e.message || e);
+    btnOk.disabled = false; btnOk.textContent = 'Baixar';
+    return false;
+  }
+}
+
+function abrirExport() {
+  const marcados = _selecao.size;
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg2,#fff);color:var(--text,#1a1d29);border-radius:12px;padding:20px;width:360px;max-width:92vw;box-shadow:0 12px 40px rgba(0,0,0,.25)';
+  const btnCss = 'flex:1;padding:9px;border:none;border-radius:8px;background:var(--accent,#3b82f6);color:#fff;font-weight:700;cursor:pointer';
+  const cancelCss = 'padding:9px 14px;border:1px solid var(--border,#e5e7eb);background:none;border-radius:8px;cursor:pointer;color:var(--muted,#6b7280)';
+
+  if (marcados > 0) {
+    box.innerHTML = `
+      <div style="font-weight:700;font-size:16px;margin-bottom:6px">Exportar CSV</div>
+      <div style="font-size:14px;margin-bottom:12px">Vai baixar os <b>${marcados}</b> leads marcados.</div>
+      <div id="ex-msg" style="font-size:13px;min-height:18px;margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px">
+        <button id="ex-ok" style="${btnCss}">Baixar</button>
+        <button id="ex-cancel" style="${cancelCss}">Cancelar</button>
+      </div>`;
+  } else {
+    const opts = COLUNAS.map(c =>
+      `<option value="${c.slug}">${c.label} (${state[c.slug].total.toLocaleString('pt-BR')})</option>`).join('');
+    box.innerHTML = `
+      <div style="font-weight:700;font-size:16px;margin-bottom:6px">Exportar coluna inteira</div>
+      <div style="font-size:13px;color:var(--muted,#6b7280);margin-bottom:10px">
+        Nenhum lead marcado — escolha a coluna. Os filtros atuais (busca, CRC, origem) serão aplicados.</div>
+      <select id="ex-col" style="width:100%;padding:9px;border:1px solid var(--border,#e5e7eb);border-radius:8px;font-size:14px;background:var(--bg3,#f9fafb);color:var(--text,#1a1d29)">${opts}</select>
+      <div id="ex-count" style="font-size:14px;margin:10px 0"></div>
+      <div id="ex-msg" style="font-size:13px;min-height:18px;margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px">
+        <button id="ex-ok" style="${btnCss}">Baixar</button>
+        <button id="ex-cancel" style="${cancelCss}">Cancelar</button>
+      </div>`;
+  }
+
+  ov.appendChild(box); document.body.appendChild(ov);
+  const close = () => document.body.removeChild(ov);
+  ov.onclick = e => { if (e.target === ov) close(); };
+  box.querySelector('#ex-cancel').onclick = close;
+
+  const msgEl = box.querySelector('#ex-msg');
+  const btnOk = box.querySelector('#ex-ok');
+
+  if (marcados > 0) {
+    btnOk.onclick = () => _baixarExport({ ids: [..._selecao] }, btnOk, msgEl);
+  } else {
+    const sel = box.querySelector('#ex-col');
+    const countEl = box.querySelector('#ex-count');
+    const atualiza = () => {
+      const c = COLUNAS.find(x => x.slug === sel.value);
+      countEl.innerHTML = `Vai baixar <b>${state[sel.value].total.toLocaleString('pt-BR')}</b> leads de <i>${c.label}</i>.`;
+    };
+    sel.onchange = atualiza; atualiza();
+    btnOk.onclick = () => _baixarExport({
+      coluna: sel.value,
+      filtros: { q: _searchQ || null, crc: _crcQ || null, origem: _origemQ || null },
+    }, btnOk, msgEl);
+  }
+}
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 buildBoard();
