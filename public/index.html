@@ -6193,6 +6193,11 @@ function _formatPhone(p) {
   return p;
 }
 
+// Capturado no parse: o iniciarApp consome o deep-link e limpa a URL (replaceState)
+// ANTES do /api/me responder — reler location.search no loadCurrentUser via um
+// deep-link redirecionava CRC comercial de volta pro /meu-dia/.
+const _teveDeepLink = !!(new URLSearchParams(location.search).get('page') || new URLSearchParams(location.search).get('abrir_lead'));
+
 function iniciarApp() {
   loadCurrentUser();
   // Recursos da sidebar (busca, recolher, a11y) — fonte única em /js/nav-config.js
@@ -6273,7 +6278,7 @@ async function loadCurrentUser() {
     _currentUser = d;
     const roles = Array.isArray(d.roles) ? d.roles : [];
     // Home padrão: CRC comercial pura cai no Meu Dia (só no landing inicial).
-    const _semParam = !new URLSearchParams(location.search).get('page') && !new URLSearchParams(location.search).get('abrir_lead');
+    const _semParam = !_teveDeepLink && !new URLSearchParams(location.search).get('page') && !new URLSearchParams(location.search).get('abrir_lead');
     if (_semParam && roles.includes('crc_comercial') && !roles.includes('admin') && !roles.includes('gestor')
         && !location.pathname.startsWith('/meu-dia')) {
       location.href = '/meu-dia/'; return;
