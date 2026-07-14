@@ -210,6 +210,7 @@ const disparoRunner = require('./lib/disparos/runner');
 const { coletarLeadIds } = require('./lib/disparos/leads-da-campanha');
 const { normalizarRegra } = require('./lib/publicos/regra');
 const { montarCsv } = require('./lib/publicos/csv');
+const { montarCsvDiscador } = require('./lib/leads/exportCsv');
 const { toqueDevido, podeAutoPerder } = require('./lib/recuperacao/cadencia');
 
 // --------- APP ---------
@@ -930,12 +931,12 @@ app.get('/api/stats', requireAuth, rateLimit, async (req, res) => {
 // ========== KANBAN ==========
 const CARD_FIELDS = 'id,nome,telefone,origem,status,valor,criado_em,data_comparecimento,data_agendamento,data_fechamento,data_orcamento,data_avaliacao,crc_agendamento_nome,crc_comercial_nome,ultimo_contato,etapa_negociacao';
 
-function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null) {
+function buildLeadsColFilter(coluna, q, crc, countOnly = false, origem = null, fields = null) {
   const now = Date.now();
   const d30  = new Date(now - 30  * 864e5).toISOString();
   const d180 = new Date(now - 180 * 864e5).toISOString();
   const d365 = new Date(now - 365 * 864e5).toISOString();
-  const sel = countOnly ? '*' : CARD_FIELDS;
+  const sel = countOnly ? '*' : (fields || CARD_FIELDS);
   const opts = countOnly ? { count: 'exact', head: true } : { count: 'exact' };
   // Board de leads é só carteira Comercial; Dra. Izabela fica fora do funil.
   let qb = supabase.from('leads').select(sel, opts).neq('carteira', 'Dra. Izabela');
@@ -1015,6 +1016,79 @@ app.get('/api/kanban/leads/:coluna', requireAuth, requireKanbanLeads, rateLimit,
     if (error) throw error;
     res.json({ leads: data, total: count ?? 0, page, hasMore: offset + (data?.length ?? 0) < (count ?? 0) });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Exportar leads p/ discador (CSV) — spec 2026-07-14-export-leads-discador-design.md
+// Dois modos: {ids} = cards marcados no board; {coluna, filtros} = coluna inteira.
+app.post('/api/leads/exportar', requireAuth, requireKanbanLeads, rateLimit, async (req, res) => {
+  try {
+    const { ids, coluna, filtros } = req.body || {};
+    const EXPORT_FIELDS = 'id,nome,telefone,status,origem,campanha';
+    const rows = [];
+    let modo;
+
+    if (Array.isArray(ids)) {
+      modo = 'ids';
+      const lista = [...new Set(ids.map(Number).filter(Number.isInteger))];
+      if (!lista.length) return res.status(400).json({ error: 'Nenhum id válido' });
+      if (lista.length > 5000) return res.status(400).json({ error: 'Máximo de 5000 leads por exportação' });
+      // .in() vira query string no PostgREST — lotes de 500 p/ não estourar a URL
+      for (let i = 0; i < lista.length; i += 500) {
+        const { data, error } = await supabase.from('leads')
+          .select(EXPORT_FIELDS).in('id', lista.slice(i, i + 500));
+        if (error) throw error;
+        rows.push(...(data || []));
+      }
+    } else if (coluna) {
+      modo = 'filtro';
+      if (!LEADS_COLUNAS.includes(coluna)) return res.status(400).json({ error: 'Coluna inválida' });
+      const f = filtros || {};
+      // mesma ordenação do board + desempate por id (range com empate pula/duplica linha)
+      const orderField = coluna === 'agendado' ? 'data_agendamento' : 'criado_em';
+      const ascending = coluna === 'agendado';
+      const PAGINA = 1000; // corte do client Supabase — paginar sempre
+      for (let offset = 0; ; offset += PAGINA) {
+        const { data, error } = await buildLeadsColFilter(coluna, f.q || null, f.crc || null, false, f.origem || null, EXPORT_FIELDS)
+          .order(orderField, { ascending })
+          .order('id', { ascending: false })
+          .range(offset, offset + PAGINA - 1);
+        if (error) throw error;
+        const pagina = data || [];
+        rows.push(...pagina);
+        if (pagina.length < PAGINA) break;
+      }
+    } else {
+      return res.status(400).json({ error: 'Informe ids ou coluna' });
+    }
+
+    // ID do anúncio -> nome legível (catálogo local; sem chamar a Meta)
+    const { data: catalog, error: catErr } = await supabase.from('anuncios').select('chave,nome').eq('ativo', true);
+    if (catErr) throw catErr;
+    const anunciosMap = {};
+    (catalog || []).forEach(a => { anunciosMap[String(a.chave).toLowerCase()] = a.nome; });
+
+    const { csv, descartados } = montarCsvDiscador(rows, anunciosMap);
+
+    // Auditoria LGPD — best-effort: não derruba o download se falhar
+    try {
+      const { error: logErr } = await supabase.from('leads_export_log').insert({
+        usuario_id: req.user.id,
+        usuario_nome: req.user.profile?.nome || req.user.email,
+        modo,
+        qtd: rows.length - descartados,
+        filtros: modo === 'filtro' ? { coluna, q: filtros?.q || null, crc: filtros?.crc || null, origem: filtros?.origem || null } : null,
+      });
+      if (logErr) console.warn('⚠️ leads_export_log:', logErr.message);
+    } catch (logEx) { console.warn('⚠️ leads_export_log:', logEx.message); }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="leads-discador-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.setHeader('X-Descartados-Sem-Telefone', String(descartados));
+    res.send(csv);
+  } catch (e) {
+    console.error('❌ leads/exportar:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ========== KANBAN COMERCIAL ==========
