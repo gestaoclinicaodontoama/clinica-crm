@@ -2766,45 +2766,50 @@ app.post('/api/templates/sync-meta', requireAuth, rateLimit, async (req, res) =>
     ].filter(Boolean))];
     if (!tokens.length) return res.status(503).json({ error: 'Nenhum token Meta configurado' });
 
-    // 1) Descobre as WABAs visíveis por cada token — e LEMBRA qual token enxergou
-    //    cada uma (um token de uma conta não necessariamente acessa a outra).
+    // 1) Descobre as WABAs candidatas. Caminho validado em produção (17/07/26):
+    //    os tokens (usuário de sistema) NÃO respondem a me/whatsapp_business_accounts
+    //    nem trazem target_ids no debug_token. O que funciona: WABA do env (8700) →
+    //    owner_business_info → /{business}/owned_whatsapp_business_accounts (todas).
     const wabas = new Map(); // wabaId -> token
+    const envWaba = process.env.WA_BUSINESS_ACCOUNT_ID || WA_BUSINESS_ACCOUNT_ID || '';
     for (const tok of tokens) {
+      if (envWaba && !wabas.has(envWaba)) wabas.set(envWaba, tok);
+      try {
+        const bi = await fetch(`https://graph.facebook.com/v21.0/${envWaba}?fields=owner_business_info`,
+          { headers: { 'Authorization': 'Bearer ' + tok } });
+        const bd = await bi.json();
+        const bizId = bd.owner_business_info?.id || '';
+        if (bizId) {
+          const wr = await fetch(`https://graph.facebook.com/v21.0/${bizId}/owned_whatsapp_business_accounts?fields=id&limit=25`,
+            { headers: { 'Authorization': 'Bearer ' + tok } });
+          const wd = await wr.json();
+          for (const w of wd.data || []) if (w.id && !wabas.has(w.id)) wabas.set(w.id, tok);
+        }
+      } catch (_) {}
+      // Fallback (outros formatos de token): descoberta direta
       try {
         const r = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=10',
           { headers: { 'Authorization': 'Bearer ' + tok } });
         const d = await r.json();
         for (const w of d.data || []) if (w.id && !wabas.has(w.id)) wabas.set(w.id, tok);
       } catch (_) {}
-      // Tokens de usuário de sistema não respondem a me/whatsapp_business_accounts —
-      // o debug_token lista as WABAs nos escopos granulares do próprio token.
-      try {
-        const r = await fetch(`https://graph.facebook.com/v21.0/debug_token?input_token=${encodeURIComponent(tok)}`,
-          { headers: { 'Authorization': 'Bearer ' + tok } });
-        const d = await r.json();
-        for (const s of d.data?.granular_scopes || []) {
-          if (s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging') {
-            for (const id of s.target_ids || []) if (id && !wabas.has(id)) wabas.set(id, tok);
-          }
-        }
-      } catch (_) {}
     }
-    // Compat: WABA fixa do env, caso a descoberta não a retorne
-    const envWaba = process.env.WA_BUSINESS_ACCOUNT_ID || WA_BUSINESS_ACCOUNT_ID || '';
-    if (envWaba && !wabas.has(envWaba)) wabas.set(envWaba, process.env.META_ACCESS_TOKEN || tokens[0]);
     if (!wabas.size) return res.status(400).json({ error: 'Nenhuma WABA encontrada. Confira os tokens/WA_BUSINESS_ACCOUNT_ID no Easypanel.' });
 
-    // 2) Para cada WABA: número (1 por WABA) + templates paginados
+    // 2) Fica só com as WABAs que possuem um dos números CONFIGURADOS (2873/8700) —
+    //    o negócio tem também conta de teste e WABA legada (GUSHUP) que não nos servem.
+    //    O template é associado ao número configurado encontrado na WABA.
+    const alvos = new Set([whatsapp.defaultPhoneId(), whatsapp.broadcastPhoneId()].filter(Boolean));
     const contas = [];
     for (const [wabaId, tok] of wabas) {
       let phoneId = '';
       try {
-        const pr = await fetch(`https://graph.facebook.com/v21.0/${wabaId}/phone_numbers?fields=id&limit=5`,
+        const pr = await fetch(`https://graph.facebook.com/v21.0/${wabaId}/phone_numbers?fields=id&limit=10`,
           { headers: { 'Authorization': 'Bearer ' + tok } });
         const pd = await pr.json();
-        phoneId = pd.data?.[0]?.id || '';
+        phoneId = (pd.data || []).map(p => p.id).find(id => alvos.has(id)) || '';
       } catch (_) {}
-      if (!phoneId) continue; // WABA sem número visível — ignora
+      if (!phoneId) continue; // WABA sem número configurado — ignora (teste/legada)
       const meta = [];
       let url = `https://graph.facebook.com/v21.0/${wabaId}/message_templates?fields=name,status,category,components&limit=200`;
       let _pagina = 0;
