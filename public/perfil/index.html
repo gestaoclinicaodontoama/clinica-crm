@@ -81,6 +81,8 @@ const EV={
   disparo_massa:['📢','Disparo em massa'], nota_sdr_editada:['📝','Nota editada'],
   capi_disparado:['📊','Evento enviado à Meta'], leads_mesclados:['🔗','Cadastros mesclados'],
   mensagem_falhou:['⚠️','Mensagem não entregue'],
+  pesquisa_enviada:['📋','Pesquisa de Satisfação enviada'],
+  pesquisa_respondida:['⭐','Respondeu a Pesquisa de Satisfação'],
 };
 
 const id=new URLSearchParams(location.search).get('id');
@@ -98,6 +100,7 @@ async function init(){
   renderHead(lead);
   carregarTrajeto(true);
   carregarClinicorp();
+  carregarPesquisas();
 }
 
 function renderHead(l){
@@ -132,6 +135,7 @@ function renderHead(l){
       <div class="tab"        data-aba="fin"  onclick="trocarAba('fin')" id="tab-fin">💰 Financeiro</div>
       <div class="tab"        data-aba="proc" onclick="trocarAba('proc')" id="tab-proc">🦷 Procedimentos</div>
       <div class="tab"        data-aba="ag"   onclick="trocarAba('ag')" id="tab-ag">📅 Agendamentos</div>
+      <div class="tab"        data-aba="pesq" onclick="trocarAba('pesq')" id="tab-pesq">⭐ Satisfação</div>
     </div>
 
     <div class="panel active" data-aba="tl">
@@ -140,7 +144,8 @@ function renderHead(l){
     </div>
     <div class="panel" data-aba="fin"><div class="card" id="panel-fin"><div class="empty">Carregando…</div></div></div>
     <div class="panel" data-aba="proc"><div class="card" id="panel-proc"><div class="empty">Carregando…</div></div></div>
-    <div class="panel" data-aba="ag"><div class="card" id="panel-ag"><div class="empty">Carregando…</div></div></div>`;
+    <div class="panel" data-aba="ag"><div class="card" id="panel-ag"><div class="empty">Carregando…</div></div></div>
+    <div class="panel" data-aba="pesq"><div class="card" id="panel-pesq"><div class="empty">Carregando…</div></div></div>`;
 }
 
 async function carregarTrajeto(reset){
@@ -201,6 +206,22 @@ async function carregarClinicorp(){
         <div class="main">${a.data?fmtDia(a.data):'—'}${a.checkin?' · <span style="color:var(--green)">✅ compareceu</span>':''}</div>
         <div class="sub">${a.dentista?esc(a.dentista):'—'}${a.categoria?' · '+esc(a.categoria):''}</div>
       </div>`).join('') : '<div class="empty">Nenhum agendamento.</div>');
+}
+
+async function carregarPesquisas(){
+  let r; try{ r=await api('/api/pesquisa-satisfacao/lead/'+id); }
+  catch(e){ document.getElementById('panel-pesq').innerHTML='<div class="empty">Não foi possível carregar.</div>'; return; }
+  const itens=r.itens||[];
+  if(!itens.length){ document.getElementById('panel-pesq').innerHTML='<div class="empty">Nenhuma pesquisa de satisfação enviada para este paciente.</div>'; return; }
+  document.getElementById('panel-pesq').innerHTML=`<h2>⭐ Satisfação (${itens.length})</h2>`+itens.map(p=>{
+    const cat=(rot,v)=>v!=null?`<div class="rx"><div class="l">${rot}</div><div class="v">${v}/5</div></div>`:'';
+    if(p.status!=='respondido') return `<div class="ev"><div class="d">${fmtData(p.enviado_em||p.criado_em)}</div>
+      <div class="t">Pesquisa ${p.status==='falhou'?'com falha de envio':'enviada, aguardando resposta'}</div></div>`;
+    return `<div class="ev"><div class="d">${fmtData(p.respondido_em)}</div>
+      <div class="t">Nota de recomendação: <strong>${p.nps!=null?p.nps+'/10':'—'}</strong></div>
+      <div class="raiox">${cat('Recepção',p.avaliacao_recepcao)}${cat('Dentista',p.avaliacao_dentista)}${cat('Espera',p.avaliacao_espera)}${cat('Limpeza',p.avaliacao_limpeza)}${cat('Explicações',p.avaliacao_explicacoes)}</div>
+      ${p.comentario?`<div class="desc">"${esc(p.comentario)}"</div>`:''}</div>`;
+  }).join('');
 }
 
 init();

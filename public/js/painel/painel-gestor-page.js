@@ -62,6 +62,9 @@
     ocupacao: { oque: 'Horas agendadas ÷ capacidade das 5 salas (seg-sex 8h-18h menos 2h de almoço + sábado 8h-12h).',
       bom: 'Acima de 80% — agenda cheia.', ruim: 'Abaixo de 60% — muita cadeira vazia, e cadeira vazia é receita que não volta.',
       acoes: 'Encaixar retornos e prevenção nos buracos, remarcar faltas no mesmo dia, abrir horários de pico.' },
+    pesquisa: { oque: 'Nota de recomendação média (0 a 10) das pesquisas de satisfação respondidas no período, enviadas por WhatsApp após o atendimento. Calculada pela média do campo "recomendação" das respostas.',
+      bom: 'Verde a partir de 9.', ruim: 'Vermelho abaixo de 7.',
+      acoes: 'Investigar comentários e notas baixas, corrigir o que está pesando (espera, comunicação, atendimento), reforçar o que está funcionando.' },
     faturamento: { oque: 'O que foi vendido no mês (competência), com o crescimento vs o mesmo mês do ano anterior.',
       bom: 'Crescendo ano a ano e acima do ponto de equilíbrio.', ruim: 'Encolhendo vs o ano passado.',
       acoes: 'Sustentar o topo do funil e o ticket médio.' },
@@ -248,6 +251,18 @@
     } else {
       cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: 'neutro', val: '–',
         nota: 'Sem agenda no período.', modulo: 'Produção' }));
+    }
+    const pq = fin && fin.pesquisa;
+    if (pq && pq.respostas > 0) {
+      const sevPq = pq.nps_media >= 9 ? 'verde' : pq.nps_media >= 7 ? 'amarelo' : 'vermelho';
+      niveisContados.push(sevPq);
+      cards.b.push(cardHTML('pesquisa', { label: 'Satisfação dos pacientes', sev: sevPq,
+        val: pq.nps_media.toFixed(1).replace('.', ','),
+        nota: pq.respostas + ' resposta' + (pq.respostas > 1 ? 's' : '') + ' de ' + pq.enviadas + ' enviadas',
+        modulo: 'Pesquisa de Satisfação' }));
+    } else {
+      cards.b.push(cardHTML('pesquisa', { label: 'Satisfação dos pacientes', sev: 'neutro', val: '–',
+        nota: 'Sem respostas no período.', modulo: 'Pesquisa de Satisfação' }));
     }
 
     // ── Elo 3: financeiro ──
