@@ -102,3 +102,43 @@ test('parseStatuses ignora payloads sem statuses e status desconhecidos', () => 
   const msgBody = { entry: [{ changes: [{ field: 'messages', value: { messages: [{ from: 'x', id: 'y', type: 'text', text: { body: 'oi' } }] } }] }] };
   assert.deepStrictEqual(parseStatuses(msgBody), []);
 });
+
+// ---------- parseNfmReply ----------
+const { parseNfmReply } = require('./whatsapp');
+
+test('nfm_reply: parseNfmReply extrai respostas do response_json', () => {
+  const r = parseNfmReply(body({
+    from: '5531999990000', id: 'wamid.NFM1', type: 'interactive', timestamp: '1721234567',
+    interactive: {
+      type: 'nfm_reply',
+      nfm_reply: {
+        name: 'flow', body: 'Sent',
+        response_json: JSON.stringify({
+          nps: '9', motivo_principal: 'Atendimento', avaliacao_recepcao: '5',
+          avaliacao_dentista: '5', avaliacao_espera: '4', avaliacao_limpeza: '5',
+          avaliacao_explicacoes: '5', comentario: 'Tudo ótimo',
+        }),
+      },
+    },
+  }));
+  assert.strictEqual(r.from, '5531999990000');
+  assert.strictEqual(r.wamid, 'wamid.NFM1');
+  assert.strictEqual(r.respostas.nps, '9');
+  assert.strictEqual(r.respostas.comentario, 'Tudo ótimo');
+});
+
+test('nfm_reply: retorna null para mensagem comum e para response_json inválido', () => {
+  assert.strictEqual(parseNfmReply(body({ from: '5531999990000', id: 'wamid.T', type: 'text', timestamp: '1', text: { body: 'oi' } })), null);
+  assert.strictEqual(parseNfmReply(body({
+    from: '5531999990000', id: 'wamid.NFM2', type: 'interactive', timestamp: '1',
+    interactive: { type: 'nfm_reply', nfm_reply: { response_json: '{invalido' } },
+  })), null);
+});
+
+test('nfm_reply: parseMensagemRecebida usa texto amigável', () => {
+  const r = parseMensagemRecebida(body({
+    from: '5531999990000', id: 'wamid.NFM3', type: 'interactive', timestamp: '1',
+    interactive: { type: 'nfm_reply', nfm_reply: { response_json: '{"nps":"8"}' } },
+  }));
+  assert.strictEqual(r.texto, '📋 Respondeu a Pesquisa de Satisfação');
+});

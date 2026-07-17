@@ -207,7 +207,7 @@ function parseMensagemRecebida(body) {
     return {
       from: msg.from,
       nome: contato?.profile?.name || '',
-      texto: msg.text?.body || msg.button?.text || msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || caption || '',
+      texto: msg.text?.body || msg.button?.text || msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || (msg.interactive?.nfm_reply ? '📋 Respondeu a Pesquisa de Satisfação' : '') || caption || '',
       tipo,
       media_id,
       mime,
@@ -231,6 +231,31 @@ function parseMensagemRecebida(body) {
         thumbnail_url: referral.thumbnail_url || '',
         capturado_em:  new Date().toISOString(),
       } : null,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// --------- PARSE de resposta de WhatsApp Flow (nfm_reply) ----------
+// Quando o paciente conclui um Flow (ex.: Pesquisa de Satisfação), a resposta
+// chega como mensagem interactive/nfm_reply com os campos do formulário em
+// response_json (string JSON). Retorna null se não for nfm_reply ou JSON inválido.
+function parseNfmReply(body) {
+  try {
+    const change = body?.entry?.[0]?.changes?.[0];
+    if (change?.field !== 'messages') return null;
+    const v = change.value;
+    const msg = v?.messages?.[0];
+    const raw = msg?.interactive?.nfm_reply?.response_json;
+    if (!raw) return null;
+    const respostas = JSON.parse(raw);
+    return {
+      from: msg.from,
+      wamid: msg.id,
+      phone_number_id: v?.metadata?.phone_number_id || '',
+      timestamp: msg.timestamp,
+      respostas,
     };
   } catch (e) {
     return null;
@@ -343,6 +368,7 @@ module.exports = {
   verifyToken,
   parseMensagemRecebida,
   parseStatuses,
+  parseNfmReply,
   coletarEventosDebug,
   limparNumero,
   getPhoneNumbers,
