@@ -5430,15 +5430,20 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
 
     // 1) Clinicorp ao vivo — estimates 90d em fatias de 30 (from/to filtra pela
     // data do ORÇAMENTO; a execução de hoje mora em orçamentos antigos) + agenda de hoje
-    const dataStr = (d) => d.toISOString().slice(0, 10);
+    // dataStr em BRT p/ casar com `hoje` (evita boundary UTC deslocar 1 dia numa
+    // execução tardia da janela 19-23:59). clinicorpGet resolve { status, data }.
+    const dataStr = (d) => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
     const estimates = [];
     for (let off = 0; off < 90; off += 30) {
       const to = new Date(); to.setDate(to.getDate() - off);
       const from = new Date(); from.setDate(from.getDate() - Math.min(off + 30, 90));
       const part = await clinicorpGet('/estimates/list', { from: dataStr(from), to: dataStr(to) });
-      if (Array.isArray(part)) estimates.push(...part);
+      if (part?.status !== 200) throw new Error('Clinicorp /estimates/list status ' + part?.status);
+      if (Array.isArray(part.data)) estimates.push(...part.data);
     }
-    const appointments = await clinicorpGet('/appointment/list', { from: hoje, to: hoje });
+    const apptResp = await clinicorpGet('/appointment/list', { from: hoje, to: hoje });
+    if (apptResp?.status !== 200) throw new Error('Clinicorp /appointment/list status ' + apptResp?.status);
+    const appointments = Array.isArray(apptResp.data) ? apptResp.data : [];
 
     // 2) Configs + telefones + dedup 3 meses (Supabase)
     const m3 = new Date(); m3.setMonth(m3.getMonth() - 3);
@@ -5474,7 +5479,7 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
 
     // 3) Seleção pura
     const { destinatarios, pulados } = montarDestinatarios({
-      estimates, appointments: Array.isArray(appointments) ? appointments : [],
+      estimates, appointments,
       avaliadores, statusCompareceu, telefonePorPaciente, chavesRecentes, hoje,
     });
     console.log(`[pesquisa] ${destinatarios.length} destinatários, ${pulados.length} pulados (${disparo})`);
@@ -5514,7 +5519,7 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
       }
       const { error: insErr } = await supabase.from('pesquisas_satisfacao').insert(row);
       if (insErr) console.error('[pesquisa] insert:', insErr.message);
-      await new Promise(r => setTimeout(r, 2500));
+      if (d !== destinatarios[destinatarios.length - 1]) await new Promise(r => setTimeout(r, 2500));
     }
 
     const detalhe = { enviados, falhas, pulados: pulados.length };
