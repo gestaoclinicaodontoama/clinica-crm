@@ -1613,7 +1613,7 @@ Ana Paula, 5531988880003, ana@email.com"></textarea>
     <div class="modal-titulo">📢 Enviar Template</div>
     <button class="modal-close" onclick="fecharModalTemplate()">×</button>
   </div>
-  <p style="font-size:12.5px;color:var(--muted);margin-bottom:16px">Enviado pelo <strong>Número 2 (broadcast)</strong> — use para confirmações, lembretes e follow-ups fora da janela de 24h.</p>
+  <p id="tpl-info" style="font-size:12.5px;color:var(--muted);margin-bottom:16px">Enviado pelo número desta conversa — use para retomar o contato fora da janela de 24h.</p>
   <div class="form-group">
     <label>Template</label>
     <select id="tpl-select" style="width:100%" onchange="atualizarPreviewTemplate()">
@@ -4309,15 +4309,25 @@ let _templatesCache = [];
 async function abrirModalTemplate() {
   if (!chatLeadAtual) return;
   try {
+    const numConversa = chatLeadAtual.wa_number_id || '';
     const todos = await api('/api/templates');
-    _templatesCache = todos.filter(t => t.status === 'aprovado');
+    // Do número desta conversa; legados sem número (pré-sync) continuam valendo
+    _templatesCache = todos.filter(t => t.status === 'aprovado' && (t.wa_number_id === numConversa || !t.wa_number_id));
     const sel = document.getElementById('tpl-select');
-    if (!_templatesCache.length) {
-      sel.innerHTML = '<option value="">Nenhum template aprovado disponível</option>';
+    const info = document.getElementById('tpl-info');
+    if (!numConversa) {
+      sel.innerHTML = '<option value="">Conversa sem número identificado — não é possível enviar template</option>';
+      _templatesCache = [];
+    } else if (!_templatesCache.length) {
+      sel.innerHTML = '<option value="">Nenhum template aprovado disponível para este número</option>';
     } else {
       sel.innerHTML = _templatesCache.map(t =>
         `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}</option>`
       ).join('');
+    }
+    if (info) {
+      const rot = numConversa && _waNumbers[numConversa] ? ' (' + escHtml(_waNumbers[numConversa]) + ')' : '';
+      info.innerHTML = 'Enviado pelo número desta conversa' + rot + ' — use para retomar o contato fora da janela de 24h.';
     }
     atualizarPreviewTemplate();
     document.getElementById('modal-template-bg').classList.add('open');
