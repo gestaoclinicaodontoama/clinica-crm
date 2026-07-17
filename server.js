@@ -5552,10 +5552,12 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
       if (error) throw error;
       if (data && data.length) return; // já rodou hoje (agendado OU manual)
       // dias sem nenhum destinatário também precisam de marca — o registrarJob
-      // grava em job_health (tabela real do heartbeat, ver registrarJob ~linha 5033):
+      // grava em job_health (tabela real do heartbeat, ver registrarJob ~linha 5033).
+      // Só pula se a última execução na janela foi BEM-SUCEDIDA (ok=true); se falhou
+      // (ex.: Clinicorp fora do ar → throw), deixa o próximo tick tentar de novo até 23:59.
       const { data: job } = await supabase.from('job_health')
-        .select('last_run_at').eq('job', 'pesquisa_satisfacao').maybeSingle();
-      if (job?.last_run_at && new Date(job.last_run_at).getTime() >= inicio.getTime()) return;
+        .select('last_run_at, ok').eq('job', 'pesquisa_satisfacao').maybeSingle();
+      if (job?.ok && job?.last_run_at && new Date(job.last_run_at).getTime() >= inicio.getTime()) return;
     } catch (e) {
       console.error('[pesquisa] checagem falhou:', e.message);
       return; // sem confirmação do DB não dispara (evita duplicar)
