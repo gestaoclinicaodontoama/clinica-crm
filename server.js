@@ -2774,6 +2774,18 @@ app.post('/api/templates/sync-meta', requireAuth, rateLimit, async (req, res) =>
         const d = await r.json();
         for (const w of d.data || []) if (w.id && !wabas.has(w.id)) wabas.set(w.id, tok);
       } catch (_) {}
+      // Tokens de usuário de sistema não respondem a me/whatsapp_business_accounts —
+      // o debug_token lista as WABAs nos escopos granulares do próprio token.
+      try {
+        const r = await fetch(`https://graph.facebook.com/v21.0/debug_token?input_token=${encodeURIComponent(tok)}`,
+          { headers: { 'Authorization': 'Bearer ' + tok } });
+        const d = await r.json();
+        for (const s of d.data?.granular_scopes || []) {
+          if (s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging') {
+            for (const id of s.target_ids || []) if (id && !wabas.has(id)) wabas.set(id, tok);
+          }
+        }
+      } catch (_) {}
     }
     // Compat: WABA fixa do env, caso a descoberta não a retorne
     const envWaba = process.env.WA_BUSINESS_ACCOUNT_ID || WA_BUSINESS_ACCOUNT_ID || '';
