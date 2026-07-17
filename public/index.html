@@ -3707,6 +3707,18 @@ async function _midiaUrlChat(leadId, msgId) {
 
 function _bolhaMsgHtml(m) {
   if (m.texto === '🚫 Mensagem apagada') return `<em style="opacity:.6;font-size:12px">🚫 Mensagem apagada</em>`;
+  // Envio de template/disparo gravado como texto marcador — render legível.
+  // Formatos: "[template: nome | var1, var2]" (chat), "[disparo: nome]" (massa),
+  // "[template:nome]" (rota /whatsapp, sem espaço).
+  const tplM = /^\[(template|disparo):\s*([^\]|]+?)\s*(?:\|\s*(.*))?\]$/.exec((m.texto || '').trim());
+  if (tplM) {
+    const nomeTpl = tplM[2].trim();
+    const tpl = (_templatesCache || []).find(t => t.nome === nomeTpl);
+    const titulo = tpl && tpl.titulo ? tpl.titulo : nomeTpl.replace(/_/g, ' ');
+    const vars = tplM[3] ? `<div style="font-size:11px;opacity:.75;margin-top:3px">${escHtml(tplM[3].trim())}</div>` : '';
+    const origem = tplM[1] === 'disparo' ? 'Disparo em massa' : 'Template enviado';
+    return `<div style="font-size:10.5px;opacity:.75">📢 ${origem}</div><strong>${escHtml(titulo)}</strong>${vars}`;
+  }
   const caption = m.texto ? `<div style="margin-top:4px">${escHtml(m.texto).replace(/\n/g,'<br>')}</div>` : '';
   const t = m.tipo || 'text';
   // Use cached blob URL directly when available — prevents flash on re-renders
