@@ -3067,6 +3067,53 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         } catch (e) { console.error('❌ eco-app item:', e.message); }
       }
     } catch (e) { console.error('❌ eco-app:', e.message); }
+    // Resposta de WhatsApp Flow (Pesquisa de Satisfação) → pesquisas_satisfacao.
+    // Casa por telefone com o envio pendente mais recente (30 dias). Fire-and-forget
+    // não: precisa rodar antes do 200 para garantir persistência com reentrega segura.
+    try {
+      const nfm = whatsapp.parseNfmReply(req.body);
+      if (nfm) {
+        const { data: jaTem } = await supabase.from('pesquisas_satisfacao')
+          .select('id').eq('wa_id_resposta', nfm.wamid).limit(1);
+        if (!jaTem?.length) {
+          const rsp = nfm.respostas || {};
+          const nota = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
+          const upd = {
+            status: 'respondido', respondido_em: new Date().toISOString(),
+            wa_id_resposta: nfm.wamid, resposta_raw: rsp,
+            nps: nota(rsp.nps), motivo_principal: sanitizeStr(rsp.motivo_principal || '', 300) || null,
+            avaliacao_recepcao: nota(rsp.avaliacao_recepcao),
+            avaliacao_dentista: nota(rsp.avaliacao_dentista),
+            avaliacao_espera: nota(rsp.avaliacao_espera),
+            avaliacao_limpeza: nota(rsp.avaliacao_limpeza),
+            avaliacao_explicacoes: nota(rsp.avaliacao_explicacoes),
+            comentario: sanitizeStr(rsp.comentario || '', 2000) || null,
+          };
+          // envio pendente mais recente (30d) para o telefone — comparação por chave
+          const alvo = chaveTelefone(nfm.from);
+          const d30 = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+          const { data: pends } = await supabase.from('pesquisas_satisfacao')
+            .select('id, telefone, lead_id').eq('status', 'enviado')
+            .gte('enviado_em', d30).order('enviado_em', { ascending: false }).limit(500);
+          const pend = (pends || []).find(p => chaveTelefone(p.telefone) === alvo) || null;
+          if (pend) {
+            const { error: upErr } = await supabase.from('pesquisas_satisfacao').update(upd).eq('id', pend.id);
+            if (upErr) console.error('[pesquisa-resposta] update:', upErr.message);
+            const leadId = pend.lead_id || (await acharLeadPorTelefone(nfm.from))?.id;
+            if (leadId) logEvento(leadId, 'pesquisa_respondida',
+              'Respondeu a Pesquisa de Satisfação — nota de recomendação ' + (upd.nps ?? '—'),
+              { nps: upd.nps, motivo: upd.motivo_principal || '' });
+          } else {
+            // órfã: resposta sem envio pendente — não perder o dado
+            console.warn('[pesquisa-resposta] órfã p/ …' + String(nfm.from).slice(-8));
+            const { error: orfErr } = await supabase.from('pesquisas_satisfacao').insert({
+              telefone: sanitizeStr(nfm.from, 30), ...upd,
+            });
+            if (orfErr) console.error('[pesquisa-resposta] órfã:', orfErr.message);
+          }
+        }
+      }
+    } catch (e) { console.error('[pesquisa-resposta]', e.message); }
     const m = whatsapp.parseMensagemRecebida(req.body);
     if (!m) return res.status(200).send('ok');
     let lead = await acharLeadPorTelefone(m.from);
