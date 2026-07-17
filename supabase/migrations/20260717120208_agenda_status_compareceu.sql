@@ -1,4 +1,4 @@
--- supabase/migrations/20260717090000_agenda_status_compareceu.sql
+-- supabase/migrations/20260717120208_agenda_status_compareceu.sql
 -- Auditoria de registro clínico: syncAgenda passa a gravar o StatusId do
 -- /appointment/list e o derivado compareceu (checkin OU status marcado em
 -- config_status_compareceu). NULL = linha ainda não re-sincronizada.

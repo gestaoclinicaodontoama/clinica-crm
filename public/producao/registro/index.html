@@ -66,6 +66,9 @@ tr:last-child td{border-bottom:none}
   <div id="avisoHoje" class="aviso" style="display:none">
     ⚠ O dado deste dia só fecha após o sync das 02:00 — pendências podem ser só atraso de sincronização.
   </div>
+  <div id="avisoAntigo" class="aviso" style="display:none">
+    ⚠ O histórico sincronizado cobre aproximadamente 90 dias — dias anteriores a isso aparecem vazios ou incompletos.
+  </div>
 
   <div id="conteudo"><div class="empty"><span class="spinner"></span></div></div>
 
@@ -138,6 +141,8 @@ async function syncNow() {
 async function carregar() {
   const data = document.getElementById('dataInput').value;
   document.getElementById('avisoHoje').style.display = data >= hoje() ? '' : 'none';
+  const lim = new Date(hoje() + 'T12:00:00Z'); lim.setUTCDate(lim.getUTCDate() - 90);
+  document.getElementById('avisoAntigo').style.display = data < lim.toISOString().slice(0, 10) ? '' : 'none';
   document.getElementById('nextBtn').disabled = data >= hoje();
   const el = document.getElementById('conteudo');
   el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
