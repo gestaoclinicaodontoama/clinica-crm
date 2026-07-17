@@ -253,7 +253,7 @@
         nota: 'Sem agenda no período.', modulo: 'Produção' }));
     }
     const pq = fin && fin.pesquisa;
-    if (pq && pq.respostas > 0) {
+    if (pq && pq.respostas > 0 && pq.nps_media != null) {
       const sevPq = pq.nps_media >= 9 ? 'verde' : pq.nps_media >= 7 ? 'amarelo' : 'vermelho';
       niveisContados.push(sevPq);
       cards.b.push(cardHTML('pesquisa', { label: 'Satisfação dos pacientes', sev: sevPq,
