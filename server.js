@@ -2756,66 +2756,95 @@ app.post('/api/templates/:id/submeter-meta', requireAuth, rateLimit, async (req,
 
 app.post('/api/templates/sync-meta', requireAuth, rateLimit, async (req, res) => {
   try {
-    const TOKEN = process.env.META_ACCESS_TOKEN;
-    if (!TOKEN) return res.status(503).json({ error: 'META_ACCESS_TOKEN não configurado' });
-    // Auto-descobre WABA ID — tenta vários tokens em ordem
-    let wabaId = process.env.WA_BUSINESS_ACCOUNT_ID || WA_BUSINESS_ACCOUNT_ID || '';
-    if (!wabaId) {
-      const tokensToTry = [
-        TOKEN,
-        process.env.WHATSAPP_BROADCAST_TOKEN,
-        process.env.WHATSAPP_API_TOKEN,
-        process.env.WHATSAPP_CLOUD_TOKEN,
-      ].filter(Boolean);
-      for (const tok of tokensToTry) {
-        try {
-          const dr = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=5',
-            { headers: { 'Authorization': 'Bearer ' + tok } });
-          const dd = await dr.json();
-          if (dd.data?.[0]?.id) { wabaId = dd.data[0].id; break; }
-        } catch (_) {}
+    const tokens = [...new Set([
+      process.env.META_ACCESS_TOKEN,
+      process.env.WHATSAPP_BROADCAST_TOKEN,
+      process.env.WHATSAPP_API_TOKEN,
+      process.env.WHATSAPP_CLOUD_TOKEN,
+    ].filter(Boolean))];
+    if (!tokens.length) return res.status(503).json({ error: 'Nenhum token Meta configurado' });
+
+    // 1) Descobre as WABAs visíveis por cada token — e LEMBRA qual token enxergou
+    //    cada uma (um token de uma conta não necessariamente acessa a outra).
+    const wabas = new Map(); // wabaId -> token
+    for (const tok of tokens) {
+      try {
+        const r = await fetch('https://graph.facebook.com/v21.0/me/whatsapp_business_accounts?fields=id&limit=10',
+          { headers: { 'Authorization': 'Bearer ' + tok } });
+        const d = await r.json();
+        for (const w of d.data || []) if (w.id && !wabas.has(w.id)) wabas.set(w.id, tok);
+      } catch (_) {}
+    }
+    // Compat: WABA fixa do env, caso a descoberta não a retorne
+    const envWaba = process.env.WA_BUSINESS_ACCOUNT_ID || WA_BUSINESS_ACCOUNT_ID || '';
+    if (envWaba && !wabas.has(envWaba)) wabas.set(envWaba, process.env.META_ACCESS_TOKEN || tokens[0]);
+    if (!wabas.size) return res.status(400).json({ error: 'Nenhuma WABA encontrada. Confira os tokens/WA_BUSINESS_ACCOUNT_ID no Easypanel.' });
+
+    // 2) Para cada WABA: número (1 por WABA) + templates paginados
+    const contas = [];
+    for (const [wabaId, tok] of wabas) {
+      let phoneId = '';
+      try {
+        const pr = await fetch(`https://graph.facebook.com/v21.0/${wabaId}/phone_numbers?fields=id&limit=5`,
+          { headers: { 'Authorization': 'Bearer ' + tok } });
+        const pd = await pr.json();
+        phoneId = pd.data?.[0]?.id || '';
+      } catch (_) {}
+      if (!phoneId) continue; // WABA sem número visível — ignora
+      const meta = [];
+      let url = `https://graph.facebook.com/v21.0/${wabaId}/message_templates?fields=name,status,category,components&limit=200`;
+      let _pagina = 0;
+      while (url && _pagina < 20) { _pagina++;
+        const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + tok } });
+        const data = await r.json();
+        if (data.error) return res.status(400).json({ error: data.error.message });
+        if (data.data) meta.push(...data.data);
+        url = data.paging?.next || null;
       }
+      contas.push({ wabaId, phoneId, meta });
     }
-    if (!wabaId) return res.status(400).json({ error: 'WABA ID não encontrado. Vá em Meta Business Suite → Configurações → Contas WhatsApp, copie o ID e configure WA_BUSINESS_ACCOUNT_ID no Easypanel.' });
-    let url = `https://graph.facebook.com/v21.0/${wabaId}/message_templates?fields=name,status,category,components&limit=200`;
-    const allMeta = [];
-    let _pagina = 0;
-    while (url && _pagina < 20) { _pagina++;
-      const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-      const data = await r.json();
-      if (data.error) return res.status(400).json({ error: data.error.message });
-      if (data.data) allMeta.push(...data.data);
-      url = data.paging?.next || null;
-    }
+
+    // 3) Broadcast primeiro: os registros legados (wa_number_id='') vieram do sync
+    //    antigo, que só lia essa conta — a adoção deles cai na WABA de origem.
+    const bId = whatsapp.broadcastPhoneId() || '';
+    contas.sort((a, b) => (b.phoneId === bId) - (a.phoneId === bId));
+
     const STATUS_MAP = { APPROVED: 'aprovado', PENDING: 'submetido', REJECTED: 'rejeitado', PAUSED: 'pausado', DISABLED: 'pausado', IN_APPEAL: 'em_recurso', PENDING_DELETION: 'pendente' };
     const { data: localTpls } = await supabase.from('templates').select('*');
-    const tpls = localTpls || [];
-    let atualizados = 0;
-    for (const tpl of tpls) {
-      const metaTpl = allMeta.find(m => m.name === tpl.nome);
-      if (metaTpl) {
-        const novoStatus = STATUS_MAP[metaTpl.status] || metaTpl.status.toLowerCase();
-        const patch = {};
-        if (tpl.status !== novoStatus) { patch.status = novoStatus; atualizados++; }
-        if (metaTpl.id && !tpl.meta_id) patch.meta_id = metaTpl.id;
-        if (Object.keys(patch).length) await supabase.from('templates').update(patch).eq('id', tpl.id);
+    const locais = localTpls || [];
+    const adotados = new Set();
+    let atualizados = 0, importados = 0, totalMeta = 0;
+    for (const conta of contas) {
+      totalMeta += conta.meta.length;
+      const toImport = [];
+      for (const m of conta.meta) {
+        const novoStatus = STATUS_MAP[m.status] || String(m.status || '').toLowerCase();
+        const existente = locais.find(t => t.nome === m.name && t.wa_number_id === conta.phoneId);
+        const legado = existente ? null : locais.find(t => t.nome === m.name && !t.wa_number_id && !adotados.has(t.id));
+        if (existente) {
+          const patch = {};
+          if (existente.status !== novoStatus) { patch.status = novoStatus; atualizados++; }
+          if (m.id && !existente.meta_id) patch.meta_id = m.id;
+          if (Object.keys(patch).length) await supabase.from('templates').update(patch).eq('id', existente.id);
+        } else if (legado) {
+          adotados.add(legado.id);
+          if (legado.status !== novoStatus) atualizados++;
+          await supabase.from('templates').update({
+            wa_number_id: conta.phoneId, status: novoStatus, meta_id: m.id || legado.meta_id || null,
+          }).eq('id', legado.id);
+        } else {
+          const bodyComp = (m.components || []).find(c => c.type === 'BODY');
+          const cat = ['MARKETING','UTILITY','AUTHENTICATION'].includes(m.category) ? m.category : 'MARKETING';
+          const titulo = m.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          toImport.push({ nome: m.name, titulo, corpo: bodyComp ? bodyComp.text : '', categoria: cat, status: novoStatus, meta_id: m.id || null, wa_number_id: conta.phoneId });
+        }
+      }
+      if (toImport.length) {
+        const { error: insErr } = await supabase.from('templates').insert(toImport);
+        if (!insErr) importados += toImport.length;
       }
     }
-    let importados = 0;
-    const nomesLocais = new Set(tpls.map(t => t.nome));
-    const toImport = [];
-    for (const m of allMeta) {
-      if (nomesLocais.has(m.name)) continue;
-      const bodyComp = (m.components || []).find(c => c.type === 'BODY');
-      const cat = ['MARKETING','UTILITY','AUTHENTICATION'].includes(m.category) ? m.category : 'MARKETING';
-      const titulo = m.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      toImport.push({ nome: m.name, titulo, corpo: bodyComp ? bodyComp.text : '', categoria: cat, status: STATUS_MAP[m.status] || m.status.toLowerCase(), meta_id: m.id || null });
-    }
-    if (toImport.length) {
-      const { error: insErr } = await supabase.from('templates').insert(toImport);
-      if (!insErr) importados = toImport.length;
-    }
-    res.json({ ok: true, atualizados, importados, total_meta: allMeta.length });
+    res.json({ ok: true, atualizados, importados, contas: contas.length, total_meta: totalMeta });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
