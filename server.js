@@ -9,13 +9,17 @@ const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
 const { execSync, execFileSync, spawn } = require('child_process');
-// Conversão de áudio de voz usa um ffmpeg com libopus >=1.6 (/usr/local/bin/ffmpeg-voice,
-// instalado no Dockerfile a partir do build estático BtbN). MOTIVO: o libopus da distro e
-// o do ffmpeg-static (jvs = 1.3.1) e o 1.5.x geram Opus/SILK que o WhatsApp do iPHONE
-// rejeita ("áudio não disponível"); libopus 1.4 e 1.6 tocam (comprovado 07-08/07, testes
-// A–N). Fallback: ffmpeg do sistema. Usado SÓ no áudio de voz; demais usos = ffmpeg do sistema.
+// Conversão de áudio de voz usa um ffmpeg estático PINADO (/usr/local/bin/ffmpeg-voice,
+// BtbN n7.1.5 snapshot 2026-07-17, baixado no Dockerfile de release própria do repo com
+// sha256 conferido). MOTIVO: o WhatsApp do iPHONE rejeita ("áudio não disponível") o Opus
+// de vários encoders — ffmpeg da distro (libopus 1.5.x) falha SEMPRE, e o master-latest
+// do BtbN oscila entre builds (08–16/07 gerou áudio quebrado; era o bug "voltou a falhar").
+// Este binário específico foi validado AO VIVO no iPhone (bateria T1–T6, 17/07/2026).
+// NUNCA trocar por tag móvel (latest/master) nem confiar no fallback em produção.
+// Fallback ffmpeg do sistema existe SÓ p/ dev local; demais usos (transcrição) = ffmpeg do sistema.
 let FFMPEG_AUDIO_BIN = 'ffmpeg';
 try { if (require('fs').existsSync('/usr/local/bin/ffmpeg-voice')) FFMPEG_AUDIO_BIN = '/usr/local/bin/ffmpeg-voice'; } catch (_) {}
+if (FFMPEG_AUDIO_BIN === 'ffmpeg') console.warn('⚠️ ffmpeg-voice pinado AUSENTE — áudio de voz sairá do ffmpeg do sistema e NÃO toca no iPhone (aceitável só em dev local)');
 // Versão resolvida UMA vez no boot (não por request: evita bloquear o event loop e
 // não expõe o caminho absoluto/banner completo). Guarda só o token curto (ex.: "7.1").
 const FFMPEG_AUDIO_STATIC = FFMPEG_AUDIO_BIN !== 'ffmpeg';
