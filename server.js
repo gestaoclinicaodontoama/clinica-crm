@@ -96,10 +96,17 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 //   com testes A–F ao vivo: só o 16kHz REAMOSTRADO toca no iPhone (patch só de header não).
 // -b:a 16k mantém o arquivo pequeno: o WhatsApp só mostra o ícone de PLAY (onda) se o
 // áudio tiver ≤512KB; acima disso vira ícone de download. 16k mono cobre ~4min de fala.
+// -map_metadata(-1, global E :s stream) é OBRIGATÓRIO: o webm do MediaRecorder (Chrome)
+//   traz a tag de stream "language=eng"; o ffmpeg a copiava pro OpusTags do ogg e o
+//   WhatsApp do iPHONE rejeita mensagem de voz com essa tag ("áudio não disponível").
+//   Era ESSA a causa real das falhas 08–17/07 (não a versão do ffmpeg): forense byte a
+//   byte 17/07 mostrou bitstream Opus IDÊNTICO entre arquivo que toca e que falha — a
+//   única diferença era o language=eng, e as sondas V1 (tag removida → tocou) / V2
+//   (tag adicionada → falhou) confirmaram ao vivo no iPhone. A tag encoder= pode ficar.
 // Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
 function _audioParaOggOpus(buffer) {
   return new Promise((resolve, reject) => {
-    const p = spawn(FFMPEG_AUDIO_BIN, ['-i', 'pipe:0', '-c:a', 'libopus', '-ac', '1', '-ar', '16000', '-b:a', '16k', '-f', 'ogg', 'pipe:1']);
+    const p = spawn(FFMPEG_AUDIO_BIN, ['-i', 'pipe:0', '-map_metadata', '-1', '-map_metadata:s', '-1', '-c:a', 'libopus', '-ac', '1', '-ar', '16000', '-b:a', '16k', '-f', 'ogg', 'pipe:1']);
     const out = [];
     p.stdout.on('data', c => out.push(c));
     p.stderr.resume(); // descarta stderr para o processo não travar com o pipe cheio
