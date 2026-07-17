@@ -1589,12 +1589,14 @@ function lerCsvDoRequest(req) {
   return '';
 }
 
-// Confirma que um template está aprovado (db status 'aprovado' ou allow-list de env).
-async function templateAprovado(nome) {
+// Confirma que um template está aprovado (db 'aprovado' ou allow-list de env) PARA um número.
+// Templates legados (wa_number_id='') valem para qualquer número até o sync adotá-los.
+async function templateAprovado(nome, waNumberId) {
   const envNames = (process.env.WA_TEMPLATES || '').split(',').map(t => t.trim()).filter(Boolean);
   if (envNames.includes(nome)) return true;
-  const { data } = await supabase.from('templates').select('status').eq('nome', nome).maybeSingle();
-  return !!data && data.status === 'aprovado';
+  const { data } = await supabase.from('templates').select('status')
+    .eq('nome', nome).in('wa_number_id', [waNumberId || '', '']);
+  return (data || []).some(t => t.status === 'aprovado');
 }
 
 app.post('/api/disparos/preview', requireAuth, requireDisparos, _upload.single('file'), async (req, res) => {
@@ -1641,7 +1643,7 @@ app.post('/api/disparos/criar', requireAuth, requireDisparos, _upload.single('fi
     }
     if (!nome) return res.status(400).json({ error: 'Nome da campanha obrigatório' });
     if (!template_nome) return res.status(400).json({ error: 'Template obrigatório' });
-    if (!(await templateAprovado(template_nome))) return res.status(400).json({ error: 'Template não aprovado pela Meta' });
+    if (!(await templateAprovado(template_nome, wa_number_id))) return res.status(400).json({ error: 'Template não aprovado pela Meta' });
 
     const texto = lerCsvDoRequest(req);
     const { contatos } = parseCsv(texto);
@@ -1809,13 +1811,14 @@ app.post('/api/publicos/disparar', requireAuth, requirePublicos, async (req, res
     const template_nome = sanitizeStr(req.body.template_nome, 100);
     if (!nome) return res.status(400).json({ error: 'Nome da campanha obrigatório' });
     if (!template_nome) return res.status(400).json({ error: 'Template obrigatório' });
-    if (!(await templateAprovado(template_nome))) return res.status(400).json({ error: 'Template não aprovado pela Meta' });
 
     // Número: ausente = default (2873); presente precisa ter token.
     const sendable = await whatsapp.getPhoneNumbers();
     let wa_number_id = sanitizeStr(req.body.wa_number_id || '', 50);
     if (!wa_number_id) wa_number_id = whatsapp.defaultPhoneId() || '';
     else if (!sendable[wa_number_id]) return res.status(400).json({ error: 'Número sem credencial de envio configurada' });
+
+    if (!(await templateAprovado(template_nome, wa_number_id))) return res.status(400).json({ error: 'Template não aprovado pela Meta' });
 
     // Uma campanha enviando por vez (mesma guarda do /api/disparos/:id/iniciar).
     const { data: ativa } = await supabase.from('disparos_campanhas').select('id').eq('status', 'enviando').limit(1);
@@ -2278,17 +2281,18 @@ app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, as
     const { texto, templateName, variaveis, reply_wa_id } = req.body;
     let resultado;
     if (!templateName && !texto) return res.status(400).json({ error: 'texto ou templateName obrigatorio' });
-    // Política fixa (decisão do gestor): conversa livre SEMPRE pelo número SDR
-    // (2873); template SEMPRE pelo número de disparos (8700). O cliente não escolhe.
+    // Conversa livre pelo número SDR; template pelo número da PRÓPRIA conversa
+    // (mesma regra do /broadcast — template de outra WABA a Meta rejeita).
     const sdrPhoneId = whatsapp.defaultPhoneId() || '';
     if (templateName) {
-      resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis });
+      if (!lead.wa_number_id) return res.status(400).json({ error: 'Não foi possível identificar o número desta conversa. Fale com o suporte.' });
+      resultado = await whatsapp.enviarTemplate({ para: lead.telefone, templateName, variaveis, phoneNumberId: lead.wa_number_id });
     } else {
       if (!(await janela24hAberta(lead.id))) return res.status(400).json({ error: MSG_JANELA_FECHADA });
       const contextWaId = reply_wa_id ? sanitizeStr(reply_wa_id, 500) : null;
       resultado = await whatsapp.enviarTexto({ para: lead.telefone, texto, phoneNumberId: sdrPhoneId, contextWaId });
     }
-    const sentPhoneId = templateName ? (whatsapp.broadcastPhoneId() || '') : sdrPhoneId;
+    const sentPhoneId = templateName ? lead.wa_number_id : sdrPhoneId;
     const { error: insErr } = await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'sdr',
       texto: sanitizeStr(texto || '[template:' + sanitizeStr(templateName, 100) + ']', 4000),
@@ -2300,8 +2304,9 @@ app.post('/api/leads/:id/whatsapp', requireAuth, requireConversas, rateLimit, as
     res.json({ ok: true });
     assumirConversaSeSemDono(lead, req.user);
     if (templateName) {
-      supabase.from('templates').select('categoria').eq('nome', templateName).maybeSingle()
-        .then(({ data: tpl }) => {
+      supabase.from('templates').select('categoria').eq('nome', templateName)
+        .in('wa_number_id', [lead.wa_number_id || '', '']).limit(1)
+        .then(({ data: tplRows }) => { const tpl = tplRows && tplRows[0];
           logEvento(id, 'template_enviado',
             'Template enviado: ' + templateName,
             { template: templateName, categoria: tpl?.categoria || 'MARKETING' },
@@ -2648,7 +2653,7 @@ app.get('/api/templates', requireAuth, rateLimit, async (req, res) => {
     const envNames = (process.env.WA_TEMPLATES || '').split(',').map(t => t.trim()).filter(Boolean);
     const envObjs = envNames
       .filter(n => !(dbTpls || []).find(t => t.nome === n))
-      .map(n => ({ id: null, nome: n, titulo: n, corpo: '', categoria: 'MARKETING', status: 'aprovado' }));
+      .map(n => ({ id: null, nome: n, titulo: n, corpo: '', categoria: 'MARKETING', status: 'aprovado', wa_number_id: whatsapp.broadcastPhoneId() || '' }));
     res.json([...(dbTpls || []), ...envObjs]);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2661,7 +2666,8 @@ app.post('/api/templates', requireAuth, rateLimit, async (req, res) => {
     if (!nome) return res.status(400).json({ error: 'nome obrigatório' });
     const nomeLimpo = sanitizeStr(nome, 100).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     if (!nomeLimpo) return res.status(400).json({ error: 'nome inválido' });
-    const { data: dup } = await supabase.from('templates').select('id').eq('nome', nomeLimpo).maybeSingle();
+    const { data: dupRows } = await supabase.from('templates').select('id').eq('nome', nomeLimpo).limit(1);
+    const dup = dupRows && dupRows[0];
     if (dup) return res.status(409).json({ error: 'Já existe um template com esse nome' });
     const { data: tpl, error } = await supabase.from('templates').insert({
       nome: nomeLimpo,
