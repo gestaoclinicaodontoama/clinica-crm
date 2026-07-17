@@ -226,6 +226,7 @@ const { montarCsv } = require('./lib/publicos/csv');
 const { montarCsvDiscador } = require('./lib/leads/exportCsv');
 const { toqueDevido, podeAutoPerder } = require('./lib/recuperacao/cadencia');
 const { montarDestinatarios } = require('./lib/pesquisa/selecao');
+const { extrairPacienteId } = require('./lib/sync/extrair-paciente-id');
 
 // --------- APP ---------
 const app = express();
@@ -5514,7 +5515,7 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
     // telefones dos pacientes dos tratamentos (tabela pacientes, em lotes de 200)
     const pacIds = new Set();
     for (const est of (Array.isArray(estimates) ? estimates : [])) {
-      const pid = String(est.PatientId || '');
+      const pid = String(est.PatientId || '') || extrairPacienteId(est.PatientName);
       if (pid) pacIds.add(pid);
     }
     // ⚠️ colunas reais da tabela pacientes: telefone_celular / telefone_fixo (não "telefone")
