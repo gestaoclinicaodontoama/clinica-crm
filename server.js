@@ -3092,9 +3092,14 @@ app.post('/webhooks/whatsapp', async (req, res) => {
           // envio pendente mais recente (30d) para o telefone — comparação por chave
           const alvo = chaveTelefone(nfm.from);
           const d30 = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+          // Telefone é guardado cru (com formatação) → não dá p/ pré-filtrar por sufixo
+          // no banco de forma confiável; filtramos por chaveTelefone no JS. limit(1000)
+          // = teto de página do Supabase e cobre o pior caso real (~25-30 envios/dia ×
+          // 30 dias ≈ 750, mesmo se ninguém respondesse). Se o volume crescer, migrar p/
+          // coluna telefone_chave indexada.
           const { data: pends } = await supabase.from('pesquisas_satisfacao')
             .select('id, telefone, lead_id').eq('status', 'enviado')
-            .gte('enviado_em', d30).order('enviado_em', { ascending: false }).limit(500);
+            .gte('enviado_em', d30).order('enviado_em', { ascending: false }).limit(1000);
           const pend = (pends || []).find(p => chaveTelefone(p.telefone) === alvo) || null;
           if (pend) {
             const { error: upErr } = await supabase.from('pesquisas_satisfacao').update(upd).eq('id', pend.id);
