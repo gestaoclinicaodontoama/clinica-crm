@@ -5635,6 +5635,61 @@ app.post('/api/pesquisa-satisfacao/disparar', requireAuth, requirePesquisa, rate
   }
 });
 
+app.get('/api/pesquisa-satisfacao', requireAuth, requirePesquisa, rateLimit, async (req, res) => {
+  try {
+    const re = /^\d{4}-\d{2}-\d{2}$/;
+    const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const from = re.test(req.query.from || '') ? req.query.from : hoje.slice(0, 8) + '01';
+    const to = re.test(req.query.to || '') ? req.query.to : hoje;
+    const { data: itens, error } = await supabase.from('pesquisas_satisfacao')
+      .select('*')
+      .gte('criado_em', from + 'T00:00:00-03:00')
+      .lte('criado_em', to + 'T23:59:59-03:00')
+      .order('criado_em', { ascending: false })
+      .limit(1000);
+    if (error) throw error;
+    const resp = (itens || []).filter(i => i.status === 'respondido');
+    const media = (campo) => {
+      const vals = resp.map(i => i[campo]).filter(v => v != null);
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+    res.json({
+      periodo: { from, to },
+      resumo: {
+        enviadas: (itens || []).filter(i => i.enviado_em).length,
+        respondidas: resp.length,
+        falhas: (itens || []).filter(i => i.status === 'falhou').length,
+        taxa: (itens || []).filter(i => i.enviado_em).length
+          ? resp.length / (itens || []).filter(i => i.enviado_em).length : null,
+        nps_media: media('nps'),
+        medias: {
+          recepcao: media('avaliacao_recepcao'), dentista: media('avaliacao_dentista'),
+          espera: media('avaliacao_espera'), limpeza: media('avaliacao_limpeza'),
+          explicacoes: media('avaliacao_explicacoes'),
+        },
+      },
+      itens: itens || [],
+    });
+  } catch (e) {
+    console.error('❌ /api/pesquisa-satisfacao:', e.message);
+    res.status(500).json({ error: 'Falha ao listar pesquisas' });
+  }
+});
+
+app.get('/api/pesquisa-satisfacao/lead/:leadId', requireAuth, rateLimit, async (req, res) => {
+  try {
+    const leadId = parseInt(req.params.leadId, 10);
+    if (Number.isNaN(leadId)) return res.status(400).json({ error: 'ID inválido' });
+    const { data: itens, error } = await supabase.from('pesquisas_satisfacao')
+      .select('*').eq('lead_id', leadId)
+      .order('criado_em', { ascending: false }).limit(50);
+    if (error) throw error;
+    res.json({ itens: itens || [] });
+  } catch (e) {
+    res.status(500).json({ error: 'Falha ao buscar pesquisas do paciente' });
+  }
+});
+
 // ========== SYNC MANUAL ==========
 // POST /api/admin/sync-clinicorp  — dispara sync imediatamente (sem esperar as 2h)
 app.post('/api/admin/sync-clinicorp', requireAuth, async (req, res) => {
@@ -9223,7 +9278,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   const menosMeses = (n) => { const [y, m] = hoje.slice(0, 7).split('-').map(Number);
     return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
   try {
-    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR, agHR, inadCacheR] = await Promise.all([
+    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR, agHR, inadCacheR, pesqR] = await Promise.all([
       supabase.rpc('fin_totais_periodo', { p_from: from, p_to: to }),
       supabase.rpc('fin_totais_periodo', { p_from: anoAntes(from), p_to: anoAntes(to) }),
       supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(6), p_to: hoje }),
@@ -9239,6 +9294,8 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).eq('compareceu', true).gte('data', from).lte('data', to),
       supabase.rpc('agenda_horas_periodo', { p_from: from, p_to: to }),
       supabase.from('inadimplentes_cache').select('data').eq('id', 1).maybeSingle(),
+      supabase.from('pesquisas_satisfacao').select('nps, status, enviado_em')
+        .gte('criado_em', from + 'T00:00:00-03:00').lte('criado_em', to + 'T23:59:59-03:00').limit(2000),
     ]);
     // Faturamento (REVENUE do período) + crescimento vs o mesmo período do ano anterior
     const tot = (totR.data || [])[0] || {}, totLY = (totLYR.data || [])[0] || {};
@@ -9281,6 +9338,15 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
     const horasAgendadas = Number(agHR.data || 0) / 60;
     const ocupacaoPct = capacidadeH > 0 ? horasAgendadas / capacidadeH : null;
 
+    // Pesquisa de Satisfação do período
+    const pesqRows = pesqR.data || [];
+    const pesqResp = pesqRows.filter(p => p.status === 'respondido' && p.nps != null);
+    const pesquisa = pesqRows.length ? {
+      nps_media: pesqResp.length ? pesqResp.reduce((s, p) => s + p.nps, 0) / pesqResp.length : null,
+      respostas: pesqResp.length,
+      enviadas: pesqRows.filter(p => p.enviado_em).length,
+    } : null;
+
     res.json({
       periodo: { from, to },
       atualizado_em: new Date().toISOString(),
@@ -9291,6 +9357,7 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       ticketSemConvenio: { valor: ticket, n: vals.length, min: FECHAMENTO_MIN },
       funil: { leads: leadsR.count || 0, agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length },
       ocupacao: { pct: ocupacaoPct, horasAgendadas: Math.round(horasAgendadas), horasCapacidade: Math.round(capacidadeH) },
+      pesquisa,
     });
   } catch (e) {
     console.error('❌ /api/painel-gestor:', e.message);
