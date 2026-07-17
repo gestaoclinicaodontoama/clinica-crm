@@ -53,6 +53,9 @@
 
     { slug: 'painel-gestor', label: 'Painel do Gestor', icon: 'dashboard', roles: 'admin,gestor', mode: 'spa' },
 
+    { slug: 'pesquisa-satisfacao', label: 'Pesquisa de Satisfação', icon: 'dashboard',
+      roles: 'admin,gestor,mod_pesquisa_satisfacao', mode: 'link', href: '/pesquisa-satisfacao/' },
+
     { id: 'crc-leads', label: 'CRC de Leads', icon: 'kanban', roles: 'admin,gestor,crc_leads,crc_comercial', items: [
       { slug: 'kanban-leads',      label: 'Kanban Leads',       roles: 'admin,crc,crc_leads,crc_comercial,mod_kanban_leads', mode: 'link', href: '/kanban-leads/' },
       { slug: 'conv-agendamentos', label: 'WhatsApp CRC Lead',  roles: 'admin,gestor,crc_leads,crc_comercial,crc_sucesso',    mode: 'spa' },
