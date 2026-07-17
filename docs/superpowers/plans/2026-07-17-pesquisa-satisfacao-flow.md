@@ -457,6 +457,14 @@ git commit -m "feat(pesquisa): seleção de destinatários com dedup por telefon
 const { montarDestinatarios } = require('./lib/pesquisa/selecao');
 ```
 
+(`chaveTelefone` e `sanitizeStr` já existem no escopo do server.js — linhas 204 e 199 — não importar de novo.)
+
+Registrar o job no `JOB_HEARTBEAT` (linha ~5026, junto das outras entradas) — sem isso `registrarJob('pesquisa_satisfacao', ...)` é um no-op silencioso (`if (!meta) return`):
+
+```js
+  pesquisa_satisfacao: { label: 'Pesquisa de Satisfação (WhatsApp)', cadenciaMin: 1440, margemMin: 360 },
+```
+
 - [ ] **Step 2: Implementar o job (colar após o scheduler do social media, mantendo o padrão dos blocos vizinhos)**
 
 ```js
@@ -506,12 +514,16 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
       const pid = String(est.PatientId || '');
       if (pid) pacIds.add(pid);
     }
+    // ⚠️ colunas reais da tabela pacientes: telefone_celular / telefone_fixo (não "telefone")
     const telefonePorPaciente = new Map();
     const idsArr = [...pacIds];
     for (let i = 0; i < idsArr.length; i += 200) {
       const { data: pacs } = await supabase.from('pacientes')
-        .select('clinicorp_id, telefone').in('clinicorp_id', idsArr.slice(i, i + 200));
-      for (const p of pacs || []) if (p.telefone) telefonePorPaciente.set(String(p.clinicorp_id), p.telefone);
+        .select('clinicorp_id, telefone_celular, telefone_fixo').in('clinicorp_id', idsArr.slice(i, i + 200));
+      for (const p of pacs || []) {
+        const tel = p.telefone_celular || p.telefone_fixo;
+        if (tel) telefonePorPaciente.set(String(p.clinicorp_id), tel);
+      }
     }
 
     // 3) Seleção pura
@@ -588,8 +600,9 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
         .select('id').gte('criado_em', inicio.toISOString()).limit(1);
       if (error) throw error;
       if (data && data.length) return; // já rodou hoje (agendado OU manual)
-      // dias sem nenhum destinatário também precisam de marca — o registrarJob cobre:
-      const { data: job } = await supabase.from('sync_jobs')
+      // dias sem nenhum destinatário também precisam de marca — o registrarJob
+      // grava em job_health (tabela real do heartbeat, ver registrarJob ~linha 5033):
+      const { data: job } = await supabase.from('job_health')
         .select('last_run_at').eq('job', 'pesquisa_satisfacao').maybeSingle();
       if (job?.last_run_at && new Date(job.last_run_at).getTime() >= inicio.getTime()) return;
     } catch (e) {
@@ -605,9 +618,6 @@ async function executarPesquisaSatisfacao(disparo = 'agendado') {
 })();
 ```
 
-⚠️ Nota: se `registrarJob` usar outra tabela/coluna que não `sync_jobs.job/last_run_at`, ler a implementação em `server.js` (~linha 5030) e ajustar a checagem do scheduler para o nome real.
-
-⚠️ `chaveTelefone`: conferir se `server.js` já importa de `lib/funil/telefone` (grep `chaveTelefone`); se não houver import no escopo, adicionar `const { chaveTelefone } = require('./lib/funil/telefone');` junto ao require da Task 4 Step 1.
 
 - [ ] **Step 3: Middleware + rota de disparo manual (junto das outras rotas, antes do bloco de webhooks)**
 
@@ -626,7 +636,7 @@ app.post('/api/pesquisa-satisfacao/disparar', requireAuth, requirePesquisa, rate
 });
 ```
 
-⚠️ Conferir a assinatura de `requireRole` no server.js (grep `function requireRole`) — seguir o formato usado pelos vizinhos (ex.: `requireProducao`).
+(`requireRole(...allowed)` — server.js:430 — retorna middleware; o formato acima está correto, igual a `requireGestor = requireRole('gestor', 'admin')`.)
 
 - [ ] **Step 4: Verificar sintaxe e subir localmente**
 
@@ -681,7 +691,7 @@ git commit -m "feat(pesquisa): job 19h self-healing + disparo manual do template
           const d30 = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
           const { data: pends } = await supabase.from('pesquisas_satisfacao')
             .select('id, telefone, lead_id').eq('status', 'enviado')
-            .gte('enviado_em', d30).order('enviado_em', { ascending: false }).limit(50);
+            .gte('enviado_em', d30).order('enviado_em', { ascending: false }).limit(500);
           const pend = (pends || []).find(p => chaveTelefone(p.telefone) === alvo) || null;
           if (pend) {
             const { error: upErr } = await supabase.from('pesquisas_satisfacao').update(upd).eq('id', pend.id);
@@ -732,7 +742,7 @@ git commit -m "feat(pesquisa): webhook captura nfm_reply e casa resposta por tel
 - Consumes: tabela `pesquisas_satisfacao`, `requirePesquisa` (Task 4).
 - Produces:
   - `GET /api/pesquisa-satisfacao?from&to` → `{ resumo: { enviadas, respondidas, falhas, taxa, nps_media, medias: { recepcao, dentista, espera, limpeza, explicacoes } }, itens: [...] }`
-  - `GET /api/pesquisa-satisfacao/paciente/:clinicorpId` → `{ itens: [...] }`
+  - `GET /api/pesquisa-satisfacao/lead/:leadId` → `{ itens: [...] }` — a "ficha do paciente" real do CRM é o Perfil 360º (`/perfil/?id=<lead_id>`), que é por lead; por isso o endpoint é por `lead_id` (a coluna existe em `pesquisas_satisfacao`). Só `requireAuth` + `rateLimit` (o Perfil é usado por CRC/comercial, não só gestores — mesmo nível de acesso do `/api/leads/:id`).
   - `/api/painel-gestor` passa a incluir `pesquisa: { nps_media, respostas, enviadas } | null`.
 
 - [ ] **Step 1: Rotas do módulo**
@@ -779,11 +789,12 @@ app.get('/api/pesquisa-satisfacao', requireAuth, requirePesquisa, rateLimit, asy
   }
 });
 
-app.get('/api/pesquisa-satisfacao/paciente/:clinicorpId', requireAuth, requirePesquisa, rateLimit, async (req, res) => {
+app.get('/api/pesquisa-satisfacao/lead/:leadId', requireAuth, rateLimit, async (req, res) => {
   try {
-    const cid = sanitizeStr(req.params.clinicorpId, 40);
+    const leadId = parseInt(req.params.leadId, 10);
+    if (Number.isNaN(leadId)) return res.status(400).json({ error: 'ID inválido' });
     const { data: itens, error } = await supabase.from('pesquisas_satisfacao')
-      .select('*').eq('paciente_clinicorp_id', cid)
+      .select('*').eq('lead_id', leadId)
       .order('criado_em', { ascending: false }).limit(50);
     if (error) throw error;
     res.json({ itens: itens || [] });
@@ -842,9 +853,9 @@ git commit -m "feat(pesquisa): API de listagem/ficha do paciente + card no paine
 **Interfaces:**
 - Consumes: `GET /api/pesquisa-satisfacao`, `POST /api/pesquisa-satisfacao/disparar` (Task 6/4).
 
-- [ ] **Step 1: `api.js` (copiar o padrão de auth de outro módulo, ex.: `public/js/producao/api.js`)**
+- [ ] **Step 1: `api.js` (copiar o padrão de auth de outro módulo, ex.: `public/js/capi-saude/api.js`)**
 
-Antes de escrever, abrir um `api.js` existente de página separada (ex.: `public/js/producao/api.js`) e conferir se o padrão local diverge do abaixo — se divergir, seguir o padrão do repo. Implementação de referência:
+Antes de escrever, abrir `public/js/capi-saude/api.js` (referência confirmada — `public/js/producao/` NÃO existe) e conferir se o padrão local diverge do abaixo — se divergir, seguir o padrão do repo. Implementação de referência:
 
 ```js
 // API do módulo Pesquisa de Satisfação.
@@ -885,7 +896,7 @@ async function dispararHoje() {
 
 - [ ] **Step 2: `index.html` + `main.js`**
 
-Página com o padrão visual das outras páginas separadas (usar `public/producao/index.html` como referência de estrutura/tema):
+Página com o padrão visual das outras páginas separadas (usar `public/capi-saude/index.html` como referência de estrutura/tema):
 - `<script src="/js/shared-nav.js" data-active="pesquisa-satisfacao"></script>`
 - Filtro de período (from/to, default mês corrente) + botão "Disparar pesquisas de hoje" (confirm() antes; POST e toast com "Disparo iniciado").
 - Cards de resumo: nota de recomendação média (NPS 0–10), taxa de resposta (respondidas/enviadas), médias por categoria (recepção, dentista, espera, limpeza, explicações — escala 1 a 5), falhas.
@@ -923,20 +934,59 @@ git commit -m "feat(pesquisa): módulo /pesquisa-satisfacao/ com resumo, lista e
 
 ---
 
-### Task 8: Ficha do paciente (Pacientes 2) + card visual no Painel do Gestor
+### Task 8: Ficha do paciente (Perfil 360º) + card visual no Painel do Gestor
 
 **Files:**
-- Modify: `public/pacientes-2/index.html` (bloco de pesquisas na ficha)
+- Modify: `public/perfil/index.html` (aba "Satisfação" + eventos no mapa `EV`)
 - Modify: `public/js/painel/painel-gestor-page.js` (card + texto "entenda")
 
 **Interfaces:**
-- Consumes: `GET /api/pesquisa-satisfacao/paciente/:clinicorpId` (Task 6); campo `pesquisa` do `/api/painel-gestor` (Task 6).
+- Consumes: `GET /api/pesquisa-satisfacao/lead/:leadId` (Task 6); campo `pesquisa` do `/api/painel-gestor` (Task 6).
 
-- [ ] **Step 1: Bloco na ficha do paciente**
+Nota: a "ficha do paciente" do CRM é o **Perfil 360º** (`public/perfil/index.html`, aberto via `/perfil/?id=<lead_id>` — é o link do nome do paciente no Pacientes 2, que é só uma tabela sem ficha própria).
 
-Em `public/pacientes-2/index.html`, localizar onde a ficha/detalhe do paciente é montada (buscar pela função que renderiza o detalhe ao clicar num paciente) e acrescentar uma seção "Pesquisas de Satisfação": fetch de `/api/pesquisa-satisfacao/paciente/{clinicorp_id}` ao abrir a ficha; se vazio, não renderiza nada; senão lista data + notas (recomendação e categorias) + comentário. Usar o mesmo padrão visual das outras seções da ficha.
+- [ ] **Step 1: Eventos do Trajeto no mapa `EV` (perfil, linha ~75)**
 
-- [ ] **Step 2: Card no Painel do Gestor**
+Sem isso os eventos aparecem como `['•', tipo]` cru. Adicionar ao objeto `EV`:
+
+```js
+  pesquisa_enviada:['📋','Pesquisa de Satisfação enviada'],
+  pesquisa_respondida:['⭐','Respondeu a Pesquisa de Satisfação'],
+```
+
+- [ ] **Step 2: Aba "Satisfação" no Perfil 360º**
+
+Em `renderHead(l)` (linha ~103), adicionar a aba e o painel junto dos existentes:
+
+```html
+<div class="tab" data-aba="pesq" onclick="trocarAba('pesq')" id="tab-pesq">⭐ Satisfação</div>
+...
+<div class="panel" data-aba="pesq"><div class="card" id="panel-pesq"><div class="empty">Carregando…</div></div></div>
+```
+
+E em `init()` (linha ~94), após `carregarClinicorp();`, chamar `carregarPesquisas();`. Implementar no mesmo estilo dos carregadores vizinhos:
+
+```js
+async function carregarPesquisas(){
+  let r; try{ r=await api('/api/pesquisa-satisfacao/lead/'+id); }
+  catch(e){ document.getElementById('panel-pesq').innerHTML='<div class="empty">Não foi possível carregar.</div>'; return; }
+  const itens=r.itens||[];
+  if(!itens.length){ document.getElementById('panel-pesq').innerHTML='<div class="empty">Nenhuma pesquisa de satisfação enviada para este paciente.</div>'; return; }
+  document.getElementById('panel-pesq').innerHTML=itens.map(p=>{
+    const cat=(rot,v)=>v!=null?`<div class="rx"><div class="l">${rot}</div><div class="v">${v}/5</div></div>`:'';
+    if(p.status!=='respondido') return `<div class="ev"><div class="d">${fmtData(p.enviado_em||p.criado_em)}</div>
+      <div class="t">Pesquisa ${p.status==='falhou'?'com falha de envio':'enviada, aguardando resposta'}</div></div>`;
+    return `<div class="ev"><div class="d">${fmtData(p.respondido_em)}</div>
+      <div class="t">Nota de recomendação: <strong>${p.nps!=null?p.nps+'/10':'—'}</strong></div>
+      <div class="raiox">${cat('Recepção',p.avaliacao_recepcao)}${cat('Dentista',p.avaliacao_dentista)}${cat('Espera',p.avaliacao_espera)}${cat('Limpeza',p.avaliacao_limpeza)}${cat('Explicações',p.avaliacao_explicacoes)}</div>
+      ${p.comentario?`<div class="desc">"${esc(p.comentario)}"</div>`:''}</div>`;
+  }).join('');
+}
+```
+
+(Conferir as classes CSS usadas — `ev`, `rx`, `raiox`, `desc`, `empty` já existem na página; se alguma não se aplicar bem visualmente, ajustar com o CSS local da página.)
+
+- [ ] **Step 3: Card no Painel do Gestor**
 
 Em `public/js/painel/painel-gestor-page.js`:
 
@@ -964,16 +1014,15 @@ Em `public/js/painel/painel-gestor-page.js`:
 
 ⚠️ Conferir a assinatura real de `cardHTML` (linha 132) e o shape dos objetos vizinhos — replicar exatamente (ex.: se `modulo` não existir como campo, omitir).
 
-- [ ] **Step 3: Teste local**
+- [ ] **Step 4: Teste local**
 
-Abrir `http://localhost:3000/?page=painel-gestor` logado como gestor.
-Expected: card "Satisfação dos pacientes" aparece (neutro, "Sem respostas no período").
+Abrir `http://localhost:3000/?page=painel-gestor` logado como gestor (card "Satisfação dos pacientes" neutro, "Sem respostas no período") e `/perfil/?id=<um lead qualquer>` (aba "⭐ Satisfação" com estado vazio, sem erro no console).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add public/pacientes-2/index.html public/js/painel/painel-gestor-page.js
-git commit -m "feat(pesquisa): bloco na ficha do paciente + card de satisfação no painel do gestor"
+git add public/perfil/index.html public/js/painel/painel-gestor-page.js
+git commit -m "feat(pesquisa): aba Satisfação no Perfil 360º + card no painel do gestor"
 ```
 
 ---

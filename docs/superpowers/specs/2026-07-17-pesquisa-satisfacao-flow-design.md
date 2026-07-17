@@ -148,9 +148,12 @@ a tabela direto.
 - Registro no módulo Usuários (checkbox Módulos Extras `mod_pesquisa_satisfacao`,
   `_ROLE_LABELS`, `criarUsuario()`) + middleware `requireRole` no servidor.
 
-### 4.2 Ficha do paciente (Pacientes 2)
-Bloco "Pesquisas de Satisfação" com histórico de envios/respostas daquele paciente
-(via `/api`, join por `paciente_clinicorp_id` e/ou telefone).
+### 4.2 Ficha do paciente (Perfil 360º)
+A "ficha do paciente" do CRM é o Perfil 360º (`/perfil/?id=<lead_id>` — o Pacientes 2
+é uma tabela cujo nome do paciente aponta pra lá). Aba nova "⭐ Satisfação" com o
+histórico de envios/respostas, via `GET /api/pesquisa-satisfacao/lead/:leadId`
+(busca por `lead_id`, que já fica gravado na linha do envio). Eventos
+`pesquisa_enviada`/`pesquisa_respondida` também entram no mapa da Linha do tempo.
 
 ### 4.3 Painel do Gestor
 Card novo: nota de recomendação média do período + nº de respostas + semáforo
