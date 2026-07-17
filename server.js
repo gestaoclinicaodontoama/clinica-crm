@@ -225,6 +225,7 @@ const { normalizarRegra } = require('./lib/publicos/regra');
 const { montarCsv } = require('./lib/publicos/csv');
 const { montarCsvDiscador } = require('./lib/leads/exportCsv');
 const { toqueDevido, podeAutoPerder } = require('./lib/recuperacao/cadencia');
+const { montarDestinatarios } = require('./lib/pesquisa/selecao');
 
 // --------- APP ---------
 const app = express();
@@ -5315,6 +5316,7 @@ const JOB_HEARTBEAT = {
   inadimplentes:   { label: 'Financeiro por paciente / Inadimplentes', cadenciaMin: 1440, margemMin: 180 },
   comparecimentos: { label: 'Detecção de comparecimento',            cadenciaMin: 10,   margemMin: 50 },
   nf_emissao:      { label: 'Emissão de NFS-e (sob demanda)',            cadenciaMin: 64800, margemMin: 43200 },
+  pesquisa_satisfacao: { label: 'Pesquisa de Satisfação (WhatsApp)', cadenciaMin: 1440, margemMin: 360 },
 };
 
 async function registrarJob(job, resultado) {
@@ -5411,6 +5413,169 @@ async function registrarJob(job, resultado) {
   setTimeout(() => verificarEExecutar().catch(() => {}), 45_000);
   setInterval(() => verificarEExecutar().catch(() => {}), 10 * 60_000);
 })();
+
+// ========== PESQUISA DE SATISFAÇÃO (WhatsApp Flow) — spec 2026-07-17 ==========
+// Envia o template `pesquisa_nps` (Flow) às 19h BRT para quem foi atendido hoje:
+// tratamentos executados (estimates, ExecutedDate=hoje) + avaliações dos
+// avaliadores (config_avaliadores) com comparecimento. Dedup: 1 por telefone/3 meses.
+const PESQUISA_TEMPLATE = 'pesquisa_nps';
+let _pesquisaRodando = false;
+
+async function executarPesquisaSatisfacao(disparo = 'agendado') {
+  if (_pesquisaRodando) return { ok: false, error: 'já em execução' };
+  _pesquisaRodando = true;
+  const t0 = Date.now();
+  try {
+    const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+    // 1) Clinicorp ao vivo — estimates 90d em fatias de 30 (from/to filtra pela
+    // data do ORÇAMENTO; a execução de hoje mora em orçamentos antigos) + agenda de hoje
+    const dataStr = (d) => d.toISOString().slice(0, 10);
+    const estimates = [];
+    for (let off = 0; off < 90; off += 30) {
+      const to = new Date(); to.setDate(to.getDate() - off);
+      const from = new Date(); from.setDate(from.getDate() - Math.min(off + 30, 90));
+      const part = await clinicorpGet('/estimates/list', { from: dataStr(from), to: dataStr(to) });
+      if (Array.isArray(part)) estimates.push(...part);
+    }
+    const appointments = await clinicorpGet('/appointment/list', { from: hoje, to: hoje });
+
+    // 2) Configs + telefones + dedup 3 meses (Supabase)
+    const m3 = new Date(); m3.setMonth(m3.getMonth() - 3);
+    const [avalR, stR, recR] = await Promise.all([
+      supabase.from('config_avaliadores').select('clinicorp_id').eq('ativo', true),
+      supabase.from('config_status_compareceu').select('status_id').eq('compareceu', true),
+      // falhou fica de fora: envio que a Meta rejeitou nunca chegou, não conta p/ os 3 meses
+      supabase.from('pesquisas_satisfacao').select('telefone').neq('status', 'falhou')
+        .gte('enviado_em', m3.toISOString()).limit(5000),
+    ]);
+    for (const r of [avalR, stR, recR]) if (r.error) throw r.error;
+    const avaliadores = new Set((avalR.data || []).map(r => String(r.clinicorp_id)));
+    const statusCompareceu = new Set((stR.data || []).map(r => String(r.status_id)));
+    const chavesRecentes = new Set((recR.data || []).map(r => chaveTelefone(r.telefone)).filter(Boolean));
+
+    // telefones dos pacientes dos tratamentos (tabela pacientes, em lotes de 200)
+    const pacIds = new Set();
+    for (const est of (Array.isArray(estimates) ? estimates : [])) {
+      const pid = String(est.PatientId || '');
+      if (pid) pacIds.add(pid);
+    }
+    // ⚠️ colunas reais da tabela pacientes: telefone_celular / telefone_fixo (não "telefone")
+    const telefonePorPaciente = new Map();
+    const idsArr = [...pacIds];
+    for (let i = 0; i < idsArr.length; i += 200) {
+      const { data: pacs } = await supabase.from('pacientes')
+        .select('clinicorp_id, telefone_celular, telefone_fixo').in('clinicorp_id', idsArr.slice(i, i + 200));
+      for (const p of pacs || []) {
+        const tel = p.telefone_celular || p.telefone_fixo;
+        if (tel) telefonePorPaciente.set(String(p.clinicorp_id), tel);
+      }
+    }
+
+    // 3) Seleção pura
+    const { destinatarios, pulados } = montarDestinatarios({
+      estimates, appointments: Array.isArray(appointments) ? appointments : [],
+      avaliadores, statusCompareceu, telefonePorPaciente, chavesRecentes, hoje,
+    });
+    console.log(`[pesquisa] ${destinatarios.length} destinatários, ${pulados.length} pulados (${disparo})`);
+
+    // 4) Envio sequencial (~24/min, mesmo ritmo do disparo em massa)
+    let enviados = 0, falhas = 0;
+    for (const d of destinatarios) {
+      const row = {
+        paciente_clinicorp_id: d.paciente_clinicorp_id || null,
+        paciente_nome: sanitizeStr(d.paciente_nome, 200),
+        telefone: sanitizeStr(d.telefone, 30),
+        dentista_nome: sanitizeStr(d.dentista_nome || '', 200) || null,
+        origem: d.origem, enviado_em: new Date().toISOString(),
+      };
+      try {
+        const resultado = await whatsapp.enviarBroadcast({ para: d.telefone, templateName: PESQUISA_TEMPLATE });
+        row.wa_id = resultado?.messages?.[0]?.id || '';
+        row.status = 'enviado';
+        enviados++;
+        const lead = await acharLeadPorTelefone(whatsapp.limparNumero(d.telefone));
+        if (lead) {
+          row.lead_id = lead.id;
+          await supabase.from('mensagens').insert({
+            lead_id: lead.id, direcao: 'enviada', canal: 'broadcast',
+            texto: '[template: ' + PESQUISA_TEMPLATE + '] 📋 Pesquisa de Satisfação',
+            wa_id: row.wa_id, wa_number_id: whatsapp.broadcastPhoneId(),
+          });
+          logEvento(lead.id, 'pesquisa_enviada', 'Pesquisa de Satisfação enviada (' +
+            (d.origem === 'avaliacao' ? 'avaliação' : 'tratamento') + ')',
+            { template: PESQUISA_TEMPLATE, origem: d.origem });
+        }
+      } catch (e) {
+        row.status = 'falhou';
+        row.erro = sanitizeStr(e.metaMessage || e.message, 300);
+        falhas++;
+        console.warn('[pesquisa] falha p/ ' + d.paciente_nome + ': ' + row.erro);
+      }
+      const { error: insErr } = await supabase.from('pesquisas_satisfacao').insert(row);
+      if (insErr) console.error('[pesquisa] insert:', insErr.message);
+      await new Promise(r => setTimeout(r, 2500));
+    }
+
+    const detalhe = { enviados, falhas, pulados: pulados.length };
+    await registrarJob('pesquisa_satisfacao', { ok: true, durationS: (Date.now() - t0) / 1000, detalhe });
+    return { ok: true, ...detalhe };
+  } catch (e) {
+    console.error('[pesquisa] erro:', e.message);
+    await registrarJob('pesquisa_satisfacao', { ok: false, error: e.message });
+    return { ok: false, error: e.message };
+  } finally {
+    _pesquisaRodando = false;
+  }
+}
+
+// Scheduler self-healing (mesmo padrão do sync-diario): janela 19:00 BRT;
+// se o container estava fora do ar às 19h, recupera no próximo tick até 23:59.
+(function agendarPesquisaSatisfacao() {
+  function janelaHoje() {
+    const hojeBRT = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    return { inicio: new Date(`${hojeBRT}T19:00:00-03:00`), fim: new Date(`${hojeBRT}T23:59:59-03:00`) };
+  }
+  async function verificarEExecutar() {
+    if (_pesquisaRodando) return;
+    const { inicio, fim } = janelaHoje();
+    const agora = Date.now();
+    if (agora < inicio.getTime() || agora > fim.getTime()) return; // fora da janela do dia
+    try {
+      const { data, error } = await supabase.from('pesquisas_satisfacao')
+        .select('id').gte('criado_em', inicio.toISOString()).limit(1);
+      if (error) throw error;
+      if (data && data.length) return; // já rodou hoje (agendado OU manual)
+      // dias sem nenhum destinatário também precisam de marca — o registrarJob
+      // grava em job_health (tabela real do heartbeat, ver registrarJob ~linha 5033):
+      const { data: job } = await supabase.from('job_health')
+        .select('last_run_at').eq('job', 'pesquisa_satisfacao').maybeSingle();
+      if (job?.last_run_at && new Date(job.last_run_at).getTime() >= inicio.getTime()) return;
+    } catch (e) {
+      console.error('[pesquisa] checagem falhou:', e.message);
+      return; // sem confirmação do DB não dispara (evita duplicar)
+    }
+    console.log('[pesquisa] disparando envio agendado (19h)');
+    executarPesquisaSatisfacao('agendado').catch(e => console.error('[pesquisa]', e.message));
+  }
+  setTimeout(() => verificarEExecutar().catch(() => {}), 45_000);
+  setInterval(() => verificarEExecutar().catch(() => {}), 10 * 60_000);
+  console.log('[pesquisa] scheduler self-healing ativo (janela 19:00-23:59 BRT)');
+})();
+
+const requirePesquisa = requireRole('admin', 'gestor', 'mod_pesquisa_satisfacao');
+
+app.post('/api/pesquisa-satisfacao/disparar', requireAuth, requirePesquisa, rateLimit, async (req, res) => {
+  try {
+    if (_pesquisaRodando) return res.status(409).json({ error: 'Envio já em execução' });
+    // roda solto — o front consulta o resultado pela listagem
+    executarPesquisaSatisfacao('manual').catch(e => console.error('[pesquisa-manual]', e.message));
+    res.json({ ok: true, mensagem: 'Disparo iniciado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ========== SYNC MANUAL ==========
 // POST /api/admin/sync-clinicorp  — dispara sync imediatamente (sem esperar as 2h)
 app.post('/api/admin/sync-clinicorp', requireAuth, async (req, res) => {
