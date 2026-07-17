@@ -4309,11 +4309,16 @@ let _templatesCache = [];
 async function abrirModalTemplate() {
   if (!chatLeadAtual) return;
   try {
-    _templatesCache = await api('/api/templates');
+    const todos = await api('/api/templates');
+    _templatesCache = todos.filter(t => t.status === 'aprovado');
     const sel = document.getElementById('tpl-select');
-    sel.innerHTML = _templatesCache.map(t =>
-      `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}${t.status === 'aprovado' ? ' ✓' : ' (pendente)'}</option>`
-    ).join('');
+    if (!_templatesCache.length) {
+      sel.innerHTML = '<option value="">Nenhum template aprovado disponível</option>';
+    } else {
+      sel.innerHTML = _templatesCache.map(t =>
+        `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}</option>`
+      ).join('');
+    }
     atualizarPreviewTemplate();
     document.getElementById('modal-template-bg').classList.add('open');
   } catch(e) { toast('❌ Erro ao carregar templates: ' + e.message, true); }
