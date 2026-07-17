@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Registro Diário — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444}
+:root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;--green:#16a34a;--yellow:#d97706;--red:#dc2626}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{padding:16px 20px;max-width:1100px}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.page-header-left{display:flex;flex-direction:column;gap:4px}
+.back-link{font-size:12px;color:var(--muted);text-decoration:none}
+.back-link:hover{color:var(--accent)}
+.page-header h1{font-size:20px;font-weight:700}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.controls input[type=date]{background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 8px;font-family:inherit;font-size:13px}
+.btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--border)}
+.btn-ghost:disabled{opacity:.5;cursor:default}
+.resumo-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+.resumo-num{font-size:26px;font-weight:700}
+.resumo-label{font-size:12px;color:var(--muted)}
+.resumo-pend .resumo-num{color:var(--red)}
+.resumo-ok .resumo-num{color:var(--green)}
+.aviso{font-size:12px;color:var(--yellow);margin-bottom:12px}
+.section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden}
+.section-header{padding:12px 16px;font-weight:600;font-size:14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.section-header .count{font-size:12px;color:var(--muted);font-weight:400}
+.section-header.clickable{cursor:pointer;user-select:none}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:8px 16px;border-bottom:1px solid var(--border)}
+td{padding:8px 16px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+.tag-pend{color:var(--red);font-weight:600;font-size:12px}
+.tag-semid{color:var(--yellow);font-size:11px}
+.procs{color:var(--muted);font-size:12px}
+.empty{padding:24px;text-align:center;color:var(--muted);font-size:13px}
+.footer-note{font-size:11px;color:var(--muted);margin:8px 2px 24px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <a href="/producao/" class="back-link">← Receita × Entrega</a>
+      <h1>Registro Diário</h1>
+    </div>
+    <button class="btn btn-ghost" id="syncBtn" onclick="syncNow()">Atualizar dados</button>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-ghost" onclick="mudarDia(-1)">◀</button>
+    <input type="date" id="dataInput" onchange="carregar()">
+    <button class="btn btn-ghost" id="nextBtn" onclick="mudarDia(1)">▶</button>
+    <button class="btn btn-ghost" onclick="irOntem()">Ontem</button>
+  </div>
+
+  <div id="avisoHoje" class="aviso" style="display:none">
+    ⚠ O dado deste dia só fecha após o sync das 02:00 — pendências podem ser só atraso de sincronização.
+  </div>
+
+  <div id="conteudo"><div class="empty"><span class="spinner"></span></div></div>
+
+  <p class="footer-note">
+    Esta tela mostra se existe procedimento executado no Clinicorp no dia do atendimento —
+    ela não lê o texto da ficha clínica. Um atendimento "sem registro" é um sinal para
+    conferir com a equipe, não prova de que nada foi anotado.
+  </p>
+
+</div>
+
+<script>
+'use strict';
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+let token = null;
+
+(function init() {
+  const k = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+  if (!k) return (window.location.href = '/');
+  let parsed;
+  try { parsed = JSON.parse(localStorage.getItem(k)); } catch (_) {}
+  token = parsed?.access_token;
+  if (!token) return (window.location.href = '/');
+
+  document.getElementById('dataInput').value = ontem();
+  carregar();
+})();
+
+function hoje() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); }
+function ontem() {
+  const d = new Date(hoje() + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+function mudarDia(delta) {
+  const d = new Date(document.getElementById('dataInput').value + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + delta);
+  document.getElementById('dataInput').value = d.toISOString().slice(0, 10);
+  carregar();
+}
+function irOntem() { document.getElementById('dataInput').value = ontem(); carregar(); }
+
+// Retry padrão do CRM p/ 5xx: 2 tentativas extras (1,5s / 3s).
+async function fetchRetry(url, opts) {
+  for (const espera of [1500, 3000, null]) {
+    const res = await fetch(url, opts);
+    if (res.status < 500 || espera === null) return res;
+    await new Promise(r => setTimeout(r, espera));
+  }
+}
+
+async function syncNow() {
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    await fetch('/api/admin/sync-clinicorp', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    await carregar();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Atualizar dados';
+  }
+}
+
+async function carregar() {
+  const data = document.getElementById('dataInput').value;
+  document.getElementById('avisoHoje').style.display = data >= hoje() ? '' : 'none';
+  document.getElementById('nextBtn').disabled = data >= hoje();
+  const el = document.getElementById('conteudo');
+  el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  try {
+    const res = await fetchRetry(`/api/producao/auditoria-registro?data=${data}`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Erro ao carregar');
+    render(json);
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Erro: ${esc(e.message)}</div>`;
+  }
+}
+
+function linha(x, comProcs) {
+  const semId = x.sem_id ? ' <span class="tag-semid">(sem vínculo de paciente)</span>' : '';
+  return `<tr>
+    <td>${esc(x.paciente)}${semId}</td>
+    <td>${esc(x.dentista)}</td>
+    <td>${esc(x.horario)}</td>
+    <td>${esc(x.categoria || '—')}</td>
+    ${comProcs ? `<td class="procs">${esc(x.procedimentos.join(', '))}</td>` : ''}
+  </tr>`;
+}
+
+function tabela(itens, comProcs, vazio) {
+  if (!itens.length) return `<div class="empty">${esc(vazio)}</div>`;
+  return `<table><thead><tr>
+    <th>Paciente</th><th>Dentista</th><th>Horário</th><th>Categoria</th>
+    ${comProcs ? '<th>Procedimentos registrados</th>' : ''}
+  </tr></thead><tbody>${itens.map(x => linha(x, comProcs)).join('')}</tbody></table>`;
+}
+
+function render(j) {
+  const r = j.resumo;
+  const pct = r.atendidos ? Math.round((r.registrados / r.atendidos) * 100) : 0;
+
+  const porDent = r.por_dentista.length ? `
+    <div class="section">
+      <div class="section-header">Por dentista</div>
+      <table><thead><tr><th>Dentista</th><th>Atendidos</th><th>Com registro</th><th>Pendentes</th></tr></thead>
+      <tbody>${r.por_dentista.map(d => `<tr>
+        <td>${esc(d.dentista)}</td><td>${d.atendidos}</td><td>${d.registrados}</td>
+        <td>${d.pendentes ? `<span class="tag-pend">${d.pendentes}</span>` : '0'}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>` : '';
+
+  document.getElementById('conteudo').innerHTML = `
+    <div class="resumo-card">
+      <div><div class="resumo-num">${r.atendidos}</div><div class="resumo-label">atendimentos clínicos</div></div>
+      <div class="resumo-ok"><div class="resumo-num">${r.registrados}</div><div class="resumo-label">com registro (${pct}%)</div></div>
+      <div class="resumo-pend"><div class="resumo-num">${r.pendentes}</div><div class="resumo-label">sem registro</div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">Sem registro de procedimento <span class="count">${j.sem_registro.length}</span></div>
+      ${tabela(j.sem_registro, false, 'Nenhuma pendência neste dia 🎉')}
+    </div>
+
+    ${porDent}
+
+    <div class="section">
+      <div class="section-header">Com registro <span class="count">${j.com_registro.length}</span></div>
+      ${tabela(j.com_registro, true, 'Nenhum atendimento com registro neste dia.')}
+    </div>
+
+    <div class="section">
+      <div class="section-header clickable" onclick="const b=document.getElementById('manutBody');b.style.display=b.style.display==='none'?'':'none'">
+        Manutenção (sem procedimento cobrável esperado) <span class="count">${j.manutencao.length} ▾</span>
+      </div>
+      <div id="manutBody" style="display:none">
+        ${tabela(j.manutencao, true, 'Nenhuma manutenção neste dia.')}
+      </div>
+    </div>`;
+}
+</script>
+<script src="/js/shared-nav.js" data-active="producao-registro"></script>
+</body>
+</html>

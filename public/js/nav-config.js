@@ -97,6 +97,7 @@
       { slug: 'avaliacao-dentista', label: 'Avaliação Dentista',   roles: 'gestor,dentista,admin,mod_avaliacao_dentista,crc_comercial', mode: 'link', href: '/avaliacao-dentista/' },
       { slug: 'producao',           label: 'Receita × Entrega',    roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/' },
       { slug: 'producao-dentista',  label: 'Análise por Dentista', roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/dentista/' },
+      { slug: 'producao-registro',  label: 'Registro Diário',      roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/registro/' },
     ]},
 
     { id: 'financeiro-sec', label: 'Financeiro', icon: 'financeiro', roles: 'admin,gestor,financeiro,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes,mod_financeiro', items: [
