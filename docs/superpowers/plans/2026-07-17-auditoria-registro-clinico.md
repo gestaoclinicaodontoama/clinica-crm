@@ -41,9 +41,8 @@
 ALTER TABLE agenda_appointments
   ADD COLUMN IF NOT EXISTS status_id  text,
   ADD COLUMN IF NOT EXISTS compareceu boolean;
-
-CREATE INDEX IF NOT EXISTS agenda_appointments_compareceu_date_idx
-  ON agenda_appointments (appointment_date) WHERE compareceu = true;
+-- Sem índice novo: o endpoint filtra por appointment_date (índice
+-- agenda_appointments_date_idx já existe) e decide compareceu no JS.
 ```
 
 - [ ] **Step 2: Aplicar via MCP Supabase**

@@ -29,8 +29,7 @@ Decisões do brainstorm (16/07):
 ALTER TABLE agenda_appointments
   ADD COLUMN IF NOT EXISTS status_id  text,
   ADD COLUMN IF NOT EXISTS compareceu boolean;
-CREATE INDEX IF NOT EXISTS agenda_appointments_compareceu_date_idx
-  ON agenda_appointments (appointment_date) WHERE compareceu = true;
+-- Sem índice novo: consulta diária filtra por appointment_date (índice já existe).
 ```
 
 Sem policy nova (tabela já tem RLS; front não a lê direto — tudo via `/api` com service_role).
