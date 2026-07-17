@@ -2618,16 +2618,17 @@ app.post('/api/leads/:id/broadcast', requireAuth, requireConversas, rateLimit, a
     if (error) throw error;
     if (!lead) return res.status(404).json({ error: 'Lead não encontrado' });
     if (!lead.telefone) return res.status(400).json({ error: 'Lead sem telefone' });
-    if (!whatsapp.temBroadcast()) return res.status(503).json({ error: 'Número de broadcast não configurado.' });
+    if (!lead.wa_number_id) return res.status(400).json({ error: 'Não foi possível identificar o número desta conversa. Fale com o suporte.' });
     const { templateName, variaveis = [], lang = 'pt_BR' } = req.body;
     if (!templateName) return res.status(400).json({ error: 'templateName obrigatório' });
-    const resultado = await whatsapp.enviarBroadcast({ para: lead.telefone, templateName, variaveis, lang });
+    const phoneNumberId = lead.wa_number_id;
+    const resultado = await whatsapp.enviarBroadcast({ para: lead.telefone, templateName, variaveis, lang, phoneNumberId });
     const vars = variaveis.length ? ' | ' + variaveis.slice(0, 10).map(v => sanitizeStr(String(v), 100)).join(', ') : '';
     const { error: insErr } = await supabase.from('mensagens').insert({
       lead_id: lead.id, direcao: 'enviada', canal: 'broadcast',
       texto: sanitizeStr('[template: ' + sanitizeStr(templateName, 100) + vars + ']', 4000),
       wa_id: resultado.messages?.[0]?.id || '',
-      wa_number_id: whatsapp.broadcastPhoneId() || '',
+      wa_number_id: phoneNumberId,
     });
     if (insErr) console.error('❌ broadcast (registro da mensagem):', insErr.message);
     await supabase.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', lead.id);
