@@ -957,7 +957,7 @@ button.nav-subitem { border: none; background: none; cursor: pointer; width: 100
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label>Disparar pelo número</label>
-        <select id="disp-numero"><option value="">Carregando...</option></select>
+        <select id="disp-numero" onchange="dispRefiltrarTemplates()"><option value="">Carregando...</option></select>
       </div>
     </div>
 
@@ -4394,25 +4394,35 @@ async function loadDisparos() {
   await atualizarBadgeDisparos();
 }
 
+let _dispTplsTodos = [];
 async function dispCarregarTemplates() {
   const sel = document.getElementById('disp-template');
   if (!sel) return;
-  try {
-    const tpls = await api('/api/templates');
-    const aprovados = tpls.filter(t => t.status === 'aprovado');
-    sel.innerHTML = aprovados.length
-      ? aprovados.map(t => `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}</option>`).join('')
-      : '<option value="">Nenhum template aprovado</option>';
-  } catch (e) { sel.innerHTML = '<option value="">Erro ao carregar</option>'; }
+  // Número primeiro: o filtro de templates depende do número selecionado
   try {
     const cfg = await api('/api/config/wa');
     const selN = document.getElementById('disp-numero');
     const ids = (cfg.sendable && cfg.sendable.length) ? cfg.sendable : Object.keys(cfg.numbers || {});
-    if (!ids.length) { console.error('disp numeros: lista vazia'); return; }
-    selN.innerHTML = ids.map(id =>
-      `<option value="${id}">${(cfg.numbers && cfg.numbers[id]) || id}</option>`).join('');
-    if (cfg.defaultPhoneId && ids.includes(cfg.defaultPhoneId)) selN.value = cfg.defaultPhoneId;
+    if (ids.length) {
+      selN.innerHTML = ids.map(id =>
+        `<option value="${id}">${(cfg.numbers && cfg.numbers[id]) || id}</option>`).join('');
+      if (cfg.defaultPhoneId && ids.includes(cfg.defaultPhoneId)) selN.value = cfg.defaultPhoneId;
+    } else { console.error('disp numeros: lista vazia'); }
   } catch (e) { console.error('disp numeros:', e); }
+  try {
+    _dispTplsTodos = await api('/api/templates');
+    dispRefiltrarTemplates();
+  } catch (e) { sel.innerHTML = '<option value="">Erro ao carregar</option>'; }
+}
+
+function dispRefiltrarTemplates() {
+  const sel = document.getElementById('disp-template');
+  const num = document.getElementById('disp-numero')?.value || '';
+  // Templates da conta do número escolhido; legados sem número (pré-sync) continuam valendo
+  const aprovados = _dispTplsTodos.filter(t => t.status === 'aprovado' && (t.wa_number_id === num || !t.wa_number_id));
+  sel.innerHTML = aprovados.length
+    ? aprovados.map(t => `<option value="${escHtml(t.nome)}">${escHtml(t.titulo || t.nome)}</option>`).join('')
+    : '<option value="">Nenhum template aprovado para este número</option>';
 }
 
 function dispArquivoEscolhido(ev) {
