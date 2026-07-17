@@ -9269,6 +9269,42 @@ app.get('/api/producao/top-procedimentos', requireAuth, requireProducao, async (
   }
 });
 
+// ── Auditoria de Registro Clínico: agenda (compareceu) × produção (Executed) ──
+const { classificarDia } = require('./lib/producao/registro');
+
+function ontemBRT() {
+  const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const d = new Date(hoje + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+app.get('/api/producao/auditoria-registro', requireAuth, requireProducao, async (req, res) => {
+  try {
+    const data = req.query.data || ontemBRT();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
+    }
+
+    // Volume diário « 1000 → sem risco do limite do client Supabase.
+    const [{ data: atendimentos, error: eA }, { data: producao, error: eP }] = await Promise.all([
+      supabase.from('agenda_appointments')
+        .select('paciente_clinicorp_id, patient_name, dentist_name, from_time, to_time, category, compareceu')
+        .eq('appointment_date', data).eq('deleted', false),
+      supabase.from('producao_procedimentos')
+        .select('paciente_clinicorp_id, procedure_name, dentist_name')
+        .eq('executed_date', data),
+    ]);
+    if (eA) throw new Error(`agenda: ${eA.message}`);
+    if (eP) throw new Error(`producao: ${eP.message}`);
+
+    res.json({ data, ...classificarDia({ atendimentos, producao }) });
+  } catch (e) {
+    console.error('[producao/auditoria-registro]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Análise por Dentista ─────────────────────────────────────────────────────
 
 // Helper: retorna array de {ano, mes} entre from e to (inclusive)
