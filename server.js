@@ -96,13 +96,15 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 //   com testes A–F ao vivo: só o 16kHz REAMOSTRADO toca no iPhone (patch só de header não).
 // -b:a 16k mantém o arquivo pequeno: o WhatsApp só mostra o ícone de PLAY (onda) se o
 // áudio tiver ≤512KB; acima disso vira ícone de download. 16k mono cobre ~4min de fala.
-// -map_metadata(-1, global E :s stream) é OBRIGATÓRIO: o webm do MediaRecorder (Chrome)
-//   traz a tag de stream "language=eng"; o ffmpeg a copiava pro OpusTags do ogg e o
-//   WhatsApp do iPHONE rejeita mensagem de voz com essa tag ("áudio não disponível").
-//   Era ESSA a causa real das falhas 08–17/07 (não a versão do ffmpeg): forense byte a
-//   byte 17/07 mostrou bitstream Opus IDÊNTICO entre arquivo que toca e que falha — a
-//   única diferença era o language=eng, e as sondas V1 (tag removida → tocou) / V2
-//   (tag adicionada → falhou) confirmaram ao vivo no iPhone. A tag encoder= pode ficar.
+// -map_metadata(-1, global E :s stream): higiene — descarta tags herdadas do webm
+//   (language/DURATION); provado 17/07 que a tag NÃO era a causa do bug do iPhone
+//   (sonda V2 com a tag tocou), mas metadado de gravação não tem por que vazar.
+// normalizarGranulesOggOpus é a CORREÇÃO DECISIVA do "áudio não disponível" no
+//   iPHONE: o timestamp inicial do webm do navegador às vezes vem deslocado e o
+//   ffmpeg propaga o desvio pros granule positions do ogg (1ª pág. 47976 em vez de
+//   48000) — inválido pela RFC 7845; o iOS rejeita, o Android tolera (por isso o bug
+//   parecia intermitente: dependia do timestamp daquela gravação). Forense 17/07:
+//   15/15 amostras correlacionaram falha⇔granule deslocado; ver lib/ogg-granule.js.
 // Async (spawn): spawnSync bloqueava o event loop inteiro durante a conversão
 function _audioParaOggOpus(buffer) {
   return new Promise((resolve, reject) => {
@@ -113,7 +115,7 @@ function _audioParaOggOpus(buffer) {
     p.on('error', reject);
     p.on('close', code => {
       if (code !== 0) return reject(new Error('Conversão de áudio falhou'));
-      resolve(Buffer.concat(out));
+      resolve(require('./lib/ogg-granule').normalizarGranulesOggOpus(Buffer.concat(out)));
     });
     p.stdin.on('error', () => {}); // EPIPE se o ffmpeg morrer antes de ler tudo
     p.stdin.end(buffer);
