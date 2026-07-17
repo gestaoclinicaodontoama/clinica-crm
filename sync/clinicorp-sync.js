@@ -627,7 +627,7 @@ async function syncProducao() {
 
 const AGENDA_DIAS = 90;
 
-async function syncAgenda() {
+async function syncAgenda(cfg) {
   function parseMinutes(t) {
     if (!t) return 0;
     const [h, m] = t.split(':').map(Number);
@@ -659,6 +659,8 @@ async function syncAgenda() {
       ? parseMinutes(toTime) - parseMinutes(fromTime)
       : null;
 
+    const statusId = String(a.StatusId || '');
+
     rows.push({
       clinicorp_appt_id:  apptId,
       dentist_person_id:  a.Dentist_PersonId ? String(a.Dentist_PersonId) : null,
@@ -672,6 +674,8 @@ async function syncAgenda() {
       category:           a.CategoryDescription || null,
       checkin_time:       a.CheckinTime || null,
       deleted:            (a.Deleted || '') === 'X',
+      status_id:          statusId || null,
+      compareceu:         !!a.CheckinTime || cfg.statusCompareceu.has(statusId),
       atualizado_em:      new Date().toISOString(),
     });
   }
@@ -960,7 +964,7 @@ async function runSync(trigger = 'agendado') {
 
   // Fase 7c: agenda de consultas (para análise por dentista, janela 90d)
   await step('agenda', async () => {
-    const r = await syncAgenda();
+    const r = await syncAgenda(funilCfg);
     result.steps.agenda = r.count;
   });
 
