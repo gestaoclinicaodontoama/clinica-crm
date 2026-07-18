@@ -4320,6 +4320,7 @@ let _templatesCache = [];
 
 async function abrirModalTemplate() {
   if (!chatLeadAtual) return;
+  document.getElementById('tpl-vars').value = ''; // estado limpo a cada abertura (evita variável fantasma)
   try {
     const numConversa = chatLeadAtual.wa_number_id || '';
     const todos = await api('/api/templates');
@@ -4377,7 +4378,15 @@ async function enviarTemplate() {
   const templateName = document.getElementById('tpl-select').value;
   if (!templateName) { toast('Selecione um template', true); return; }
   const varsRaw = document.getElementById('tpl-vars').value.trim();
-  const variaveis = varsRaw ? varsRaw.split('\n').map(v => v.trim()).filter(Boolean) : [];
+  const digitadas = varsRaw ? varsRaw.split('\n').map(v => v.trim()).filter(Boolean) : [];
+  // Só manda tantas variáveis quanto o template selecionado realmente tem ({{N}}).
+  // O campo tpl-vars não é limpo ao trocar de template, então um valor "fantasma"
+  // (ex.: nome digitado p/ um template com {{1}}) sobraria e seria enviado a um
+  // template sem variável — a Meta recusa por número de parâmetros divergente.
+  const tplSel = _templatesCache.find(t => t.nome === templateName);
+  const _mv = tplSel && tplSel.corpo ? (tplSel.corpo.match(/\{\{\d+\}\}/g) || []) : [];
+  const numVars = _mv.length ? Math.max(..._mv.map(m => parseInt(m.replace(/\D/g, '')) || 0)) : 0;
+  const variaveis = digitadas.slice(0, numVars);
   try {
     const r = await api(`/api/leads/${chatLeadAtual.id}/broadcast`, {
       method: 'POST', body: JSON.stringify({ templateName, variaveis }),
