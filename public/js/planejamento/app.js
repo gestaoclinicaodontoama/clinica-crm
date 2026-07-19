@@ -56,7 +56,7 @@
       <div id="itens">${itens.map(item => `
         <fieldset data-item="${esc(item.id)}"><legend>${esc(item.procedure_name)} × ${esc(item.quantidade)}</legend>
           <ol class="etapas">${(item.plano_etapas || []).sort((a, b) => a.ordem - b.ordem).map(e => `
-            <li data-etapa="${esc(e.id)}"><input class="et-desc" value="${esc(e.descricao)}">
+            <li data-etapa="${esc(e.id)}" data-status="${esc(e.status)}"><input class="et-desc" value="${esc(e.descricao)}">
               <input class="et-prof" placeholder="executor" value="${esc(e.profissional_executor || '')}">
               <input class="et-min" type="number" placeholder="min" value="${esc(e.tempo_planejado_min ?? '')}" style="width:70px"> min
               ${e.status !== 'pendente' ? `<em>(${esc(e.status)})</em>` : '<button class="et-rm">×</button>'}</li>`).join('')}
@@ -77,10 +77,10 @@
         id: Number(f.dataset.item),
         sublotes: JSON.parse(f.dataset.sublotes || 'null') || undefined,
         etapas: [...f.querySelectorAll('[data-etapa], li.nova')].map(li => ({
-          id: li.dataset.etapa ? Number(li.dataset.etapa) : null, status: 'pendente',
+          id: li.dataset.etapa ? Number(li.dataset.etapa) : null, status: li.dataset.status || 'pendente',
           descricao: li.querySelector('.et-desc').value,
           profissional_executor: li.querySelector('.et-prof').value,
-          tempo_planejado_min: li.querySelector('.et-min').value })) })),
+          tempo_planejado_min: Number(li.querySelector('.et-min').value) || null })) })),
     });
     dlg.onclick = async ev => {
       const b = ev.target;

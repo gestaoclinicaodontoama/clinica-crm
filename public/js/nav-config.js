@@ -101,7 +101,7 @@
       { slug: 'producao',           label: 'Receita × Entrega',    roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/' },
       { slug: 'producao-dentista',  label: 'Análise por Dentista', roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/dentista/' },
       { slug: 'producao-registro',  label: 'Registro Diário',      roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/registro/' },
-      { slug: 'planejamento',       label: 'Planejar',             roles: 'dentista,mod_planejamento,gestor',                          mode: 'link', href: '/planejamento/' },
+      { slug: 'planejamento',       label: 'Planejar',             roles: 'dentista,mod_planejamento,gestor,crc_comercial',            mode: 'link', href: '/planejamento/' },
     ]},
 
     { id: 'financeiro-sec', label: 'Financeiro', icon: 'financeiro', roles: 'admin,gestor,financeiro,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes,mod_financeiro', items: [
