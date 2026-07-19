@@ -60,8 +60,13 @@ const PADROES_INICIAIS = [
 
   // origem já é decidida por data de aprovação vs. cutover_date dentro do próprio syncPlanejamento
   // (order-independent — sem rewrite pós-hoc aqui). Só verifica a distribuição resultante.
-  const { data: brk } = await supabase.from('plano_tratamento').select('origem');
-  const cont = {}; for (const r of brk || []) cont[r.origem] = (cont[r.origem]||0)+1;
+  // contagem por origem via count exact (evita o teto de 1000 linhas do client — log confiável em escala)
+  const cont = {};
+  for (const org of ['backlog', 'sync_novo', 'sucesso_manual']) {
+    const { count } = await supabase.from('plano_tratamento')
+      .select('id', { count: 'exact', head: true }).eq('origem', org);
+    cont[org] = count || 0;
+  }
   console.log('Origem dos planos:', JSON.stringify(cont));  // esperado: massa em backlog, sync_novo só vendas do dia da virada
 
   // 3) lista dos tratamentos longos em curso p/ planejamento retroativo dirigido
