@@ -35,13 +35,22 @@ const PADROES_INICIAIS = [
 
 (async () => {
   // 0) seeds — price_id casado por nome no catálogo (producao_procedimentos.procedure_name)
-  for (const m of MAPA_V3) await supabase.from('planejamento_dentistas').upsert(m, { onConflict: 'profissional_nome' });
+  for (const m of MAPA_V3) {
+    const { error } = await supabase.from('planejamento_dentistas').upsert(m, { onConflict: 'profissional_nome' });
+    if (error) console.error(`mapa dentista "${m.profissional_nome}":`, error.message);
+  }
   for (const p of PADROES_INICIAIS) {
-    const { data: cat } = await supabase.from('producao_procedimentos').select('price_id')
-      .ilike('procedure_name', `%${p.procedure_name}%`).not('price_id', 'is', null).limit(1);
-    await supabase.from('processos_padrao').upsert(
-      { ...p, price_id: cat?.[0]?.price_id || null, status: 'aprovado' },
-      { onConflict: 'price_id', ignoreDuplicates: true });
+    const { data: cat, error: eCat } = await supabase.from('producao_procedimentos').select('price_id')
+      .ilike('procedure_name', `%${p.procedure_name}%`).not('price_id', 'is', null)
+      .order('price_id').limit(1);
+    if (eCat) { console.error(`seed padrão "${p.procedure_name}": lookup falhou:`, eCat.message); continue; }
+    const { data: ja, error: eJa } = await supabase.from('processos_padrao').select('id')
+      .eq('procedure_name', p.procedure_name).limit(1);
+    if (eJa) { console.error(`seed padrão "${p.procedure_name}":`, eJa.message); continue; }
+    if (ja?.length) { console.log(`seed padrão "${p.procedure_name}": já existe, pulando`); continue; }
+    const { error: eIns } = await supabase.from('processos_padrao')
+      .insert({ ...p, price_id: cat?.[0]?.price_id || null, status: 'aprovado' });
+    if (eIns) console.error(`seed padrão "${p.procedure_name}": insert falhou:`, eIns.message);
   }
   console.log('Seeds ok. Rodando a fase de planejamento (pop. 1 e 2)...');
 
