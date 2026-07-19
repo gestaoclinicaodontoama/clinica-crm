@@ -143,7 +143,7 @@
         if (!res.ok) return;
         const user = await res.json();
         const roles = Array.isArray(user.roles) ? user.roles : [];
-        const canSee = (attr) => roles.includes('admin') || attr.split(',').some(r => roles.includes(r.trim()));
+        const canSee = (attr) => roles.includes('admin') || roles.includes('parceiro') || attr.split(',').some(r => roles.includes(r.trim()));
 
         nav.querySelectorAll('[data-roles]').forEach(el => {
           el.style.display = canSee(el.dataset.roles) ? '' : 'none';

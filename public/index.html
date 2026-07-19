@@ -6330,7 +6330,7 @@ async function loadCurrentUser() {
       location.href = '/meu-dia/'; return;
     }
     // Apply role-based nav visibility
-    const _canSee = (rolesAttr) => roles.includes('admin') || rolesAttr.split(',').some(r => roles.includes(r));
+    const _canSee = (rolesAttr) => roles.includes('admin') || roles.includes('parceiro') || rolesAttr.split(',').some(r => roles.includes(r));
     document.querySelectorAll('.nav-btn[data-roles],.nav-subitem[data-roles]').forEach(btn => {
       btn.style.display = _canSee(btn.dataset.roles) ? '' : 'none';
     });
@@ -6387,7 +6387,8 @@ const _ROLE_LABELS = {
   mod_kanban_comercial:'Kanban Comercial',
   mod_financeiro:'Financeiro',
   mod_producao:'Receita × Entrega',
-  mod_pesquisa_satisfacao:'Pesquisa de Satisfação'
+  mod_pesquisa_satisfacao:'Pesquisa de Satisfação',
+  parceiro:'Parceiro (só leitura)'
 };
 const _ALL_ROLES_DEF = [
   {r:'admin',label:'Admin'},{r:'gestor',label:'Gestor'},{r:'auxiliar_adm',label:'Auxiliar Adm'},
@@ -6400,7 +6401,8 @@ const _ALL_ROLES_DEF = [
   {r:'mod_producao',label:'Receita × Entrega'},
   {r:'mod_publicos',label:'Públicos'},
   {r:'mod_social_media',label:'Social Media'},
-  {r:'mod_pesquisa_satisfacao',label:'Pesquisa de Satisfação'}
+  {r:'mod_pesquisa_satisfacao',label:'Pesquisa de Satisfação'},
+  {r:'parceiro',label:'Parceiro (só leitura)'}
 ];
 let _funcoesCache = [];
 let _usuariosCache = [];

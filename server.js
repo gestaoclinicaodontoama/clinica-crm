@@ -169,17 +169,50 @@ const _userCache = new Map();    // token  -> { user, exp }
 const _profileCache = new Map(); // userId -> { profile, exp }
 function _bustProfile(userId) { if (userId) _profileCache.delete(userId); }
 
+// ===== Papel "parceiro" (somente-leitura) =====
+// POSTs que são LEITURA pura (preview/exportação) — liberados p/ o parceiro.
+const PARCEIRO_READ_POST = new Set([
+  '/api/campanhas/preview',
+  '/api/disparos/preview',
+  '/api/publicos/preview',
+  '/api/publicos/exportar',
+  '/api/social-media/ia/pergunta',
+]);
+// GETs com EFEITO COLATERAL (geram/gravam) — bloqueados p/ o parceiro.
+const PARCEIRO_GET_BLOCK = new Set([
+  '/api/tarefas',                    // gera as tarefas do dia (insert)
+  '/api/social-media/ia/analise',    // upsert de cache + custo Gemini
+  '/api/financeiro/avaliacao',       // upsert de cache + custo Gemini
+]);
+// Somente-leitura = tem o papel "parceiro". Ele força leitura mesmo se combinado
+// com outro papel; por isso o parceiro deve ser atribuído sozinho.
+const _ehSomenteLeitura = roles => roles.includes('parceiro');
+
 async function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
   const now = Date.now();
   const cached = _userCache.get(token);
-  if (cached && cached.exp > now) { req.user = cached.user; return next(); }
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) { _userCache.delete(token); return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' }); }
-  if (_userCache.size > 5000) _userCache.clear(); // sweep simples contra crescimento sem limite
-  _userCache.set(token, { user, exp: now + AUTH_TTL });
-  req.user = user;
+  if (cached && cached.exp > now) {
+    req.user = cached.user;
+  } else {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) { _userCache.delete(token); return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' }); }
+    if (_userCache.size > 5000) _userCache.clear(); // sweep simples contra crescimento sem limite
+    _userCache.set(token, { user, exp: now + AUTH_TTL });
+    req.user = user;
+  }
+  // Enforcement somente-leitura do parceiro, num único ponto (todas as rotas /api
+  // autenticadas passam por aqui). loadProfile é cacheado (~60s) e nunca lança.
+  const _roles = (await loadProfile(req)).roles || [];
+  if (_ehSomenteLeitura(_roles)) {
+    req.user.isParceiro = true;
+    if (req.method === 'GET') {
+      if (PARCEIRO_GET_BLOCK.has(req.path)) return res.status(403).json({ error: 'Acesso somente-leitura' });
+    } else if (!PARCEIRO_READ_POST.has(req.path)) {
+      return res.status(403).json({ error: 'Acesso somente-leitura' });
+    }
+  }
   next();
 }
 
@@ -447,7 +480,11 @@ async function loadProfile(req) {
 function requireRole(...allowed) {
   return async (req, res, next) => {
     const p = await loadProfile(req);
-    if (!allowed.some(r => (p.roles || []).includes(r))) {
+    const roles = p.roles || [];
+    // Parceiro (somente-leitura) enxerga toda LEITURA: GETs e os POSTs de leitura.
+    // A escrita já foi barrada no requireAuth; aqui só liberamos a visualização.
+    if (_ehSomenteLeitura(roles) && (req.method === 'GET' || PARCEIRO_READ_POST.has(req.path))) return next();
+    if (!allowed.some(r => roles.includes(r))) {
       return res.status(403).json({ error: 'Acesso negado' });
     }
     next();
@@ -3253,7 +3290,7 @@ app.get('/api/monitor-crc', requireAuth, rateLimit, async (req, res) => {
   try {
     const p = await loadProfile(req);
     const roles = p.roles || [];
-    const gestor = roles.includes('admin') || roles.includes('gestor');
+    const gestor = roles.includes('admin') || roles.includes('gestor') || roles.includes('parceiro');
     if (!gestor && !roles.includes('crc_leads')) return res.status(403).json({ error: 'Acesso negado' });
     const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
     const data = String(req.query.data || hoje);
@@ -6849,7 +6886,7 @@ app.get('/api/avaliacoes', requireAuth, async (req, res) => {
   try {
     const p = await loadProfile(req);
     const roles = p.roles || [];
-    const isGestor  = roles.some(r => ['gestor','admin','crc_comercial'].includes(r));
+    const isGestor  = roles.some(r => ['gestor','admin','crc_comercial','parceiro'].includes(r));
     const isDentista = roles.some(r => ['dentista','admin'].includes(r));
     if (!isGestor && !isDentista) return res.status(403).json({ error: 'Acesso negado' });
 
@@ -6939,7 +6976,7 @@ app.get('/api/avaliacoes/:id', requireAuth, async (req, res) => {
     const { data: consulta, error } = await supabase.from('consultas_spin').select('*').eq('id', req.params.id).maybeSingle();
     if (error) throw error;
     if (!consulta) return res.status(404).json({ error: 'Consulta não encontrada' });
-    const isGestor = roles.some(r => ['gestor','admin','crc_comercial'].includes(r));
+    const isGestor = roles.some(r => ['gestor','admin','crc_comercial','parceiro'].includes(r));
     const isOwner = consulta.dentista_id === req.user.id;
     if (!isGestor && !isOwner) return res.status(403).json({ error: 'Acesso negado' });
     res.json(consulta);
@@ -8584,7 +8621,7 @@ app.get('/api/tarefas/templates', requireAuth, async (req, res) => {
     const userId = req.user.id;
     const profile = await loadProfile(req);
     const roles = profile.roles || [];
-    const isGestor = roles.some(r => r === 'admin' || r === 'gestor');
+    const isGestor = roles.some(r => r === 'admin' || r === 'gestor' || r === 'parceiro');
 
     if (req.query.gestao === '1' && isGestor) {
       const { data, error } = await supabase.from('task_templates')
@@ -8742,7 +8779,7 @@ app.get('/api/coletas/:templateId/dashboard', requireAuth, async (req, res) => {
   try {
     const profile = await loadProfile(req);
     const roles = profile.roles || [];
-    const isGestor = roles.some(r => r === 'admin' || r === 'gestor');
+    const isGestor = roles.some(r => r === 'admin' || r === 'gestor' || r === 'parceiro');
     const { data: tpl } = await supabase.from('task_templates')
       .select('*').eq('id', req.params.templateId).maybeSingle();
     if (!tpl || tpl.tipo !== 'coleta') return res.status(404).json({ error: 'Coleta não encontrada' });
