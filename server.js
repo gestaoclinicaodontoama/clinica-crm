@@ -5048,7 +5048,7 @@ app.get('/api/planejamento/fila', requireAuth, blockParceiro, requirePlanejament
 // Busca paciente (nome/telefone) p/ o "+ Adicionar" da Sucesso — mostra os orçamentos e o selo de cada um
 app.get('/api/planejamento/buscar-paciente', requireAuth, blockParceiro, requirePlanejamentoOuSucesso, rateLimit, async (req, res) => {
   try {
-    const q = sanitizeStr(req.query.q || '', 80).trim();
+    const q = sanitizeStr(req.query.q || '', 80).replace(/[%,()]/g, '').trim();
     if (q.length < 2) return res.json({ pacientes: [] });
     const like = `%${q}%`;
     const { data: pacientes, error } = await supabase.from('pacientes')

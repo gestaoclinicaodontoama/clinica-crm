@@ -1114,10 +1114,9 @@ async function syncPlanejamento() {
 
     // NOVO orçamento aprovado →
     // (a) paciente nasce na Sucesso IMEDIATAMENTE (dedup por estimate_id — mesma lógica do hook antigo)
-    const { data: jaSucesso } = await supabase.from('pacientes_sucesso').select('id, excluido_em').eq('clinicorp_estimate_id', estId).limit(1);
-    if (jaSucesso?.length && jaSucesso[0].excluido_em) {
-      await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('id', jaSucesso[0].id);
-    } else if (!jaSucesso?.length) {
+    const { data: jaSucesso } = await supabase.from('pacientes_sucesso').select('id').eq('clinicorp_estimate_id', estId).limit(1);
+    if (!jaSucesso?.length) {
+      // transição: se a linha existe (mesmo excluída por um humano no Pacientes 2), NÃO ressuscita — humano decide (spec decisão 6)
       await supabase.from('pacientes_sucesso').insert({
         lead_id: o.lead_id || null, clinicorp_estimate_id: estId, nome: o.paciente_nome || '',
         telefone: o.telefone || '', data_venda: o.data_fechamento, valor_fechado: Number(o.valor_particular || 0),
