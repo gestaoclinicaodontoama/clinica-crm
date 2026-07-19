@@ -28,8 +28,8 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
 
 1. **Desacoplado:** o paciente nasce em `pacientes_sucesso` **na aprovação** (sync), com flag `plano_pendente`. O planejamento é **enriquecimento**, nunca portão — ninguém trava o cuidado.
 2. **Clinicorp é a verdade financeira:** aprovado no Clinicorp = conta como receita. Valor/entrada aparecem no plano **somente leitura** (espelho). Divergência → pendência para corrigir NO Clinicorp; o re-sync traz o valor certo. Nada de editar valor no CRM.
-3. **Checagem comercial leve (caça-erro, não portão):** a CRC recebe fila enxuta de suspeitas — possível duplicata (renegociação), valor estranho — com **poder de veredito** (marcar duplicata/não-é-venda → mescla/cancela o registro da Sucesso e descarta o plano). Pendência > 7 dias (configurável) escala para a gestora. A tela antiga de Conferência é aposentada.
-4. **Triagem automática contra ruído (adoção do dentista = risco nº 1):** cada tipo de procedimento no banco de processos tem a marca `requer_plano`. Limpeza/avulsos de sessão única nascem já resolvidos e **não aparecem** na fila do dentista. Requisito de aceitação: **planejar um caso típico em < 2 minutos** (1 clique aplica o padrão; dentista só ajusta tempos; sub-lotes são exceção, não formulário default).
+3. **Checagem comercial leve (caça-erro, não portão):** a CRC recebe fila enxuta de suspeitas — possível duplicata (renegociação), valor estranho — com **poder de veredito**: marcar duplicata/não-é-venda → plano e registro da Sucesso viram **`cancelado`** (com motivo `duplicata`/`nao_venda`; mescla quando houver plano irmão). ⚠️ O veredito NUNCA usa o status `descartado` — `descartado` é exclusivo de "não precisa de etapas" e não mexe na Sucesso. Pendência > 7 dias escala para a gestora (config única `prazo_escalonamento_dias`, default 7, compartilhada com o alerta de plano parado). A tela antiga de Conferência é aposentada.
+4. **Triagem automática contra ruído (adoção do dentista = risco nº 1):** cada tipo de procedimento no banco de processos tem a marca `requer_plano`. Limpeza/avulsos de sessão única nascem já resolvidos e **não aparecem** na fila do dentista. Requisito de aceitação: **planejar um caso típico em < 2 minutos**. Semântica única da aplicação do padrão (vale para todas as seções): o padrão é **pré-aplicado na criação do plano** (1 sub-lote por item + sequência do padrão); o "1 clique" do dentista é **confirmar**, com ajustes opcionais de tempos/profissionais antes; dividir sub-lotes é exceção, não formulário default.
 5. **Maleabilidade:** todo estado tem caminho de alteração manual (cancelar, reativar, mesclar, reatribuir) — nada fica travado em pedra.
 
 ## Dados (Supabase próprio — 4 tabelas novas)
@@ -37,7 +37,8 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
 ### `plano_tratamento` — 1 por orçamento aprovado
 - `estimate_id` (único, vínculo Clinicorp), `paciente_clinicorp_id`, nome espelhado.
 - `dentista_avaliador_id` → usuário do CRM. Sugerido pelo profissional do estimate; **troca livre** (sistema pode identificar errado, ou outro dentista capturou a avaliação dentro do combinado) com registro de quem trocou e quando. Estimate cujo profissional não mapeia para dentista do CRM → fila da **gestora para atribuir** (nunca erro nem plano órfão).
-- `status`: `aguardando_planejamento → planejado → em_andamento → concluido`; laterais: `descartado` (= "não precisa de etapas"; **nunca** remove da Sucesso), `cancelado` (venda desfeita — marca, não deleta; efeito espelhado no registro da Sucesso).
+- `status`: `aguardando_planejamento → planejado → em_andamento → concluido`; laterais: `descartado` (= "não precisa de etapas"; **nunca** remove da Sucesso), `cancelado` (venda desfeita OU veredito da CRC — marca com motivo, não deleta; efeito espelhado no registro da Sucesso).
+- **Regra da flag `plano_pendente`:** sai em `planejado` E em qualquer estado lateral (`descartado`, `cancelado`) — a Sucesso nunca cobra trilha de limpeza descartada nem de venda cancelada.
 - `valor`, `entrada`: espelho read-only do Clinicorp.
 - `orientacao_clinica` (avaliador→executor) e `recado_sucesso` (avaliador→CRC Sucesso): **dois campos** — leitores diferentes, textos diferentes.
 - Flags: `possivel_duplicata` (heurística do sync), `divergencia_reportada`.
@@ -45,7 +46,7 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
 ### `plano_itens` — item do orçamento dentro do plano
 - `procedure_name`/`price_id`, **`quantidade` de primeira classe**.
 - O dentista pode **dividir em sub-lotes** (ex.: 6 facetas → 4 sup numa sessão + 2 inf em outra). Restrição de conservação: soma das quantidades dos sub-lotes = quantidade do item.
-- Default: **1 sub-lote auto-criado por item** com a sequência do padrão aplicada — dividir é ação explícita.
+- Default: **1 sub-lote auto-criado por item** com a sequência do padrão pré-aplicada na criação do plano (o dentista confirma/ajusta — ver Decisão 4); dividir é ação explícita.
 
 ### `plano_etapas` — por sub-lote, ordenadas
 - `descricao`, `profissional_executor`, `tempo_planejado_min`, `status`, `tempo_real_min` (nulo até a ②), `asb_responsavel` (nulo até a ②).
@@ -68,42 +69,43 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
    a. cria registro em `pacientes_sucesso` **imediatamente** com `plano_pendente` (dedup por `estimate_id` mantido);
    b. roda a **heurística de duplicata**: mesmo paciente + itens sobrepostos + janela curta → `possivel_duplicata` → fila da CRC;
    c. cria `plano_tratamento` em `aguardando_planejamento`; itens com `requer_plano=false` em todos → plano nasce `descartado` automático (não aparece pro dentista).
-2. **Dentista** abre a fila "Planejar" (só o que requer plano): padrão aplicado em 1 clique, ajusta tempos/profissionais, escreve orientação + recado, divide sub-lotes se precisar. Concluir → `planejado`; a Sucesso ganha equipe+trilha e `plano_pendente` sai.
+2. **Dentista** abre a fila "Planejar" (só o que requer plano): padrão já pré-aplicado, ele confirma em 1 clique ou ajusta tempos/profissionais, escreve orientação + recado, divide sub-lotes se precisar. Concluir → `planejado`; a Sucesso ganha equipe+trilha e `plano_pendente` sai. **Plano com `possivel_duplicata` aparece na fila com badge de suspeita** (suspeita não é portão); se o veredito da CRC chegar depois de planejado/com etapas, aplica-se "trava e sinaliza humano" (mesma regra da tabela de re-sync).
 3. **CRC** vê a fila caça-erro (duplicatas, divergências) e dá veredito; correções de valor acontecem no Clinicorp.
 4. **Pressões contra fila parada:** a Sucesso enxerga "paciente sem trilha" e cobra; alerta de plano parado > 7 dias (configurável) escala para a **gestora** (não para o dentista).
-5. **Auditoria de Registro Diário** (ganho imediato): sessão intermediária de paciente com plano ativo vira **"esperada pelo plano"** em vez de falsa pendência. Limitação documentada: se a agenda não expõe o procedimento da sessão, a dispensa é por paciente (grosseira) — pode mascarar pendência real de procedimento avulso; aceito conscientemente na ①, refinar na ② com o registro por etapa.
+5. **Auditoria de Registro Diário** (ganho imediato): sessão intermediária de paciente com **plano ativo** vira **"esperada pelo plano"** em vez de falsa pendência. "Plano ativo" = status em {`aguardando_planejamento`, `planejado`, `em_andamento`} (todos indicam tratamento multi-sessão real; `descartado`/`cancelado`/`concluido` NÃO dispensam). Limitação documentada: se a agenda não expõe o procedimento da sessão, a dispensa é por paciente (grosseira) — pode mascarar pendência real de procedimento avulso; aceito conscientemente na ①, refinar na ② com o registro por etapa.
 
 ## Regras de re-sync (tabela de primeira classe)
 
-| Mudança no Clinicorp | Regra |
-|---|---|
-| Item adicionado ao orçamento | cria item/sub-plano pendente automático; avisa o dentista |
-| Item removido, sem etapas executadas | remove item do plano; registra no histórico |
-| Item removido, com etapas executadas | **trava e sinaliza humano** — nunca reconciliar em silêncio |
-| Quantidade alterada, sem etapas executadas | invalida sub-lotes do item e pede replanejamento |
-| Quantidade alterada, com etapas executadas | **trava e sinaliza humano** |
-| Valor/entrada alterado | atualiza espelho; alerta se o plano foi concluído sobre outro valor |
-| Orçamento sumiu do retorno / status reverteu | sinal de cancelamento → marca `cancelado` + espelha na Sucesso (ver pré-requisito V2) |
+| Mudança no Clinicorp | Regra | Efeito no status do plano |
+|---|---|---|
+| Item adicionado ao orçamento | cria item pendente automático; avisa o dentista | plano `planejado`/`em_andamento`/`concluido` **regride para `aguardando_planejamento`** (mantendo o que já foi planejado; só o item novo pede ação); plano `descartado` automático que recebe item com `requer_plano=true` **ressuscita** para `aguardando_planejamento` e entra na fila |
+| Item removido, sem etapas executadas | remove item do plano; registra no histórico | status inalterado |
+| Item removido, com etapas executadas | **trava e sinaliza humano** — nunca reconciliar em silêncio | flag de trava; status inalterado até o humano decidir |
+| Quantidade alterada, sem etapas executadas | invalida sub-lotes do item e pede replanejamento | regride para `aguardando_planejamento` |
+| Quantidade alterada, com etapas executadas | **trava e sinaliza humano** | flag de trava; status inalterado até o humano decidir |
+| Valor/entrada alterado | atualiza espelho; alerta se o plano foi concluído sobre outro valor | status inalterado |
+| Orçamento sumiu do retorno / status reverteu | sinal de cancelamento → marca `cancelado` + espelha na Sucesso (ver pré-requisito V2) | `cancelado` (limpa `plano_pendente`) |
 
 ## Pré-requisitos de verificação (antes de codar)
 
 - **V1 — aprovação por item:** confirmar se `estimates/list` traz status por item (orçamento parcialmente aprovado → o plano filtra por item aprovado). Se não trouxer, definir fallback (plano do orçamento inteiro com aviso).
 - **V2 — cancelamento visível:** confirmar o que o sync enxerga quando uma venda é desfeita (status muda? item some? orçamento some do retorno?). A regra de `cancelado` depende disso.
-- **V3 — mapeamento dentistas:** conferir logins/roles dos 9 dentistas no CRM e medir nos estimates históricos quantos têm profissional que não mapeia (dimensiona a fila da gestora).
+- **V3 — mapeamento dentistas:** conferir logins dos 9 dentistas no CRM, **se a role `dentista` existe e cobre todos** (existe hoje para Avaliação Dentista; confirmar abrangência — se faltar, criar/atribuir na entrega), e medir nos estimates históricos quantos têm profissional que não mapeia (dimensiona a fila da gestora).
 - **V4 — rate limit:** botão de sync manual passa pelo **throttle central** de chamadas Clinicorp (fila única, debounce por tela, sync dirigido por data) — não pode disputar às cegas as ~25 calls/h com Análise de Receita e sync noturno.
 
 ## Migração e cutover
 
 - **Mesmo deploy:** desliga o hook de `pacientes_sucesso` da Conferência e liga a criação via sync (dedup por `estimate_id` protege a transição).
 - A tela de Conferência antiga só morre depois que a fila caça-erro existir e a fila antiga estiver zerada.
-- **Backfill dirigido — 3 populações:**
-  1. conferidos-não-planejados (viram planos `aguardando_planejamento`);
+- **Backfill dirigido — 4 populações:**
+  1. conferidos-não-planejados (viram planos `aguardando_planejamento`, **passando pela mesma triagem `requer_plano`** — limpezas históricas não entram na fila do dentista);
   2. aprovados-não-conferidos na virada (não podem cair no vão entre os gatilhos);
-  3. **tratamentos longos JÁ EM CURSO** (protocolos etc. — o motivo do projeto): gestora prioriza planejamento retroativo (lista curta), etapas já feitas = `concluida_retroativa`.
+  3. **tratamentos longos JÁ EM CURSO** (protocolos etc. — o motivo do projeto): gestora prioriza planejamento retroativo (lista curta), etapas já feitas = `concluida_retroativa`;
+  4. **aprovados já REJEITADOS pela CRC no fluxo antigo** (não-vendas, duplicatas já resolvidas): seed dos `estimate_id` rejeitados como `cancelado` (lista de supressão do sync) **no mesmo deploy do cutover** — senão o primeiro sync ressuscita todos os casos já julgados e inunda a Sucesso e a fila caça-erro.
 
 ## UI
 
-- **Fila "Planejar"** (dentista; role nova `dentista` reusada + `mod_planejamento`): página própria seguindo padrão do CRM (`nav-config.js` como fonte única, `shared-nav.js`, registro no módulo de Usuários em 3 lugares + middleware, retry 5xx padrão).
+- **Fila "Planejar"** (roles: `dentista` — existente, confirmar abrangência no V3 — + nova `mod_planejamento` + `admin,gestor`): página própria seguindo padrão do CRM (`nav-config.js` como fonte única, `shared-nav.js`, registro no módulo de Usuários em 3 lugares + middleware, retry 5xx padrão).
 - **Tela do plano:** itens com padrão pré-aplicado, ajuste de tempos inline, divisão em sub-lotes sob demanda, dois campos de texto, valor/entrada read-only com "reportar divergência".
 - **Fila caça-erro** (CRC): duplicatas + divergências, veredito com efeito.
 - **Fila da gestora:** planos sem dentista mapeado (atribuir) + alertas de plano parado.
@@ -112,7 +114,7 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
 
 ## Estados sem dono nesta entrega
 
-- `planejado → em_andamento`: gatilho definido = primeiro comparecimento do paciente após plano concluído (agenda já sincronizada). Até a ② existir, `em_andamento → concluido` pode ser manual (dentista/gestora) — documentado.
+- `planejado → em_andamento`: gatilho = primeiro comparecimento do paciente **após o plano atingir o status `planejado`** (agenda já sincronizada). Limitação aceita na ①: o gatilho é por paciente, não por procedimento — um comparecimento para um avulso (ex.: limpeza) pode flipar o plano; falso-positivo de baixo custo (o estado volta a ser preciso com o registro por etapa da ②). Até a ② existir, `em_andamento → concluido` pode ser manual (dentista/gestora) — documentado.
 
 ## Fora de escopo desta entrega
 
