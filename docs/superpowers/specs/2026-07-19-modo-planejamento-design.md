@@ -41,6 +41,7 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
 - **Regra da flag `plano_pendente`:** sai em `planejado` E em qualquer estado lateral (`descartado`, `cancelado`) — a Sucesso nunca cobra trilha de limpeza descartada nem de venda cancelada.
 - `valor`, `entrada`: espelho read-only do Clinicorp.
 - `orientacao_clinica` (avaliador→executor) e `recado_sucesso` (avaliador→CRC Sucesso): **dois campos** — leitores diferentes, textos diferentes.
+- `planejado_por`: quem de fato preencheu o plano — **pode ser diferente do dentista responsável**. Planejamento por delegação é fluxo de primeira classe (rotina real da clínica): quem tem `mod_planejamento` (ex.: Mônica) monta o plano em nome do dentista avaliador, colhendo dele ao lado ou por WhatsApp. O dentista responsável continua sendo o avaliador; o sistema registra os dois. Isso ataca diretamente o risco nº 1 (adoção do dentista).
 - Flags: `possivel_duplicata` (heurística do sync), `divergencia_reportada`.
 
 ### `plano_itens` — item do orçamento dentro do plano
@@ -105,7 +106,7 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
 
 ## UI
 
-- **Fila "Planejar"** (roles: `dentista` — existente, confirmar abrangência no V3 — + nova `mod_planejamento` + `admin,gestor`): página própria seguindo padrão do CRM (`nav-config.js` como fonte única, `shared-nav.js`, registro no módulo de Usuários em 3 lugares + middleware, retry 5xx padrão).
+- **Fila "Planejar"** (roles: `dentista` — existente, confirmar abrangência no V3 — + nova `mod_planejamento` p/ planejadores por delegação como a Mônica + `admin,gestor`): dentista vê a própria fila; `mod_planejamento`/gestor veem a fila de todos (pra planejar em nome de qualquer dentista). Página própria seguindo padrão do CRM (`nav-config.js` como fonte única, `shared-nav.js`, registro no módulo de Usuários em 3 lugares + middleware, retry 5xx padrão).
 - **Tela do plano:** itens com padrão pré-aplicado, ajuste de tempos inline, divisão em sub-lotes sob demanda, dois campos de texto, valor/entrada read-only com "reportar divergência".
 - **Fila caça-erro** (CRC): duplicatas + divergências, veredito com efeito.
 - **Fila da gestora:** planos sem dentista mapeado (atribuir) + alertas de plano parado.
