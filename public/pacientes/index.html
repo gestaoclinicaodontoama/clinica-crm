@@ -102,6 +102,12 @@ td.td-text { white-space: normal; word-break: break-word; line-height: 1.4; }
 .pac-status.alta      { background: rgba(34,197,94,.12);  color: var(--green); }
 .pac-status.alta-c    { background: rgba(20,184,166,.12); color: var(--teal); }
 
+.pac-badge-plano {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 600; white-space: nowrap;
+  background: rgba(245,158,11,.13); color: var(--yellow);
+}
+
 /* ── Células editáveis ── */
 .pac-cell-edit { cursor: pointer; }
 .pac-cell-edit:hover { background: rgba(99,102,241,.06); border-radius: 4px; }
@@ -337,6 +343,13 @@ function nomeCel(r) {
   const strong = document.createElement('strong');
   strong.textContent = r.nome || '';
   td.appendChild(strong);
+  if (r.plano_pendente) {
+    const badge = document.createElement('span');
+    badge.className = 'pac-badge-plano';
+    badge.textContent = '⏳ sem trilha';
+    badge.title = 'tratamento aprovado aguardando planejamento — cobrar o dentista';
+    td.appendChild(badge);
+  }
   return td;
 }
 

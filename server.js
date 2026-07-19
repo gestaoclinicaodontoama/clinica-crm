@@ -5215,6 +5215,23 @@ app.get('/api/pacientes', requireAuth, requireCrcSucesso, rateLimit, async (req,
     if (executor) q = q.eq('executor', executor);
     const { data, error } = await q.limit(2000);
     if (error) throw error;
+
+    // Modo de Planejamento: anexa o status do plano (a Sucesso enxerga "sem trilha" e cobra — spec)
+    const estIds = (data || []).map(r => r.clinicorp_estimate_id).filter(Boolean);
+    const planoByEst = new Map();
+    for (let i = 0; i < estIds.length; i += 200) {
+      const { data: pls } = await supabase.from('plano_tratamento')
+        .select('clinicorp_estimate_id, status, recado_sucesso')
+        .in('clinicorp_estimate_id', estIds.slice(i, i + 200));
+      for (const p of pls || []) planoByEst.set(p.clinicorp_estimate_id, p);
+    }
+    for (const r of data || []) {
+      const pl = planoByEst.get(r.clinicorp_estimate_id);
+      r.plano_status = pl?.status || null;
+      r.plano_pendente = pl?.status === 'aguardando_planejamento';
+      r.recado_sucesso = pl?.recado_sucesso || null;
+    }
+
     res.json(data || []);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -9894,7 +9911,13 @@ app.get('/api/producao/auditoria-registro', requireAuth, requireProducao, async 
     if (eA) throw new Error(`agenda: ${eA.message}`);
     if (eP) throw new Error(`producao: ${eP.message}`);
 
-    res.json({ data, ...classificarDia({ atendimentos, producao }) });
+    // Modo de Planejamento: sessões de pacientes com plano ATIVO são "esperadas pelo plano"
+    const { data: planosAtivos } = await supabase.from('plano_tratamento')
+      .select('paciente_clinicorp_id')
+      .in('status', ['aguardando_planejamento', 'planejado', 'em_andamento']);
+    const pacientesComPlanoAtivo = new Set((planosAtivos || []).map(p => p.paciente_clinicorp_id).filter(Boolean));
+
+    res.json({ data, ...classificarDia({ atendimentos, producao, pacientesComPlanoAtivo }) });
   } catch (e) {
     console.error('[producao/auditoria-registro]', e.message);
     res.status(500).json({ error: e.message });

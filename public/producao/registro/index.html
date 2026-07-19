@@ -216,6 +216,16 @@ function render(j) {
       <div id="manutBody" style="display:none">
         ${tabela(j.manutencao, true, 'Nenhuma manutenção neste dia.')}
       </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header clickable" onclick="const b=document.getElementById('espPlanoBody');b.style.display=b.style.display==='none'?'':'none'">
+        Esperadas pelo plano <span class="count">${(j.esperada_plano || []).length} ▾</span>
+      </div>
+      <div id="espPlanoBody" style="display:none">
+        <p class="footer-note" style="margin:8px 16px">Sessão intermediária de tratamento planejado — não é pendência.</p>
+        ${tabela(j.esperada_plano || [], false, 'Nenhuma sessão esperada pelo plano neste dia.')}
+      </div>
     </div>`;
 }
 </script>
