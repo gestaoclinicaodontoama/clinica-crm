@@ -1078,6 +1078,8 @@ async function syncPlanejamento() {
   const padroes = new Map(padroesArr.map(p => [String(p.price_id), p]));
   const { data: mapaArr } = await supabase.from('planejamento_dentistas').select('profissional_nome, user_id').eq('ativo', true);
   const mapa = new Map((mapaArr || []).map(m => [m.profissional_nome, m.user_id]));
+  const { data: cfgRow } = await supabase.from('planejamento_config').select('cutover_date').eq('id', 1).maybeSingle();
+  const cutover = (cfgRow?.cutover_date || '2026-07-19').slice(0, 10);
 
   // pré-computa itens agrupados + nome resolvido
   const nomear = itens => itens.map(i => ({ ...i, procedure_name: i.procedure_name || nomePorPrice.get(String(i.price_id)) || `PriceId ${i.price_id}` }));
@@ -1134,7 +1136,8 @@ async function syncPlanejamento() {
       status: precisa ? 'aguardando_planejamento' : 'descartado',
       status_motivo: precisa ? null : 'sem_etapas',
       valor: o.valor_particular, entrada: o.entrada_valor,
-      origem: 'sync_novo', tipo_pagamento: tipoPagamento(o),
+      origem: (o.data_fechamento && String(o.data_fechamento).slice(0,10) >= cutover) ? 'sync_novo' : 'backlog',
+      tipo_pagamento: tipoPagamento(o),
       possivel_duplicata: dup.suspeito, duplicata_de: dup.de,
     }).select('id').single();
     if (error) { log(`ERRO plano ${estId}: ${error.message}`); continue; }

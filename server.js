@@ -5035,9 +5035,18 @@ app.get('/api/planejamento/fila', requireAuth, blockParceiro, requirePlanejament
     } else if (aba === 'sucesso') {
       // Aba da Sucesso do Cliente: TODOS os planos (backlog + novo + manual), exclui só cancelado.
       if (!roles.some(r => ['crc_sucesso', 'crc_comercial', 'gestor', 'admin', 'mod_planejamento'].includes(r))) return res.status(403).json({ error: 'sem permissão' });
-      q = supabase.from('plano_tratamento')
+      const filtro = String(req.query.filtro || 'todos');
+      const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+      const PAGE = 200;
+      let qs = supabase.from('plano_tratamento')
         .select('id, origem, tipo_pagamento, status, status_motivo, valor, entrada, paciente_nome, paciente_clinicorp_id, possivel_duplicata, clinicorp_estimate_id, criado_em')
-        .neq('status', 'cancelado').order('criado_em', { ascending: false });
+        .order('criado_em', { ascending: false });
+      if (filtro === 'sem_planejamento') qs = qs.eq('status', 'aguardando_planejamento');
+      else if (filtro === 'em_tratamento') qs = qs.in('status', ['planejado', 'em_andamento', 'concluido']);
+      else qs = qs.neq('status', 'cancelado');
+      const { data: planosSucesso, error: errSucesso } = await qs.range(offset, offset + PAGE - 1);
+      if (errSucesso) throw errSucesso;
+      return res.json({ planos: planosSucesso || [], config: { prazo_escalonamento_dias: cfg?.prazo_escalonamento_dias ?? 7 }, temMais: (planosSucesso || []).length === PAGE });
     } else return res.status(400).json({ error: 'aba inválida' });
     const { data, error } = await q.limit(500);
     if (error) throw error;

@@ -58,12 +58,11 @@ const PADROES_INICIAIS = [
   const { syncPlanejamento } = require('../sync/clinicorp-sync');
   console.log(await syncPlanejamento());
 
-  // Tudo que existe neste 1º passe é histórico → backlog (fica FORA da fila do dentista).
-  // ⚠️ PRECISA rodar antes do primeiro sync noturno; senão novos legítimos virariam backlog.
-  const { data: mb, error: eMb } = await supabase.from('plano_tratamento')
-    .update({ origem: 'backlog' }).eq('origem', 'sync_novo').select('id');
-  if (eMb) console.error('marcar backlog:', eMb.message);
-  else console.log(`Backlog: ${mb?.length || 0} planos históricos marcados (fora da fila do dentista)`);
+  // origem já é decidida por data de aprovação vs. cutover_date dentro do próprio syncPlanejamento
+  // (order-independent — sem rewrite pós-hoc aqui). Só verifica a distribuição resultante.
+  const { data: brk } = await supabase.from('plano_tratamento').select('origem');
+  const cont = {}; for (const r of brk || []) cont[r.origem] = (cont[r.origem]||0)+1;
+  console.log('Origem dos planos:', JSON.stringify(cont));  // esperado: massa em backlog, sync_novo só vendas do dia da virada
 
   // 3) lista dos tratamentos longos em curso p/ planejamento retroativo dirigido
   const { data: longos } = await supabase.from('plano_tratamento')

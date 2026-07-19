@@ -38,19 +38,33 @@
   };
   const statusInfo = s => STATUS_INFO[s] || { label: s || '—', cls: 'status-descartado' };
 
-  let planosTodos = [], filtro = 'todos';
+  // Filtro agora é aplicado no servidor (evita o cap silencioso de 500 do antigo .limit).
+  const FILTRO_PARAM = { todos: 'todos', sem: 'sem_planejamento', tratamento: 'em_tratamento' };
+  const PAGE = 200;
+  let planosTodos = [], filtro = 'todos', offset = 0, temMais = false, carregando = false;
 
   // ── LISTA ────────────────────────────────────────────────────────────────
-  async function carregar() {
-    $('#tabela').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  async function carregar(reset = true) {
+    if (carregando) return;
+    carregando = true;
+    if (reset) { offset = 0; planosTodos = []; $('#tabela').innerHTML = '<div class="empty"><span class="spinner"></span></div>'; }
     try {
-      const { planos } = await api('/api/planejamento/fila?aba=sucesso');
-      planosTodos = planos || [];
+      const params = new URLSearchParams({ aba: 'sucesso', filtro: FILTRO_PARAM[filtro] || 'todos', offset: String(offset) });
+      const { planos, temMais: tm } = await api(`/api/planejamento/fila?${params}`);
+      planosTodos = reset ? (planos || []) : planosTodos.concat(planos || []);
+      temMais = !!tm;
       renderResumo(planosTodos);
       renderTabela();
     } catch (e) {
       $('#tabela').innerHTML = `<div class="empty">Erro: ${esc(e.message)}</div>`;
+    } finally {
+      carregando = false;
     }
+  }
+
+  async function carregarMais() {
+    offset += PAGE;
+    await carregar(false);
   }
 
   function renderResumo(planos) {
@@ -61,14 +75,9 @@
     $('#rTotal').textContent = total;
     $('#rPlanejados').textContent = planejados;
     $('#rSem').textContent = sem;
-    $('#rPct').textContent = `${pct}% já planejados`;
+    // reflete só a página(s) carregada(s) — não o total real quando "Carregar mais" ainda não foi usado
+    $('#rPct').textContent = `${pct}% já planejados (carregados)`;
     $('#rBar').style.width = `${pct}%`;
-  }
-
-  function planosFiltrados() {
-    if (filtro === 'sem') return planosTodos.filter(p => p.status === 'aguardando_planejamento');
-    if (filtro === 'tratamento') return planosTodos.filter(p => p.status === 'em_andamento');
-    return planosTodos;
   }
 
   function linha(p) {
@@ -90,12 +99,13 @@
   }
 
   function renderTabela() {
-    const lista = planosFiltrados();
+    const lista = planosTodos;
     const el = $('#tabela');
     if (!lista.length) { el.innerHTML = '<div class="empty">Nenhum paciente nesta visão.</div>'; return; }
     el.innerHTML = `<table><thead><tr>
       <th>Paciente</th><th>Venda</th><th>Acompanhamento</th><th>Planejamento</th><th></th>
-    </tr></thead><tbody>${lista.map(linha).join('')}</tbody></table>`;
+    </tr></thead><tbody>${lista.map(linha).join('')}</tbody></table>
+    ${temMais ? '<div class="carregar-mais-wrap"><button class="btn btn-ghost" id="btCarregarMais">Carregar mais</button></div>' : ''}`;
   }
 
   $('#chips').onclick = ev => {
@@ -103,10 +113,12 @@
     document.querySelectorAll('#chips .chip').forEach(c => c.classList.remove('ativo'));
     b.classList.add('ativo');
     filtro = b.dataset.filtro;
-    renderTabela();
+    carregar(true);
   };
 
   $('#tabela').addEventListener('click', ev => {
+    const carregarMais = ev.target.closest('#btCarregarMais');
+    if (carregarMais) return carregarMais_click();
     const planejar = ev.target.closest('[data-planejar]');
     if (planejar) return abrirPlanejar(planejar.dataset.planejar);
     const abrir = ev.target.closest('[data-abrir]');
@@ -114,6 +126,12 @@
     const row = ev.target.closest('[data-abrir-row]');
     if (row) return abrirDrawer(row.dataset.abrirRow);
   });
+
+  async function carregarMais_click() {
+    const btn = $('#btCarregarMais');
+    if (btn) { btn.disabled = true; btn.textContent = 'Carregando...'; }
+    await carregarMais();
+  }
 
   // ── DRAWER (trilha do tratamento) ───────────────────────────────────────
   function fecharDrawer() {
