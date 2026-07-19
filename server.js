@@ -507,6 +507,9 @@ const requireDisparos = requireRole('admin', 'gestor', 'crc_comercial');
 const requirePublicos = requireRole('admin', 'gestor', 'crc_comercial', 'mod_publicos');
 const requireFinanceiro = requireRole('financeiro', 'admin', 'mod_financeiro');
 const requireProducao  = requireRole('financeiro', 'admin', 'mod_financeiro', 'mod_producao');
+const requirePlanejamento = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento');
+const requirePlanejamentoGestor = requireRole('gestor', 'admin');
+// veredito CRC reusa requireDashboardAvaliacao (gestor, admin, crc_comercial) já existente
 
 // ========== ADMIN MIDDLEWARE ==========
 // TODO(remover-em-2026-06-23): fallback de role em user_metadata
@@ -4986,6 +4989,185 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
 
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════ MODO DE PLANEJAMENTO (Produção ①) ═══════════
+const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes } = require('./lib/planejamento/estados');
+
+async function planCarregarPlano(id) {
+  const { data: plano } = await supabase.from('plano_tratamento').select('*').eq('id', id).maybeSingle();
+  if (!plano) return null;
+  const { data: itens } = await supabase.from('plano_itens')
+    .select('*, plano_etapas(*)').eq('plano_id', id).is('removido_em', null).order('ordem');
+  const raizes = (itens || []).filter(i => !i.parent_id).map(r => ({
+    ...r, sublotes: (itens || []).filter(i => i.parent_id === r.id),
+  }));
+  return { plano, itens: raizes };
+}
+
+app.get('/api/planejamento/fila', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+  try {
+    const aba = String(req.query.aba || 'planejar');
+    const { data: cfg } = await supabase.from('planejamento_config').select('*').eq('id', 1).single();
+    const roles = req.user.profile?.roles || [];
+    const soDentista = roles.includes('dentista') && !roles.some(r => ['gestor', 'admin', 'mod_planejamento'].includes(r));
+    let q = supabase.from('plano_tratamento').select('*').order('criado_em', { ascending: true });
+    if (aba === 'planejar') {
+      q = q.eq('status', 'aguardando_planejamento');
+      if (soDentista) q = q.eq('dentista_avaliador_id', req.user.id);   // dentista vê a própria fila; delegação vê todas
+      else q = q.not('dentista_avaliador_id', 'is', null);
+    } else if (aba === 'suspeitas') {
+      q = q.or('possivel_duplicata.eq.true,divergencia_reportada.eq.true').not('status', 'in', '("cancelado")');
+    } else if (aba === 'gestora') {
+      // 3 conjuntos: sem dentista mapeado (aguardando) + TRAVADOS (qualquer status — a trava
+      // preserva o status, então sem isso um plano travado não apareceria em fila nenhuma) +
+      // parados > prazo (o "alerta de plano parado" da spec)
+      const cutoff = new Date(Date.now() - (cfg?.prazo_escalonamento_dias ?? 7) * 864e5).toISOString();
+      q = q.or(`and(dentista_avaliador_id.is.null,status.eq.aguardando_planejamento),trava_resync.not.is.null,and(status.eq.aguardando_planejamento,criado_em.lt.${cutoff})`);
+    } else return res.status(400).json({ error: 'aba inválida' });
+    const { data, error } = await q.limit(500);
+    if (error) throw error;
+    res.json({ planos: data || [], config: { prazo_escalonamento_dias: cfg?.prazo_escalonamento_dias ?? 7 } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+  try {
+    const r = await planCarregarPlano(req.params.id);
+    if (!r) return res.status(404).json({ error: 'plano não encontrado' });
+    const priceIds = r.itens.map(i => i.price_id).filter(Boolean);
+    const { data: padroes } = priceIds.length
+      ? await supabase.from('processos_padrao').select('*').in('price_id', priceIds)
+      : { data: [] };
+    const { data: dentistas } = await supabase.from('planejamento_dentistas').select('*').eq('ativo', true);
+    res.json({ ...r, padroes: padroes || [], dentistas: dentistas || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Salvar rascunho do plano (etapas, sub-lotes, textos, responsável). Delegação registra planejado_por.
+app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { data: plano } = await supabase.from('plano_tratamento').select('id, status, dentista_avaliador_id, trocas_responsavel').eq('id', id).maybeSingle();
+    if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    if (['cancelado', 'concluido'].includes(plano.status)) return res.status(409).json({ error: `plano ${plano.status} — reative antes de editar` });
+    const b = req.body || {};
+    const patch = { atualizado_em: new Date().toISOString(), planejado_por: req.user.id };
+    if ('orientacao_clinica' in b) patch.orientacao_clinica = sanitizeStr(b.orientacao_clinica || '', 4000);
+    if ('recado_sucesso' in b) patch.recado_sucesso = sanitizeStr(b.recado_sucesso || '', 2000);
+    if ('dentista_avaliador_id' in b && b.dentista_avaliador_id !== plano.dentista_avaliador_id) {
+      patch.dentista_avaliador_id = b.dentista_avaliador_id || null;   // troca livre (spec) — registra quem trocou
+      patch.trocas_responsavel = [...(plano.trocas_responsavel || []),
+        { de: plano.dentista_avaliador_id, para: b.dentista_avaliador_id || null, por: req.user.id, em: new Date().toISOString() }];
+    }
+    const { error } = await supabase.from('plano_tratamento').update(patch).eq('id', id);
+    if (error) throw error;
+
+    // sub-lotes: recria filhos do item (conservação validada); etapas: recria por item/sub-lote
+    for (const item of b.itens || []) {
+      if (Array.isArray(item.sublotes) && item.sublotes.length) {
+        const { data: raiz } = await supabase.from('plano_itens').select('id, quantidade').eq('id', item.id).eq('plano_id', id).maybeSingle();
+        if (!raiz) continue;
+        const v = planValidarSubLotes(raiz.quantidade, item.sublotes);
+        if (!v.ok) return res.status(400).json({ error: `sub-lotes de "${item.id}": ${v.erro}` });
+        await supabase.from('plano_itens').delete().eq('parent_id', raiz.id);
+        // etapas penduram em FOLHAS: ao dividir, as pendentes da RAIZ saem (senão ficam órfãs)
+        await supabase.from('plano_etapas').delete().eq('item_id', raiz.id).eq('status', 'pendente');
+        for (const [i, sl] of item.sublotes.entries()) {
+          const { data: novo } = await supabase.from('plano_itens').insert({
+            plano_id: id, parent_id: raiz.id, price_id: null, procedure_name: sl.rotulo || `Sub-lote ${i + 1}`,
+            quantidade: sl.quantidade, rotulo: sl.rotulo || null, ordem: i }).select('id').single();
+          sl._novoId = novo.id;
+        }
+      }
+      // etapas do item (ou de cada sub-lote): recria as PENDENTES; preserva concluída/retroativa.
+      // Sub-lote sem etapas próprias herda as etapas digitadas do item (1º sub-lote) — nada se perde.
+      const alvos = (item.sublotes || []).length ? item.sublotes.map(s => s._novoId) : [item.id];
+      for (const [ai, alvoId] of alvos.entries()) {
+        const etapas = ((item.sublotes || []).length
+          ? (item.sublotes[ai].etapas?.length ? item.sublotes[ai].etapas : (ai === 0 ? item.etapas : []))
+          : item.etapas) || [];
+        await supabase.from('plano_etapas').delete().eq('item_id', alvoId).eq('status', 'pendente');
+        const rows = etapas.filter(e => !e.id || e.status === 'pendente').map((e, i) => ({
+          item_id: alvoId, ordem: i, descricao: sanitizeStr(e.descricao || '', 300),
+          profissional_executor: sanitizeStr(e.profissional_executor || '', 120) || null,
+          tempo_planejado_min: Number(e.tempo_planejado_min) || null, status: 'pendente' }));
+        if (rows.length) await supabase.from('plano_etapas').insert(rows);
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Transições de estado (concluir/descartar/reativar/destravar) — máquina de estados da lib
+app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+  try {
+    const { id, acao } = req.params;
+    const { data: plano } = await supabase.from('plano_tratamento').select('id, status, trava_resync').eq('id', id).maybeSingle();
+    if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    const now = new Date().toISOString();
+    const mapa = {
+      concluir:  { para: 'planejado', patch: { planejado_em: now, planejado_por: req.user.id } },
+      descartar: { para: 'descartado', patch: { status_motivo: 'sem_etapas' } },
+      reativar:  { para: 'aguardando_planejamento', patch: { status_motivo: null } },
+    };
+    if (acao === 'destravar') {                             // trava do re-sync → só gestor
+      const roles = req.user.profile?.roles || [];
+      if (!roles.some(r => ['gestor', 'admin'].includes(r))) return res.status(403).json({ error: 'só gestor destrava' });
+      await supabase.from('plano_tratamento').update({ trava_resync: null, atualizado_em: now }).eq('id', id);
+      return res.json({ ok: true });
+    }
+    if (acao === 'veredito') {                              // CRC: duplicata / nao_venda / ok
+      const roles = req.user.profile?.roles || [];
+      if (!roles.some(r => ['gestor', 'admin', 'crc_comercial'].includes(r))) return res.status(403).json({ error: 'sem permissão' });
+      const v = String(req.body.veredito || '');
+      if (v === 'ok') { await supabase.from('plano_tratamento').update({ possivel_duplicata: false, duplicata_de: null, divergencia_reportada: false, atualizado_em: now }).eq('id', id); return res.json({ ok: true }); }
+      if (!['duplicata', 'nao_venda'].includes(v)) return res.status(400).json({ error: 'veredito inválido' });
+      // spec: veredito usa CANCELADO (nunca 'descartado'); se plano tem etapas não-pendentes → trava (veredito tardio)
+      const { data: exec } = await supabase.from('plano_etapas').select('id, plano_itens!inner(plano_id)').eq('plano_itens.plano_id', id).neq('status', 'pendente').limit(1);
+      if (exec?.length) { await supabase.from('plano_tratamento').update({ trava_resync: `veredito ${v} com etapas executadas — decidir manualmente`, atualizado_em: now }).eq('id', id); return res.json({ ok: true, travado: true }); }
+      await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: v, atualizado_em: now }).eq('id', id);
+      // espelha na Sucesso (spec Decisão 3): soft-delete do módulo (marca, não deleta)
+      const { data: plEst } = await supabase.from('plano_tratamento').select('clinicorp_estimate_id').eq('id', id).single();
+      await supabase.from('pacientes_sucesso').update({ excluido_em: now }).eq('clinicorp_estimate_id', plEst.clinicorp_estimate_id).is('excluido_em', null);
+      return res.json({ ok: true });
+    }
+    if (acao === 'divergencia') {
+      await supabase.from('plano_tratamento').update({ divergencia_reportada: true, divergencia_texto: sanitizeStr(req.body.texto || '', 500), atualizado_em: now }).eq('id', id);
+      return res.json({ ok: true });
+    }
+    const t = mapa[acao];
+    if (!t) return res.status(400).json({ error: 'ação inválida' });
+    if (!planTransicao(plano.status, t.para)) return res.status(409).json({ error: `transição ${plano.status} → ${t.para} inválida` });
+    const { error } = await supabase.from('plano_tratamento').update({ status: t.para, atualizado_em: now, ...t.patch }).eq('id', id);
+    if (error) throw error;
+    if (acao === 'reativar') {   // reativação limpa o espelho na Sucesso (maleabilidade da spec)
+      const { data: plEst } = await supabase.from('plano_tratamento').select('clinicorp_estimate_id').eq('id', id).single();
+      await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('clinicorp_estimate_id', plEst.clinicorp_estimate_id);
+    }
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Banco de processos: listar/criar rascunho (qualquer planejador) + aprovar (gestor)
+app.get('/api/planejamento/padroes', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+  try { const { data, error } = await supabase.from('processos_padrao').select('*').order('procedure_name'); if (error) throw error; res.json(data || []); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/planejamento/padroes', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const { data, error } = await supabase.from('processos_padrao').insert({
+      price_id: b.price_id || null, procedure_name: sanitizeStr(b.procedure_name || '', 200),
+      requer_plano: b.requer_plano !== false, etapas: Array.isArray(b.etapas) ? b.etapas : [],
+      status: 'rascunho', criado_por: req.user.id }).select('id').single();
+    if (error) throw error;
+    res.json({ ok: true, id: data.id });                     // rascunho é utilizável pelo autor (spec)
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/planejamento/padroes/:id/aprovar', requireAuth, requirePlanejamentoGestor, rateLimit, async (req, res) => {
+  try { const { error } = await supabase.from('processos_padrao').update({ status: 'aprovado', atualizado_em: new Date().toISOString() }).eq('id', req.params.id); if (error) throw error; res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ========== MÓDULO PACIENTES (Sucesso do Cliente) ==========
