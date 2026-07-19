@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planejamento de Tratamentos — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444}
+:root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;--green:#16a34a;--yellow:#d97706;--red:#dc2626}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{padding:16px 20px;max-width:1100px}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.page-header-left{display:flex;flex-direction:column;gap:4px}
+.page-header h1{font-size:20px;font-weight:700}
+.abas{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.abas button{background:none;border:none;color:var(--muted);font-family:inherit;font-size:13px;font-weight:600;padding:8px 4px;cursor:pointer;border-bottom:2px solid transparent}
+.abas button:hover{color:var(--text)}
+.abas button.ativa{color:var(--accent);border-bottom-color:var(--accent)}
+.btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--border)}
+.btn-primario{background:var(--accent);color:#fff}
+.btn-primario:hover{background:var(--accent-hover)}
+.section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:8px 16px;border-bottom:1px solid var(--border)}
+td{padding:8px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr.atrasado td{background:rgba(239,68,68,.06)}
+.vazio{padding:24px;text-align:center;color:var(--muted);font-size:13px}
+.badge{display:inline-block;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600;color:#fff;margin-left:6px}
+.badge-amarelo{background:var(--yellow)}
+.badge-vermelho{background:var(--red)}
+button[data-abrir],button[data-veredito-ok],button[data-veredito-dup]{padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--text);margin-right:4px;font-family:inherit}
+button[data-veredito-ok]{border-color:var(--green);color:var(--green)}
+button[data-veredito-dup]{border-color:var(--red);color:var(--red)}
+button[data-abrir]:hover,button[data-veredito-ok]:hover,button[data-veredito-dup]:hover{background:var(--border)}
+dialog{background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:720px;width:92vw;max-height:88vh;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog h2{font-size:18px;margin-bottom:8px}
+dialog label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px;font-weight:600}
+dialog input[type=text],dialog input:not([type]),dialog input[type=number],dialog select,dialog textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 8px;font-family:inherit;font-size:13px}
+dialog textarea{min-height:60px;resize:vertical}
+.espelho{font-size:13px;color:var(--muted);margin-bottom:8px}
+.espelho small{display:block;margin-top:2px}
+fieldset{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:12px}
+fieldset legend{font-size:13px;font-weight:600;padding:0 4px}
+.etapas{list-style:none;margin:8px 0}
+.etapas li{display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:12px}
+.etapas li .et-desc{flex:2}
+.etapas li .et-prof{flex:1}
+.etapas li em{color:var(--muted);font-style:normal;font-size:11px}
+.etapas li button.et-rm{background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px}
+fieldset .add-etapa,fieldset .dividir{margin-top:6px;font-size:11px;padding:4px 8px}
+dialog footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Planejamento de Tratamentos</h1>
+    </div>
+  </div>
+
+  <nav class="abas">
+    <button data-aba="planejar" class="ativa">Planejar</button>
+    <button data-aba="suspeitas">Suspeitas</button>
+    <button data-aba="gestora">Gestora</button>
+  </nav>
+
+  <section id="fila" class="section"><div class="vazio">Carregando...</div></section>
+
+  <dialog id="dlg-plano"></dialog>
+
+</div>
+<script src="/js/planejamento/app.js"></script>
+<script src="/js/shared-nav.js" data-active="planejamento"></script>
+</body>
+</html>
