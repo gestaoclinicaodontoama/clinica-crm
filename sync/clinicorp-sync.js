@@ -441,6 +441,11 @@ async function syncOrcamentos() {
       data_fechamento:       o.Status === 'APPROVED' ? toDate(o.LastChange_Date) : null,
       paciente_nome:         o.PatientName || '',
       clinicorp_lastchange:  o.LastChange_Date || null,
+      procedure_list:        Array.isArray(o.ProcedureList) ? o.ProcedureList.map(p => ({
+                               PriceId: p.PriceId ?? null, ProcedureName: p.ProcedureName || p.Name || '',
+                               Executed: p.Executed || '', Dentist_PersonId: p.Dentist_PersonId ?? null,
+                               ProfessionalName: p.ProfessionalName || null, Amount: p.Amount ?? null,
+                             })) : null,
       atualizado_em:         new Date().toISOString(),
     });
   }
@@ -968,6 +973,31 @@ async function runSync(trigger = 'agendado') {
     result.steps.agenda = r.count;
   });
 
+  // Fase 7e: modo de planejamento (deriva de `orcamentos`; zero chamadas à API)
+  await step('planejamento', async () => {
+    const r = await syncPlanejamento();
+    result.steps.planejamento = `${r.criadosPlanos} planos, ${r.criadosSucesso} sucesso`;
+  });
+
+  // Fase 7f: planejado → em_andamento no 1º comparecimento APÓS o plano atingir 'planejado'
+  // (gatilho por paciente — limitação aceita na spec; preciso de novo na entrega ②)
+  await step('planejamento_andamento', async () => {
+    const { data: pl } = await supabase.from('plano_tratamento')
+      .select('id, paciente_clinicorp_id, planejado_em').eq('status', 'planejado').not('planejado_em', 'is', null);
+    let flips = 0;
+    for (const p of pl || []) {
+      const { data: comp } = await supabase.from('agenda_appointments')
+        .select('id').eq('paciente_clinicorp_id', p.paciente_clinicorp_id)
+        .eq('compareceu', true).eq('deleted', false)
+        .gte('appointment_date', p.planejado_em.slice(0, 10)).limit(1);
+      if (comp?.length) {
+        await supabase.from('plano_tratamento').update({ status: 'em_andamento', atualizado_em: new Date().toISOString() }).eq('id', p.id);
+        flips++;
+      }
+    }
+    result.steps.planejamento_andamento = flips;
+  });
+
   // Fase 8: vincular avaliações/orçamentos a leads (por telefone)
   await step('leads_vinculados', async () => { result.steps.leads_vinculados = await vincularLeads(); });
 
@@ -1012,9 +1042,149 @@ async function runSync(trigger = 'agendado') {
   return result;
 }
 
+// ─── Modo de Planejamento (Produção ①) ────────────────────────────────────────
+// Deriva TUDO da tabela `orcamentos` (zero chamadas novas à API).
+const { agruparItens, requerPlano, heuristicaDuplicata } = require('../lib/planejamento/triagem');
+const { aplicarResync } = require('../lib/planejamento/estados');
+
+async function syncPlanejamento() {
+  // 1) universo de CRIAÇÃO: aprovados PARTICULARES (paridade com a Conferência antiga, que
+  //    filtrava .gt('valor_particular', 0) — convênio NÃO entra, igual hoje)
+  const orcs = await selectAll('orcamentos',
+    'clinicorp_estimate_id, paciente_clinicorp_id, paciente_nome, telefone, profissional_nome, valor_particular, entrada_valor, status, data_fechamento, lead_id, procedure_list',
+    q => q.eq('status', 'APPROVED').gt('valor_particular', 0).not('data_fechamento', 'is', null));
+  const planos = await selectAll('plano_tratamento', 'id, clinicorp_estimate_id, status, trava_resync, valor, entrada');
+  const planosByEst = new Map(planos.map(p => [p.clinicorp_estimate_id, p]));
+
+  // 1b) universo de RE-SYNC: orçamentos dos planos EXISTENTES em QUALQUER status.
+  //     Venda desfeita grava status≠APPROVED E data_fechamento=null (syncOrcamentos:439-441) —
+  //     sem esta 2ª busca a regra 'status reverteu → cancelado' NUNCA dispararia.
+  const estIdsAtivos = planos.filter(p => p.status !== 'cancelado').map(p => p.clinicorp_estimate_id);
+  const orcsDosPlanos = [];
+  for (let i = 0; i < estIdsAtivos.length; i += 200) {
+    const { data } = await supabase.from('orcamentos')
+      .select('clinicorp_estimate_id, paciente_clinicorp_id, status, valor_particular, entrada_valor, procedure_list')
+      .in('clinicorp_estimate_id', estIdsAtivos.slice(i, i + 200));
+    orcsDosPlanos.push(...(data || []));
+  }
+  const orcByEst = new Map(orcsDosPlanos.map(o => [o.clinicorp_estimate_id, o]));
+
+  // fallback de nome: a ProcedureList pode NÃO trazer nome utilizável (o syncProducao resolve
+  // via catálogo) — usa producao_procedimentos (cobertura ~96,6% por PriceId)
+  const nomesArr = await selectAll('producao_procedimentos', 'price_id, procedure_name',
+    q => q.not('price_id', 'is', null).neq('procedure_name', ''));
+  const nomePorPrice = new Map(nomesArr.map(n => [String(n.price_id), n.procedure_name]));
+  const padroesArr = await selectAll('processos_padrao', 'price_id, requer_plano, etapas, status', q => q.not('price_id', 'is', null));
+  const padroes = new Map(padroesArr.map(p => [String(p.price_id), p]));
+  const { data: mapaArr } = await supabase.from('planejamento_dentistas').select('profissional_nome, user_id').eq('ativo', true);
+  const mapa = new Map((mapaArr || []).map(m => [m.profissional_nome, m.user_id]));
+
+  // pré-computa itens agrupados + nome resolvido
+  const nomear = itens => itens.map(i => ({ ...i, procedure_name: i.procedure_name || nomePorPrice.get(String(i.price_id)) || `PriceId ${i.price_id}` }));
+  const comItens = orcs.map(o => ({ ...o, itens: nomear(agruparItens(o.procedure_list)) }));
+
+  let criadosSucesso = 0, criadosPlanos = 0, resyncs = 0;
+
+  // 2) RE-SYNC dos planos existentes (qualquer status do orçamento — inclusive venda desfeita)
+  for (const plano of planos) {
+    if (plano.status === 'cancelado') continue;              // supressão (pop. 4 e vereditos)
+    const o = orcByEst.get(plano.clinicorp_estimate_id);
+    if (!o) continue;                                        // sumiu da tabela → NÃO cancela (regra V2)
+    const itensNovos = nomear(agruparItens(o.procedure_list));
+    const { data: itensPlano } = await supabase.from('plano_itens')
+      .select('id, price_id, quantidade, removido_em, plano_etapas(status)')
+      .eq('plano_id', plano.id).is('parent_id', null).is('removido_em', null);
+    const itensFmt = (itensPlano || []).map(i => ({
+      price_id: i.price_id, quantidade: i.quantidade,
+      etapas_executadas: (i.plano_etapas || []).some(e => e.status !== 'pendente'),
+    }));
+    const { acoes } = aplicarResync({ plano, itensPlano: itensFmt, itensNovos, statusClinicorp: o.status });
+    if (acoes.length) { resyncs++; await executarAcoesResync(plano, acoes, o); }
+    // espelho de valor/entrada sempre atual
+    if (Number(plano.valor) !== Number(o.valor_particular) || Number(plano.entrada) !== Number(o.entrada_valor)) {
+      await supabase.from('plano_tratamento').update({ valor: o.valor_particular, entrada: o.entrada_valor, atualizado_em: new Date().toISOString() }).eq('id', plano.id);
+    }
+  }
+
+  // 3) CRIAÇÃO para aprovados novos (lead_id pode nascer null — a RPC vincular_leads_funil
+  //    da fase 8 do runSync liga pacientes_sucesso a leads na mesma noite/seguinte)
+  for (const o of comItens) {
+    const estId = o.clinicorp_estimate_id;
+    if (planosByEst.has(estId)) continue;
+
+    // NOVO orçamento aprovado →
+    // (a) paciente nasce na Sucesso IMEDIATAMENTE (dedup por estimate_id — mesma lógica do hook antigo)
+    const { data: jaSucesso } = await supabase.from('pacientes_sucesso').select('id, excluido_em').eq('clinicorp_estimate_id', estId).limit(1);
+    if (jaSucesso?.length && jaSucesso[0].excluido_em) {
+      await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('id', jaSucesso[0].id);
+    } else if (!jaSucesso?.length) {
+      await supabase.from('pacientes_sucesso').insert({
+        lead_id: o.lead_id || null, clinicorp_estimate_id: estId, nome: o.paciente_nome || '',
+        telefone: o.telefone || '', data_venda: o.data_fechamento, valor_fechado: Number(o.valor_particular || 0),
+        importado_historico: false,
+      });
+      criadosSucesso++;
+    }
+
+    // (b) plano com triagem + heurística de duplicata + padrão PRÉ-APLICADO
+    const precisa = requerPlano(o.itens, padroes);
+    const dup = heuristicaDuplicata(o, comItens.filter(x => x.clinicorp_estimate_id !== estId && planosByEst.get(x.clinicorp_estimate_id)?.status !== 'cancelado'));
+    const { data: plano, error } = await supabase.from('plano_tratamento').insert({
+      clinicorp_estimate_id: estId, paciente_clinicorp_id: o.paciente_clinicorp_id, paciente_nome: o.paciente_nome,
+      dentista_avaliador_id: mapa.get(o.profissional_nome) || null,
+      status: precisa ? 'aguardando_planejamento' : 'descartado',
+      status_motivo: precisa ? null : 'sem_etapas',
+      valor: o.valor_particular, entrada: o.entrada_valor,
+      possivel_duplicata: dup.suspeito, duplicata_de: dup.de,
+    }).select('id').single();
+    if (error) { log(`ERRO plano ${estId}: ${error.message}`); continue; }
+    criadosPlanos++;
+
+    // itens raiz + etapas do padrão pré-aplicadas (Decisão 4 da spec: dentista CONFIRMA)
+    for (const [ordem, item] of o.itens.entries()) {
+      const { data: itemRow } = await supabase.from('plano_itens').insert({
+        plano_id: plano.id, price_id: item.price_id, procedure_name: item.procedure_name,
+        quantidade: item.quantidade, ordem,
+      }).select('id').single();
+      const padrao = padroes.get(String(item.price_id));
+      const etapas = (padrao?.etapas || []).map((e, i) => ({
+        item_id: itemRow.id, ordem: i, descricao: e.descricao,
+        profissional_executor: e.profissional_sugerido || null,
+        tempo_planejado_min: e.tempo_sugerido_min || null,     // sugestão do LOTE — nunca multiplicada
+        status: item.executados >= item.quantidade ? 'concluida_retroativa' : 'pendente',
+      }));
+      if (etapas.length) await supabase.from('plano_etapas').insert(etapas);
+    }
+  }
+  log(`Planejamento: +${criadosSucesso} pacientes_sucesso, +${criadosPlanos} planos, ${resyncs} re-syncs`);
+  return { criadosSucesso, criadosPlanos, resyncs };
+}
+
+async function executarAcoesResync(plano, acoes, orc) {
+  const now = new Date().toISOString();
+  for (const a of acoes) {
+    if (a.tipo === 'travar') {
+      await supabase.from('plano_tratamento').update({ trava_resync: a.motivo, atualizado_em: now }).eq('id', plano.id);
+    } else if (a.tipo === 'cancelar') {
+      await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: a.motivo, atualizado_em: now }).eq('id', plano.id);
+      // espelha na Sucesso (spec): soft-delete já usado pelo módulo (excluido_em) — marca, não deleta
+      await supabase.from('pacientes_sucesso').update({ excluido_em: now }).eq('clinicorp_estimate_id', plano.clinicorp_estimate_id).is('excluido_em', null);
+    } else if (a.tipo === 'adicionar_item') {
+      await supabase.from('plano_itens').insert({ plano_id: plano.id, price_id: a.price_id, procedure_name: a.procedure_name || '', quantidade: a.quantidade || 1, ordem: 99 });
+    } else if (a.tipo === 'remover_item') {
+      await supabase.from('plano_itens').update({ removido_em: now }).eq('plano_id', plano.id).eq('price_id', a.price_id).is('parent_id', null);
+    } else if (a.tipo === 'atualizar_quantidade') {
+      await supabase.from('plano_itens').update({ quantidade: a.quantidade }).eq('plano_id', plano.id).eq('price_id', a.price_id).is('parent_id', null);
+    } else if (a.tipo === 'regredir' || a.tipo === 'ressuscitar') {
+      await supabase.from('plano_tratamento').update({ status: 'aguardando_planejamento', status_motivo: a.tipo === 'ressuscitar' ? 'item novo requer plano' : 'orçamento alterado no Clinicorp', atualizado_em: now }).eq('id', plano.id);
+      if (a.tipo === 'ressuscitar') await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('clinicorp_estimate_id', plano.clinicorp_estimate_id);
+    }
+  }
+}
+
 // Chamada direta: node sync/clinicorp-sync.js
 if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, avancarFechamentos, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes, syncPrevencao };
+module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, avancarFechamentos, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes, syncPrevencao, syncPlanejamento };

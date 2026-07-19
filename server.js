@@ -4963,38 +4963,25 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
     const { error } = await supabase.from('orcamentos').update(patch).eq('clinicorp_estimate_id', id);
     if (error) throw error;
 
-    if (acao === 'aprovar') {
-      // Espelha a venda aprovada no módulo Pacientes (Sucesso do Cliente).
-      // Dedup por clinicorp_estimate_id — orçamentos vêm sem lead_id, então não dá pra
-      // depender dele aqui (era o bug: aprovados nunca chegavam em pacientes_sucesso).
-      (async () => {
-        try {
-          const { data: jaExisteArr } = await supabase.from('pacientes_sucesso')
-            .select('id, excluido_em').eq('clinicorp_estimate_id', id).limit(1);
-          if (jaExisteArr?.length && jaExisteArr[0].excluido_em) {
-            // Linha soft-deletada no Pacientes 2: reaprovação reativa (senão a venda sumiria dos dois módulos)
-            await supabase.from('pacientes_sucesso')
-              .update({ excluido_em: null }).eq('id', jaExisteArr[0].id);
-          }
-          if (!jaExisteArr?.length) {
-            let telefone = orc.telefone || '';
-            if (!telefone && orc.lead_id) {
-              const { data: lead } = await supabase.from('leads')
-                .select('telefone').eq('id', orc.lead_id).maybeSingle();
-              telefone = lead?.telefone || '';
-            }
-            await supabase.from('pacientes_sucesso').insert({
-              lead_id: orc.lead_id || null,
-              clinicorp_estimate_id: id,
-              nome: orc.paciente_nome || '',
-              telefone,
-              data_venda: orc.data_fechamento,
-              valor_fechado: patch.valor_aprovado,
-              importado_historico: false,
-            });
-          }
-        } catch (hookErr) { console.error('Hook pacientes_sucesso:', hookErr.message); }
-      })();
+    // CUTOVER (spec Modo de Planejamento 19/07): pacientes_sucesso agora nasce no SYNC
+    // (fase 'planejamento'), na aprovação do Clinicorp. Este endpoint segue vivo só até
+    // a fila antiga zerar; 'rejeitar' vira insumo da lista de supressão (plano cancelado).
+    if (acao === 'rejeitar') {
+      // veredito tardio protege trabalho feito: plano com etapas executadas TRAVA em vez de cancelar
+      const { data: plExist } = await supabase.from('plano_tratamento').select('id').eq('clinicorp_estimate_id', id).maybeSingle();
+      if (plExist) {
+        const { data: exec } = await supabase.from('plano_etapas').select('id, plano_itens!inner(plano_id)')
+          .eq('plano_itens.plano_id', plExist.id).neq('status', 'pendente').limit(1);
+        if (exec?.length) {
+          await supabase.from('plano_tratamento').update({ trava_resync: 'rejeitado na Conferência com etapas executadas — decidir manualmente' }).eq('id', plExist.id);
+        } else {
+          await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: 'rejeitado_conferencia' }).eq('id', plExist.id);
+          await supabase.from('pacientes_sucesso').update({ excluido_em: new Date().toISOString() }).eq('clinicorp_estimate_id', id).is('excluido_em', null);
+        }
+      } else {
+        await supabase.from('plano_tratamento')
+          .insert({ clinicorp_estimate_id: id, paciente_nome: orc.paciente_nome || '', status: 'cancelado', status_motivo: 'rejeitado_conferencia' });
+      }
     }
 
     res.json({ ok: true });
