@@ -508,6 +508,7 @@ const requirePublicos = requireRole('admin', 'gestor', 'crc_comercial', 'mod_pub
 const requireFinanceiro = requireRole('financeiro', 'admin', 'mod_financeiro');
 const requireProducao  = requireRole('financeiro', 'admin', 'mod_financeiro', 'mod_producao');
 const requirePlanejamento = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento');
+const requirePlanejamentoOuCRC = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento', 'crc_comercial');
 const requirePlanejamentoGestor = requireRole('gestor', 'admin');
 // veredito CRC reusa requireDashboardAvaliacao (gestor, admin, crc_comercial) já existente
 
@@ -5005,12 +5006,14 @@ async function planCarregarPlano(id) {
   return { plano, itens: raizes };
 }
 
-app.get('/api/planejamento/fila', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+app.get('/api/planejamento/fila', requireAuth, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
   try {
-    const aba = String(req.query.aba || 'planejar');
     const { data: cfg } = await supabase.from('planejamento_config').select('*').eq('id', 1).single();
     const roles = req.user.profile?.roles || [];
     const soDentista = roles.includes('dentista') && !roles.some(r => ['gestor', 'admin', 'mod_planejamento'].includes(r));
+    // CRC-pura (sem role de planejamento) só enxerga a fila caça-erro, independente do ?aba pedido
+    const soCRC = roles.includes('crc_comercial') && !roles.some(r => ['dentista', 'gestor', 'admin', 'mod_planejamento'].includes(r));
+    const aba = soCRC ? 'suspeitas' : String(req.query.aba || 'planejar');
     let q = supabase.from('plano_tratamento').select('*').order('criado_em', { ascending: true });
     if (aba === 'planejar') {
       q = q.eq('status', 'aguardando_planejamento');
@@ -5035,6 +5038,9 @@ app.get('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
   try {
     const r = await planCarregarPlano(req.params.id);
     if (!r) return res.status(404).json({ error: 'plano não encontrado' });
+    const roles = req.user.profile?.roles || [];
+    const soDentista = roles.includes('dentista') && !roles.some(rl => ['gestor', 'admin', 'mod_planejamento'].includes(rl));
+    if (soDentista && r.plano.dentista_avaliador_id !== req.user.id) return res.status(403).json({ error: 'plano de outro dentista' });
     const priceIds = r.itens.map(i => i.price_id).filter(Boolean);
     const { data: padroes } = priceIds.length
       ? await supabase.from('processos_padrao').select('*').in('price_id', priceIds)
@@ -5050,8 +5056,14 @@ app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
     const id = Number(req.params.id);
     const { data: plano } = await supabase.from('plano_tratamento').select('id, status, dentista_avaliador_id, trocas_responsavel').eq('id', id).maybeSingle();
     if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    const roles = req.user.profile?.roles || [];
+    const soDentista = roles.includes('dentista') && !roles.some(rl => ['gestor', 'admin', 'mod_planejamento'].includes(rl));
+    if (soDentista && plano.dentista_avaliador_id !== req.user.id) return res.status(403).json({ error: 'plano de outro dentista' });
     if (['cancelado', 'concluido'].includes(plano.status)) return res.status(409).json({ error: `plano ${plano.status} — reative antes de editar` });
     const b = req.body || {};
+    if (soDentista && 'dentista_avaliador_id' in b && b.dentista_avaliador_id !== plano.dentista_avaliador_id) {
+      return res.status(403).json({ error: 'troca de responsável é da gestora/planejadora' });
+    }
     const patch = { atualizado_em: new Date().toISOString(), planejado_por: req.user.id };
     if ('orientacao_clinica' in b) patch.orientacao_clinica = sanitizeStr(b.orientacao_clinica || '', 4000);
     if ('recado_sucesso' in b) patch.recado_sucesso = sanitizeStr(b.recado_sucesso || '', 2000);
@@ -5065,18 +5077,27 @@ app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
 
     // sub-lotes: recria filhos do item (conservação validada); etapas: recria por item/sub-lote
     for (const item of b.itens || []) {
+      // posse: item precisa pertencer ao plano da URL (vale pros dois ramos abaixo)
+      const { data: raiz } = await supabase.from('plano_itens').select('id, quantidade')
+        .eq('id', item.id).eq('plano_id', id).maybeSingle();
+      if (!raiz) continue;   // item de outro plano (ou inexistente) — ignora
       if (Array.isArray(item.sublotes) && item.sublotes.length) {
-        const { data: raiz } = await supabase.from('plano_itens').select('id, quantidade').eq('id', item.id).eq('plano_id', id).maybeSingle();
-        if (!raiz) continue;
         const v = planValidarSubLotes(raiz.quantidade, item.sublotes);
         if (!v.ok) return res.status(400).json({ error: `sub-lotes de "${item.id}": ${v.erro}` });
+        // re-divisão não pode apagar sub-lotes já com etapa executada (não-pendente)
+        const { data: filhos } = await supabase.from('plano_itens').select('id').eq('parent_id', raiz.id);
+        if (filhos?.length) {
+          const { data: execFilho } = await supabase.from('plano_etapas').select('id')
+            .in('item_id', filhos.map(f => f.id)).neq('status', 'pendente').limit(1);
+          if (execFilho?.length) return res.status(409).json({ error: 'sub-lotes têm etapas executadas — redivisão bloqueada (decidir manualmente)' });
+        }
         await supabase.from('plano_itens').delete().eq('parent_id', raiz.id);
         // etapas penduram em FOLHAS: ao dividir, as pendentes da RAIZ saem (senão ficam órfãs)
         await supabase.from('plano_etapas').delete().eq('item_id', raiz.id).eq('status', 'pendente');
         for (const [i, sl] of item.sublotes.entries()) {
           const { data: novo } = await supabase.from('plano_itens').insert({
-            plano_id: id, parent_id: raiz.id, price_id: null, procedure_name: sl.rotulo || `Sub-lote ${i + 1}`,
-            quantidade: sl.quantidade, rotulo: sl.rotulo || null, ordem: i }).select('id').single();
+            plano_id: id, parent_id: raiz.id, price_id: null, procedure_name: sanitizeStr(sl.rotulo || '', 120) || `Sub-lote ${i + 1}`,
+            quantidade: sl.quantidade, rotulo: sanitizeStr(sl.rotulo || '', 120) || null, ordem: i }).select('id').single();
           sl._novoId = novo.id;
         }
       }
@@ -5100,11 +5121,14 @@ app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
 });
 
 // Transições de estado (concluir/descartar/reativar/destravar) — máquina de estados da lib
-app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
   try {
     const { id, acao } = req.params;
-    const { data: plano } = await supabase.from('plano_tratamento').select('id, status, trava_resync').eq('id', id).maybeSingle();
+    const { data: plano } = await supabase.from('plano_tratamento').select('id, status, trava_resync, dentista_avaliador_id').eq('id', id).maybeSingle();
     if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    const roles = req.user.profile?.roles || [];
+    const soDentista = roles.includes('dentista') && !roles.some(rl => ['gestor', 'admin', 'mod_planejamento'].includes(rl));
+    if (soDentista && plano.dentista_avaliador_id !== req.user.id) return res.status(403).json({ error: 'plano de outro dentista' });
     const now = new Date().toISOString();
     const mapa = {
       concluir:  { para: 'planejado', patch: { planejado_em: now, planejado_por: req.user.id } },
@@ -5112,13 +5136,11 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamento, 
       reativar:  { para: 'aguardando_planejamento', patch: { status_motivo: null } },
     };
     if (acao === 'destravar') {                             // trava do re-sync → só gestor
-      const roles = req.user.profile?.roles || [];
       if (!roles.some(r => ['gestor', 'admin'].includes(r))) return res.status(403).json({ error: 'só gestor destrava' });
       await supabase.from('plano_tratamento').update({ trava_resync: null, atualizado_em: now }).eq('id', id);
       return res.json({ ok: true });
     }
     if (acao === 'veredito') {                              // CRC: duplicata / nao_venda / ok
-      const roles = req.user.profile?.roles || [];
       if (!roles.some(r => ['gestor', 'admin', 'crc_comercial'].includes(r))) return res.status(403).json({ error: 'sem permissão' });
       const v = String(req.body.veredito || '');
       if (v === 'ok') { await supabase.from('plano_tratamento').update({ possivel_duplicata: false, duplicata_de: null, divergencia_reportada: false, atualizado_em: now }).eq('id', id); return res.json({ ok: true }); }
@@ -5138,6 +5160,8 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamento, 
     }
     const t = mapa[acao];
     if (!t) return res.status(400).json({ error: 'ação inválida' });
+    // concluir/descartar/reativar são do planejamento — CRC só usa veredito/divergencia (destravar já é gestor/admin acima)
+    if (!roles.some(r => ['dentista', 'gestor', 'admin', 'mod_planejamento'].includes(r))) return res.status(403).json({ error: 'sem permissão' });
     if (!planTransicao(plano.status, t.para)) return res.status(409).json({ error: `transição ${plano.status} → ${t.para} inválida` });
     const { error } = await supabase.from('plano_tratamento').update({ status: t.para, atualizado_em: now, ...t.patch }).eq('id', id);
     if (error) throw error;
@@ -5159,7 +5183,11 @@ app.post('/api/planejamento/padroes', requireAuth, requirePlanejamento, rateLimi
     const b = req.body || {};
     const { data, error } = await supabase.from('processos_padrao').insert({
       price_id: b.price_id || null, procedure_name: sanitizeStr(b.procedure_name || '', 200),
-      requer_plano: b.requer_plano !== false, etapas: Array.isArray(b.etapas) ? b.etapas : [],
+      requer_plano: b.requer_plano !== false,
+      etapas: (Array.isArray(b.etapas) ? b.etapas : []).map(e => ({
+        descricao: sanitizeStr(e.descricao || '', 300),
+        profissional_sugerido: sanitizeStr(e.profissional_sugerido || '', 120) || null,
+        tempo_sugerido_min: Number(e.tempo_sugerido_min) || null })),
       status: 'rascunho', criado_por: req.user.id }).select('id').single();
     if (error) throw error;
     res.json({ ok: true, id: data.id });                     // rascunho é utilizável pelo autor (spec)
