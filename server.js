@@ -171,6 +171,7 @@ function _bustProfile(userId) { if (userId) _profileCache.delete(userId); }
 
 // ===== Papel "parceiro" (somente-leitura) =====
 // POSTs que são LEITURA pura (preview/exportação) — liberados p/ o parceiro.
+// Chaves em minúsculas e sem barra final; a comparação normaliza req.path (_pathNorm).
 const PARCEIRO_READ_POST = new Set([
   '/api/campanhas/preview',
   '/api/disparos/preview',
@@ -178,15 +179,18 @@ const PARCEIRO_READ_POST = new Set([
   '/api/publicos/exportar',
   '/api/social-media/ia/pergunta',
 ]);
-// GETs com EFEITO COLATERAL (geram/gravam) — bloqueados p/ o parceiro.
-const PARCEIRO_GET_BLOCK = new Set([
-  '/api/tarefas',                    // gera as tarefas do dia (insert)
-  '/api/social-media/ia/analise',    // upsert de cache + custo Gemini
-  '/api/financeiro/avaliacao',       // upsert de cache + custo Gemini
-]);
 // Somente-leitura = tem o papel "parceiro". Ele força leitura mesmo se combinado
 // com outro papel; por isso o parceiro deve ser atribuído sozinho.
 const _ehSomenteLeitura = roles => roles.includes('parceiro');
+// Normaliza o caminho p/ a allowlist não ser furada por barra final / caixa.
+const _pathNorm = req => (req.path || '').replace(/\/+$/, '').toLowerCase() || '/';
+// Barra o parceiro numa rota específica. Fail-closed: roda só quando o Express casa a
+// rota, então truques de barra/caixa/encoding que ainda roteiam pra cá também caem aqui.
+// Usado nos GET com EFEITO COLATERAL (geram/gravam), que o bloqueio por método não pega.
+function blockParceiro(req, res, next) {
+  if (req.user && req.user.isParceiro) return res.status(403).json({ error: 'Acesso somente-leitura' });
+  next();
+}
 
 async function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
@@ -207,9 +211,9 @@ async function requireAuth(req, res, next) {
   const _roles = (await loadProfile(req)).roles || [];
   if (_ehSomenteLeitura(_roles)) {
     req.user.isParceiro = true;
-    if (req.method === 'GET') {
-      if (PARCEIRO_GET_BLOCK.has(req.path)) return res.status(403).json({ error: 'Acesso somente-leitura' });
-    } else if (!PARCEIRO_READ_POST.has(req.path)) {
+    // Escrita: nega TUDO que não for GET, exceto os POSTs de leitura pura (allowlist).
+    // Os GET com efeito colateral são barrados por blockParceiro nas próprias rotas.
+    if (req.method !== 'GET' && !PARCEIRO_READ_POST.has(_pathNorm(req))) {
       return res.status(403).json({ error: 'Acesso somente-leitura' });
     }
   }
@@ -483,7 +487,7 @@ function requireRole(...allowed) {
     const roles = p.roles || [];
     // Parceiro (somente-leitura) enxerga toda LEITURA: GETs e os POSTs de leitura.
     // A escrita já foi barrada no requireAuth; aqui só liberamos a visualização.
-    if (_ehSomenteLeitura(roles) && (req.method === 'GET' || PARCEIRO_READ_POST.has(req.path))) return next();
+    if (_ehSomenteLeitura(roles) && (req.method === 'GET' || PARCEIRO_READ_POST.has(_pathNorm(req)))) return next();
     if (!allowed.some(r => roles.includes(r))) {
       return res.status(403).json({ error: 'Acesso negado' });
     }
@@ -8167,7 +8171,7 @@ async function _smFatosAnalise(mesQuery) {
   return montarFatosAnalise({ dadosMensais, radarTop: dTat.radar || [], funil, cobertura });
 }
 
-app.get('/api/social-media/ia/analise', requireAuth, requireRole('admin', 'gestor'), async (req, res) => {
+app.get('/api/social-media/ia/analise', requireAuth, blockParceiro, requireRole('admin', 'gestor'), async (req, res) => {
   try {
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : _smHojeBRT().slice(0, 7);
     const chave = `analise:${mes}`;
@@ -8541,7 +8545,7 @@ function repoTarefas() {
 }
 
 // GET /api/tarefas?data=hoje  → gera sob demanda + retorna tarefas do dia, marca visto_em
-app.get('/api/tarefas', requireAuth, async (req, res) => {
+app.get('/api/tarefas', requireAuth, blockParceiro, async (req, res) => {
   try {
     const userId = req.user.id;
     const profile = await loadProfile(req);
@@ -9168,7 +9172,7 @@ app.get('/api/financeiro/curva-diaria', requireAuth, requireFinanceiro, async (r
 
 // Avaliação do consultor: fatos exatos (lib/financeiro/avaliacao) + leitura da IA.
 // Cache 24h por período em fin_dre_avaliacoes; ?force=1 regenera.
-app.get('/api/financeiro/avaliacao', requireAuth, requireFinanceiro, async (req, res) => {
+app.get('/api/financeiro/avaliacao', requireAuth, blockParceiro, requireFinanceiro, async (req, res) => {
   const { from, to, force, pergunta } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!re.test(from || '') || !re.test(to || '') || from > to) return res.status(400).json({ error: 'periodo invalido' });
