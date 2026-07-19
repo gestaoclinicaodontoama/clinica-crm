@@ -28,7 +28,7 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
 
 1. **Desacoplado:** o paciente nasce em `pacientes_sucesso` **na aprovação** (sync), com flag `plano_pendente`. O planejamento é **enriquecimento**, nunca portão — ninguém trava o cuidado.
 2. **Clinicorp é a verdade financeira:** aprovado no Clinicorp = conta como receita. Valor/entrada aparecem no plano **somente leitura** (espelho). Divergência → pendência para corrigir NO Clinicorp; o re-sync traz o valor certo. Nada de editar valor no CRM.
-3. **Checagem comercial leve (caça-erro, não portão):** a CRC recebe fila enxuta de suspeitas — possível duplicata (renegociação), valor estranho — com **poder de veredito** (marcar duplicata/não-é-venda → mescla/cancela o registro da Sucesso e descarta o plano). Pendência > N dias escala para a gestora. A tela antiga de Conferência é aposentada.
+3. **Checagem comercial leve (caça-erro, não portão):** a CRC recebe fila enxuta de suspeitas — possível duplicata (renegociação), valor estranho — com **poder de veredito** (marcar duplicata/não-é-venda → mescla/cancela o registro da Sucesso e descarta o plano). Pendência > 7 dias (configurável) escala para a gestora. A tela antiga de Conferência é aposentada.
 4. **Triagem automática contra ruído (adoção do dentista = risco nº 1):** cada tipo de procedimento no banco de processos tem a marca `requer_plano`. Limpeza/avulsos de sessão única nascem já resolvidos e **não aparecem** na fila do dentista. Requisito de aceitação: **planejar um caso típico em < 2 minutos** (1 clique aplica o padrão; dentista só ajusta tempos; sub-lotes são exceção, não formulário default).
 5. **Maleabilidade:** todo estado tem caminho de alteração manual (cancelar, reativar, mesclar, reatribuir) — nada fica travado em pedra.
 
@@ -70,7 +70,7 @@ Procedimentos multi-sessão (faceta: preparo→prova→cimentação; protocolo: 
    c. cria `plano_tratamento` em `aguardando_planejamento`; itens com `requer_plano=false` em todos → plano nasce `descartado` automático (não aparece pro dentista).
 2. **Dentista** abre a fila "Planejar" (só o que requer plano): padrão aplicado em 1 clique, ajusta tempos/profissionais, escreve orientação + recado, divide sub-lotes se precisar. Concluir → `planejado`; a Sucesso ganha equipe+trilha e `plano_pendente` sai.
 3. **CRC** vê a fila caça-erro (duplicatas, divergências) e dá veredito; correções de valor acontecem no Clinicorp.
-4. **Pressões contra fila parada:** a Sucesso enxerga "paciente sem trilha" e cobra; alerta de plano parado > N dias escala para a **gestora** (não para o dentista).
+4. **Pressões contra fila parada:** a Sucesso enxerga "paciente sem trilha" e cobra; alerta de plano parado > 7 dias (configurável) escala para a **gestora** (não para o dentista).
 5. **Auditoria de Registro Diário** (ganho imediato): sessão intermediária de paciente com plano ativo vira **"esperada pelo plano"** em vez de falsa pendência. Limitação documentada: se a agenda não expõe o procedimento da sessão, a dispensa é por paciente (grosseira) — pode mascarar pendência real de procedimento avulso; aceito conscientemente na ①, refinar na ② com o registro por etapa.
 
 ## Regras de re-sync (tabela de primeira classe)
