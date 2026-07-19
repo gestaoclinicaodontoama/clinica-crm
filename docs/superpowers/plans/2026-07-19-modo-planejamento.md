@@ -43,10 +43,11 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
 const BASE = 'https://api.clinicorp.com/rest/v1';
 const user = process.env.CLINICORP_USER, token = process.env.CLINICORP_TOKEN;
+const subscriber = process.env.CLINICORP_SUBSCRIBER_ID || user, business = process.env.CLINICORP_BUSINESS_ID || user;
 const auth = 'Basic ' + Buffer.from(`${user}:${token}`).toString('base64');
 
 async function apiGet(path, params) {
-  const qs = new URLSearchParams({ subscriber_id: user, business_id: user, ...params });
+  const qs = new URLSearchParams({ subscriber_id: subscriber, business_id: business, ...params });
   const r = await fetch(`${BASE}${path}?${qs}`, { headers: { Authorization: auth, 'X-Api-Key': token } });
   if (!r.ok) throw new Error(`${path} HTTP ${r.status}`);
   return r.json();
@@ -66,7 +67,7 @@ async function apiGet(path, params) {
     console.log('candidatas a quantidade/dente:', qtdKeys.join(', ') || '(nenhuma)');
   }
   // V2 — domínios de status vistos no nosso banco (o que o sync enxerga)
-  const { data: sts } = await supabase.rpc('exec_sql_readonly', {}).catch(() => ({ data: null }));
+  // (⚠️ NUNCA .catch() no builder do supabase-js — regra da casa)
   const { data: statusRows } = await supabase.from('orcamentos').select('status').limit(1000);
   console.log('\n=== V2: valores distintos de orcamentos.status (amostra 1000) ===');
   console.log([...new Set((statusRows || []).map(r => r.status))].join(', '));
@@ -542,43 +543,69 @@ const { agruparItens, requerPlano, heuristicaDuplicata } = require('../lib/plane
 const { aplicarResync } = require('../lib/planejamento/estados');
 
 async function syncPlanejamento() {
-  // 1) universo: orçamentos APPROVED da janela + planos existentes + padrões + mapa de dentistas
+  // 1) universo de CRIAÇÃO: aprovados PARTICULARES (paridade com a Conferência antiga, que
+  //    filtrava .gt('valor_particular', 0) — convênio NÃO entra, igual hoje)
   const orcs = await selectAll('orcamentos',
     'clinicorp_estimate_id, paciente_clinicorp_id, paciente_nome, telefone, profissional_nome, valor_particular, entrada_valor, status, data_fechamento, lead_id, procedure_list',
-    q => q.eq('status', 'APPROVED').not('data_fechamento', 'is', null));
+    q => q.eq('status', 'APPROVED').gt('valor_particular', 0).not('data_fechamento', 'is', null));
   const planos = await selectAll('plano_tratamento', 'id, clinicorp_estimate_id, status, trava_resync, valor, entrada');
   const planosByEst = new Map(planos.map(p => [p.clinicorp_estimate_id, p]));
+
+  // 1b) universo de RE-SYNC: orçamentos dos planos EXISTENTES em QUALQUER status.
+  //     Venda desfeita grava status≠APPROVED E data_fechamento=null (syncOrcamentos:439-441) —
+  //     sem esta 2ª busca a regra 'status reverteu → cancelado' NUNCA dispararia.
+  const estIdsAtivos = planos.filter(p => p.status !== 'cancelado').map(p => p.clinicorp_estimate_id);
+  const orcsDosPlanos = [];
+  for (let i = 0; i < estIdsAtivos.length; i += 200) {
+    const { data } = await supabase.from('orcamentos')
+      .select('clinicorp_estimate_id, paciente_clinicorp_id, status, valor_particular, entrada_valor, procedure_list')
+      .in('clinicorp_estimate_id', estIdsAtivos.slice(i, i + 200));
+    orcsDosPlanos.push(...(data || []));
+  }
+  const orcByEst = new Map(orcsDosPlanos.map(o => [o.clinicorp_estimate_id, o]));
+
+  // fallback de nome: a ProcedureList pode NÃO trazer nome utilizável (o syncProducao resolve
+  // via catálogo) — usa producao_procedimentos (cobertura ~96,6% por PriceId)
+  const nomesArr = await selectAll('producao_procedimentos', 'price_id, procedure_name',
+    q => q.not('price_id', 'is', null).neq('procedure_name', ''));
+  const nomePorPrice = new Map(nomesArr.map(n => [String(n.price_id), n.procedure_name]));
   const padroesArr = await selectAll('processos_padrao', 'price_id, requer_plano, etapas, status', q => q.not('price_id', 'is', null));
   const padroes = new Map(padroesArr.map(p => [String(p.price_id), p]));
   const { data: mapaArr } = await supabase.from('planejamento_dentistas').select('profissional_nome, user_id').eq('ativo', true);
   const mapa = new Map((mapaArr || []).map(m => [m.profissional_nome, m.user_id]));
 
-  // pré-computa itens agrupados por orçamento (p/ heurística e criação)
-  const comItens = orcs.map(o => ({ ...o, itens: agruparItens(o.procedure_list) }));
+  // pré-computa itens agrupados + nome resolvido
+  const nomear = itens => itens.map(i => ({ ...i, procedure_name: i.procedure_name || nomePorPrice.get(String(i.price_id)) || `PriceId ${i.price_id}` }));
+  const comItens = orcs.map(o => ({ ...o, itens: nomear(agruparItens(o.procedure_list)) }));
 
   let criadosSucesso = 0, criadosPlanos = 0, resyncs = 0;
+
+  // 2) RE-SYNC dos planos existentes (qualquer status do orçamento — inclusive venda desfeita)
+  for (const plano of planos) {
+    if (plano.status === 'cancelado') continue;              // supressão (pop. 4 e vereditos)
+    const o = orcByEst.get(plano.clinicorp_estimate_id);
+    if (!o) continue;                                        // sumiu da tabela → NÃO cancela (regra V2)
+    const itensNovos = nomear(agruparItens(o.procedure_list));
+    const { data: itensPlano } = await supabase.from('plano_itens')
+      .select('id, price_id, quantidade, removido_em, plano_etapas(status)')
+      .eq('plano_id', plano.id).is('parent_id', null).is('removido_em', null);
+    const itensFmt = (itensPlano || []).map(i => ({
+      price_id: i.price_id, quantidade: i.quantidade,
+      etapas_executadas: (i.plano_etapas || []).some(e => e.status !== 'pendente'),
+    }));
+    const { acoes } = aplicarResync({ plano, itensPlano: itensFmt, itensNovos, statusClinicorp: o.status });
+    if (acoes.length) { resyncs++; await executarAcoesResync(plano, acoes, o); }
+    // espelho de valor/entrada sempre atual
+    if (Number(plano.valor) !== Number(o.valor_particular) || Number(plano.entrada) !== Number(o.entrada_valor)) {
+      await supabase.from('plano_tratamento').update({ valor: o.valor_particular, entrada: o.entrada_valor, atualizado_em: new Date().toISOString() }).eq('id', plano.id);
+    }
+  }
+
+  // 3) CRIAÇÃO para aprovados novos (lead_id pode nascer null — a RPC vincular_leads_funil
+  //    da fase 8 do runSync liga pacientes_sucesso a leads na mesma noite/seguinte)
   for (const o of comItens) {
     const estId = o.clinicorp_estimate_id;
-    const jaTem = planosByEst.get(estId);
-
-    if (jaTem) {
-      // RE-SYNC: compara itens do plano com o snapshot atual
-      if (['cancelado'].includes(jaTem.status)) continue;   // supressão (pop. 4 e vereditos)
-      const { data: itensPlano } = await supabase.from('plano_itens')
-        .select('id, price_id, quantidade, removido_em, plano_etapas(status)')
-        .eq('plano_id', jaTem.id).is('parent_id', null).is('removido_em', null);
-      const itensFmt = (itensPlano || []).map(i => ({
-        price_id: i.price_id, quantidade: i.quantidade,
-        etapas_executadas: (i.plano_etapas || []).some(e => e.status !== 'pendente'),
-      }));
-      const { acoes } = aplicarResync({ plano: jaTem, itensPlano: itensFmt, itensNovos: o.itens, statusClinicorp: o.status });
-      if (acoes.length) { resyncs++; await executarAcoesResync(jaTem, acoes, o); }
-      // espelho de valor/entrada sempre atual
-      if (Number(jaTem.valor) !== Number(o.valor_particular) || Number(jaTem.entrada) !== Number(o.entrada_valor)) {
-        await supabase.from('plano_tratamento').update({ valor: o.valor_particular, entrada: o.entrada_valor, atualizado_em: new Date().toISOString() }).eq('id', jaTem.id);
-      }
-      continue;
-    }
+    if (planosByEst.has(estId)) continue;
 
     // NOVO orçamento aprovado →
     // (a) paciente nasce na Sucesso IMEDIATAMENTE (dedup por estimate_id — mesma lógica do hook antigo)
@@ -635,7 +662,8 @@ async function executarAcoesResync(plano, acoes, orc) {
       await supabase.from('plano_tratamento').update({ trava_resync: a.motivo, atualizado_em: now }).eq('id', plano.id);
     } else if (a.tipo === 'cancelar') {
       await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: a.motivo, atualizado_em: now }).eq('id', plano.id);
-      // espelha na Sucesso: soft-delete NÃO — marca via exclusão suave apenas se política atual permitir; aqui registra sem deletar
+      // espelha na Sucesso (spec): soft-delete já usado pelo módulo (excluido_em) — marca, não deleta
+      await supabase.from('pacientes_sucesso').update({ excluido_em: now }).eq('clinicorp_estimate_id', plano.clinicorp_estimate_id).is('excluido_em', null);
     } else if (a.tipo === 'adicionar_item') {
       await supabase.from('plano_itens').insert({ plano_id: plano.id, price_id: a.price_id, procedure_name: a.procedure_name || '', quantidade: a.quantidade || 1, ordem: 99 });
     } else if (a.tipo === 'remover_item') {
@@ -644,12 +672,13 @@ async function executarAcoesResync(plano, acoes, orc) {
       await supabase.from('plano_itens').update({ quantidade: a.quantidade }).eq('plano_id', plano.id).eq('price_id', a.price_id).is('parent_id', null);
     } else if (a.tipo === 'regredir' || a.tipo === 'ressuscitar') {
       await supabase.from('plano_tratamento').update({ status: 'aguardando_planejamento', status_motivo: a.tipo === 'ressuscitar' ? 'item novo requer plano' : 'orçamento alterado no Clinicorp', atualizado_em: now }).eq('id', plano.id);
+      if (a.tipo === 'ressuscitar') await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('clinicorp_estimate_id', plano.clinicorp_estimate_id);
     }
   }
 }
 ```
 
-- [ ] **Step 3: Registrar a fase no `runSync` (após a fase `producao`, ~linha 957) e o gatilho `em_andamento`**
+- [ ] **Step 3: Registrar a fase no `runSync` — APÓS a fase `agenda` (~linha 969), para o gatilho usar a agenda do PRÓPRIO dia — e o gatilho `em_andamento`**
 
 ```js
   // Fase 7e: modo de planejamento (deriva de `orcamentos`; zero chamadas à API)
@@ -667,7 +696,8 @@ async function executarAcoesResync(plano, acoes, orc) {
     for (const p of pl || []) {
       const { data: comp } = await supabase.from('agenda_appointments')
         .select('id').eq('paciente_clinicorp_id', p.paciente_clinicorp_id)
-        .eq('compareceu', true).gte('appointment_date', p.planejado_em.slice(0, 10)).limit(1);
+        .eq('compareceu', true).eq('deleted', false)
+        .gte('appointment_date', p.planejado_em.slice(0, 10)).limit(1);
       if (comp?.length) {
         await supabase.from('plano_tratamento').update({ status: 'em_andamento', atualizado_em: new Date().toISOString() }).eq('id', p.id);
         flips++;
@@ -677,7 +707,7 @@ async function executarAcoesResync(plano, acoes, orc) {
   });
 ```
 
-⚠️ Conferir o nome real da coluna de data em `agenda_appointments` (a spec do Registro Diário usa `appointment_date`) — ajustar se divergir.
+(Nomes `appointment_date`/`paciente_clinicorp_id`/`compareceu`/`deleted` VERIFICADOS no código — sync:669-678, server.js:9690-9692.)
 
 - [ ] **Step 4: Desligar o hook antigo (MESMO deploy — regra de cutover da spec)**
 
@@ -688,8 +718,21 @@ Em `server.js`, dentro do `POST /api/comercial/conferencia/:estimateId` (linhas 
       // (fase 'planejamento'), na aprovação do Clinicorp. Este endpoint segue vivo só até
       // a fila antiga zerar; 'rejeitar' vira insumo da lista de supressão (plano cancelado).
       if (acao === 'rejeitar') {
-        await supabase.from('plano_tratamento')
-          .upsert({ clinicorp_estimate_id: id, paciente_nome: orc.paciente_nome || '', status: 'cancelado', status_motivo: 'rejeitado_conferencia' }, { onConflict: 'clinicorp_estimate_id' });
+        // veredito tardio protege trabalho feito: plano com etapas executadas TRAVA em vez de cancelar
+        const { data: plExist } = await supabase.from('plano_tratamento').select('id').eq('clinicorp_estimate_id', id).maybeSingle();
+        if (plExist) {
+          const { data: exec } = await supabase.from('plano_etapas').select('id, plano_itens!inner(plano_id)')
+            .eq('plano_itens.plano_id', plExist.id).neq('status', 'pendente').limit(1);
+          if (exec?.length) {
+            await supabase.from('plano_tratamento').update({ trava_resync: 'rejeitado na Conferência com etapas executadas — decidir manualmente' }).eq('id', plExist.id);
+          } else {
+            await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: 'rejeitado_conferencia' }).eq('id', plExist.id);
+            await supabase.from('pacientes_sucesso').update({ excluido_em: new Date().toISOString() }).eq('clinicorp_estimate_id', id).is('excluido_em', null);
+          }
+        } else {
+          await supabase.from('plano_tratamento')
+            .insert({ clinicorp_estimate_id: id, paciente_nome: orc.paciente_nome || '', status: 'cancelado', status_motivo: 'rejeitado_conferencia' });
+        }
       }
 ```
 
@@ -748,7 +791,7 @@ const PADROES_INICIAIS = [
     const { data: cat } = await supabase.from('producao_procedimentos').select('price_id')
       .ilike('procedure_name', `%${p.procedure_name}%`).not('price_id', 'is', null).limit(1);
     await supabase.from('processos_padrao').upsert(
-      { ...p, price_id: cat?.[0]?.price_id || null, etapas: JSON.stringify ? p.etapas : p.etapas, status: 'aprovado' },
+      { ...p, price_id: cat?.[0]?.price_id || null, status: 'aprovado' },
       { onConflict: 'price_id', ignoreDuplicates: true });
   }
   console.log('Seeds ok. Rodando a fase de planejamento (pop. 1 e 2)...');
@@ -831,7 +874,11 @@ app.get('/api/planejamento/fila', requireAuth, requirePlanejamento, rateLimit, a
     } else if (aba === 'suspeitas') {
       q = q.or('possivel_duplicata.eq.true,divergencia_reportada.eq.true').not('status', 'in', '("cancelado")');
     } else if (aba === 'gestora') {
-      q = q.or('dentista_avaliador_id.is.null,trava_resync.not.is.null').eq('status', 'aguardando_planejamento');
+      // 3 conjuntos: sem dentista mapeado (aguardando) + TRAVADOS (qualquer status — a trava
+      // preserva o status, então sem isso um plano travado não apareceria em fila nenhuma) +
+      // parados > prazo (o "alerta de plano parado" da spec)
+      const cutoff = new Date(Date.now() - (cfg?.prazo_escalonamento_dias ?? 7) * 864e5).toISOString();
+      q = q.or(`and(dentista_avaliador_id.is.null,status.eq.aguardando_planejamento),trava_resync.not.is.null,and(status.eq.aguardando_planejamento,criado_em.lt.${cutoff})`);
     } else return res.status(400).json({ error: 'aba inválida' });
     const { data, error } = await q.limit(500);
     if (error) throw error;
@@ -879,6 +926,8 @@ app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
         const v = planValidarSubLotes(raiz.quantidade, item.sublotes);
         if (!v.ok) return res.status(400).json({ error: `sub-lotes de "${item.id}": ${v.erro}` });
         await supabase.from('plano_itens').delete().eq('parent_id', raiz.id);
+        // etapas penduram em FOLHAS: ao dividir, as pendentes da RAIZ saem (senão ficam órfãs)
+        await supabase.from('plano_etapas').delete().eq('item_id', raiz.id).eq('status', 'pendente');
         for (const [i, sl] of item.sublotes.entries()) {
           const { data: novo } = await supabase.from('plano_itens').insert({
             plano_id: id, parent_id: raiz.id, price_id: null, procedure_name: sl.rotulo || `Sub-lote ${i + 1}`,
@@ -886,10 +935,13 @@ app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
           sl._novoId = novo.id;
         }
       }
-      // etapas do item (ou de cada sub-lote): recria as PENDENTES; preserva concluída/retroativa
+      // etapas do item (ou de cada sub-lote): recria as PENDENTES; preserva concluída/retroativa.
+      // Sub-lote sem etapas próprias herda as etapas digitadas do item (1º sub-lote) — nada se perde.
       const alvos = (item.sublotes || []).length ? item.sublotes.map(s => s._novoId) : [item.id];
       for (const [ai, alvoId] of alvos.entries()) {
-        const etapas = ((item.sublotes || []).length ? item.sublotes[ai].etapas : item.etapas) || [];
+        const etapas = ((item.sublotes || []).length
+          ? (item.sublotes[ai].etapas?.length ? item.sublotes[ai].etapas : (ai === 0 ? item.etapas : []))
+          : item.etapas) || [];
         await supabase.from('plano_etapas').delete().eq('item_id', alvoId).eq('status', 'pendente');
         const rows = etapas.filter(e => !e.id || e.status === 'pendente').map((e, i) => ({
           item_id: alvoId, ordem: i, descricao: sanitizeStr(e.descricao || '', 300),
@@ -930,6 +982,9 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamento, 
       const { data: exec } = await supabase.from('plano_etapas').select('id, plano_itens!inner(plano_id)').eq('plano_itens.plano_id', id).neq('status', 'pendente').limit(1);
       if (exec?.length) { await supabase.from('plano_tratamento').update({ trava_resync: `veredito ${v} com etapas executadas — decidir manualmente`, atualizado_em: now }).eq('id', id); return res.json({ ok: true, travado: true }); }
       await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: v, atualizado_em: now }).eq('id', id);
+      // espelha na Sucesso (spec Decisão 3): soft-delete do módulo (marca, não deleta)
+      const { data: plEst } = await supabase.from('plano_tratamento').select('clinicorp_estimate_id').eq('id', id).single();
+      await supabase.from('pacientes_sucesso').update({ excluido_em: now }).eq('clinicorp_estimate_id', plEst.clinicorp_estimate_id).is('excluido_em', null);
       return res.json({ ok: true });
     }
     if (acao === 'divergencia') {
@@ -941,6 +996,10 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamento, 
     if (!planTransicao(plano.status, t.para)) return res.status(409).json({ error: `transição ${plano.status} → ${t.para} inválida` });
     const { error } = await supabase.from('plano_tratamento').update({ status: t.para, atualizado_em: now, ...t.patch }).eq('id', id);
     if (error) throw error;
+    if (acao === 'reativar') {   // reativação limpa o espelho na Sucesso (maleabilidade da spec)
+      const { data: plEst } = await supabase.from('plano_tratamento').select('clinicorp_estimate_id').eq('id', id).single();
+      await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('clinicorp_estimate_id', plEst.clinicorp_estimate_id);
+    }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1006,7 +1065,8 @@ E incluir `mod_planejamento` no `roles` da seção `producao` (linha 99).
 <!DOCTYPE html><html lang="pt-BR"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Planejar — Clínica AMA</title>
-<link rel="stylesheet" href="/css/base.css">
+<!-- SEM css externo (não existe /css/base.css): copiar o <style> inline da página irmã
+     public/producao/registro/index.html — tokens de tema, .wrap, .section, tabelas -->
 </head><body>
 <script src="/js/shared-nav.js" data-active="planejamento"></script>
 <main class="page">
@@ -1094,6 +1154,7 @@ E incluir `mod_planejamento` no `roles` da seção `producao` (linha 99).
       orientacao_clinica: $('#txt-orientacao').value, recado_sucesso: $('#txt-recado').value,
       itens: [...dlg.querySelectorAll('[data-item]')].map(f => ({
         id: Number(f.dataset.item),
+        sublotes: JSON.parse(f.dataset.sublotes || 'null') || undefined,
         etapas: [...f.querySelectorAll('[data-etapa], li.nova')].map(li => ({
           id: li.dataset.etapa ? Number(li.dataset.etapa) : null, status: 'pendente',
           descricao: li.querySelector('.et-desc').value,
@@ -1145,46 +1206,88 @@ E incluir `mod_planejamento` no `roles` da seção `producao` (linha 99).
 })();
 ```
 
-⚠️ Nota: o PUT do servidor espera `item.sublotes` — o executor deve incluir `sublotes: JSON.parse(f.dataset.sublotes || 'null')` no `coletar()` de cada item quando existir.
+⚠️ Nota: o shell visual (tema claro/escuro, `.wrap`, tabelas) DEVE ser copiado de `public/producao/registro/index.html` — não inventar css novo.
 
 - [ ] **Step 5: Testar manual local** — `npm start`, abrir `/planejamento/`, ver a fila carregar (pode estar vazia antes do backfill). `node --check public/js/planejamento/app.js`.
 - [ ] **Step 6: Commit** — `git commit -am "feat(planejamento): página /planejamento/ (3 abas), nav e registro no módulo de Usuários"`
 
 ---
 
-### Task 9: Auditoria de Registro Diário — "esperada pelo plano"
+### Task 9: Auditoria "esperada pelo plano" (na lib, não na rota) + `plano_pendente` na Sucesso
+
+⚠️ A rota `GET /api/producao/auditoria-registro` (server.js:9681-9705) é FINA: ela só faz 2 selects e
+devolve `classificarDia({ atendimentos, producao })` de `lib/producao/registro.js:11-65` — `sem_registro`
+e `resumo` são montados LÁ. A classificação nova entra na LIB (pura, testável), não na rota.
 
 **Files:**
-- Modify: `server.js` — rota `GET /api/producao/auditoria-registro` (localizar por `auditoria-registro`)
+- Modify: `lib/producao/registro.js` (função `classificarDia` — LER o arquivo antes; adaptar nomes ao shape real)
+- Test: `lib/producao/registro.test.js` (casos novos)
+- Modify: `server.js` — rota `GET /api/producao/auditoria-registro` (~linha 9681) e rota de listagem da Sucesso `GET /api/pacientes` (~linha 5016, select de `pacientes_sucesso`)
 - Modify: `public/producao/registro/index.html` (nova seção colapsada)
+- Modify: página do módulo Pacientes — localizar o template de linha (grep `valor_fechado` em `public/pacientes*` e `public/js/`) e adicionar o badge
 
 **Interfaces:**
-- Consumes: `plano_tratamento` (status ativo = `{aguardando_planejamento, planejado, em_andamento}` — Global Constraints).
-- Produces: resposta da rota ganha grupo `esperada_plano`; itens saem de `sem_registro`.
+- Consumes: `plano_tratamento` (ativo = `{aguardando_planejamento, planejado, em_andamento}`).
+- Produces: `classificarDia({ atendimentos, producao, pacientesComPlanoAtivo })` → resposta ganha grupo `esperada_plano` (fora da contagem de pendentes); listagem da Sucesso ganha `plano_status` e `plano_pendente` por linha.
 
-- [ ] **Step 1: Na rota, após montar `sem_registro`,** buscar os planos ativos dos pacientes pendentes e mover:
+- [ ] **Step 1: Teste novo que falha** (adaptar os objetos de atendimento ao shape real usado nos testes existentes do arquivo):
 
 ```js
-    // Modo de Planejamento: sessão intermediária de paciente com plano ATIVO não é pendência —
-    // é "esperada pelo plano". Dispensa por PACIENTE (grosseira — documentado na spec; refina na entrega ②).
-    const idsPendentes = [...new Set(sem_registro.map(a => a.paciente_clinicorp_id).filter(Boolean))];
-    let esperada_plano = [];
-    if (idsPendentes.length) {
-      const { data: ativos } = await supabase.from('plano_tratamento')
-        .select('paciente_clinicorp_id')
-        .in('status', ['aguardando_planejamento', 'planejado', 'em_andamento'])
-        .in('paciente_clinicorp_id', idsPendentes);
-      const setAtivos = new Set((ativos || []).map(p => p.paciente_clinicorp_id));
-      esperada_plano = sem_registro.filter(a => setAtivos.has(a.paciente_clinicorp_id));
-      sem_registro = sem_registro.filter(a => !setAtivos.has(a.paciente_clinicorp_id));
+// acrescentar em lib/producao/registro.test.js
+test('paciente com plano ativo vira esperada_plano e sai de pendentes', () => {
+  const atendimentos = [
+    { paciente_clinicorp_id: 'P1', paciente: 'Maria', dentista: 'Dr. M', compareceu: true, category: 'Clínico' },
+    { paciente_clinicorp_id: 'P2', paciente: 'João',  dentista: 'Dr. M', compareceu: true, category: 'Clínico' },
+  ];
+  const r = classificarDia({ atendimentos, producao: [], pacientesComPlanoAtivo: new Set(['P1']) });
+  assert.equal(r.esperada_plano.length, 1);
+  assert.equal(r.esperada_plano[0].paciente_clinicorp_id, 'P1');
+  assert.ok(!r.sem_registro.some(a => a.paciente_clinicorp_id === 'P1'));
+  assert.equal(r.resumo.pendentes, 1);            // só o João conta como pendência
+});
+```
+
+- [ ] **Step 2: Rodar e ver falhar** — `npm test` → FAIL.
+
+- [ ] **Step 3: Estender `classificarDia`** — novo parâmetro opcional `pacientesComPlanoAtivo` (Set, default vazio); DENTRO da classificação, ANTES de contar pendências: atendimento que cairia em `sem_registro` com `paciente_clinicorp_id` no Set vai para o grupo novo `esperada_plano` (e NÃO conta em `resumo.pendentes` nem no `por_dentista[].pendentes`). Devolver `esperada_plano` no objeto de retorno. Dispensa por PACIENTE (grosseira — documentado na spec; refina na entrega ②).
+
+- [ ] **Step 4: Rodar e ver passar** — `npm test` → PASS (novos E antigos — não quebrar os existentes).
+
+- [ ] **Step 5: Rota da auditoria passa o Set:**
+
+```js
+    // Modo de Planejamento: sessões de pacientes com plano ATIVO são "esperadas pelo plano"
+    const { data: planosAtivos } = await supabase.from('plano_tratamento')
+      .select('paciente_clinicorp_id')
+      .in('status', ['aguardando_planejamento', 'planejado', 'em_andamento']);
+    const pacientesComPlanoAtivo = new Set((planosAtivos || []).map(p => p.paciente_clinicorp_id).filter(Boolean));
+```
+
+e incluir `pacientesComPlanoAtivo` na chamada `classificarDia({ atendimentos, producao, pacientesComPlanoAtivo })`.
+
+- [ ] **Step 6: Listagem da Sucesso ganha `plano_pendente`** — na rota `GET /api/pacientes` (~5016), após obter as linhas:
+
+```js
+    // Modo de Planejamento: anexa o status do plano (a Sucesso enxerga "sem trilha" e cobra — spec)
+    const estIds = (data || []).map(r => r.clinicorp_estimate_id).filter(Boolean);
+    const planoByEst = new Map();
+    for (let i = 0; i < estIds.length; i += 200) {
+      const { data: pls } = await supabase.from('plano_tratamento')
+        .select('clinicorp_estimate_id, status, recado_sucesso')
+        .in('clinicorp_estimate_id', estIds.slice(i, i + 200));
+      for (const p of pls || []) planoByEst.set(p.clinicorp_estimate_id, p);
+    }
+    for (const r of data || []) {
+      const pl = planoByEst.get(r.clinicorp_estimate_id);
+      r.plano_status = pl?.status || null;
+      r.plano_pendente = pl?.status === 'aguardando_planejamento';
+      r.recado_sucesso = pl?.recado_sucesso || null;
     }
 ```
 
-E incluir `esperada_plano` no `res.json`, ajustando o `resumo` (pendentes não contam as esperadas).
+- [ ] **Step 7: UI** — (a) em `public/producao/registro/index.html`: seção colapsada "Esperadas pelo plano" (mesmo padrão visual da seção Manutenção) com nota "sessão intermediária de tratamento planejado — não é pendência"; (b) na tabela do módulo Pacientes (localizar por grep `valor_fechado`): badge `⏳ sem trilha` quando `plano_pendente === true`, tooltip "tratamento aprovado aguardando planejamento — cobrar o dentista".
 
-- [ ] **Step 2: UI** — em `public/producao/registro/index.html`, nova seção colapsada "Esperadas pelo plano" (mesmo padrão visual da seção Manutenção), renderizando `esperada_plano` com nota: "sessão intermediária de tratamento planejado — não é pendência".
-- [ ] **Step 3: Teste manual local** — com um plano ativo criado à mão via SQL, conferir que o paciente migra de Pendentes → Esperadas.
-- [ ] **Step 4: Commit** — `git commit -am "feat(planejamento): auditoria diária reconhece sessão esperada pelo plano (mata falsa pendência)"`
+- [ ] **Step 8: Commit** — `git commit -am "feat(planejamento): auditoria reconhece sessão esperada pelo plano; Sucesso enxerga plano_pendente/recado"`
 
 ---
 
@@ -1211,4 +1314,5 @@ E incluir `esperada_plano` no `res.json`, ajustando o `resumo` (pendentes não c
 
 - **Cobertura da spec:** desacoplamento (T5), espelho read-only + divergência (T7/T8), veredito CRC com `cancelado` (T7), triagem + <2min (T5/T8/T10), sub-lotes + conservação (T4/T7), estados + regressão/ressurreição (T4/T5), re-sync tabela completa (T4/T5), 4 populações (T2 pop.4 + T6), delegação Mônica com `planejado_por` (T2/T7), troca de responsável com registro (T7), config única prazo (T2/T7/T8), auditoria "esperada pelo plano" com status enumerados (T9), gatilho em_andamento pós-`planejado` (T5), segurança RLS na criação (T2), V1–V4 (T1; V4 resolvido por arquitetura: zero chamadas novas + `runGuardedSync` existente), cutover mesmo-deploy (T5 + T2), padrões rascunho utilizáveis (T7).
 - **Fora do plano (conforme spec):** UI de config custo/margem (③), registro ASB (②), tracker (④), NPS, usuário-robô.
-- **Riscos sinalizados ao executor:** nome da coluna de data em `agenda_appointments` (T5); shell CSS da página irmã (T8); `sublotes` no `coletar()` (T8).
+- **Riscos sinalizados ao executor:** shell CSS copiado da página irmã (T8); `classificarDia` — ler a lib antes e adaptar shapes (T9); localizar template de linha do módulo Pacientes por grep (T9).
+- **Revisão contra o código real (19/07) aplicada:** universo de re-sync em 2ª query (venda desfeita gravava status≠APPROVED + data_fechamento=null — regra 'cancelar' nunca disparava); filtro `valor_particular > 0` (paridade com a Conferência — convênio fora, igual hoje); sonda sem `.catch()` no builder e com env vars corretas de subscriber/business; cancelamento/veredito/rejeitar espelham na Sucesso via `excluido_em` (reativar/ressuscitar limpam); aba gestora cobre travados em qualquer status + parados > prazo; fallback de nome de procedimento via `producao_procedimentos`; sub-lotes não perdem etapas digitadas nem deixam órfãs na raiz; rejeitar com etapas executadas TRAVA em vez de cancelar; fases 7e/7f após a `agenda` + filtro `deleted=false`.
