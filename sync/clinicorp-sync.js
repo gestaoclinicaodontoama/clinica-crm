@@ -1168,9 +1168,8 @@ async function executarAcoesResync(plano, acoes, orc) {
     if (a.tipo === 'travar') {
       await supabase.from('plano_tratamento').update({ trava_resync: a.motivo, atualizado_em: now }).eq('id', plano.id);
     } else if (a.tipo === 'cancelar') {
+      // transição: duplicata/cancelamento só sinaliza no plano — remoção do paciente é decisão humana (spec decisão 6)
       await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: a.motivo, atualizado_em: now }).eq('id', plano.id);
-      // espelha na Sucesso (spec): soft-delete já usado pelo módulo (excluido_em) — marca, não deleta
-      await supabase.from('pacientes_sucesso').update({ excluido_em: now }).eq('clinicorp_estimate_id', plano.clinicorp_estimate_id).is('excluido_em', null);
     } else if (a.tipo === 'adicionar_item') {
       const { data: novoItem } = await supabase.from('plano_itens')
         .insert({ plano_id: plano.id, price_id: a.price_id, procedure_name: a.procedure_name || '', quantidade: a.quantidade || 1, ordem: 99 })
@@ -1188,8 +1187,8 @@ async function executarAcoesResync(plano, acoes, orc) {
     } else if (a.tipo === 'atualizar_quantidade') {
       await supabase.from('plano_itens').update({ quantidade: a.quantidade }).eq('plano_id', plano.id).eq('price_id', a.price_id).is('parent_id', null);
     } else if (a.tipo === 'regredir' || a.tipo === 'ressuscitar') {
+      // transição: duplicata/cancelamento só sinaliza no plano — remoção do paciente é decisão humana (spec decisão 6)
       await supabase.from('plano_tratamento').update({ status: 'aguardando_planejamento', status_motivo: a.tipo === 'ressuscitar' ? 'item novo requer plano' : 'orçamento alterado no Clinicorp', atualizado_em: now }).eq('id', plano.id);
-      if (a.tipo === 'ressuscitar') await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('clinicorp_estimate_id', plano.clinicorp_estimate_id);
     }
   }
 }

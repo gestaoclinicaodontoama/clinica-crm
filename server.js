@@ -509,6 +509,7 @@ const requireFinanceiro = requireRole('financeiro', 'admin', 'mod_financeiro');
 const requireProducao  = requireRole('financeiro', 'admin', 'mod_financeiro', 'mod_producao');
 const requirePlanejamento = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento');
 const requirePlanejamentoOuCRC = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento', 'crc_comercial');
+const requirePlanejamentoOuSucesso = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento', 'crc_comercial', 'crc_sucesso');
 const requirePlanejamentoGestor = requireRole('gestor', 'admin');
 // veredito CRC reusa requireDashboardAvaliacao (gestor, admin, crc_comercial) já existente
 
@@ -4979,8 +4980,8 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
         if (exec?.length) {
           await supabase.from('plano_tratamento').update({ trava_resync: 'rejeitado na Conferência com etapas executadas — decidir manualmente' }).eq('id', plExist.id);
         } else {
+          // transição: duplicata/cancelamento só sinaliza no plano — remoção do paciente é decisão humana (spec decisão 6)
           await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: 'rejeitado_conferencia' }).eq('id', plExist.id);
-          await supabase.from('pacientes_sucesso').update({ excluido_em: new Date().toISOString() }).eq('clinicorp_estimate_id', id).is('excluido_em', null);
         }
       } else {
         await supabase.from('plano_tratamento')
@@ -4994,6 +4995,7 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
 
 // ═══════════ MODO DE PLANEJAMENTO (Produção ①) ═══════════
 const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes } = require('./lib/planejamento/estados');
+const { tipoPagamento: planTipoPagamento } = require('./lib/planejamento/triagem');
 
 async function planCarregarPlano(id) {
   const { data: plano } = await supabase.from('plano_tratamento').select('*').eq('id', id).maybeSingle();
@@ -5006,17 +5008,20 @@ async function planCarregarPlano(id) {
   return { plano, itens: raizes };
 }
 
-app.get('/api/planejamento/fila', requireAuth, blockParceiro, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
+app.get('/api/planejamento/fila', requireAuth, blockParceiro, requirePlanejamentoOuSucesso, rateLimit, async (req, res) => {
   try {
     const { data: cfg } = await supabase.from('planejamento_config').select('*').eq('id', 1).single();
     const roles = req.user.profile?.roles || [];
     const soDentista = roles.includes('dentista') && !roles.some(r => ['gestor', 'admin', 'mod_planejamento'].includes(r));
     // CRC-pura (sem role de planejamento) só enxerga a fila caça-erro, independente do ?aba pedido
     const soCRC = roles.includes('crc_comercial') && !roles.some(r => ['dentista', 'gestor', 'admin', 'mod_planejamento'].includes(r));
-    const aba = soCRC ? 'suspeitas' : String(req.query.aba || 'planejar');
+    // Sucesso-pura (só crc_sucesso, sem role de planejamento/CRC comercial) só enxerga a aba sucesso
+    const soSucesso = roles.includes('crc_sucesso') && !roles.some(r => ['dentista', 'gestor', 'admin', 'mod_planejamento', 'crc_comercial'].includes(r));
+    let aba = soCRC ? 'suspeitas' : String(req.query.aba || 'planejar');
+    if (soSucesso) aba = 'sucesso';
     let q = supabase.from('plano_tratamento').select('*').order('criado_em', { ascending: true });
     if (aba === 'planejar') {
-      q = q.eq('status', 'aguardando_planejamento');
+      q = q.eq('status', 'aguardando_planejamento').eq('origem', 'sync_novo');   // backlog fica fora da fila do dentista
       if (soDentista) q = q.eq('dentista_avaliador_id', req.user.id);   // dentista vê a própria fila; delegação vê todas
       else q = q.not('dentista_avaliador_id', 'is', null);
     } else if (aba === 'suspeitas') {
@@ -5027,10 +5032,83 @@ app.get('/api/planejamento/fila', requireAuth, blockParceiro, requirePlanejament
       // parados > prazo (o "alerta de plano parado" da spec)
       const cutoff = new Date(Date.now() - (cfg?.prazo_escalonamento_dias ?? 7) * 864e5).toISOString();
       q = q.or(`and(dentista_avaliador_id.is.null,status.eq.aguardando_planejamento),trava_resync.not.is.null,and(status.eq.aguardando_planejamento,criado_em.lt.${cutoff})`);
+    } else if (aba === 'sucesso') {
+      // Aba da Sucesso do Cliente: TODOS os planos (backlog + novo + manual), exclui só cancelado.
+      if (!roles.some(r => ['crc_sucesso', 'crc_comercial', 'gestor', 'admin', 'mod_planejamento'].includes(r))) return res.status(403).json({ error: 'sem permissão' });
+      q = supabase.from('plano_tratamento')
+        .select('id, origem, tipo_pagamento, status, status_motivo, valor, entrada, paciente_nome, paciente_clinicorp_id, possivel_duplicata, clinicorp_estimate_id, criado_em')
+        .neq('status', 'cancelado').order('criado_em', { ascending: false });
     } else return res.status(400).json({ error: 'aba inválida' });
     const { data, error } = await q.limit(500);
     if (error) throw error;
     res.json({ planos: data || [], config: { prazo_escalonamento_dias: cfg?.prazo_escalonamento_dias ?? 7 } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Busca paciente (nome/telefone) p/ o "+ Adicionar" da Sucesso — mostra os orçamentos e o selo de cada um
+app.get('/api/planejamento/buscar-paciente', requireAuth, blockParceiro, requirePlanejamentoOuSucesso, rateLimit, async (req, res) => {
+  try {
+    const q = sanitizeStr(req.query.q || '', 80).trim();
+    if (q.length < 2) return res.json({ pacientes: [] });
+    const like = `%${q}%`;
+    const { data: pacientes, error } = await supabase.from('pacientes')
+      .select('id, clinicorp_id, nome, telefone_celular, telefone_fixo')
+      .or(`nome.ilike.${like},telefone_celular.ilike.${like},telefone_fixo.ilike.${like}`)
+      .limit(15);
+    if (error) throw error;
+    const resultado = [];
+    for (const p of pacientes || []) {
+      const { data: orcs } = await supabase.from('orcamentos')
+        .select('clinicorp_estimate_id, valor, valor_particular, eh_convenio, status, procedure_list')
+        .eq('paciente_clinicorp_id', String(p.clinicorp_id)).limit(10);
+      resultado.push({ ...p, orcamentos: (orcs || []).map(o => ({ ...o, selo: planTipoPagamento(o) })) });
+    }
+    res.json({ pacientes: resultado });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Inclusão manual (backlog não pego pelo sync ou tratamento sem orçamento formal na Clinicorp)
+app.post('/api/planejamento/incluir-manual', requireAuth, blockParceiro, requireRole('crc_sucesso', 'gestor', 'admin', 'mod_planejamento'), rateLimit, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const paciente_clinicorp_id = b.paciente_clinicorp_id != null ? String(b.paciente_clinicorp_id) : null;
+    const paciente_nome = sanitizeStr(b.paciente_nome || '', 200).trim();
+    const telefone = sanitizeStr(b.telefone || '', 40);
+    const estimate_id = b.estimate_id ? String(b.estimate_id) : null;
+    const descricao_manual = b.descricao_manual ? sanitizeStr(b.descricao_manual, 2000) : null;
+    const tipo_pagamento = ['particular', 'convenio', 'misto'].includes(b.tipo_pagamento) ? b.tipo_pagamento : null;
+    if (!paciente_nome) return res.status(400).json({ error: 'paciente_nome é obrigatório' });
+    if (!estimate_id && !descricao_manual) return res.status(400).json({ error: 'informe estimate_id ou descricao_manual' });
+
+    if (estimate_id) {
+      const { data: jaPlano } = await supabase.from('plano_tratamento').select('id').eq('clinicorp_estimate_id', estimate_id).maybeSingle();
+      if (jaPlano) return res.status(409).json({ error: 'já existe plano para este orçamento' });
+    }
+
+    // pacientes_sucesso: INSERT dedup, nunca sobrescreve existente (dedup por estimate_id; senão por nome+telefone)
+    let jaSucesso = null;
+    if (estimate_id) {
+      const { data } = await supabase.from('pacientes_sucesso').select('id').eq('clinicorp_estimate_id', estimate_id).maybeSingle();
+      jaSucesso = data;
+    } else {
+      const { data } = await supabase.from('pacientes_sucesso').select('id').eq('nome', paciente_nome).eq('telefone', telefone).maybeSingle();
+      jaSucesso = data;
+    }
+    if (!jaSucesso) {
+      await supabase.from('pacientes_sucesso').insert({
+        nome: paciente_nome, telefone, clinicorp_estimate_id: estimate_id,
+        data_venda: new Date().toISOString().slice(0, 10), importado_historico: false,
+      });
+    }
+
+    const clinicorpEstimateIdPlano = estimate_id || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { data: plano, error } = await supabase.from('plano_tratamento').insert({
+      clinicorp_estimate_id: clinicorpEstimateIdPlano, paciente_clinicorp_id, paciente_nome,
+      origem: 'sucesso_manual', status: 'aguardando_planejamento',
+      tipo_pagamento, descricao_manual,
+    }).select('id').single();
+    if (error) throw error;
+    res.json({ ok: true, plano_id: plano.id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -5148,10 +5226,8 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, blockParceiro, requir
       // spec: veredito usa CANCELADO (nunca 'descartado'); se plano tem etapas não-pendentes → trava (veredito tardio)
       const { data: exec } = await supabase.from('plano_etapas').select('id, plano_itens!inner(plano_id)').eq('plano_itens.plano_id', id).neq('status', 'pendente').limit(1);
       if (exec?.length) { await supabase.from('plano_tratamento').update({ trava_resync: `veredito ${v} com etapas executadas — decidir manualmente`, atualizado_em: now }).eq('id', id); return res.json({ ok: true, travado: true }); }
+      // transição: duplicata/cancelamento só sinaliza no plano — remoção do paciente é decisão humana (spec decisão 6)
       await supabase.from('plano_tratamento').update({ status: 'cancelado', status_motivo: v, atualizado_em: now }).eq('id', id);
-      // espelha na Sucesso (spec Decisão 3): soft-delete do módulo (marca, não deleta)
-      const { data: plEst } = await supabase.from('plano_tratamento').select('clinicorp_estimate_id').eq('id', id).single();
-      await supabase.from('pacientes_sucesso').update({ excluido_em: now }).eq('clinicorp_estimate_id', plEst.clinicorp_estimate_id).is('excluido_em', null);
       return res.json({ ok: true });
     }
     if (acao === 'divergencia') {
@@ -5165,10 +5241,7 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, blockParceiro, requir
     if (!planTransicao(plano.status, t.para)) return res.status(409).json({ error: `transição ${plano.status} → ${t.para} inválida` });
     const { error } = await supabase.from('plano_tratamento').update({ status: t.para, atualizado_em: now, ...t.patch }).eq('id', id);
     if (error) throw error;
-    if (acao === 'reativar') {   // reativação limpa o espelho na Sucesso (maleabilidade da spec)
-      const { data: plEst } = await supabase.from('plano_tratamento').select('clinicorp_estimate_id').eq('id', id).single();
-      await supabase.from('pacientes_sucesso').update({ excluido_em: null }).eq('clinicorp_estimate_id', plEst.clinicorp_estimate_id);
-    }
+    // transição: duplicata/cancelamento só sinaliza no plano — remoção do paciente é decisão humana (spec decisão 6)
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -5221,7 +5294,7 @@ app.get('/api/pacientes', requireAuth, requireCrcSucesso, rateLimit, async (req,
     const planoByEst = new Map();
     for (let i = 0; i < estIds.length; i += 200) {
       const { data: pls } = await supabase.from('plano_tratamento')
-        .select('clinicorp_estimate_id, status, recado_sucesso')
+        .select('clinicorp_estimate_id, status, recado_sucesso, tipo_pagamento')
         .in('clinicorp_estimate_id', estIds.slice(i, i + 200));
       for (const p of pls || []) planoByEst.set(p.clinicorp_estimate_id, p);
     }
@@ -5230,6 +5303,7 @@ app.get('/api/pacientes', requireAuth, requireCrcSucesso, rateLimit, async (req,
       r.plano_status = pl?.status || null;
       r.plano_pendente = pl?.status === 'aguardando_planejamento';
       r.recado_sucesso = pl?.recado_sucesso || null;
+      r.tipo_pagamento = pl?.tipo_pagamento || null;
     }
 
     res.json(data || []);
