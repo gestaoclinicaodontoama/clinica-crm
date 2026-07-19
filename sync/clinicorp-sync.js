@@ -1044,14 +1044,14 @@ async function runSync(trigger = 'agendado') {
 
 // ─── Modo de Planejamento (Produção ①) ────────────────────────────────────────
 // Deriva TUDO da tabela `orcamentos` (zero chamadas novas à API).
-const { agruparItens, requerPlano, heuristicaDuplicata } = require('../lib/planejamento/triagem');
+const { agruparItens, requerPlano, heuristicaDuplicata, tipoPagamento } = require('../lib/planejamento/triagem');
 const { aplicarResync } = require('../lib/planejamento/estados');
 
 async function syncPlanejamento() {
   // 1) universo de CRIAÇÃO: aprovados PARTICULARES (paridade com a Conferência antiga, que
   //    filtrava .gt('valor_particular', 0) — convênio NÃO entra, igual hoje)
   const orcs = await selectAll('orcamentos',
-    'clinicorp_estimate_id, paciente_clinicorp_id, paciente_nome, telefone, profissional_nome, valor_particular, entrada_valor, status, data_fechamento, lead_id, procedure_list',
+    'clinicorp_estimate_id, paciente_clinicorp_id, paciente_nome, telefone, profissional_nome, valor, valor_particular, entrada_valor, status, data_fechamento, lead_id, procedure_list',
     q => q.eq('status', 'APPROVED').gt('valor_particular', 0).not('data_fechamento', 'is', null));
   const planos = await selectAll('plano_tratamento', 'id, clinicorp_estimate_id, status, trava_resync, valor, entrada');
   const planosByEst = new Map(planos.map(p => [p.clinicorp_estimate_id, p]));
@@ -1063,7 +1063,7 @@ async function syncPlanejamento() {
   const orcsDosPlanos = [];
   for (let i = 0; i < estIdsAtivos.length; i += 200) {
     const { data } = await supabase.from('orcamentos')
-      .select('clinicorp_estimate_id, paciente_clinicorp_id, status, valor_particular, entrada_valor, procedure_list')
+      .select('clinicorp_estimate_id, paciente_clinicorp_id, status, valor, valor_particular, entrada_valor, procedure_list')
       .in('clinicorp_estimate_id', estIdsAtivos.slice(i, i + 200));
     orcsDosPlanos.push(...(data || []));
   }
@@ -1102,7 +1102,7 @@ async function syncPlanejamento() {
     if (acoes.length) { resyncs++; await executarAcoesResync(plano, acoes, o); }
     // espelho de valor/entrada sempre atual
     if (Number(plano.valor) !== Number(o.valor_particular) || Number(plano.entrada) !== Number(o.entrada_valor)) {
-      await supabase.from('plano_tratamento').update({ valor: o.valor_particular, entrada: o.entrada_valor, atualizado_em: new Date().toISOString() }).eq('id', plano.id);
+      await supabase.from('plano_tratamento').update({ valor: o.valor_particular, entrada: o.entrada_valor, tipo_pagamento: tipoPagamento(o), atualizado_em: new Date().toISOString() }).eq('id', plano.id);
     }
   }
 
@@ -1135,6 +1135,7 @@ async function syncPlanejamento() {
       status: precisa ? 'aguardando_planejamento' : 'descartado',
       status_motivo: precisa ? null : 'sem_etapas',
       valor: o.valor_particular, entrada: o.entrada_valor,
+      origem: 'sync_novo', tipo_pagamento: tipoPagamento(o),
       possivel_duplicata: dup.suspeito, duplicata_de: dup.de,
     }).select('id').single();
     if (error) { log(`ERRO plano ${estId}: ${error.message}`); continue; }
