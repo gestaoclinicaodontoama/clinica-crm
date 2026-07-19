@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trilhas de Tratamento — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444}
+:root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;--green:#16a34a;--yellow:#d97706;--red:#dc2626}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{padding:16px 20px;max-width:1100px}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.page-header-left{display:flex;flex-direction:column;gap:4px}
+.page-header h1{font-size:20px;font-weight:700}
+.page-header p{font-size:12px;color:var(--muted)}
+.btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--border)}
+.btn-ghost:disabled{opacity:.5;cursor:default}
+.btn-primario{background:var(--accent);color:#fff}
+.btn-primario:hover{background:var(--accent-hover)}
+
+/* resumo */
+.resumo-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;display:flex;gap:28px;flex-wrap:wrap;align-items:center}
+.resumo-num{font-size:26px;font-weight:700}
+.resumo-label{font-size:12px;color:var(--muted)}
+.resumo-planejados .resumo-num{color:var(--green)}
+.resumo-sem .resumo-num{color:var(--yellow)}
+.progress-wrap{flex:1;min-width:160px}
+.progress-bar{height:8px;border-radius:4px;background:var(--bg3);overflow:hidden;margin-top:6px}
+.progress-fill{height:100%;background:var(--accent);border-radius:4px;transition:width .25s}
+
+/* chips */
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.chip{padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-family:inherit}
+.chip:hover{color:var(--text)}
+.chip.ativo{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* tabela */
+.section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:8px 16px;border-bottom:1px solid var(--border)}
+td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr.linha-clicavel{cursor:pointer}
+tr.linha-clicavel:hover{background:var(--bg3)}
+.paciente-nome{font-weight:600}
+.venda-entrada{color:var(--muted);font-size:11px;display:block;margin-top:2px}
+.dias{color:var(--muted);font-size:12px}
+.empty,.vazio{padding:24px;text-align:center;color:var(--muted);font-size:13px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* selos / badges / tags (compartilhados com o editor de plano) */
+.selo{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap;margin-left:4px}
+.sel-part{background:rgba(100,116,139,.15);color:#475569}
+.sel-conv{background:rgba(13,148,136,.15);color:#0d9488}
+.sel-mist{background:rgba(109,40,217,.14);color:#6d28d9}
+.tag-origem{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;background:var(--bg3);color:var(--muted);border:1px solid var(--border)}
+.badge{display:inline-block;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600;color:#fff;margin-left:6px}
+.badge-amarelo{background:var(--yellow)}
+.badge-vermelho{background:var(--red)}
+.status-badge{display:inline-block;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap}
+.status-sem{background:rgba(245,158,11,.14);color:var(--yellow)}
+.status-planejado{background:rgba(79,142,247,.14);color:var(--accent)}
+.status-andamento{background:rgba(79,142,247,.14);color:var(--accent)}
+.status-concluido{background:rgba(34,197,94,.14);color:var(--green)}
+.status-descartado, .status-cancelado{background:rgba(107,114,128,.16);color:var(--muted)}
+
+button[data-abrir],button[data-planejar]{padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--text);margin-right:4px;font-family:inherit}
+button[data-planejar]{border-color:var(--accent);color:var(--accent)}
+button[data-abrir]:hover,button[data-planejar]:hover{background:var(--border)}
+
+/* drawer */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;z-index:40}
+.overlay.show{display:block}
+.drawer{position:fixed;top:0;right:-440px;width:420px;max-width:92vw;height:100vh;background:var(--bg2);border-left:1px solid var(--border);overflow-y:auto;transition:right .25s ease;z-index:50;padding:20px}
+.drawer.open{right:0}
+.drawer-close{float:right;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
+.drawer h2{font-size:17px;margin-bottom:2px;padding-right:24px}
+.drawer .sub{font-size:12px;color:var(--muted);margin-bottom:16px}
+.drawer .recado{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:16px;white-space:pre-wrap}
+.drawer .proximo{background:rgba(79,142,247,.08);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:16px}
+.drawer .proximo b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--accent);margin-bottom:3px}
+.item-bloco{margin-bottom:18px}
+.item-bloco h3{font-size:13px;font-weight:600;margin-bottom:8px}
+.item-bloco .rotulo-sublote{font-size:11px;color:var(--muted);font-weight:400}
+.stepper{list-style:none}
+.stepper li{position:relative;padding:0 0 16px 24px;font-size:12px}
+.stepper li:last-child{padding-bottom:0}
+.stepper li::before{content:'';position:absolute;left:5px;top:2px;width:9px;height:9px;border-radius:50%;background:var(--border);border:2px solid var(--bg2);z-index:1}
+.stepper li::after{content:'';position:absolute;left:9px;top:11px;bottom:0;width:1px;background:var(--border)}
+.stepper li:last-child::after{display:none}
+.stepper li.done::before{background:var(--green)}
+.stepper li.current::before{background:var(--accent);box-shadow:0 0 0 3px rgba(79,142,247,.25)}
+.stepper li .desc{font-weight:600}
+.stepper li.done .desc{color:var(--muted);text-decoration:line-through}
+.stepper li.current .desc{color:var(--accent)}
+.stepper li .meta{color:var(--muted);font-size:11px;margin-top:2px}
+.drawer footer{margin-top:20px;display:flex;gap:8px;flex-wrap:wrap}
+
+/* diálogos (busca de paciente + editor de plano compartilhado) */
+dialog{background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:720px;width:92vw;max-height:88vh;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog h2{font-size:18px;margin-bottom:8px}
+dialog label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px;font-weight:600}
+dialog input[type=text],dialog input:not([type]),dialog input[type=number],dialog select,dialog textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 8px;font-family:inherit;font-size:13px}
+dialog textarea{min-height:60px;resize:vertical}
+.espelho{font-size:13px;color:var(--muted);margin-bottom:8px}
+.espelho small{display:block;margin-top:2px}
+fieldset{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:12px}
+fieldset legend{font-size:13px;font-weight:600;padding:0 4px}
+.etapas{list-style:none;margin:8px 0}
+.etapas li{display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:12px}
+.etapas li .et-desc{flex:2}
+.etapas li .et-prof{flex:1}
+.etapas li em{color:var(--muted);font-style:normal;font-size:11px}
+.etapas li button.et-rm{background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px}
+fieldset .add-etapa,fieldset .dividir{margin-top:6px;font-size:11px;padding:4px 8px}
+dialog footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+
+/* + Adicionar paciente */
+.busca-resultado{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.busca-resultado .nome{font-weight:600;font-size:13px}
+.busca-resultado .fone{color:var(--muted);font-size:11px;margin-bottom:6px}
+.orc-linha{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
+.orc-linha:first-of-type{border-top:none}
+.link-manual{display:inline-block;margin-top:10px;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;background:none;border:none;font-family:inherit;padding:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Trilhas de Tratamento</h1>
+      <p>Pacientes com venda fechada — acompanhamento do planejamento clínico pela Sucesso do Cliente.</p>
+    </div>
+    <button class="btn btn-primario" id="btAdicionar">+ Adicionar paciente</button>
+  </div>
+
+  <div class="resumo-card" id="resumo">
+    <div><div class="resumo-num" id="rTotal">—</div><div class="resumo-label">pacientes na trilha</div></div>
+    <div class="resumo-planejados"><div class="resumo-num" id="rPlanejados">—</div><div class="resumo-label">com planejamento</div></div>
+    <div class="resumo-sem"><div class="resumo-num" id="rSem">—</div><div class="resumo-label">sem planejamento</div></div>
+    <div class="progress-wrap">
+      <div class="resumo-label" id="rPct">—</div>
+      <div class="progress-bar"><div class="progress-fill" id="rBar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="chips" id="chips">
+    <button class="chip ativo" data-filtro="todos">Todos</button>
+    <button class="chip" data-filtro="sem">Sem planejamento</button>
+    <button class="chip" data-filtro="tratamento">Em tratamento</button>
+  </div>
+
+  <section class="section">
+    <div id="tabela"><div class="empty"><span class="spinner"></span></div></div>
+  </section>
+
+</div>
+
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer">
+  <button class="drawer-close" id="drawerClose">×</button>
+  <div id="drawerBody"></div>
+</aside>
+
+<dialog id="dlgAdd"></dialog>
+
+<script src="/js/planejamento/editor.js"></script>
+<script src="/js/trilhas/app.js"></script>
+<script src="/js/shared-nav.js" data-active="trilhas"></script>
+</body>
+</html>

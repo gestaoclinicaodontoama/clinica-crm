@@ -5112,7 +5112,9 @@ app.post('/api/planejamento/incluir-manual', requireAuth, blockParceiro, require
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanejamento, rateLimit, async (req, res) => {
+// Leitura: dentista/gestor/admin/mod_planejamento (dono) + crc_sucesso/crc_comercial (drawer da Trilha, só-leitura —
+// escrita continua trancada em requirePlanejamento no PUT/POST abaixo).
+app.get('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanejamentoOuSucesso, rateLimit, async (req, res) => {
   try {
     const r = await planCarregarPlano(req.params.id);
     if (!r) return res.status(404).json({ error: 'plano não encontrado' });

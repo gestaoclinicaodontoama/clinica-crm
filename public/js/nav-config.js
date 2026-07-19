@@ -86,6 +86,7 @@
     { id: 'crc-sucesso', label: 'CRC Sucesso do Cliente', icon: 'sucesso', roles: 'admin,gestor,crc_sucesso,crc_comercial', items: [
       { slug: 'pacientes',      label: 'Pacientes',            roles: 'crc_sucesso,crc_comercial,gestor,admin',          mode: 'link', href: '/pacientes/' },
       { slug: 'pacientes-2',    label: 'Pacientes 2 (beta)',   roles: 'crc_sucesso,crc_comercial,gestor,admin',          mode: 'link', href: '/pacientes-2/' },
+      { slug: 'trilhas',        label: 'Trilhas de Tratamento', roles: 'crc_sucesso,crc_comercial,gestor,mod_planejamento', mode: 'link', href: '/trilhas/' },
       { slug: 'pacientes-busca', label: 'Buscar Paciente 360º', roles: 'crc_sucesso,crc_comercial,crc_leads,gestor,admin', mode: 'link', href: '/pacientes-busca/' },
     ]},
 
