@@ -5006,7 +5006,7 @@ async function planCarregarPlano(id) {
   return { plano, itens: raizes };
 }
 
-app.get('/api/planejamento/fila', requireAuth, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
+app.get('/api/planejamento/fila', requireAuth, blockParceiro, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
   try {
     const { data: cfg } = await supabase.from('planejamento_config').select('*').eq('id', 1).single();
     const roles = req.user.profile?.roles || [];
@@ -5034,7 +5034,7 @@ app.get('/api/planejamento/fila', requireAuth, requirePlanejamentoOuCRC, rateLim
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+app.get('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanejamento, rateLimit, async (req, res) => {
   try {
     const r = await planCarregarPlano(req.params.id);
     if (!r) return res.status(404).json({ error: 'plano não encontrado' });
@@ -5051,7 +5051,7 @@ app.get('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
 });
 
 // Salvar rascunho do plano (etapas, sub-lotes, textos, responsável). Delegação registra planejado_por.
-app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+app.put('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanejamento, rateLimit, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { data: plano } = await supabase.from('plano_tratamento').select('id, status, dentista_avaliador_id, trocas_responsavel').eq('id', id).maybeSingle();
@@ -5121,7 +5121,7 @@ app.put('/api/planejamento/plano/:id', requireAuth, requirePlanejamento, rateLim
 });
 
 // Transições de estado (concluir/descartar/reativar/destravar) — máquina de estados da lib
-app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
+app.post('/api/planejamento/plano/:id/:acao', requireAuth, blockParceiro, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
   try {
     const { id, acao } = req.params;
     const { data: plano } = await supabase.from('plano_tratamento').select('id, status, trava_resync, dentista_avaliador_id').eq('id', id).maybeSingle();
@@ -5174,11 +5174,11 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, requirePlanejamentoOu
 });
 
 // Banco de processos: listar/criar rascunho (qualquer planejador) + aprovar (gestor)
-app.get('/api/planejamento/padroes', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+app.get('/api/planejamento/padroes', requireAuth, blockParceiro, requirePlanejamento, rateLimit, async (req, res) => {
   try { const { data, error } = await supabase.from('processos_padrao').select('*').order('procedure_name'); if (error) throw error; res.json(data || []); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
-app.post('/api/planejamento/padroes', requireAuth, requirePlanejamento, rateLimit, async (req, res) => {
+app.post('/api/planejamento/padroes', requireAuth, blockParceiro, requirePlanejamento, rateLimit, async (req, res) => {
   try {
     const b = req.body || {};
     const { data, error } = await supabase.from('processos_padrao').insert({
@@ -5193,7 +5193,7 @@ app.post('/api/planejamento/padroes', requireAuth, requirePlanejamento, rateLimi
     res.json({ ok: true, id: data.id });                     // rascunho é utilizável pelo autor (spec)
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-app.post('/api/planejamento/padroes/:id/aprovar', requireAuth, requirePlanejamentoGestor, rateLimit, async (req, res) => {
+app.post('/api/planejamento/padroes/:id/aprovar', requireAuth, blockParceiro, requirePlanejamentoGestor, rateLimit, async (req, res) => {
   try { const { error } = await supabase.from('processos_padrao').update({ status: 'aprovado', atualizado_em: new Date().toISOString() }).eq('id', req.params.id); if (error) throw error; res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });

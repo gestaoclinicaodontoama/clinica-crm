@@ -1146,6 +1146,7 @@ async function syncPlanejamento() {
         plano_id: plano.id, price_id: item.price_id, procedure_name: item.procedure_name,
         quantidade: item.quantidade, ordem,
       }).select('id').single();
+      if (!itemRow) { log(`plano_itens insert falhou p/ plano ${plano.id} price ${item.price_id}`); continue; }
       const padrao = padroes.get(String(item.price_id));
       const etapas = (padrao?.etapas || []).map((e, i) => ({
         item_id: itemRow.id, ordem: i, descricao: e.descricao,
@@ -1170,7 +1171,17 @@ async function executarAcoesResync(plano, acoes, orc) {
       // espelha na Sucesso (spec): soft-delete já usado pelo módulo (excluido_em) — marca, não deleta
       await supabase.from('pacientes_sucesso').update({ excluido_em: now }).eq('clinicorp_estimate_id', plano.clinicorp_estimate_id).is('excluido_em', null);
     } else if (a.tipo === 'adicionar_item') {
-      await supabase.from('plano_itens').insert({ plano_id: plano.id, price_id: a.price_id, procedure_name: a.procedure_name || '', quantidade: a.quantidade || 1, ordem: 99 });
+      const { data: novoItem } = await supabase.from('plano_itens')
+        .insert({ plano_id: plano.id, price_id: a.price_id, procedure_name: a.procedure_name || '', quantidade: a.quantidade || 1, ordem: 99 })
+        .select('id').single();
+      if (novoItem) {
+        const { data: pad } = await supabase.from('processos_padrao').select('etapas').eq('price_id', String(a.price_id)).maybeSingle();
+        const etapas = (pad?.etapas || []).map((e, i) => ({
+          item_id: novoItem.id, ordem: i, descricao: e.descricao,
+          profissional_executor: e.profissional_sugerido || null,
+          tempo_planejado_min: e.tempo_sugerido_min || null, status: 'pendente' }));
+        if (etapas.length) await supabase.from('plano_etapas').insert(etapas);
+      }
     } else if (a.tipo === 'remover_item') {
       await supabase.from('plano_itens').update({ removido_em: now }).eq('plano_id', plano.id).eq('price_id', a.price_id).is('parent_id', null);
     } else if (a.tipo === 'atualizar_quantidade') {
