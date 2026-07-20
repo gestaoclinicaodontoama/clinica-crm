@@ -512,6 +512,7 @@ const requirePlanejamentoOuCRC = requireRole('dentista', 'gestor', 'admin', 'mod
 const requirePlanejamentoOuSucesso = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento', 'crc_comercial', 'crc_sucesso');
 const requirePlanejamentoGestor = requireRole('gestor', 'admin');
 const requireSessao = requireRole('asb', 'gestor', 'admin', 'mod_planejamento');
+const requireFiscalizacao = requireRole('gestor', 'admin', 'mod_planejamento');
 // veredito CRC reusa requireDashboardAvaliacao (gestor, admin, crc_comercial) já existente
 
 // ========== ADMIN MIDDLEWARE ==========
@@ -4997,6 +4998,7 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
 // ═══════════ MODO DE PLANEJAMENTO (Produção ①) ═══════════
 const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes, avancarPorRegistro } = require('./lib/planejamento/estados');
 const { tipoPagamento: planTipoPagamento } = require('./lib/planejamento/triagem');
+const { resumoPlano } = require('./lib/planejamento/fiscalizacao');
 
 async function planCarregarPlano(id) {
   const { data: plano } = await supabase.from('plano_tratamento').select('*').eq('id', id).maybeSingle();
@@ -5527,6 +5529,176 @@ app.post('/api/sessao/avulso', requireAuth, blockParceiro, requireSessao, rateLi
     }).select('id').single();
     if (error) throw error;
     res.json({ ok: true, id: row.id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════ FISCALIZAÇÃO DA GESTORA (planejado × real) — Entrega ③A ═══════════
+// Escopo A: horas planejado×real + custo de hora clínica + alerta. Margem CHEIA
+// (laboratório/imposto) fica pra depois (elo do valorLaboratorio ainda não destravado).
+
+async function _fiscalizacaoConfig() {
+  const { data, error } = await supabase.from('planejamento_config').select('custo_hora_clinica, margem_alvo_default').eq('id', 1).single();
+  if (error) throw error;
+  return { custo_hora_clinica: Number(data?.custo_hora_clinica) || 0, margem_alvo_default: Number(data?.margem_alvo_default) || 0 };
+}
+
+// Mapa dentista_avaliador_id (uuid) → profissional_nome via planejamento_dentistas.user_id
+async function _mapaDentistasPorUserId() {
+  const { data, error } = await supabase.from('planejamento_dentistas').select('profissional_nome, user_id');
+  if (error) throw error;
+  const m = new Map();
+  for (const d of (data || [])) if (d.user_id) m.set(d.user_id, d.profissional_nome);
+  return m;
+}
+
+function _rangePadrao(req) {
+  const to = req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to) ? req.query.to : new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  const from = req.query.from && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from) ? req.query.from : new Date(Date.now() - 30 * 864e5).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  return { from, to };
+}
+
+// Planejado × real por tratamento — não é N+1: 1 query p/ os planos do período, 1 query
+// (chunked ≤200) que traz TODAS as etapas de TODOS os planos de uma vez, agrupadas em JS.
+app.get('/api/fiscalizacao/planejado-real', requireAuth, blockParceiro, requireFiscalizacao, rateLimit, async (req, res) => {
+  try {
+    const { from, to } = _rangePadrao(req);
+    const config = await _fiscalizacaoConfig();
+
+    const planos = await _fetchAllPaginado(() => supabase.from('plano_tratamento')
+      .select('id, paciente_nome, dentista_avaliador_id, status, tipo_pagamento, valor, atualizado_em')
+      .in('status', ['planejado', 'em_andamento', 'concluido'])
+      .gte('atualizado_em', `${from}T00:00:00`).lte('atualizado_em', `${to}T23:59:59`));
+
+    const planoIds = planos.map(p => p.id);
+    const temposPorPlano = new Map(); // plano_id -> { planejado_min, real_min }
+    for (let i = 0; i < planoIds.length; i += 200) {
+      const chunk = planoIds.slice(i, i + 200);
+      const etapas = await _fetchAllPaginado(() => supabase.from('plano_etapas')
+        .select('tempo_planejado_min, tempo_real_min, plano_itens!inner(plano_id)')
+        .in('plano_itens.plano_id', chunk));
+      for (const e of etapas) {
+        const pid = e.plano_itens.plano_id;
+        const acc = temposPorPlano.get(pid) || { planejado_min: 0, real_min: 0 };
+        acc.planejado_min += Number(e.tempo_planejado_min) || 0;
+        acc.real_min += Number(e.tempo_real_min) || 0;
+        temposPorPlano.set(pid, acc);
+      }
+    }
+
+    const dentistasPorUserId = await _mapaDentistasPorUserId();
+
+    const total = { planejado_min: 0, real_min: 0, estourando: 0 };
+    const linhas = planos.map(p => {
+      const tempos = temposPorPlano.get(p.id) || { planejado_min: 0, real_min: 0 };
+      const resumo = resumoPlano({ tempo_planejado_min: tempos.planejado_min, tempo_real_min: tempos.real_min, valor: p.valor }, config.custo_hora_clinica, config.margem_alvo_default);
+      total.planejado_min += resumo.planejado_min;
+      total.real_min += resumo.real_min;
+      if (resumo.estouro) total.estourando++;
+      return {
+        plano_id: p.id, paciente_nome: p.paciente_nome, dentista_avaliador_id: p.dentista_avaliador_id,
+        dentista_nome: dentistasPorUserId.get(p.dentista_avaliador_id) || null,
+        status: p.status, tipo_pagamento: p.tipo_pagamento, valor: p.valor, ...resumo,
+      };
+    });
+
+    res.json({ config, planos: linhas, total });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Cobertura de registro: a equipe está registrando as sessões que compareceram e têm plano ativo?
+// Sessão = agendamento compareceu+plano ativo; registrada = etapa concluída no dia OU avulso no dia.
+// Agrupado pelo dentista_avaliador_id do plano (a agenda não carrega dentista de forma limpa).
+app.get('/api/fiscalizacao/cobertura', requireAuth, blockParceiro, requireFiscalizacao, rateLimit, async (req, res) => {
+  try {
+    const { from, to } = _rangePadrao(req);
+
+    const agenda = await _fetchAllPaginado(() => supabase.from('agenda_appointments')
+      .select('paciente_clinicorp_id, appointment_date')
+      .eq('compareceu', true).eq('deleted', false)
+      .gte('appointment_date', from).lte('appointment_date', to));
+
+    // sessão = 1 por (paciente, dia) — mesma unidade de "chair time" usada no registro (evita dobrar)
+    const sessoesMap = new Map(); // `${pid}|${data}` -> { pid, data }
+    for (const a of agenda) {
+      const pid = String(a.paciente_clinicorp_id || '');
+      if (!pid || !a.appointment_date) continue;
+      sessoesMap.set(`${pid}|${a.appointment_date}`, { pid, data: a.appointment_date });
+    }
+    const sessoes = [...sessoesMap.values()];
+    if (!sessoes.length) return res.json({ dentistas: [], total: { sessoes: 0, registradas: 0, pct: null } });
+
+    const pids = [...new Set(sessoes.map(s => s.pid))];
+    const planoAtivoPorPaciente = new Map(); // pid -> { id, dentista_avaliador_id }
+    for (let i = 0; i < pids.length; i += 200) {
+      const chunk = pids.slice(i, i + 200);
+      const planos = await _fetchAllPaginado(() => supabase.from('plano_tratamento')
+        .select('id, paciente_clinicorp_id, dentista_avaliador_id, criado_em')
+        .in('paciente_clinicorp_id', chunk).in('status', _statusPlanoAtivo).order('criado_em', { ascending: false }));
+      for (const p of planos) if (!planoAtivoPorPaciente.has(p.paciente_clinicorp_id)) planoAtivoPorPaciente.set(p.paciente_clinicorp_id, p);
+    }
+
+    const planoIds = [...new Set([...planoAtivoPorPaciente.values()].map(p => p.id))];
+    const concluidasPorPlano = new Map(); // plano_id -> Set(data 'YYYY-MM-DD')
+    for (let i = 0; i < planoIds.length; i += 200) {
+      const chunk = planoIds.slice(i, i + 200);
+      const etapas = await _fetchAllPaginado(() => supabase.from('plano_etapas')
+        .select('concluida_em, plano_itens!inner(plano_id)')
+        .in('plano_itens.plano_id', chunk).in('status', ['concluida', 'concluida_retroativa']));
+      for (const e of etapas) {
+        if (!e.concluida_em) continue;
+        const pid = e.plano_itens.plano_id;
+        const dia = String(e.concluida_em).slice(0, 10);
+        if (!concluidasPorPlano.has(pid)) concluidasPorPlano.set(pid, new Set());
+        concluidasPorPlano.get(pid).add(dia);
+      }
+    }
+
+    const avulsos = await _fetchAllPaginado(() => supabase.from('sessao_avulsa')
+      .select('paciente_clinicorp_id, data').gte('data', from).lte('data', to));
+    const avulsoSet = new Set(avulsos.map(a => `${String(a.paciente_clinicorp_id || '')}|${a.data}`));
+
+    const dentistasPorUserId = await _mapaDentistasPorUserId();
+    const porDentista = new Map(); // dentista_avaliador_id (ou null) -> { sessoes, registradas }
+
+    for (const s of sessoes) {
+      const plano = planoAtivoPorPaciente.get(s.pid);
+      if (!plano) continue; // sem plano ativo → fora do escopo de cobertura
+      const key = plano.dentista_avaliador_id || null;
+      const acc = porDentista.get(key) || { sessoes: 0, registradas: 0 };
+      acc.sessoes++;
+      const registrada = (concluidasPorPlano.get(plano.id)?.has(s.data)) || avulsoSet.has(`${s.pid}|${s.data}`);
+      if (registrada) acc.registradas++;
+      porDentista.set(key, acc);
+    }
+
+    const dentistas = [...porDentista.entries()].map(([userId, v]) => ({
+      dentista_avaliador_id: userId, dentista_nome: userId ? (dentistasPorUserId.get(userId) || null) : null,
+      sessoes: v.sessoes, registradas: v.registradas, pct: v.sessoes > 0 ? v.registradas / v.sessoes : null,
+    })).sort((a, b) => b.sessoes - a.sessoes);
+
+    const total = dentistas.reduce((acc, d) => ({ sessoes: acc.sessoes + d.sessoes, registradas: acc.registradas + d.registradas }), { sessoes: 0, registradas: 0 });
+    res.json({ dentistas, total: { ...total, pct: total.sessoes > 0 ? total.registradas / total.sessoes : null } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/fiscalizacao/config', requireAuth, blockParceiro, requireFiscalizacao, rateLimit, async (req, res) => {
+  try { res.json(await _fiscalizacaoConfig()); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Edição do custo-hora/margem-alvo é exclusiva da gestora/admin (mod_planejamento só lê).
+app.put('/api/fiscalizacao/config', requireAuth, blockParceiro, requireFiscalizacao, rateLimit, async (req, res) => {
+  try {
+    const roles = req.user.profile?.roles || [];
+    if (!roles.some(r => ['gestor', 'admin'].includes(r))) return res.status(403).json({ error: 'só gestor/admin edita a configuração' });
+    const b = req.body || {};
+    const custo_hora_clinica = Number(b.custo_hora_clinica);
+    const margem_alvo_default = Number(b.margem_alvo_default);
+    if (!Number.isFinite(custo_hora_clinica) || custo_hora_clinica < 0) return res.status(400).json({ error: 'custo_hora_clinica deve ser um número ≥ 0' });
+    if (!Number.isFinite(margem_alvo_default) || margem_alvo_default < 0) return res.status(400).json({ error: 'margem_alvo_default deve ser um número ≥ 0' });
+    const { error } = await supabase.from('planejamento_config')
+      .update({ custo_hora_clinica, margem_alvo_default, atualizado_em: new Date().toISOString() }).eq('id', 1);
+    if (error) throw error;
+    res.json({ ok: true, custo_hora_clinica, margem_alvo_default });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
