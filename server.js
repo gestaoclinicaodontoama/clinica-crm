@@ -511,6 +511,7 @@ const requirePlanejamento = requireRole('dentista', 'gestor', 'admin', 'mod_plan
 const requirePlanejamentoOuCRC = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento', 'crc_comercial');
 const requirePlanejamentoOuSucesso = requireRole('dentista', 'gestor', 'admin', 'mod_planejamento', 'crc_comercial', 'crc_sucesso');
 const requirePlanejamentoGestor = requireRole('gestor', 'admin');
+const requireSessao = requireRole('asb', 'gestor', 'admin', 'mod_planejamento');
 // veredito CRC reusa requireDashboardAvaliacao (gestor, admin, crc_comercial) já existente
 
 // ========== ADMIN MIDDLEWARE ==========
@@ -4994,7 +4995,7 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
 });
 
 // ═══════════ MODO DE PLANEJAMENTO (Produção ①) ═══════════
-const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes } = require('./lib/planejamento/estados');
+const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes, avancarPorRegistro } = require('./lib/planejamento/estados');
 const { tipoPagamento: planTipoPagamento } = require('./lib/planejamento/triagem');
 
 async function planCarregarPlano(id) {
@@ -5280,6 +5281,204 @@ app.post('/api/planejamento/padroes', requireAuth, blockParceiro, requirePlaneja
 app.post('/api/planejamento/padroes/:id/aprovar', requireAuth, blockParceiro, requirePlanejamentoGestor, rateLimit, async (req, res) => {
   try { const { error } = await supabase.from('processos_padrao').update({ status: 'aprovado', atualizado_em: new Date().toISOString() }).eq('id', req.params.id); if (error) throw error; res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════ REGISTRO POR SESSÃO (ASB) — Entrega ② ═══════════
+// A ASB clica a etapa do plano em vez de digitar; fica gravado ASB + quando + tempo real.
+const _statusPlanoAtivo = ['aguardando_planejamento', 'planejado', 'em_andamento'];
+
+// Achata itens (com sub-lotes) num formato plano p/ a tela mobile marcar etapa por etapa.
+// Etapas moram nas FOLHAS: item dividido em sub-lotes → etapas ficam nos sub-lotes, não na raiz.
+function sessaoFlattenItens(itens) {
+  const mapEtapa = e => ({ id: e.id, descricao: e.descricao, profissional_executor: e.profissional_executor, tempo_planejado_min: e.tempo_planejado_min, status: e.status });
+  const out = [];
+  for (const it of (itens || [])) {
+    if (it.sublotes && it.sublotes.length) {
+      for (const sl of it.sublotes) out.push({ id: sl.id, procedure_name: sl.rotulo || it.procedure_name, quantidade: sl.quantidade, etapas: (sl.plano_etapas || []).map(mapEtapa) });
+    } else {
+      out.push({ id: it.id, procedure_name: it.procedure_name, quantidade: it.quantidade, etapas: (it.plano_etapas || []).map(mapEtapa) });
+    }
+  }
+  return out;
+}
+
+// Agenda do dia: quem compareceu (dedup por paciente) + plano ativo (se houver) + se já foi registrado hoje.
+app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit, async (req, res) => {
+  try {
+    const data = req.query.data || new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
+
+    const { data: agenda, error: eA } = await supabase.from('agenda_appointments')
+      .select('paciente_clinicorp_id, patient_name, from_time')
+      .eq('appointment_date', data).eq('compareceu', true).eq('deleted', false);
+    if (eA) throw eA;
+
+    const porPaciente = new Map();   // dedup: mantém o 1º horário encontrado
+    for (const a of (agenda || [])) {
+      const pid = String(a.paciente_clinicorp_id || '');
+      if (!pid || porPaciente.has(pid)) continue;
+      porPaciente.set(pid, { paciente_clinicorp_id: pid, nome: a.patient_name || '', horario: a.from_time || null });
+    }
+    const pids = [...porPaciente.keys()];
+    if (!pids.length) return res.json({ data, pacientes: [] });
+
+    const planosPorPaciente = new Map();
+    for (let i = 0; i < pids.length; i += 200) {
+      const chunk = pids.slice(i, i + 200);
+      const { data: planos, error: ePl } = await supabase.from('plano_tratamento')
+        .select('id, paciente_clinicorp_id, status, criado_em')
+        .in('paciente_clinicorp_id', chunk).in('status', _statusPlanoAtivo)
+        .order('criado_em', { ascending: false });
+      if (ePl) throw ePl;
+      for (const p of (planos || [])) if (!planosPorPaciente.has(p.paciente_clinicorp_id)) planosPorPaciente.set(p.paciente_clinicorp_id, p);
+    }
+
+    const { data: avulsosHoje, error: eAv } = await supabase.from('sessao_avulsa').select('paciente_clinicorp_id').eq('data', data);
+    if (eAv) throw eAv;
+    const avulsosSet = new Set((avulsosHoje || []).map(a => String(a.paciente_clinicorp_id || '')));
+
+    const planoIds = [...new Set([...planosPorPaciente.values()].map(p => p.id))];
+    const planosConcluidosHoje = new Set();
+    for (let i = 0; i < planoIds.length; i += 200) {
+      const chunk = planoIds.slice(i, i + 200);
+      const { data: etapas, error: eEt } = await supabase.from('plano_etapas')
+        .select('concluida_em, plano_itens!inner(plano_id)')
+        .in('plano_itens.plano_id', chunk).in('status', ['concluida', 'concluida_retroativa']);
+      if (eEt) throw eEt;
+      for (const e of (etapas || [])) {
+        if (e.concluida_em && String(e.concluida_em).slice(0, 10) === data) planosConcluidosHoje.add(e.plano_itens.plano_id);
+      }
+    }
+
+    const pacientes = [];
+    for (const [pid, base] of porPaciente) {
+      const plano = planosPorPaciente.get(pid);
+      let planoResumo = null, itens = [];
+      let jaRegistrado = avulsosSet.has(pid);
+      if (plano) {
+        planoResumo = { id: plano.id, status: plano.status };
+        const carregado = await planCarregarPlano(plano.id);
+        itens = sessaoFlattenItens(carregado?.itens);
+        if (planosConcluidosHoje.has(plano.id)) jaRegistrado = true;
+      }
+      pacientes.push({ paciente_clinicorp_id: pid, nome: base.nome, horario: base.horario, plano: planoResumo, itens, ja_registrado_hoje: jaRegistrado });
+    }
+    pacientes.sort((a, b) => (a.horario || '').localeCompare(b.horario || ''));
+    res.json({ data, pacientes });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Busca retroativa: paciente por nome/telefone → plano ativo + etapas, p/ registrar sessão de qualquer data.
+app.get('/api/sessao/buscar', requireAuth, blockParceiro, requireSessao, rateLimit, async (req, res) => {
+  try {
+    const q = sanitizeStr(req.query.q || '', 80).replace(/[%,()]/g, '').trim();
+    if (q.length < 2) return res.json({ pacientes: [] });
+    const like = `%${q}%`;
+    const { data: pacientes, error } = await supabase.from('pacientes')
+      .select('clinicorp_id, nome, telefone_celular, telefone_fixo')
+      .or(`nome.ilike.${like},telefone_celular.ilike.${like},telefone_fixo.ilike.${like}`)
+      .limit(15);
+    if (error) throw error;
+
+    const pids = [...new Set((pacientes || []).map(p => String(p.clinicorp_id || '')).filter(Boolean))];
+    const planosPorPaciente = new Map();
+    if (pids.length) {
+      const { data: planos, error: ePl } = await supabase.from('plano_tratamento')
+        .select('id, paciente_clinicorp_id, status, criado_em')
+        .in('paciente_clinicorp_id', pids).in('status', _statusPlanoAtivo)
+        .order('criado_em', { ascending: false });
+      if (ePl) throw ePl;
+      for (const p of (planos || [])) if (!planosPorPaciente.has(p.paciente_clinicorp_id)) planosPorPaciente.set(p.paciente_clinicorp_id, p);
+    }
+
+    const resultado = [];
+    for (const p of (pacientes || [])) {
+      const pid = String(p.clinicorp_id || '');
+      const plano = planosPorPaciente.get(pid);
+      let planoResumo = null, itens = [];
+      if (plano) {
+        planoResumo = { id: plano.id, status: plano.status };
+        const carregado = await planCarregarPlano(plano.id);
+        itens = sessaoFlattenItens(carregado?.itens);
+      }
+      resultado.push({ paciente_clinicorp_id: pid, nome: p.nome || '', plano: planoResumo, itens });
+    }
+    res.json({ pacientes: resultado });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Marca etapa como concluída (idempotente) e avança o plano — máquina de estados da lib.
+app.post('/api/sessao/etapa', requireAuth, blockParceiro, requireSessao, rateLimit, async (req, res) => {
+  try {
+    const etapaId = Number(req.body.etapa_id);
+    if (!etapaId) return res.status(400).json({ error: 'etapa_id é obrigatório' });
+    const dataStr = req.body.data ? String(req.body.data).slice(0, 10) : null;
+    if (dataStr && !/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
+
+    const { data: etapa, error: eEt } = await supabase.from('plano_etapas')
+      .select('id, status, tempo_planejado_min, plano_itens!inner(plano_id)').eq('id', etapaId).maybeSingle();
+    if (eEt) throw eEt;
+    if (!etapa) return res.status(404).json({ error: 'etapa não encontrada' });
+    const planoId = etapa.plano_itens.plano_id;
+    const { data: plano, error: ePl } = await supabase.from('plano_tratamento').select('id, status').eq('id', planoId).maybeSingle();
+    if (ePl) throw ePl;
+    if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+
+    if (['concluida', 'concluida_retroativa'].includes(etapa.status)) {
+      return res.json({ ok: true, jaConcluida: true, plano_status: plano.status });
+    }
+
+    const concluidaEm = dataStr ? `${dataStr}T12:00:00-03:00` : new Date().toISOString();
+    const tempo_real_min = Number(req.body.tempo_real_min) || etapa.tempo_planejado_min || null;
+
+    const { error: eUp } = await supabase.from('plano_etapas').update({
+      status: 'concluida', tempo_real_min, asb_responsavel: req.user.id, concluida_em: concluidaEm,
+    }).eq('id', etapaId);
+    if (eUp) throw eUp;
+
+    // avança o plano com o status ATUAL de todas as etapas (após o update acima)
+    const { data: todasEtapas, error: eTodas } = await supabase.from('plano_etapas')
+      .select('status, plano_itens!inner(plano_id)').eq('plano_itens.plano_id', planoId);
+    if (eTodas) throw eTodas;
+    const statuses = (todasEtapas || []).map(e => e.status);
+
+    let planoStatusFinal = plano.status;
+    const novo = avancarPorRegistro(plano.status, statuses);
+    if (novo) {
+      planoStatusFinal = novo;
+      await supabase.from('plano_tratamento').update({ status: novo, atualizado_em: new Date().toISOString() }).eq('id', planoId);
+      // 1 etapa só num plano recém aguardando/planejado: sobe pra em_andamento e, no mesmo request, já fecha
+      if (novo === 'em_andamento') {
+        const n2 = avancarPorRegistro('em_andamento', statuses);
+        if (n2 === 'concluido') {
+          planoStatusFinal = 'concluido';
+          await supabase.from('plano_tratamento').update({ status: 'concluido', atualizado_em: new Date().toISOString() }).eq('id', planoId);
+        }
+      }
+    }
+    res.json({ ok: true, plano_status: planoStatusFinal });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Caso (b) "Atendimento realizado" fora do plano / sem plano — rápido + observação livre.
+app.post('/api/sessao/avulso', requireAuth, blockParceiro, requireSessao, rateLimit, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const paciente_nome = sanitizeStr(b.paciente_nome || '', 200).trim();
+    if (!paciente_nome) return res.status(400).json({ error: 'paciente_nome é obrigatório' });
+    const paciente_clinicorp_id = b.paciente_clinicorp_id != null ? String(b.paciente_clinicorp_id) : null;
+    const obs = b.obs ? sanitizeStr(b.obs, 1000) : null;
+    const dataStr = b.data ? String(b.data).slice(0, 10) : null;
+    if (dataStr && !/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
+    const data = dataStr || new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const plano_id = b.plano_id ? Number(b.plano_id) : null;
+
+    const { data: row, error } = await supabase.from('sessao_avulsa').insert({
+      paciente_clinicorp_id, paciente_nome, data, asb_user_id: req.user.id, obs, plano_id,
+    }).select('id').single();
+    if (error) throw error;
+    res.json({ ok: true, id: row.id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ========== MÓDULO PACIENTES (Sucesso do Cliente) ==========
@@ -10022,13 +10221,32 @@ app.get('/api/producao/auditoria-registro', requireAuth, requireProducao, async 
     if (eA) throw new Error(`agenda: ${eA.message}`);
     if (eP) throw new Error(`producao: ${eP.message}`);
 
-    // Modo de Planejamento: sessões de pacientes com plano ATIVO são "esperadas pelo plano"
-    const { data: planosAtivos } = await supabase.from('plano_tratamento')
-      .select('paciente_clinicorp_id')
-      .in('status', ['aguardando_planejamento', 'planejado', 'em_andamento']);
-    const pacientesComPlanoAtivo = new Set((planosAtivos || []).map(p => p.paciente_clinicorp_id).filter(Boolean));
+    // Registro por Sessão (ASB, entrega ②): dispensa fina — só quem teve etapa concluída
+    // OU sessao_avulsa NAQUELE DIA é dispensado. Plano ativo sozinho não dispensa mais
+    // (substitui a dispensa grosseira "por paciente com plano ativo").
+    const from = data + 'T00:00:00-03:00';
+    const to   = data + 'T23:59:59.999-03:00';
+    const { data: etapasHoje, error: eEtDia } = await supabase.from('plano_etapas')
+      .select('concluida_em, plano_itens!inner(plano_id)')
+      .in('status', ['concluida', 'concluida_retroativa'])
+      .gte('concluida_em', from).lte('concluida_em', to);
+    if (eEtDia) throw new Error(`etapas: ${eEtDia.message}`);
+    const planoIdsHoje = [...new Set((etapasHoje || []).map(e => e.plano_itens.plano_id))];
 
-    res.json({ data, ...classificarDia({ atendimentos, producao, pacientesComPlanoAtivo }) });
+    const pacientesRegistradosHoje = new Set();
+    for (let i = 0; i < planoIdsHoje.length; i += 200) {
+      const chunk = planoIdsHoje.slice(i, i + 200);
+      const { data: planosHoje, error: ePlHoje } = await supabase.from('plano_tratamento')
+        .select('id, paciente_clinicorp_id').in('id', chunk);
+      if (ePlHoje) throw new Error(`planos: ${ePlHoje.message}`);
+      for (const p of (planosHoje || [])) if (p.paciente_clinicorp_id) pacientesRegistradosHoje.add(p.paciente_clinicorp_id);
+    }
+
+    const { data: avulsosHoje, error: eAvDia } = await supabase.from('sessao_avulsa').select('paciente_clinicorp_id').eq('data', data);
+    if (eAvDia) throw new Error(`sessao_avulsa: ${eAvDia.message}`);
+    for (const a of (avulsosHoje || [])) if (a.paciente_clinicorp_id) pacientesRegistradosHoje.add(String(a.paciente_clinicorp_id));
+
+    res.json({ data, ...classificarDia({ atendimentos, producao, pacientesRegistradosHoje }) });
   } catch (e) {
     console.error('[producao/auditoria-registro]', e.message);
     res.status(500).json({ error: e.message });
