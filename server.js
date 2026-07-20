@@ -4996,7 +4996,7 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
 });
 
 // ═══════════ MODO DE PLANEJAMENTO (Produção ①) ═══════════
-const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes, avancarPorRegistro } = require('./lib/planejamento/estados');
+const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes, avancarPorRegistro, statusAposRegistro: planStatusAposRegistro } = require('./lib/planejamento/estados');
 const { tipoPagamento: planTipoPagamento } = require('./lib/planejamento/triagem');
 const { resumoPlano } = require('./lib/planejamento/fiscalizacao');
 
@@ -5343,6 +5343,21 @@ async function jaRegistrouHoje(paciente_clinicorp_id, dataStr, planoId) {
   return false;
 }
 
+// Relê TODAS as etapas do plano e avança o status pela máquina (até 2 degraus). Retorna o status final.
+// Compartilhado por /api/sessao/etapa e /api/planejamento/plano/:id/executar — sem cópia da máquina de estados.
+async function avancarPlanoAposRegistro(planoId, statusAtual) {
+  const { data: todas, error } = await supabase.from('plano_etapas')
+    .select('status, plano_itens!inner(plano_id)').eq('plano_itens.plano_id', planoId);
+  if (error) throw error;
+  const final = planStatusAposRegistro(statusAtual, (todas || []).map(e => e.status));
+  if (final !== statusAtual) {
+    const { error: eUp } = await supabase.from('plano_tratamento')
+      .update({ status: final, atualizado_em: new Date().toISOString() }).eq('id', planoId);
+    if (eUp) throw eUp;
+  }
+  return final;
+}
+
 // Agenda do dia: quem compareceu (dedup por paciente) + plano ativo (se houver) + se já foi registrado hoje.
 app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit, async (req, res) => {
   try {
@@ -5483,26 +5498,7 @@ app.post('/api/sessao/etapa', requireAuth, blockParceiro, requireSessao, rateLim
     }).eq('id', etapaId);
     if (eUp) throw eUp;
 
-    // avança o plano com o status ATUAL de todas as etapas (após o update acima)
-    const { data: todasEtapas, error: eTodas } = await supabase.from('plano_etapas')
-      .select('status, plano_itens!inner(plano_id)').eq('plano_itens.plano_id', planoId);
-    if (eTodas) throw eTodas;
-    const statuses = (todasEtapas || []).map(e => e.status);
-
-    let planoStatusFinal = plano.status;
-    const novo = avancarPorRegistro(plano.status, statuses);
-    if (novo) {
-      planoStatusFinal = novo;
-      await supabase.from('plano_tratamento').update({ status: novo, atualizado_em: new Date().toISOString() }).eq('id', planoId);
-      // 1 etapa só num plano recém aguardando/planejado: sobe pra em_andamento e, no mesmo request, já fecha
-      if (novo === 'em_andamento') {
-        const n2 = avancarPorRegistro('em_andamento', statuses);
-        if (n2 === 'concluido') {
-          planoStatusFinal = 'concluido';
-          await supabase.from('plano_tratamento').update({ status: 'concluido', atualizado_em: new Date().toISOString() }).eq('id', planoId);
-        }
-      }
-    }
+    const planoStatusFinal = await avancarPlanoAposRegistro(planoId, plano.status);
     res.json({ ok: true, plano_status: planoStatusFinal });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
