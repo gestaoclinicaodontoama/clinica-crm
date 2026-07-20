@@ -95,14 +95,15 @@
       { slug: 'curva-abc',       label: 'Curva ABC / Prevenção', roles: 'admin,gestor,crc_sucesso,crc_pos_tratamento', mode: 'link', href: '/pos-tratamento/curva-abc.html' },
     ]},
 
-    { divider: true, roles: 'admin,gestor,financeiro,mod_financeiro,mod_producao,dentista,mod_avaliacao_dentista,crc_comercial' },
+    { divider: true, roles: 'admin,gestor,financeiro,mod_financeiro,mod_producao,dentista,asb,mod_avaliacao_dentista,crc_comercial' },
 
-    { id: 'producao', label: 'Clínica / Produção', icon: 'producao', roles: 'admin,gestor,financeiro,mod_financeiro,mod_producao,dentista,mod_avaliacao_dentista,crc_comercial,mod_planejamento', items: [
+    { id: 'producao', label: 'Clínica / Produção', icon: 'producao', roles: 'admin,gestor,financeiro,mod_financeiro,mod_producao,dentista,asb,mod_avaliacao_dentista,crc_comercial,mod_planejamento', items: [
       { slug: 'avaliacao-dentista', label: 'Avaliação Dentista',   roles: 'gestor,dentista,admin,mod_avaliacao_dentista,crc_comercial', mode: 'link', href: '/avaliacao-dentista/' },
       { slug: 'producao',           label: 'Receita × Entrega',    roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/' },
       { slug: 'producao-dentista',  label: 'Análise por Dentista', roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/dentista/' },
       { slug: 'producao-registro',  label: 'Registro Diário',      roles: 'financeiro,mod_financeiro,mod_producao',                    mode: 'link', href: '/producao/registro/' },
       { slug: 'planejamento',       label: 'Planejar',             roles: 'dentista,mod_planejamento,gestor,crc_comercial',            mode: 'link', href: '/planejamento/' },
+      { slug: 'sessao',             label: 'Registrar Sessão',     roles: 'asb,gestor,mod_planejamento,admin',                         mode: 'link', href: '/sessao/' },
     ]},
 
     { id: 'financeiro-sec', label: 'Financeiro', icon: 'financeiro', roles: 'admin,gestor,financeiro,auxiliar_adm,mod_notas_fiscais,mod_inadimplentes,mod_financeiro', items: [

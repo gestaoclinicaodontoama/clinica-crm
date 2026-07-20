@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Registrar Sessão — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--bg2:#181b24;--bg3:#1e2230;--border:#2a2f42;--text:#e8eaf0;--muted:#6b7280;--accent:#4f8ef7;--accent-hover:#3a78e0;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444}
+:root[data-theme="light"]{--bg:#f7f8fa;--bg2:#ffffff;--bg3:#f1f3f7;--border:#e3e6ed;--text:#1a1d29;--muted:#6b7280;--accent:#3b82f6;--accent-hover:#2563eb;--green:#16a34a;--yellow:#d97706;--red:#dc2626}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{padding:12px 12px 32px;max-width:640px;margin:0 auto}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.page-header h1{font-size:19px;font-weight:700}
+.back-link{font-size:12px;color:var(--muted);text-decoration:none}
+.back-link:hover{color:var(--accent)}
+
+.datebar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.datebar button{flex:0 0 auto;width:48px;height:48px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer}
+.datebar button:disabled{opacity:.4;cursor:default}
+.datebar button:active:not(:disabled){background:var(--bg3)}
+.datebar input[type=date]{flex:1 1 auto;height:48px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:15px;padding:0 10px}
+.datebar .btn-hoje{flex:0 0 auto;width:auto;padding:0 14px;font-size:13px}
+
+.searchbar{margin-bottom:14px}
+.searchbar input{width:100%;height:48px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:15px;padding:0 14px}
+.searchbar input::placeholder{color:var(--muted)}
+.search-hint{font-size:11px;color:var(--muted);margin-top:6px}
+
+.aviso{font-size:12px;color:var(--yellow);margin-bottom:10px}
+
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.card-head{padding:14px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+.card-head:active{background:var(--bg3)}
+.card-name-wrap{flex:1 1 auto;min-width:0}
+.card-name{font-size:17px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-sub{font-size:12px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
+.chip-sem{background:var(--bg3);color:var(--muted)}
+.chip-planejado{background:#3b82f622;color:var(--accent)}
+.chip-andamento{background:#f59e0b22;color:var(--yellow)}
+.chip-concluido{background:#22c55e22;color:var(--green)}
+.chip-ok{background:#22c55e22;color:var(--green)}
+.card-arrow{flex:0 0 auto;color:var(--muted);font-size:18px;transition:transform .15s}
+.card.open .card-arrow{transform:rotate(180deg)}
+
+.card-body{display:none;border-top:1px solid var(--border);padding:10px 12px 14px}
+.card.open .card-body{display:block}
+
+.etapas-title{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin:6px 4px 6px}
+.etapa-row{display:flex;align-items:center;gap:10px;background:var(--bg3);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.etapa-row.done{opacity:.6}
+.etapa-info{flex:1 1 auto;min-width:0}
+.etapa-desc{font-size:14px;font-weight:600}
+.etapa-desc.riscado{text-decoration:line-through}
+.etapa-meta{font-size:12px;color:var(--muted);margin-top:2px}
+.etapa-tempo{width:56px;height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:14px;text-align:center;flex:0 0 auto}
+.etapa-check{flex:0 0 auto;width:44px;height:44px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:20px;font-weight:700;cursor:pointer}
+.etapa-check:active{background:var(--accent-hover)}
+.etapa-done-mark{flex:0 0 auto;width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--green);font-size:20px;font-weight:700}
+
+.sem-plano{font-size:13px;color:var(--muted);padding:6px 4px 14px}
+
+.btn-avulso{width:100%;height:52px;border-radius:12px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px}
+.btn-avulso:active{background:var(--border)}
+
+.avulso-form{display:none;margin-top:10px;background:var(--bg3);border-radius:12px;padding:12px}
+.avulso-form.open{display:block}
+.avulso-form textarea{width:100%;min-height:70px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:14px;padding:10px;resize:vertical}
+.avulso-form-actions{display:flex;gap:8px;margin-top:10px}
+.avulso-form-actions button{flex:1 1 auto;height:46px;border-radius:10px;border:none;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.btn-confirmar{background:var(--accent);color:#fff}
+.btn-confirmar:active{background:var(--accent-hover)}
+.btn-cancelar{background:var(--bg2);color:var(--text);border:1px solid var(--border) !important}
+
+.empty{padding:32px 16px;text-align:center;color:var(--muted);font-size:14px}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-3px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--green);color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:999;max-width:90vw;text-align:center}
+.toast.erro{background:var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-header">
+    <h1>Registrar Sessão</h1>
+  </div>
+
+  <div class="datebar">
+    <button id="btnPrev" onclick="mudarDia(-1)">◀</button>
+    <input type="date" id="dataInput" onchange="onDataChange()">
+    <button id="btnNext" onclick="mudarDia(1)">▶</button>
+    <button class="btn-hoje" onclick="irHoje()">Hoje</button>
+  </div>
+
+  <div class="searchbar">
+    <input type="text" id="buscaInput" placeholder="Buscar paciente (nome ou telefone) — retroativo" oninput="onBusca()">
+    <div class="search-hint" id="buscaHint" style="display:none">Mostrando resultados da busca — as ações usam a data selecionada acima.</div>
+  </div>
+
+  <div id="avisoFuturo" class="aviso" style="display:none">⚠ Datas futuras ainda não têm comparecimento registrado.</div>
+
+  <div id="conteudo"><div class="empty"><span class="spinner"></span></div></div>
+
+</div>
+
+<script src="/js/sessao/app.js"></script>
+<script src="/js/shared-nav.js" data-active="sessao"></script>
+</body>
+</html>
