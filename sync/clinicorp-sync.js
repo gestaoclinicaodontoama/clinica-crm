@@ -1105,11 +1105,19 @@ async function syncPlanejamento() {
     if (!o) continue;                                        // sumiu da tabela → NÃO cancela (regra V2)
     const itensNovos = nomear(agruparItens(o.procedure_list));
     const { data: itensPlano } = await supabase.from('plano_itens')
-      .select('id, price_id, quantidade, removido_em, plano_etapas(status)')
-      .eq('plano_id', plano.id).is('parent_id', null).is('removido_em', null);
-    const itensFmt = (itensPlano || []).map(i => ({
+      .select('id, parent_id, price_id, quantidade, removido_em, plano_etapas(status)')
+      .eq('plano_id', plano.id).is('removido_em', null);
+    const filhosPor = new Map();
+    for (const i of (itensPlano || [])) {
+      if (!i.parent_id) continue;
+      if (!filhosPor.has(i.parent_id)) filhosPor.set(i.parent_id, []);
+      filhosPor.get(i.parent_id).push(i);
+    }
+    const temExec = i => (i.plano_etapas || []).some(e => e.status !== 'pendente');
+    const itensFmt = (itensPlano || []).filter(i => !i.parent_id).map(i => ({
       price_id: i.price_id, quantidade: i.quantidade,
-      etapas_executadas: (i.plano_etapas || []).some(e => e.status !== 'pendente'),
+      // etapas moram nas FOLHAS: item dividido tem execução nos filhos — protege a raiz do resync
+      etapas_executadas: temExec(i) || (filhosPor.get(i.id) || []).some(temExec),
     }));
     const { acoes } = aplicarResync({ plano, itensPlano: itensFmt, itensNovos, statusClinicorp: o.status });
     if (acoes.length) { resyncs++; await executarAcoesResync(plano, acoes, o); }

@@ -5174,7 +5174,13 @@ app.put('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanej
         .eq('id', item.id).eq('plano_id', id).maybeSingle();
       if (!raiz) continue;   // item de outro plano (ou inexistente) — ignora
       // ordem de execução vem da ordem no DOM do editor (setas ▲▼) — persiste p/ trilha e tracker
-      await supabase.from('plano_itens').update({ ordem: idxItem }).eq('id', item.id).eq('plano_id', id);
+      await supabase.from('plano_itens').update({
+        ordem: idxItem,
+        // condicional ('x' in item, padrão do próprio PUT ~5158-5160): editor antigo em cache não manda
+        // o campo — gravar incondicional apagaria executores já preenchidos a cada Salvar.
+        ...('profissional_executor' in item
+          ? { profissional_executor: sanitizeStr(item.profissional_executor || '', 120) || null } : {}),
+      }).eq('id', item.id).eq('plano_id', id);
       if (Array.isArray(item.sublotes) && item.sublotes.length) {
         const v = planValidarSubLotes(raiz.quantidade, item.sublotes);
         if (!v.ok) return res.status(400).json({ error: `sub-lotes de "${item.id}": ${v.erro}` });
@@ -5211,6 +5217,90 @@ app.put('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanej
       }
     }
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Marcar executado direto no modal de planejamento (uma etapa OU "executar todos" de um item).
+// "Executado" mora na etapa (fonte única de auditoria/planejado×real/tracker) — sem estado paralelo no item.
+// ⚠️ registrada ANTES da rota genérica /plano/:id/:acao (Express casa na ordem; a genérica daria 400 c/ gate errado).
+app.post('/api/planejamento/plano/:id/executar', requireAuth, blockParceiro, requirePlanejamento, rateLimit, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const etapaId = b.etapa_id ? Number(b.etapa_id) : null;
+    const itemId = b.item_id ? Number(b.item_id) : null;
+    if ((etapaId ? 1 : 0) + (itemId ? 1 : 0) !== 1) return res.status(400).json({ error: 'informe exatamente um de etapa_id/item_id' });
+    const dataStr = b.data ? String(b.data).slice(0, 10) : null;
+    if (dataStr && !/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
+
+    const { data: plano } = await supabase.from('plano_tratamento')
+      .select('id, status, trava_resync, dentista_avaliador_id').eq('id', id).maybeSingle();
+    if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    const roles = req.user.profile?.roles || [];
+    const soDentista = roles.includes('dentista') && !roles.some(rl => ['gestor', 'admin', 'mod_planejamento'].includes(rl));
+    if (soDentista && plano.dentista_avaliador_id !== req.user.id) return res.status(403).json({ error: 'plano de outro dentista' });
+    if (plano.trava_resync) return res.status(409).json({ error: 'plano travado — a gestora precisa resolver antes de registrar' });
+    if (['descartado', 'cancelado'].includes(plano.status)) return res.status(409).json({ error: `plano ${plano.status} — reative antes de registrar` });
+
+    const concluidaEm = dataStr ? `${dataStr}T12:00:00-03:00` : new Date().toISOString();
+    // tempo_real_min NÃO é gravado (fica null): marcação manual não mede cadeira — /sessao/ é a fonte de tempo real.
+    const patchBase = { status: 'concluida', concluida_em: concluidaEm, asb_responsavel: req.user.id, ficha_anotar: !!b.anotar_ficha };
+
+    // cascata do executor (primeiro não-vazio): etapa → item raiz → dentista responsável (determinístico) → null
+    async function executorFallback(itemRaiz) {
+      if (itemRaiz?.profissional_executor) return itemRaiz.profissional_executor;
+      if (!plano.dentista_avaliador_id) return null;
+      const { data: dd } = await supabase.from('planejamento_dentistas').select('profissional_nome')
+        .eq('user_id', plano.dentista_avaliador_id).eq('ativo', true).order('profissional_nome').limit(1);
+      return dd?.[0]?.profissional_nome || null;
+    }
+
+    if (etapaId) {
+      const { data: etapa, error: eEt } = await supabase.from('plano_etapas')
+        .select('id, status, profissional_executor, plano_itens!inner(id, plano_id, parent_id, profissional_executor)')
+        .eq('id', etapaId).eq('plano_itens.plano_id', id).maybeSingle();
+      if (eEt) throw eEt;
+      if (!etapa) return res.status(404).json({ error: 'etapa não encontrada neste plano' });
+      if (['concluida', 'concluida_retroativa'].includes(etapa.status)) return res.json({ ok: true, jaConcluida: true, plano_status: plano.status });
+      let raiz = etapa.plano_itens;
+      if (raiz.parent_id) {                                    // etapa de sub-lote herda executor do item RAIZ
+        const { data: pai } = await supabase.from('plano_itens').select('id, profissional_executor').eq('id', raiz.parent_id).maybeSingle();
+        if (pai) raiz = pai;
+      }
+      const executor = etapa.profissional_executor || await executorFallback(raiz);
+      const { error: eUp } = await supabase.from('plano_etapas')
+        .update({ ...patchBase, profissional_executor: executor }).eq('id', etapaId);
+      if (eUp) throw eUp;
+    } else {
+      const { data: raiz } = await supabase.from('plano_itens')
+        .select('id, procedure_name, profissional_executor').eq('id', itemId).eq('plano_id', id).is('removido_em', null).maybeSingle();
+      if (!raiz) return res.status(404).json({ error: 'item não encontrado neste plano' });
+      const { data: filhos } = await supabase.from('plano_itens').select('id').eq('parent_id', raiz.id).is('removido_em', null);
+      const alvos = [raiz.id, ...(filhos || []).map(f => f.id)];   // etapas moram nas folhas: raiz + sub-lotes
+      const { data: etapas, error: eEts } = await supabase.from('plano_etapas').select('id, status, profissional_executor').in('item_id', alvos);
+      if (eEts) throw eEts;
+      const pendentes = (etapas || []).filter(e => e.status === 'pendente');
+      if (!pendentes.length) {
+        if ((etapas || []).length) return res.json({ ok: true, jaConcluida: true, plano_status: plano.status });   // idempotente
+        // item (e filhos) sem etapa nenhuma → 1 etapa sintética já concluída.
+        // ordem=999: constante — max+1 sobre conjunto vazio recriaria colisão com o reindex 0..n do PUT.
+        const executor = await executorFallback(raiz);
+        const { error: eIns } = await supabase.from('plano_etapas').insert({
+          item_id: raiz.id, ordem: 999, descricao: raiz.procedure_name || 'Procedimento realizado',
+          profissional_executor: executor, ...patchBase });
+        if (eIns) throw eIns;
+      } else {
+        const executorItem = await executorFallback(raiz);
+        for (const p of pendentes) {
+          const { error: eUp } = await supabase.from('plano_etapas')
+            .update({ ...patchBase, profissional_executor: p.profissional_executor || executorItem }).eq('id', p.id);
+          if (eUp) throw eUp;
+        }
+      }
+    }
+
+    const plano_status = await avancarPlanoAposRegistro(id, plano.status);
+    res.json({ ok: true, plano_status });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -5336,7 +5426,8 @@ async function jaRegistrouHoje(paciente_clinicorp_id, dataStr, planoId) {
   if (planoId) {
     const { data: etapas, error: eEt } = await supabase.from('plano_etapas')
       .select('concluida_em, plano_itens!inner(plano_id)')
-      .eq('plano_itens.plano_id', planoId).in('status', ['concluida', 'concluida_retroativa']);
+      .eq('plano_itens.plano_id', planoId).in('status', ['concluida', 'concluida_retroativa'])
+      .not('tempo_real_min', 'is', null);   // marcação manual (tempo null) não consome o chair time do dia
     if (eEt) throw eEt;
     if ((etapas || []).some(e => e.concluida_em && String(e.concluida_em).slice(0, 10) === dataStr)) return true;
   }
@@ -5399,7 +5490,8 @@ app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit,
       const chunk = planoIds.slice(i, i + 200);
       const { data: etapas, error: eEt } = await supabase.from('plano_etapas')
         .select('concluida_em, plano_itens!inner(plano_id)')
-        .in('plano_itens.plano_id', chunk).in('status', ['concluida', 'concluida_retroativa']);
+        .in('plano_itens.plano_id', chunk).in('status', ['concluida', 'concluida_retroativa'])
+        .not('tempo_real_min', 'is', null);   // manual não marca o dia como registrado p/ a ASB
       if (eEt) throw eEt;
       for (const e of (etapas || [])) {
         if (e.concluida_em && String(e.concluida_em).slice(0, 10) === data) planosConcluidosHoje.add(e.plano_itens.plano_id);
