@@ -5252,6 +5252,13 @@ app.post('/api/planejamento/plano/:id/:acao', requireAuth, blockParceiro, requir
     if (!t) return res.status(400).json({ error: 'ação inválida' });
     // concluir/descartar/reativar são do planejamento — CRC só usa veredito/divergencia (destravar já é gestor/admin acima)
     if (!roles.some(r => ['dentista', 'gestor', 'admin', 'mod_planejamento'].includes(r))) return res.status(403).json({ error: 'sem permissão' });
+    // Idempotente: reconcluir um plano que já está planejado/em andamento/concluído (ex.: só reordenou) NÃO rebaixa
+    // nem erra na transição — apenas salva o patch (o PUT com as mudanças já rodou antes).
+    if (plano.status === t.para ||
+        (acao === 'concluir' && ['em_andamento', 'concluido'].includes(plano.status))) {
+      await supabase.from('plano_tratamento').update({ atualizado_em: now, ...t.patch }).eq('id', id);
+      return res.json({ ok: true });
+    }
     if (!planTransicao(plano.status, t.para)) return res.status(409).json({ error: `transição ${plano.status} → ${t.para} inválida` });
     const { error } = await supabase.from('plano_tratamento').update({ status: t.para, atualizado_em: now, ...t.patch }).eq('id', id);
     if (error) throw error;
