@@ -5557,17 +5557,31 @@ function _rangePadrao(req) {
   return { from, to };
 }
 
-// Planejado × real por tratamento — não é N+1: 1 query p/ os planos do período, 1 query
-// (chunked ≤200) que traz TODAS as etapas de TODOS os planos de uma vez, agrupadas em JS.
+// Planejado × real por tratamento — não é N+1: 2 queries p/ os planos (ativos sem janela +
+// concluídos no período), 1 query (chunked ≤200) que traz TODAS as etapas de TODOS os
+// planos de uma vez, agrupadas em JS.
 app.get('/api/fiscalizacao/planejado-real', requireAuth, blockParceiro, requireFiscalizacao, rateLimit, async (req, res) => {
   try {
     const { from, to } = _rangePadrao(req);
     const config = await _fiscalizacaoConfig();
 
-    const planos = await _fetchAllPaginado(() => supabase.from('plano_tratamento')
-      .select('id, paciente_nome, dentista_avaliador_id, status, tipo_pagamento, valor, atualizado_em')
-      .in('status', ['planejado', 'em_andamento', 'concluido'])
-      .gte('atualizado_em', `${from}T00:00:00`).lte('atualizado_em', `${to}T23:59:59`));
+    const PLANO_COLS = 'id, paciente_nome, dentista_avaliador_id, status, tipo_pagamento, valor, atualizado_em';
+    // atualizado_em só bumpa em TRANSIÇÃO de status (→em_andamento, →concluido), não nas
+    // sessões intermediárias em que o tempo real de cadeira é registrado. Por isso planos
+    // ativos (planejado/em_andamento) NUNCA entram na janela de data — são a população viva
+    // de tempo de cadeira e uma janela por atualizado_em esconderia sessões em andamento que
+    // entraram no status antes do `from`. Só os concluídos (cuja atualizado_em ~= conclusão)
+    // são filtrados pelo período, com o offset -03:00 (convenção da casa).
+    const [planosAtivos, planosConcluidos] = await Promise.all([
+      _fetchAllPaginado(() => supabase.from('plano_tratamento')
+        .select(PLANO_COLS)
+        .in('status', ['planejado', 'em_andamento'])),
+      _fetchAllPaginado(() => supabase.from('plano_tratamento')
+        .select(PLANO_COLS)
+        .eq('status', 'concluido')
+        .gte('atualizado_em', `${from}T00:00:00-03:00`).lte('atualizado_em', `${to}T23:59:59-03:00`)),
+    ]);
+    const planos = [...planosAtivos, ...planosConcluidos]; // disjuntos por status — sem dedupe necessário
 
     const planoIds = planos.map(p => p.id);
     const temposPorPlano = new Map(); // plano_id -> { planejado_min, real_min }
