@@ -248,7 +248,10 @@ No PUT `/api/planejamento/plano/:id` (~5175), trocar o update de ordem do item p
 ```js
       await supabase.from('plano_itens').update({
         ordem: idxItem,
-        profissional_executor: sanitizeStr(item.profissional_executor || '', 120) || null,
+        // condicional ('x' in item, padrão do próprio PUT ~5158-5160): editor antigo em cache não manda
+        // o campo — gravar incondicional apagaria executores já preenchidos a cada Salvar.
+        ...('profissional_executor' in item
+          ? { profissional_executor: sanitizeStr(item.profissional_executor || '', 120) || null } : {}),
       }).eq('id', item.id).eq('plano_id', id);
 ```
 
@@ -403,8 +406,10 @@ Adicionar como função top-level (junto de `garantirDialog`):
         <footer><button id="ex-ok" class="btn btn-primario">Confirmar ✓</button>
         <button id="ex-cancel" class="btn btn-ghost">Cancelar</button></footer>`;
       d.onclick = ev => {
-        if (ev.target.id === 'ex-ok') { const v = { data: d.querySelector('#ex-data').value || hoje, anotar: d.querySelector('#ex-ficha').checked }; d.close(); resolve(v); }
-        if (ev.target.id === 'ex-cancel') { d.close(); resolve(null); }
+        // resolve ANTES do close: se algum engine disparasse 'close' síncrono, o onclose (null) venceria.
+        // resolve duplo é no-op — o primeiro ganha.
+        if (ev.target.id === 'ex-ok') { resolve({ data: d.querySelector('#ex-data').value || hoje, anotar: d.querySelector('#ex-ficha').checked }); d.close(); }
+        if (ev.target.id === 'ex-cancel') { resolve(null); d.close(); }
       };
       d.onclose = () => resolve(null);   // Esc fecha = cancelar
       d.showModal();
@@ -443,10 +448,10 @@ No template do fieldset (hoje linhas 77-87), substituir o bloco `<div id="itens"
 
 - [ ] **Step 4: Templates de etapa nova (add-etapa e aplicar-padrao) viram select**
 
-`add-etapa` (linha ~126):
+`add-etapa` (linha ~126) — a etapa nova já nasce com o executor do item (herda no nascimento, não só no `change`):
 
 ```js
-          `<li class="nova"><input class="et-desc" placeholder="descrição"><select class="et-prof">${optionsExecutor(dentistas, '')}</select><input class="et-min" type="number" style="width:70px"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`
+          `<li class="nova"><input class="et-desc" placeholder="descrição"><select class="et-prof">${optionsExecutor(dentistas, fs.querySelector('.item-prof')?.value || '')}</select><input class="et-min" type="number" style="width:70px"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`
 ```
 
 `aplicar-padrao` (linha ~138):
@@ -459,14 +464,18 @@ No template do fieldset (hoje linhas 77-87), substituir o bloco `<div id="itens"
 
 - [ ] **Step 5: `coletar()` passa o executor do item**
 
-No objeto de item dentro de `coletar()` (linha ~101):
+No objeto de item dentro de `coletar()` (linha ~101) — versão completa (só a linha `profissional_executor` é nova; o resto fica como está hoje):
 
 ```js
       itens: [...dlg.querySelectorAll('[data-item]')].map(f => ({
         id: Number(f.dataset.item),
         profissional_executor: f.querySelector('.item-prof')?.value || '',
         sublotes: JSON.parse(f.dataset.sublotes || 'null') || undefined,
-        ...
+        etapas: [...f.querySelectorAll('[data-etapa], li.nova')].map(li => ({
+          id: li.dataset.etapa ? Number(li.dataset.etapa) : null, status: li.dataset.status || 'pendente',
+          descricao: li.querySelector('.et-desc').value,
+          profissional_executor: li.querySelector('.et-prof').value,
+          tempo_planejado_min: Number(li.querySelector('.et-min').value) || null })) })),
 ```
 
 - [ ] **Step 6: Herança do executor (change no select do item)**
@@ -515,6 +524,7 @@ Adicionar dentro de `abrir` (antes do `dlg.onclick`):
         if (/não encontrada|nao encontrada|404/i.test(String(e.message || ''))) { alert('Plano atualizado — clique ✓ novamente.'); return reabrir(); }
         throw e;
       }
+      if (onSaved) onSaved();   // status do plano pode ter mudado → recarrega a fila/Trilhas atrás do modal
       return reabrir();
     }
 ```
@@ -560,12 +570,20 @@ Run: `npm test` (PASS) · `node --check server.js` · `node --check sync/clinico
 ```bash
 git fetch origin main
 git merge-base --is-ancestor origin/main HEAD && echo FF-OK || echo DIVERGIU   # se DIVERGIU: rebase origin/main antes
-# push da branch planejamento para main usando token do CredRead (GCM trava headless):
-TOKEN=$(powershell.exe -NoProfile -Command "(New-Object System.Net.NetworkCredential('', (CredRead git:https://github.com).Password)).Password" 2>/dev/null) # ou o helper já usado nas sessões anteriores
-git push https://x-access-token:${TOKEN}@github.com/gestaoclinicaodontoama/clinica-crm.git planejamento:main
 ```
 
-(Usar o mesmo mecanismo de token das sessões anteriores do worktree — ver histórico de push da branch.)
+**Push (método comprovado 2026-07-07, memória `feedback_git_push_headless.md` — GCM trava headless; `CredRead` é API Win32, NÃO cmdlet):** via ferramenta PowerShell, **tudo numa chamada só** (o `Add-Type` não persiste): P/Invoke `CredReadW` (advapi32) no target `git:https://github.com` → extrair `$user`/`$token` → push com credencial embutida na URL e helpers desligados:
+
+```powershell
+# ... Add-Type do CredRead + leitura de $user/$token (uma chamada só) ...
+$remote=(git remote get-url origin).Trim()
+$hp=[regex]::Match($remote,'^https://(?:[^@/]+@)?(.+)$').Groups[1].Value
+$pushUrl="https://$user`:$token@$hp"
+git -c credential.helper= -c core.askPass= push $pushUrl planejamento:main 2>&1 |
+  ForEach-Object { $_ -replace [regex]::Escape($token),'***' } | Select-Object -Last 8
+```
+
+⚠️ NUNCA imprimir o token. Exit code do PowerShell pode vir 1 pelo stderr nativo — **confirmar sucesso SEMPRE por** `git fetch origin main; git rev-list --count origin/main..HEAD` (esperado `0`).
 
 - [ ] **Step 3: Deploy Easypanel + verificação do SWAP pelo conteúdo servido**
 
