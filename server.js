@@ -5302,6 +5302,36 @@ function sessaoFlattenItens(itens) {
   return out;
 }
 
+// Tempo real da sessão (chair time) = duração do agendamento comparecido do paciente naquele dia — não digitado pela ASB.
+async function duracaoSessao(paciente_clinicorp_id, dataStr) {
+  if (!paciente_clinicorp_id || !dataStr) return null;
+  const { data, error } = await supabase.from('agenda_appointments')
+    .select('duration_minutes')
+    .eq('paciente_clinicorp_id', paciente_clinicorp_id).eq('appointment_date', dataStr)
+    .eq('compareceu', true).eq('deleted', false);
+  if (error) throw error;
+  const max = (data || []).reduce((m, a) => Math.max(m, Number(a.duration_minutes) || 0), 0);
+  return max || null;
+}
+
+// Evita contar a mesma sessão (chair time) mais de uma vez quando várias etapas/avulsos são registrados
+// no mesmo atendimento do dia: true se já existe registro (concluída/concluída_retroativa ou avulso) hoje.
+async function jaRegistrouHoje(paciente_clinicorp_id, dataStr, planoId) {
+  if (!paciente_clinicorp_id || !dataStr) return false;
+  const { data: avulsos, error: eAv } = await supabase.from('sessao_avulsa')
+    .select('id').eq('paciente_clinicorp_id', paciente_clinicorp_id).eq('data', dataStr).limit(1);
+  if (eAv) throw eAv;
+  if ((avulsos || []).length) return true;
+  if (planoId) {
+    const { data: etapas, error: eEt } = await supabase.from('plano_etapas')
+      .select('concluida_em, plano_itens!inner(plano_id)')
+      .eq('plano_itens.plano_id', planoId).in('status', ['concluida', 'concluida_retroativa']);
+    if (eEt) throw eEt;
+    if ((etapas || []).some(e => e.concluida_em && String(e.concluida_em).slice(0, 10) === dataStr)) return true;
+  }
+  return false;
+}
+
 // Agenda do dia: quem compareceu (dedup por paciente) + plano ativo (se houver) + se já foi registrado hoje.
 app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit, async (req, res) => {
   try {
@@ -5420,7 +5450,7 @@ app.post('/api/sessao/etapa', requireAuth, blockParceiro, requireSessao, rateLim
     if (eEt) throw eEt;
     if (!etapa) return res.status(404).json({ error: 'etapa não encontrada' });
     const planoId = etapa.plano_itens.plano_id;
-    const { data: plano, error: ePl } = await supabase.from('plano_tratamento').select('id, status, trava_resync').eq('id', planoId).maybeSingle();
+    const { data: plano, error: ePl } = await supabase.from('plano_tratamento').select('id, status, trava_resync, paciente_clinicorp_id').eq('id', planoId).maybeSingle();
     if (ePl) throw ePl;
     if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
     // não registrar em plano travado (aguarda decisão humana) nem em lateral (descartado/cancelado)
@@ -5432,7 +5462,10 @@ app.post('/api/sessao/etapa', requireAuth, blockParceiro, requireSessao, rateLim
     }
 
     const concluidaEm = dataStr ? `${dataStr}T12:00:00-03:00` : new Date().toISOString();
-    const tempo_real_min = Number(req.body.tempo_real_min) || etapa.tempo_planejado_min || null;
+    const dataCalculo = dataStr || new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    // tempo real vem da duração do agendamento do dia (1ª sessão do dia carrega a duração; demais = 0, evita dobrar chair time)
+    const jaHoje = await jaRegistrouHoje(plano.paciente_clinicorp_id, dataCalculo, planoId);
+    const tempo_real_min = jaHoje ? 0 : ((await duracaoSessao(plano.paciente_clinicorp_id, dataCalculo)) ?? 0);
 
     const { error: eUp } = await supabase.from('plano_etapas').update({
       status: 'concluida', tempo_real_min, asb_responsavel: req.user.id, concluida_em: concluidaEm,
@@ -5476,8 +5509,12 @@ app.post('/api/sessao/avulso', requireAuth, blockParceiro, requireSessao, rateLi
     const data = dataStr || new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
     const plano_id = b.plano_id ? Number(b.plano_id) : null;
 
+    // tempo real vem da duração do agendamento do dia (1ª sessão do dia carrega a duração; demais = 0, evita dobrar chair time)
+    const jaHoje = await jaRegistrouHoje(paciente_clinicorp_id, data, plano_id);
+    const tempo_real_min = jaHoje ? 0 : ((await duracaoSessao(paciente_clinicorp_id, data)) ?? 0);
+
     const { data: row, error } = await supabase.from('sessao_avulsa').insert({
-      paciente_clinicorp_id, paciente_nome, data, asb_user_id: req.user.id, obs, plano_id,
+      paciente_clinicorp_id, paciente_nome, data, asb_user_id: req.user.id, obs, plano_id, tempo_real_min,
     }).select('id').single();
     if (error) throw error;
     res.json({ ok: true, id: row.id });

@@ -132,13 +132,13 @@ function etapaRowHtml(item, et) {
       <div class="etapa-done-mark">✓</div>
     </div>`;
   }
-  const tempo = et.tempo_planejado_min != null ? et.tempo_planejado_min : '';
-  return `<div class="etapa-row" data-etapa-row data-etapa-id="${esc(et.id)}" data-planejado="${esc(tempo)}">
+  const tempo = et.tempo_planejado_min != null ? et.tempo_planejado_min : null;
+  const metaTexto = meta + (tempo != null ? `${meta ? ' · ' : ''}plano: ${tempo} min` : '');
+  return `<div class="etapa-row" data-etapa-row data-etapa-id="${esc(et.id)}">
     <div class="etapa-info">
       <div class="etapa-desc">${esc(desc)}</div>
-      <div class="etapa-meta">${esc(meta)}</div>
+      <div class="etapa-meta">${esc(metaTexto)}</div>
     </div>
-    <input type="number" class="etapa-tempo" min="0" value="${esc(tempo)}" placeholder="min">
     <div class="etapa-check">✓</div>
   </div>`;
 }
@@ -201,13 +201,9 @@ function render() {
 async function marcarEtapa(row) {
   if (row.classList.contains('loading')) return;
   const etapaId = row.dataset.etapaId;
-  const planejado = row.dataset.planejado;
   const card = row.closest('.card');
   const pid = card ? card.dataset.pid : null;
-  const inputEl = row.querySelector('.etapa-tempo');
-  const valorAtual = inputEl ? inputEl.value.trim() : '';
   const body = { etapa_id: Number(etapaId), data: document.getElementById('dataInput').value };
-  if (valorAtual !== '' && Number(valorAtual) !== Number(planejado || 0)) body.tempo_real_min = Number(valorAtual);
 
   row.classList.add('loading');
   try {
