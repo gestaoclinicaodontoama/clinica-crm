@@ -1,6 +1,7 @@
-// /js/trilhas/app.js — página da Sucesso do Cliente: lista de pacientes vendidos (Trilha de
-// Tratamento), drawer com a trilha (itens→etapas), reusa o editor de plano (Planejar) e o fluxo
-// de inclusão manual ("+ Adicionar paciente"). Ver Task F da Transição do Planejamento.
+// /js/trilhas/app.js — complementa /trilhas/index.html (clone do Pacientes 2 + coluna
+// Planejamento). Cuida só do que Pacientes 2 NÃO tem: o drawer da trilha do tratamento
+// (itens→etapas), o editor de plano compartilhado ("Planejar") e o fluxo de inclusão manual
+// ("+ Adicionar paciente"). A lista/tabela em si é toda do script inline de index.html.
 (() => {
   const tokenKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
   const token = tokenKey ? JSON.parse(localStorage.getItem(tokenKey))?.access_token : null;
@@ -12,7 +13,7 @@
       .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  // Retry padrão do CRM p/ 5xx: 2 tentativas extras (1,5s / 3s) — copiado de /js/planejamento/app.js.
+  // Retry padrão do CRM p/ 5xx: 2 tentativas extras (1,5s / 3s) — igual ao script inline da página.
   async function api(path, opts = {}, tent = 0) {
     const r = await fetch(path, { headers: H, ...opts });
     if (r.status >= 500 && tent < 2) { await new Promise(s => setTimeout(s, tent ? 3000 : 1500)); return api(path, opts, tent + 1); }
@@ -38,99 +39,10 @@
   };
   const statusInfo = s => STATUS_INFO[s] || { label: s || '—', cls: 'status-descartado' };
 
-  // Filtro agora é aplicado no servidor (evita o cap silencioso de 500 do antigo .limit).
-  const FILTRO_PARAM = { todos: 'todos', sem: 'sem_planejamento', tratamento: 'em_tratamento' };
-  const PAGE = 200;
-  let planosTodos = [], filtro = 'todos', offset = 0, temMais = false, carregando = false;
-
-  // ── LISTA ────────────────────────────────────────────────────────────────
-  async function carregar(reset = true) {
-    if (carregando) return;
-    carregando = true;
-    if (reset) { offset = 0; planosTodos = []; $('#tabela').innerHTML = '<div class="empty"><span class="spinner"></span></div>'; }
-    try {
-      const params = new URLSearchParams({ aba: 'sucesso', filtro: FILTRO_PARAM[filtro] || 'todos', offset: String(offset) });
-      const { planos, temMais: tm } = await api(`/api/planejamento/fila?${params}`);
-      planosTodos = reset ? (planos || []) : planosTodos.concat(planos || []);
-      temMais = !!tm;
-      renderResumo(planosTodos);
-      renderTabela();
-    } catch (e) {
-      $('#tabela').innerHTML = `<div class="empty">Erro: ${esc(e.message)}</div>`;
-    } finally {
-      carregando = false;
-    }
-  }
-
-  async function carregarMais() {
-    offset += PAGE;
-    await carregar(false);
-  }
-
-  function renderResumo(planos) {
-    const total = planos.length;
-    const planejados = planos.filter(p => ['planejado', 'em_andamento', 'concluido'].includes(p.status)).length;
-    const sem = planos.filter(p => p.status === 'aguardando_planejamento').length;
-    const pct = total ? Math.round((planejados / total) * 100) : 0;
-    $('#rTotal').textContent = total;
-    $('#rPlanejados').textContent = planejados;
-    $('#rSem').textContent = sem;
-    // reflete só a página(s) carregada(s) — não o total real quando "Carregar mais" ainda não foi usado
-    $('#rPct').textContent = `${pct}% já planejados (carregados)`;
-    $('#rBar').style.width = `${pct}%`;
-  }
-
-  function linha(p) {
-    const dias = Math.floor((Date.now() - new Date(p.criado_em).getTime()) / 864e5);
-    const info = statusInfo(p.status);
-    const origemLbl = ORIGEM_LABEL[p.origem];
-    return `<tr class="linha-clicavel" data-abrir-row="${esc(p.id)}">
-      <td>
-        <span class="paciente-nome">${esc(p.paciente_nome) || '—'}</span>
-        ${seloPgto(p.tipo_pagamento)}
-        ${origemLbl ? `<span class="tag-origem">${esc(origemLbl)}</span>` : ''}
-        ${p.possivel_duplicata ? `<span class="badge badge-amarelo" title="possível duplicata (renegociação?)">⚠ suspeita</span>` : ''}
-      </td>
-      <td>${fmtBRL(p.valor)}<span class="venda-entrada">entrada ${fmtBRL(p.entrada)}</span></td>
-      <td class="dias">${dias}d</td>
-      <td><span class="status-badge ${info.cls}">${esc(info.label)}</span></td>
-      <td><button data-abrir="${esc(p.id)}">Abrir</button><button data-planejar="${esc(p.id)}">Planejar</button></td>
-    </tr>`;
-  }
-
-  function renderTabela() {
-    const lista = planosTodos;
-    const el = $('#tabela');
-    if (!lista.length) { el.innerHTML = '<div class="empty">Nenhum paciente nesta visão.</div>'; return; }
-    el.innerHTML = `<table><thead><tr>
-      <th>Paciente</th><th>Venda</th><th>Acompanhamento</th><th>Planejamento</th><th></th>
-    </tr></thead><tbody>${lista.map(linha).join('')}</tbody></table>
-    ${temMais ? '<div class="carregar-mais-wrap"><button class="btn btn-ghost" id="btCarregarMais">Carregar mais</button></div>' : ''}`;
-  }
-
-  $('#chips').onclick = ev => {
-    const b = ev.target.closest('[data-filtro]'); if (!b) return;
-    document.querySelectorAll('#chips .chip').forEach(c => c.classList.remove('ativo'));
-    b.classList.add('ativo');
-    filtro = b.dataset.filtro;
-    carregar(true);
-  };
-
-  $('#tabela').addEventListener('click', ev => {
-    const carregarMais = ev.target.closest('#btCarregarMais');
-    if (carregarMais) return carregarMais_click();
-    const planejar = ev.target.closest('[data-planejar]');
-    if (planejar) return abrirPlanejar(planejar.dataset.planejar);
-    const abrir = ev.target.closest('[data-abrir]');
-    if (abrir) return abrirDrawer(abrir.dataset.abrir);
-    const row = ev.target.closest('[data-abrir-row]');
-    if (row) return abrirDrawer(row.dataset.abrirRow);
-  });
-
-  async function carregarMais_click() {
-    const btn = $('#btCarregarMais');
-    if (btn) { btn.disabled = true; btn.textContent = 'Carregando...'; }
-    await carregarMais();
+  // Recarrega a tabela principal (definida no script inline de index.html) após uma ação que
+  // muda o estado do plano (Planejar/Adicionar) — a coluna Planejamento precisa refletir.
+  function recarregarLista() {
+    if (window.recarregarPacientes2) window.recarregarPacientes2();
   }
 
   // ── DRAWER (trilha do tratamento) ───────────────────────────────────────
@@ -142,6 +54,7 @@
   $('#overlay').onclick = fecharDrawer;
 
   async function abrirDrawer(id) {
+    if (!id) return;
     $('#drawerBody').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
     $('#drawer').classList.add('open');
     $('#overlay').classList.add('show');
@@ -219,7 +132,8 @@
 
   // ── PLANEJAR (editor compartilhado) ─────────────────────────────────────
   function abrirPlanejar(id) {
-    return window.PlanejamentoEditor.abrir(id, { api, onSaved: () => { fecharDrawer(); carregar(); } });
+    if (!id) return;
+    return window.PlanejamentoEditor.abrir(id, { api, onSaved: () => { fecharDrawer(); recarregarLista(); } });
   }
 
   // ── + ADICIONAR PACIENTE ────────────────────────────────────────────────
@@ -290,7 +204,7 @@
           }),
         });
         $('#dlgAdd').close();
-        await carregar();
+        recarregarLista();
       } catch (e) { alert(e.message); }
     }
     if (semOrc) mostrarFormManual({ paciente_clinicorp_id: semOrc.dataset.pac, paciente_nome: semOrc.dataset.nome, telefone: semOrc.dataset.fone });
@@ -324,10 +238,11 @@
           }),
         });
         $('#dlgAdd').close();
-        await carregar();
+        recarregarLista();
       } catch (e) { alert(e.message); }
     };
   }
 
-  carregar();
+  // Exposto para o script inline de index.html (botões "Trilha"/"Planejar" nas linhas da tabela).
+  window.TrilhasUI = { abrirDrawer, abrirPlanejar };
 })();

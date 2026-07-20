@@ -5342,7 +5342,33 @@ app.get('/api/pacientes2', requireAuth, requireCrcSucesso, rateLimit, async (req
   try {
     const { data, error } = await supabase.rpc('pacientes_sucesso_v2');
     if (error) throw error;
-    res.json(data || []);
+    const rows = data || [];
+
+    // Trilhas (Planejamento): anota cada linha com o plano vinculado pelo mesmo
+    // clinicorp_estimate_id — aditivo; a RPC já traz clinicorp_estimate_id (coluna real de
+    // pacientes_sucesso), não precisa buscar à parte. /pacientes-2/ ignora esses campos extras.
+    const estimateIds = [...new Set(rows.map(r => r.clinicorp_estimate_id).filter(Boolean))];
+    if (estimateIds.length) {
+      const planosPorEstimate = new Map();
+      for (let i = 0; i < estimateIds.length; i += 200) {
+        const chunk = estimateIds.slice(i, i + 200);
+        const { data: planos, error: perr } = await supabase.from('plano_tratamento')
+          .select('id, clinicorp_estimate_id, status, tipo_pagamento, origem, recado_sucesso')
+          .in('clinicorp_estimate_id', chunk);
+        if (perr) throw perr;
+        for (const p of (planos || [])) planosPorEstimate.set(p.clinicorp_estimate_id, p);
+      }
+      for (const r of rows) {
+        const p = r.clinicorp_estimate_id ? planosPorEstimate.get(r.clinicorp_estimate_id) : null;
+        r.plano_id = p ? p.id : null;
+        r.plano_status = p ? p.status : null;
+        r.tipo_pagamento = p ? p.tipo_pagamento : null;
+        r.plano_origem = p ? p.origem : null;
+        r.recado_sucesso = p ? p.recado_sucesso : null;
+      }
+    }
+
+    res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
