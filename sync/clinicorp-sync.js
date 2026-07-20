@@ -568,6 +568,13 @@ async function syncProducao() {
     if (p.id) catalog.set(String(p.id), p.ProcedureName || p.Name || '');
   }
 
+  // Persiste o catálogo (fonte de nome p/ planos; zero chamadas extras — já baixado acima)
+  const catRows = [...catalog.entries()].filter(([, n]) => n).map(([price_id, procedure_name]) => ({ price_id, procedure_name, atualizado_em: new Date().toISOString() }));
+  for (let i = 0; i < catRows.length; i += 500) {
+    const { error: eCat } = await supabase.from('procedimentos_catalogo').upsert(catRows.slice(i, i + 500), { onConflict: 'price_id' });
+    if (eCat) log(`ERRO upsert catálogo: ${eCat.message}`);
+  }
+
   const estimates = await fetchRangeChunked('/estimates/list', PRODUCAO_DIAS);
 
   const rows = [];
@@ -1069,11 +1076,15 @@ async function syncPlanejamento() {
   }
   const orcByEst = new Map(orcsDosPlanos.map(o => [o.clinicorp_estimate_id, o]));
 
-  // fallback de nome: a ProcedureList pode NÃO trazer nome utilizável (o syncProducao resolve
-  // via catálogo) — usa producao_procedimentos (cobertura ~96,6% por PriceId)
+  // fallback de nome: a ProcedureList pode NÃO trazer nome utilizável — usa o catálogo
+  // completo da Clinicorp (procedimentos_catalogo, persistido pelo syncProducao) primeiro,
+  // e producao_procedimentos por cima só p/ o que ainda faltar (cobertura ~96,6% por PriceId)
+  const catArr = await selectAll('procedimentos_catalogo', 'price_id, procedure_name');
   const nomesArr = await selectAll('producao_procedimentos', 'price_id, procedure_name',
     q => q.not('price_id', 'is', null).neq('procedure_name', ''));
-  const nomePorPrice = new Map(nomesArr.map(n => [String(n.price_id), n.procedure_name]));
+  const nomePorPrice = new Map();
+  for (const n of nomesArr) nomePorPrice.set(String(n.price_id), n.procedure_name);
+  for (const c of catArr) nomePorPrice.set(String(c.price_id), c.procedure_name);   // catálogo vence
   const padroesArr = await selectAll('processos_padrao', 'price_id, requer_plano, etapas, status', q => q.not('price_id', 'is', null));
   const padroes = new Map(padroesArr.map(p => [String(p.price_id), p]));
   const { data: mapaArr } = await supabase.from('planejamento_dentistas').select('profissional_nome, user_id').eq('ativo', true);
