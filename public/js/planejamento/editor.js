@@ -75,7 +75,8 @@
         <select id="sel-dentista">${(dentistas || []).map(d =>
           `<option value="${esc(d.user_id)}" ${d.user_id === plano.dentista_avaliador_id ? 'selected' : ''}>${esc(d.profissional_nome)}</option>`).join('')}</select></label>
       <div id="itens">${(itens || []).map(item => `
-        <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(item.procedure_name)} × ${esc(item.quantidade)}</legend>
+        <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(item.procedure_name)} × ${esc(item.quantidade)}
+            <span class="item-mover"><button type="button" class="mv-up" title="Subir na ordem de execução">▲</button><button type="button" class="mv-down" title="Descer na ordem de execução">▼</button></span></legend>
           <ol class="etapas">${(item.plano_etapas || []).sort((a, b) => a.ordem - b.ordem).map(e => `
             <li data-etapa="${esc(e.id)}" data-status="${esc(e.status)}"><input class="et-desc" value="${esc(e.descricao)}">
               <input class="et-prof" placeholder="executor" value="${esc(e.profissional_executor || '')}">
@@ -111,6 +112,16 @@
       try {
         if (b.id === 'bt-fechar') dlg.close();
         if (b.id === 'bt-reativar') { await api(`/api/planejamento/plano/${id}/reativar`, { method: 'POST' }); alert('Plano reativado — agora dá pra montar as etapas.'); dlg.close(); if (onSaved) onSaved(); }
+        if (b.classList.contains('mv-up')) {
+          const fs = b.closest('fieldset[data-item]');
+          const prev = fs && fs.previousElementSibling;
+          if (prev && prev.matches('fieldset[data-item]')) fs.parentNode.insertBefore(fs, prev);
+        }
+        if (b.classList.contains('mv-down')) {
+          const fs = b.closest('fieldset[data-item]');
+          const next = fs && fs.nextElementSibling;
+          if (next && next.matches('fieldset[data-item]')) fs.parentNode.insertBefore(next, fs);
+        }
         if (b.classList.contains('add-etapa')) { const fs = b.closest('fieldset'); fs.querySelector('.etapas').insertAdjacentHTML('beforeend',
           `<li class="nova"><input class="et-desc" placeholder="descrição"><input class="et-prof" placeholder="executor"><input class="et-min" type="number" style="width:70px"> min <button class="et-rm">×</button></li>`); atualizarSalvarPadrao(fs); }
         if (b.classList.contains('et-rm')) { const fs = b.closest('fieldset'); b.closest('li').remove(); atualizarSalvarPadrao(fs); }

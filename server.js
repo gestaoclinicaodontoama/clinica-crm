@@ -5166,11 +5166,13 @@ app.put('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanej
     if (error) throw error;
 
     // sub-lotes: recria filhos do item (conservação validada); etapas: recria por item/sub-lote
-    for (const item of b.itens || []) {
+    for (const [idxItem, item] of (b.itens || []).entries()) {
       // posse: item precisa pertencer ao plano da URL (vale pros dois ramos abaixo)
       const { data: raiz } = await supabase.from('plano_itens').select('id, quantidade')
         .eq('id', item.id).eq('plano_id', id).maybeSingle();
       if (!raiz) continue;   // item de outro plano (ou inexistente) — ignora
+      // ordem de execução vem da ordem no DOM do editor (setas ▲▼) — persiste p/ trilha e tracker
+      await supabase.from('plano_itens').update({ ordem: idxItem }).eq('id', item.id).eq('plano_id', id);
       if (Array.isArray(item.sublotes) && item.sublotes.length) {
         const v = planValidarSubLotes(raiz.quantidade, item.sublotes);
         if (!v.ok) return res.status(400).json({ error: `sub-lotes de "${item.id}": ${v.erro}` });
