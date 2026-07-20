@@ -21,7 +21,7 @@ No modal "Planejar" (Trilhas / Planejamento) só existe **1 "Dentista responsáv
   - `profissional_executor text` (existente) = **quem executou**.
 - Nenhuma coluna de "executado" em `plano_itens`: execução vive na etapa.
 
-Migração escrita como arquivo `.sql` casando a version, aplicada via MCP Supabase (project `mtqdpjhhqzvuklnlfpvi`), verificada com `list_migrations`.
+Migração escrita como arquivo `.sql` casando a version, aplicada via MCP Supabase (project `mtqdpjhhqzvuklnlfpvi`), verificada com `list_migrations`. ⚠️ Timestamp precisa vir **depois de `20260720180000`** (já existem 3 migrações de 20/07).
 
 ## Executor — dropdown que herda
 - **Fonte da lista:** `planejamento_dentistas` (já chega no modal como `dentistas`, cada um com `profissional_nome`, `user_id` podendo ser null). Guardamos o **nome** (`text`) — consistente com o que já existe (`plano_etapas.profissional_executor`, `processos_padrao.profissional_sugerido`) e cobre profissional sem login.
@@ -33,12 +33,19 @@ Migração escrita como arquivo `.sql` casando a version, aplicada via MCP Supab
 ## Marcar executado
 ### UI (editor.js)
 - **Por etapa pendente:** ao lado do `×`, um botão **"✓"** (executar esta etapa).
-- **Por procedimento:** no rodapé do `<fieldset>`, um botão **"✓ Executar todos"** (conclui todas as etapas pendentes do procedimento; se o procedimento **não tem etapa**, ainda assim marca o procedimento como realizado).
+- **Por procedimento:** no rodapé do `<fieldset>`, um botão **"✓ Executar todos"** (conclui todas as etapas pendentes do procedimento; se o procedimento **não tem etapa**, ainda assim marca o procedimento como realizado). O editor só renderiza fieldsets dos itens **raiz** — num item dividido, as etapas dos sub-lotes filhos são concluídas pelo servidor via o mesmo botão (ver endpoint).
 - **Mini-diálogo** ao clicar (etapa ou "todos"): campo **data** (default hoje, `type=date`) + checkbox **"Anotar na ficha do Clinicorp"**. Confirmar dispara a chamada; **Cancelar** não faz nada.
+- ⚠️ **Salvar-antes-de-executar (obrigatório):** o re-render descartaria trabalho não salvo do modal — etapas novas (`li.nova`), textos e a divisão em sub-lotes (que só existe em `dataset.sublotes` até o PUT). Ao confirmar o mini-diálogo, o editor dispara **o mesmo `PUT` do "Salvar rascunho" (`coletar()`)** antes de executar. Isso também elimina o risco de `data-status` stale: após o re-render, a etapa concluída volta com `status='concluida'` e o filtro do PUT a preserva.
+- ⚠️ **O pré-PUT invalida os ids de TODAS as etapas pendentes** (o PUT deleta e recria as pendentes com ids novos — server.js ~5203-5208 — e recria com `ordem = índice` na lista enviada). Portanto o "✓" de etapa **nunca usa o id do DOM** após o pré-PUT. Fluxo obrigatório: **① captura alvo = (item_id, índice) — o índice é a posição do li entre os lis PENDENTES/NOVOS do fieldset (mesmo predicado do filtro do PUT: `li.nova` ou `data-status='pendente'`; concluídas e filhos read-only NÃO contam — o PUT gera `ordem: i` sobre o array já filtrado, server.js ~5204, então contar concluídas deslocaria o índice e executaria a etapa ERRADA) → ② PUT `coletar()` → ③ re-fetch do plano (`GET /plano/:id`) → ④ resolve o id novo: etapa `pendente` do item com `ordem == índice`; se não achar E o PUT enviou `sublotes` (item dividido nesta sessão — as etapas coletadas vão pro 1º sub-lote, server.js ~5198-5201), procura a `pendente` com `ordem == índice` no `sublotes[0]` do re-fetch → ⑤ `executar {etapa_id novo}` → ⑥ re-render.** Se a resolução ainda falhar, **não executa**: re-render + aviso "plano atualizado — clique ✓ novamente". O "Executar todos" não sofre disso (ids de `plano_itens` sobrevivem ao PUT) e usa `item_id` direto. O "✓" de etapa de **filho** (read-only, fora do `coletar()`) usa o id que veio do GET — sobrevive ao pré-PUT, exceto se houve re-divisão na sessão (aí cai no mesmo fallback do 404: re-render + aviso).
 - Após sucesso, **recarrega o plano no modal** (re-render) para refletir o novo status das etapas e do plano. Reflete sozinho em Trilhas/tracker/auditoria (todos leem `plano_etapas`).
+- **Etapas de sub-lotes filhos:** o editor passa a renderizar, dentro do fieldset do item raiz dividido, as etapas dos filhos em modo **somente leitura** (agrupadas por rótulo do sub-lote), cada uma com o seu botão **"✓"** individual (o endpoint já aceita `etapa_id` de filho). **Mecanismo obrigatório para ficarem fora do `coletar()`:** o li do filho usa o atributo **`data-etapa-filho`** (NUNCA `data-etapa`) — o seletor do `coletar()` é `[data-etapa], li.nova` (editor.js ~104) e capturaria o filho, fazendo o PUT duplicar a pendente do filho na raiz. O "✓" lê o id de `data-etapa-filho`.
+- **Etapa concluída = somente leitura:** inputs/select de etapa com `status !== 'pendente'` são renderizados `disabled` (hoje ficam editáveis e o PUT descarta a edição em silêncio — ilusão que o dropdown de executor agravaria).
+- **Plano `concluido`, `descartado` ou `cancelado` não mostra botões de executar** ("✓" e "✓ Executar todos" escondidos nos três): o pré-PUT obrigatório levaria a um 409 confuso ("plano X — reative antes de editar", server.js ~5152) antes de chegar ao endpoint. Quem precisar mexer usa o fluxo existente de reativação (laterais já caem no rodapé só-Reativar; esconder o "✓" nelas também, pois os fieldsets renderizam incondicionalmente).
 
 ### Endpoint (server.js)
 `POST /api/planejamento/plano/:id/executar` — middlewares `requireAuth` → `blockParceiro` → `requirePlanejamento` → `rateLimit` (mesmo gate do PUT; CRC no Trilhas recebe o 403 amigável já tratado no editor).
+
+⚠️ **Ordem de registro:** a rota genérica `POST /api/planejamento/plano/:id/:acao` (server.js ~5216) casa com `/plano/:id/executar` e responderia `400 'ação inválida'` com gate errado (`requirePlanejamentoOuCRC`). A rota `executar` **deve ser registrada ANTES** da genérica no arquivo (Express casa na ordem de registro).
 
 Body: `{ etapa_id? , item_id? , data?, anotar_ficha? }` (exatamente um de `etapa_id`/`item_id`).
 
@@ -48,10 +55,13 @@ Validação e posse:
 - **Posse:** a etapa/o item precisa pertencer ao plano da URL (`plano_itens.plano_id = :id`); senão 404. Se `soDentista` e o plano é de outro dentista → 403 (mesmo padrão das outras rotas).
 
 Efeito:
-- **`etapa_id`:** se já `concluida`/`concluida_retroativa` → `{ ok:true, jaConcluida:true }` (idempotente). Senão `update` → `status='concluida'`, `concluida_em` (da data), `asb_responsavel=req.user.id`, `ficha_anotar=!!anotar_ficha`; **executor:** se a etapa está sem `profissional_executor`, herda do `plano_itens.profissional_executor`, senão do `plano_tratamento.dentista_avaliador_id` (nome via `planejamento_dentistas`). `tempo_real_min` fica **null** (marcação manual do dentista não mede cadeira; o `/sessao/` continua sendo a fonte de tempo real).
+- **`etapa_id`:** se já `concluida`/`concluida_retroativa` → `{ ok:true, jaConcluida:true }` (idempotente). Senão `update` → `status='concluida'`, `concluida_em` (da data), `asb_responsavel=req.user.id`, `ficha_anotar=!!anotar_ficha`; **executor (cascata, primeiro não-vazio):** ① `profissional_executor` da própria etapa; ② `profissional_executor` do item (raiz, se a etapa está num sub-lote filho); ③ nome do dentista responsável — `planejamento_dentistas` com `user_id = plano.dentista_avaliador_id` e `ativo=true`, **determinístico**: `.order('profissional_nome').limit(1)` (`user_id` é nullable e não-único na tabela); sem match → deixa null. `tempo_real_min` fica **null** (marcação manual do dentista não mede cadeira; o `/sessao/` continua sendo a fonte de tempo real).
 - **`item_id` ("executar todos"):**
-  - Conclui **todas as etapas pendentes** do item (mesmo `update` acima, mesma data/`ficha_anotar`, executor herdado do item).
-  - Se o item **não tem nenhuma etapa**, cria **1 etapa sintética** `descricao = procedure_name` (ou "Procedimento realizado" se vazio), `ordem=0`, já `status='concluida'`, com `concluida_em`, `asb_responsavel`, `profissional_executor` (do item/plano), `ficha_anotar`. Assim "executado" continua morando na etapa (fonte única) e o procedimento aparece feito em ③/④/auditoria.
+  - **Sub-lotes:** após dividir, as etapas pendentes moram nos itens **filhos** (`plano_itens.parent_id = item_id`) — `planCarregarPlano` retorna só raízes com `sublotes` aninhados. O endpoint conclui as etapas pendentes **do item E dos filhos dele** (alvo = `[item_id, ...filhos]`).
+  - Conclui **todas as etapas pendentes** dos alvos (mesmo `update` acima, mesma data/`ficha_anotar`, executor herdado do item raiz quando a etapa está sem).
+  - Se **nem o item nem os filhos** têm etapa alguma, cria **1 etapa sintética** no próprio item: `descricao = procedure_name` (ou "Procedimento realizado" se vazio), `ordem = 999` (constante — ela só nasce em item sem etapa nenhuma, e `max+1` sobre conjunto vazio recriaria a colisão com o `ordem=0` das pendentes futuras que o PUT reindexa), já `status='concluida'`, com `concluida_em`, `asb_responsavel`, `profissional_executor` (do item/plano), `ficha_anotar`. Assim "executado" continua morando na etapa (fonte única) e o procedimento aparece feito em ③/④/auditoria.
+  - **Efeito no re-sync (intencional):** etapa concluída (sintética inclusive) conta como `etapas_executadas` no `aplicarResync` — mudança de quantidade/remoção do item no Clinicorp passa a **travar** o plano para decisão da gestora, em vez de atualizar/regredir silenciosamente. Trabalho executado merece essa proteção.
+  - **Idempotente:** se não há pendentes mas já existe etapa concluída → `{ ok:true, jaConcluida:true }` (não cria sintética, não duplica).
 - **Avança o plano:** após os updates, recalcula com `avancarPorRegistro(plano.status, statusesDeTodasAsEtapasDoPlano)` — aplicando **2×** quando sobe para `em_andamento` e todas já estão concluídas (aguardando/planejado → em_andamento → concluido), idêntico ao `/sessao/etapa`.
 
 ### Anti-duplicação (reuso obrigatório)
@@ -63,6 +73,10 @@ async function avancarPlanoAposRegistro(planoId, statusAtual) { /* relê etapas,
 
 e chamar dos **dois** endpoints (o `/sessao/etapa` passa a usá-lo no lugar do bloco inline atual). Sem nova cópia da máquina de estados.
 
+## Fixes acoplados (obrigatórios nesta entrega)
+1. **`jaRegistrouHoje` não pode ser envenenado pela marcação manual.** Hoje (server.js ~5328) ele retorna `true` para **qualquer** etapa `concluida` com `concluida_em` no dia — uma marcação manual de manhã (tempo_real_min null) faria o registro real da ASB à tarde computar `tempo_real_min = 0`, perdendo o chair time do agendamento para sempre (insumo do planejado×real ③). **Fix:** `jaRegistrouHoje` passa a contar só etapas com `tempo_real_min IS NOT NULL` (e o análogo em `sessao_avulsa` permanece como está — avulsa sempre carrega tempo). Aplicar o mesmo filtro no `ja_registrado_hoje` do `GET /api/sessao/dia`, para a ASB não ser induzida a pular o registro.
+2. **Re-sync cego aos sub-lotes filhos.** `syncPlanejamento` monta `etapas_executadas` só com as etapas do item **raiz** (`sync/clinicorp-sync.js` ~1107) — etapas concluídas nos filhos não protegem o item de `remover_item`/`atualizar_quantidade`, e a remoção da raiz esconderia trabalho executado de Trilhas/auditoria/tracker. Buraco pré-existente (alcançável pelo `/sessao/`), mas o "Executar todos" o torna rotineiro. **Fix:** computar `etapas_executadas` considerando também as etapas dos filhos (`parent_id = raiz.id`).
+
 ## Segurança / robustez
 - `esc()` em toda interpolação de `innerHTML` (options de executor incluídas).
 - Sem `.catch()` em builder do Supabase — `try/catch` no `await` (padrão do arquivo).
@@ -71,7 +85,7 @@ e chamar dos **dois** endpoints (o `/sessao/etapa` passa a usá-lo no lugar do b
 
 ## Fora de escopo (confirmado)
 - Escrita real na ficha do Clinicorp (usuário-robô, login não capturado). Entregamos só `ficha_anotar` + `ficha_escrita_em`.
-- Nada muda no `/sessao/` da ASB além de passar a usar o helper compartilhado de avanço (comportamento idêntico).
+- No `/sessao/` da ASB, as únicas mudanças são as declaradas: helper compartilhado de avanço (comportamento idêntico) + filtro `tempo_real_min IS NOT NULL` em `jaRegistrouHoje`/`ja_registrado_hoje` (fix acoplado 1). Nenhuma mudança de UI da ASB.
 
 ## Testes
 - **Unit (lib já coberta):** `avancarPorRegistro` não muda; cobrir o helper `avancarPlanoAposRegistro` com: 1 etapa concluída em plano `planejado` → `em_andamento`; última etapa → `concluido`; plano `descartado`/`cancelado`/travado → sem efeito.
@@ -80,5 +94,7 @@ e chamar dos **dois** endpoints (o `/sessao/etapa` passa a usá-lo no lugar do b
   2. "✓" em uma etapa (data de ontem, "anotar ficha" marcado) → etapa `concluida`, `concluida_em` = ontem, `asb_responsavel` = eu, `ficha_anotar=true`; plano sobe de estado.
   3. "✓ Executar todos" num procedimento **com** etapas → todas concluídas de uma vez.
   4. "✓ Executar todos" num procedimento **sem** etapas → cria etapa sintética concluída; procedimento aparece feito em Trilhas/auditoria.
-  5. Reabrir o modal reflete os status; "Salvar rascunho" depois **não apaga** as etapas concluídas (o PUT só recria pendentes).
+  5. Reabrir o modal reflete os status; "Salvar rascunho" depois **não apaga** as etapas concluídas (o PUT só recria pendentes). Fluxo sujo: dividir em sub-lotes + digitar etapas + clicar "✓" direto → nada se perde (salvar-antes-de-executar).
   6. CRC no Trilhas clicando executar → 403 amigável.
+  7. **Chair time preservado:** marcar "✓" no modal de manhã e a ASB registrar no `/sessao/` à tarde no mesmo dia → o registro da ASB ainda captura a duração do agendamento (`tempo_real_min` > 0), e `/sessao/dia` não mostrou o paciente como já registrado.
+  8. Item dividido: etapas dos filhos aparecem read-only no fieldset da raiz com "✓" individual; "Executar todos" conclui raiz+filhos; re-sync com quantidade alterada num item com etapa concluída (inclusive de filho) → trava para a gestora.
