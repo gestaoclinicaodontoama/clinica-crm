@@ -10,6 +10,15 @@
   const fmtBRL = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const MSG_SEM_PERMISSAO = 'Você não tem permissão para planejar — peça a alguém com acesso de planejamento.';
 
+  // options do dropdown de executor (nomes de planejamento_dentistas); valor legado texto-livre vira option p/ não se perder
+  function optionsExecutor(dentistas, valor) {
+    const nomes = (dentistas || []).map(d => d.profissional_nome).filter(Boolean);
+    const v = valor || '';
+    if (v && !nomes.includes(v)) nomes.unshift(v);
+    return '<option value=""></option>' + nomes.map(n =>
+      `<option value="${esc(n)}"${n === v ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  }
+
   function ehErro403(e) {
     return e && (e.status === 403 || /403|acesso negado|sem permiss/i.test(String(e.message || '')));
   }
@@ -22,6 +31,28 @@
       document.body.appendChild(dlg);
     }
     return dlg;
+  }
+
+  // mini-diálogo do "✓": data (default hoje) + intenção de anotar na ficha do Clinicorp (gancho do robô)
+  function miniDialogoExec() {
+    return new Promise(resolve => {
+      let d = document.getElementById('dlg-exec-data');
+      if (!d) { d = document.createElement('dialog'); d.id = 'dlg-exec-data'; document.body.appendChild(d); }
+      const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+      d.innerHTML = `<h3>Marcar como executado</h3>
+        <label>Data <input id="ex-data" type="date" value="${hoje}"></label>
+        <label><input id="ex-ficha" type="checkbox"> Anotar na ficha do Clinicorp</label>
+        <footer><button id="ex-ok" class="btn btn-primario">Confirmar ✓</button>
+        <button id="ex-cancel" class="btn btn-ghost">Cancelar</button></footer>`;
+      d.onclick = ev => {
+        // resolve ANTES do close: se algum engine disparasse 'close' síncrono, o onclose (null) venceria.
+        // resolve duplo é no-op — o primeiro ganha.
+        if (ev.target.id === 'ex-ok') { resolve({ data: d.querySelector('#ex-data').value || hoje, anotar: d.querySelector('#ex-ficha').checked }); d.close(); }
+        if (ev.target.id === 'ex-cancel') { resolve(null); d.close(); }
+      };
+      d.onclose = () => resolve(null);   // Esc fecha = cancelar
+      d.showModal();
+    });
   }
 
   // botões do banco de processos (só em itens com price_id — sub-lotes não têm fieldset próprio)
@@ -67,6 +98,7 @@
       if (ehErro403(e)) return alert(MSG_SEM_PERMISSAO);
       return alert(e.message);
     }
+    const podeExecutar = !['concluido', 'descartado', 'cancelado'].includes(plano.status);
     const dlg = garantirDialog();
     dlg.innerHTML = `<h2>${esc(plano.paciente_nome)}</h2>
       <p class="espelho">Valor: <b>${fmtBRL(plano.valor)}</b> · Entrada: <b>${fmtBRL(plano.entrada)}</b>
@@ -77,13 +109,22 @@
       <div id="itens">${(itens || []).map(item => `
         <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(item.procedure_name)} × ${esc(item.quantidade)}
             <span class="item-mover"><button type="button" class="mv-up" title="Subir na ordem de execução">▲</button><button type="button" class="mv-down" title="Descer na ordem de execução">▼</button></span></legend>
-          <ol class="etapas">${(item.plano_etapas || []).sort((a, b) => a.ordem - b.ordem).map(e => `
-            <li data-etapa="${esc(e.id)}" data-status="${esc(e.status)}"><input class="et-desc" value="${esc(e.descricao)}">
-              <input class="et-prof" placeholder="executor" value="${esc(e.profissional_executor || '')}">
-              <input class="et-min" type="number" placeholder="min" value="${esc(e.tempo_planejado_min ?? '')}" style="width:70px"> min
-              ${e.status !== 'pendente' ? `<em>(${esc(e.status)})</em>` : '<button class="et-rm">×</button>'}</li>`).join('')}
+          <label class="item-exec">Executor <select class="item-prof">${optionsExecutor(dentistas, item.profissional_executor)}</select></label>
+          <ol class="etapas">${(item.plano_etapas || []).sort((a, b) => a.ordem - b.ordem).map(e => {
+            const pend = e.status === 'pendente';
+            return `
+            <li data-etapa="${esc(e.id)}" data-status="${esc(e.status)}"><input class="et-desc" value="${esc(e.descricao)}"${pend ? '' : ' disabled'}>
+              <select class="et-prof"${pend ? '' : ' disabled'}>${optionsExecutor(dentistas, e.profissional_executor)}</select>
+              <input class="et-min" type="number" placeholder="min" value="${esc(e.tempo_planejado_min ?? '')}" style="width:70px"${pend ? '' : ' disabled'}> min
+              ${pend ? `${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button>` : `<em>(${esc(e.status)})</em>`}</li>`; }).join('')}
           </ol>
-          <button class="add-etapa">+ etapa</button> <button class="dividir">dividir em sub-lotes</button>${botoesPadrao(item, padroes)}
+          ${(item.sublotes || []).map(sl => {
+            const ets = (sl.plano_etapas || []).sort((a, b) => a.ordem - b.ordem);
+            return ets.length ? `<div class="sublote-bloco"><b>${esc(sl.rotulo || sl.procedure_name || '')}</b><ul class="etapas-filho">${ets.map(e => `
+              <li data-etapa-filho="${esc(e.id)}"><span>${esc(e.descricao)}</span> <small>${esc(e.profissional_executor || '')}</small>
+                ${e.status === 'pendente' ? (podeExecutar ? '<button class="et-exec-filho" title="Marcar executado">✓</button>' : '') : `<em>(${esc(e.status)})</em>`}</li>`).join('')}</ul></div>` : '';
+          }).join('')}
+          <button class="add-etapa">+ etapa</button> <button class="dividir">dividir em sub-lotes</button>${podeExecutar ? ' <button class="exec-todos">✓ Executar todos</button>' : ''}${botoesPadrao(item, padroes)}
         </fieldset>`).join('') || '<p class="vazio">Sem itens de orçamento vinculados.</p>'}</div>
       <label>Orientação clínica (p/ executor)<textarea id="txt-orientacao">${esc(plano.orientacao_clinica || '')}</textarea></label>
       <label>Recado p/ Sucesso do Cliente<textarea id="txt-recado">${esc(plano.recado_sucesso || '')}</textarea></label>
@@ -95,11 +136,19 @@
              <button id="bt-descartar" class="btn btn-ghost">Não precisa de etapas</button>`}
         <button id="bt-fechar" class="btn btn-ghost">Fechar</button></footer>`;
     dlg.showModal();
+    dlg.onchange = ev => {
+      if (ev.target.classList && ev.target.classList.contains('item-prof')) {
+        // herda p/ etapas VAZIAS do fieldset (não sobrescreve escolha individual)
+        ev.target.closest('fieldset').querySelectorAll('select.et-prof:not([disabled])')
+          .forEach(s => { if (!s.value) s.value = ev.target.value; });
+      }
+    };
     const coletar = () => ({
       dentista_avaliador_id: dlg.querySelector('#sel-dentista')?.value,
       orientacao_clinica: dlg.querySelector('#txt-orientacao').value, recado_sucesso: dlg.querySelector('#txt-recado').value,
       itens: [...dlg.querySelectorAll('[data-item]')].map(f => ({
         id: Number(f.dataset.item),
+        profissional_executor: f.querySelector('.item-prof')?.value || '',
         sublotes: JSON.parse(f.dataset.sublotes || 'null') || undefined,
         etapas: [...f.querySelectorAll('[data-etapa], li.nova')].map(li => ({
           id: li.dataset.etapa ? Number(li.dataset.etapa) : null, status: li.dataset.status || 'pendente',
@@ -107,6 +156,36 @@
           profissional_executor: li.querySelector('.et-prof').value,
           tempo_planejado_min: Number(li.querySelector('.et-min').value) || null })) })),
     });
+    const reabrir = () => abrir(id, opts);   // re-render completo com dados frescos
+    // alvo: {todos:true, itemId} | {etapaFilhoId} | {itemId, etapaIndex}
+    // ⚠️ o pré-PUT deleta e recria TODAS as pendentes (ids novos, ordem = índice na lista enviada) —
+    // nunca usar o id do DOM p/ etapa; resolve pós-PUT por (item, ordem == índice-entre-pendentes).
+    async function executarFluxo(alvo) {
+      const escolha = await miniDialogoExec();
+      if (!escolha) return;
+      await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) });   // salvar-antes: nada do modal se perde
+      let payload;
+      if (alvo.todos) payload = { item_id: alvo.itemId };            // id de item sobrevive ao PUT
+      else if (alvo.etapaFilhoId) payload = { etapa_id: alvo.etapaFilhoId };   // filho está fora do coletar(): id sobrevive (salvo re-divisão → cai no 404 amigável)
+      else {
+        const fresco = await api(`/api/planejamento/plano/${id}`);
+        const item = (fresco.itens || []).find(i => i.id === alvo.itemId);
+        const acha = lst => (lst || []).find(e => e.status === 'pendente' && e.ordem === alvo.etapaIndex);
+        let achada = item ? acha(item.plano_etapas) : null;
+        if (!achada && item && (item.sublotes || []).length) achada = acha(item.sublotes[0].plano_etapas);   // dividido nesta sessão: etapas foram pro 1º sub-lote
+        if (!achada) { alert('Plano atualizado — clique ✓ novamente.'); return reabrir(); }
+        payload = { etapa_id: achada.id };
+      }
+      try {
+        await api(`/api/planejamento/plano/${id}/executar`, { method: 'POST',
+          body: JSON.stringify({ ...payload, data: escolha.data, anotar_ficha: escolha.anotar }) });
+      } catch (e) {
+        if (/não encontrada|nao encontrada|404/i.test(String(e.message || ''))) { alert('Plano atualizado — clique ✓ novamente.'); return reabrir(); }
+        throw e;
+      }
+      if (onSaved) onSaved();   // status do plano pode ter mudado → recarrega a fila/Trilhas atrás do modal
+      return reabrir();
+    }
     dlg.onclick = async ev => {
       const b = ev.target;
       try {
@@ -123,7 +202,7 @@
           if (next && next.matches('fieldset[data-item]')) fs.parentNode.insertBefore(next, fs);
         }
         if (b.classList.contains('add-etapa')) { const fs = b.closest('fieldset'); fs.querySelector('.etapas').insertAdjacentHTML('beforeend',
-          `<li class="nova"><input class="et-desc" placeholder="descrição"><input class="et-prof" placeholder="executor"><input class="et-min" type="number" style="width:70px"> min <button class="et-rm">×</button></li>`); atualizarSalvarPadrao(fs); }
+          `<li class="nova"><input class="et-desc" placeholder="descrição"><select class="et-prof">${optionsExecutor(dentistas, fs.querySelector('.item-prof')?.value || '')}</select><input class="et-min" type="number" style="width:70px"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`); atualizarSalvarPadrao(fs); }
         if (b.classList.contains('et-rm')) { const fs = b.closest('fieldset'); b.closest('li').remove(); atualizarSalvarPadrao(fs); }
         if (b.classList.contains('dividir')) dividirSubLotes(b.closest('fieldset'));
         if (b.classList.contains('aplicar-padrao')) {
@@ -135,7 +214,7 @@
             if (!pendentes.length || confirm(`Substituir as etapas pendentes pelas do padrão "${padrao.procedure_name}"?`)) {
               pendentes.forEach(li => li.remove());
               ol.insertAdjacentHTML('beforeend', (padrao.etapas || []).map(e =>
-                `<li class="nova"><input class="et-desc" placeholder="descrição" value="${esc(e.descricao || '')}"><input class="et-prof" placeholder="executor" value="${esc(e.profissional_sugerido || '')}"><input class="et-min" type="number" style="width:70px" value="${esc(e.tempo_sugerido_min ?? '')}"> min <button class="et-rm">×</button></li>`).join(''));
+                `<li class="nova"><input class="et-desc" placeholder="descrição" value="${esc(e.descricao || '')}"><select class="et-prof">${optionsExecutor(dentistas, e.profissional_sugerido || '')}</select><input class="et-min" type="number" style="width:70px" value="${esc(e.tempo_sugerido_min ?? '')}"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`).join(''));
               atualizarSalvarPadrao(fs);
             }
           }
@@ -154,6 +233,14 @@
         if (b.id === 'bt-salvar') { await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) }); alert('Salvo.'); }
         if (b.id === 'bt-concluir') { await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) }); await api(`/api/planejamento/plano/${id}/concluir`, { method: 'POST' }); dlg.close(); if (onSaved) onSaved(); }
         if (b.id === 'bt-descartar') { if (confirm('Este tratamento não precisa de etapas? (o paciente CONTINUA na Sucesso)')) { await api(`/api/planejamento/plano/${id}/descartar`, { method: 'POST' }); dlg.close(); if (onSaved) onSaved(); } }
+        if (b.classList.contains('exec-todos')) { await executarFluxo({ todos: true, itemId: Number(b.closest('fieldset').dataset.item) }); }
+        if (b.classList.contains('et-exec-filho')) { await executarFluxo({ etapaFilhoId: Number(b.closest('li').dataset.etapaFilho) }); }
+        if (b.classList.contains('et-exec')) {
+          const fs = b.closest('fieldset'); const li = b.closest('li');
+          // índice ENTRE PENDENTES/NOVAS (mesmo predicado do filtro do PUT) — concluídas e filhos NÃO contam
+          const pendentes = [...fs.querySelectorAll('.etapas li')].filter(x => x.classList.contains('nova') || x.dataset.status === 'pendente');
+          await executarFluxo({ itemId: Number(fs.dataset.item), etapaIndex: pendentes.indexOf(li) });
+        }
       } catch (e) {
         if (ehErro403(e)) alert(MSG_SEM_PERMISSAO); else alert(e.message);
       }
