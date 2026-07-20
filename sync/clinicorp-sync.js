@@ -976,7 +976,7 @@ async function runSync(trigger = 'agendado') {
   // Fase 7e: modo de planejamento (deriva de `orcamentos`; zero chamadas à API)
   await step('planejamento', async () => {
     const r = await syncPlanejamento();
-    result.steps.planejamento = `${r.criadosPlanos} planos, ${r.criadosSucesso} sucesso`;
+    result.steps.planejamento = `${r.criadosPlanos} planos, ${r.criadosSucesso} sucesso, conferidor: ${r.semPlano ?? '?'} sem plano / ${r.semSucesso ?? '?'} sem Sucesso`;
   });
 
   // Fase 7f: planejado → em_andamento no 1º comparecimento APÓS o plano atingir 'planejado'
@@ -1160,8 +1160,29 @@ async function syncPlanejamento() {
       if (etapas.length) await supabase.from('plano_etapas').insert(etapas);
     }
   }
+  // ── CONFERIDOR (ninguém batido): todo aprovado-particular da janela DEVE ter plano e Sucesso.
+  //    Roda toda noite; o resultado aparece em sync_log (fase 'planejamento'). Esperado: 0 / 0.
+  let semPlano = 0, semSucesso = 0;
+  const exemplos = [];
+  const idsAprovados = comItens.map(o => o.clinicorp_estimate_id);
+  for (let i = 0; i < idsAprovados.length; i += 200) {
+    const chunk = idsAprovados.slice(i, i + 200);
+    const { data: temPlano } = await supabase.from('plano_tratamento')
+      .select('clinicorp_estimate_id').in('clinicorp_estimate_id', chunk);
+    const { data: temSucesso } = await supabase.from('pacientes_sucesso')
+      .select('clinicorp_estimate_id').in('clinicorp_estimate_id', chunk);
+    const sp = new Set((temPlano || []).map(t => t.clinicorp_estimate_id));
+    const ss = new Set((temSucesso || []).map(t => t.clinicorp_estimate_id));
+    for (const id of chunk) {
+      if (!sp.has(id)) { semPlano++; if (exemplos.length < 5) exemplos.push(id); }
+      if (!ss.has(id)) semSucesso++;
+    }
+  }
+  if (semPlano || semSucesso) log(`⚠️ CONFERIDOR planejamento: ${semPlano} aprovados SEM plano, ${semSucesso} SEM Sucesso! ex: ${exemplos.join(', ')}`);
+  else log('Conferidor planejamento: 0 aprovados sem plano, 0 sem Sucesso ✓');
+
   log(`Planejamento: +${criadosSucesso} pacientes_sucesso, +${criadosPlanos} planos, ${resyncs} re-syncs`);
-  return { criadosSucesso, criadosPlanos, resyncs };
+  return { criadosSucesso, criadosPlanos, resyncs, semPlano, semSucesso };
 }
 
 async function executarAcoesResync(plano, acoes, orc) {
