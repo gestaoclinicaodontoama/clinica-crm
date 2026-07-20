@@ -86,9 +86,12 @@
         </fieldset>`).join('') || '<p class="vazio">Sem itens de orçamento vinculados.</p>'}</div>
       <label>Orientação clínica (p/ executor)<textarea id="txt-orientacao">${esc(plano.orientacao_clinica || '')}</textarea></label>
       <label>Recado p/ Sucesso do Cliente<textarea id="txt-recado">${esc(plano.recado_sucesso || '')}</textarea></label>
-      <footer><button id="bt-salvar" class="btn btn-ghost">Salvar rascunho</button>
-        <button id="bt-concluir" class="btn btn-primario">Concluir planejamento ✓</button>
-        <button id="bt-descartar" class="btn btn-ghost">Não precisa de etapas</button>
+      <footer>${['descartado', 'cancelado'].includes(plano.status)
+          ? `<span class="badge">${esc(plano.status)}${plano.status_motivo ? ' · ' + esc(plano.status_motivo) : ''}</span>
+             <button id="bt-reativar" class="btn btn-primario">Reativar plano ↩</button>`
+          : `<button id="bt-salvar" class="btn btn-ghost">Salvar rascunho</button>
+             <button id="bt-concluir" class="btn btn-primario">Concluir planejamento ✓</button>
+             <button id="bt-descartar" class="btn btn-ghost">Não precisa de etapas</button>`}
         <button id="bt-fechar" class="btn btn-ghost">Fechar</button></footer>`;
     dlg.showModal();
     const coletar = () => ({
@@ -107,6 +110,7 @@
       const b = ev.target;
       try {
         if (b.id === 'bt-fechar') dlg.close();
+        if (b.id === 'bt-reativar') { await api(`/api/planejamento/plano/${id}/reativar`, { method: 'POST' }); alert('Plano reativado — agora dá pra montar as etapas.'); dlg.close(); if (onSaved) onSaved(); }
         if (b.classList.contains('add-etapa')) { const fs = b.closest('fieldset'); fs.querySelector('.etapas').insertAdjacentHTML('beforeend',
           `<li class="nova"><input class="et-desc" placeholder="descrição"><input class="et-prof" placeholder="executor"><input class="et-min" type="number" style="width:70px"> min <button class="et-rm">×</button></li>`); atualizarSalvarPadrao(fs); }
         if (b.classList.contains('et-rm')) { const fs = b.closest('fieldset'); b.closest('li').remove(); atualizarSalvarPadrao(fs); }
