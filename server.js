@@ -5420,9 +5420,12 @@ app.post('/api/sessao/etapa', requireAuth, blockParceiro, requireSessao, rateLim
     if (eEt) throw eEt;
     if (!etapa) return res.status(404).json({ error: 'etapa não encontrada' });
     const planoId = etapa.plano_itens.plano_id;
-    const { data: plano, error: ePl } = await supabase.from('plano_tratamento').select('id, status').eq('id', planoId).maybeSingle();
+    const { data: plano, error: ePl } = await supabase.from('plano_tratamento').select('id, status, trava_resync').eq('id', planoId).maybeSingle();
     if (ePl) throw ePl;
     if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    // não registrar em plano travado (aguarda decisão humana) nem em lateral (descartado/cancelado)
+    if (plano.trava_resync) return res.status(409).json({ error: 'plano travado — a gestora precisa resolver antes de registrar' });
+    if (['descartado', 'cancelado'].includes(plano.status)) return res.status(409).json({ error: `plano ${plano.status} — reative antes de registrar` });
 
     if (['concluida', 'concluida_retroativa'].includes(etapa.status)) {
       return res.json({ ok: true, jaConcluida: true, plano_status: plano.status });
