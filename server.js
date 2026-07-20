@@ -5442,10 +5442,20 @@ async function jaRegistrouHoje(paciente_clinicorp_id, dataStr, planoId) {
 // Relê TODAS as etapas do plano e avança o status pela máquina (até 2 degraus). Retorna o status final.
 // Compartilhado por /api/sessao/etapa e /api/planejamento/plano/:id/executar — sem cópia da máquina de estados.
 async function avancarPlanoAposRegistro(planoId, statusAtual) {
-  const { data: todas, error } = await supabase.from('plano_etapas')
-    .select('status, plano_itens!inner(plano_id)').eq('plano_itens.plano_id', planoId);
+  const { data: itens, error } = await supabase.from('plano_itens')
+    .select('id, parent_id, plano_etapas(status)').eq('plano_id', planoId).is('removido_em', null);
   if (error) throw error;
-  const final = planStatusAposRegistro(statusAtual, (todas || []).map(e => e.status));
+  const filhosPor = new Map();
+  for (const i of (itens || [])) {
+    if (!i.parent_id) continue;
+    if (!filhosPor.has(i.parent_id)) filhosPor.set(i.parent_id, []);
+    filhosPor.get(i.parent_id).push(i);
+  }
+  const etapasStatus = (itens || []).flatMap(i => (i.plano_etapas || []).map(e => e.status));
+  // item raiz sem NENHUMA etapa (própria ou de sub-lote) = trabalho não detalhado → plano não pode concluir
+  const temItemSemEtapa = (itens || []).filter(i => !i.parent_id).some(r =>
+    !(r.plano_etapas || []).length && !(filhosPor.get(r.id) || []).some(f => (f.plano_etapas || []).length));
+  const final = planStatusAposRegistro(statusAtual, etapasStatus, temItemSemEtapa);
   if (final !== statusAtual) {
     const { error: eUp } = await supabase.from('plano_tratamento')
       .update({ status: final, atualizado_em: new Date().toISOString() }).eq('id', planoId);

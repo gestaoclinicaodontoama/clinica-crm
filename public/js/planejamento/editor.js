@@ -34,12 +34,13 @@
   }
 
   // mini-diálogo do "✓": data (default hoje) + intenção de anotar na ficha do Clinicorp (gancho do robô)
-  function miniDialogoExec() {
+  function miniDialogoExec(escopo) {
     return new Promise(resolve => {
       let d = document.getElementById('dlg-exec-data');
       if (!d) { d = document.createElement('dialog'); d.id = 'dlg-exec-data'; document.body.appendChild(d); }
       const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
       d.innerHTML = `<h3>Marcar como executado</h3>
+        ${escopo ? `<p class="exec-escopo">${esc(escopo)}</p>` : ''}
         <label>Data <input id="ex-data" type="date" value="${hoje}"></label>
         <label><input id="ex-ficha" type="checkbox"> Anotar na ficha do Clinicorp</label>
         <footer><button id="ex-ok" class="btn btn-primario">Confirmar ✓</button>
@@ -127,7 +128,7 @@
               <li data-etapa-filho="${esc(e.id)}"><span>${esc(e.descricao)}</span> <small>${esc(e.profissional_executor || '')}</small>
                 ${e.status === 'pendente' ? (podeExecutar ? '<button class="et-exec-filho" title="Marcar executado">✓</button>' : '') : `<em>(${esc(e.status)})</em>`}</li>`).join('')}</ul></div>` : '';
           }).join('')}
-          <button class="add-etapa">+ etapa</button> <button class="dividir">dividir em sub-lotes</button>${podeExecutar ? ' <button class="exec-todos">✓ Executar todos</button>' : ''}${botoesPadrao(item, padroes)}
+          <button class="add-etapa">+ etapa</button> <button class="dividir">dividir em sub-lotes</button>${podeExecutar ? ' <button class="exec-todos" title="Conclui as etapas SÓ deste procedimento">✓ Executar procedimento</button>' : ''}${botoesPadrao(item, padroes)}
         </fieldset>`).join('') || '<p class="vazio">Sem itens de orçamento vinculados.</p>'}</div>
       <label>Orientação clínica (p/ executor)<textarea id="txt-orientacao">${esc(plano.orientacao_clinica || '')}</textarea></label>
       <label>Recado p/ Sucesso do Cliente<textarea id="txt-recado">${esc(plano.recado_sucesso || '')}</textarea></label>
@@ -164,7 +165,7 @@
     // ⚠️ o pré-PUT deleta e recria TODAS as pendentes (ids novos, ordem = índice na lista enviada) —
     // nunca usar o id do DOM p/ etapa; resolve pós-PUT por (item, ordem == índice-entre-pendentes).
     async function executarFluxo(alvo) {
-      const escolha = await miniDialogoExec();
+      const escolha = await miniDialogoExec(alvo.escopo);
       if (!escolha) return;
       await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) });   // salvar-antes: nada do modal se perde
       let payload;
@@ -236,13 +237,27 @@
         if (b.id === 'bt-salvar') { await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) }); alert('Salvo.'); }
         if (b.id === 'bt-concluir') { await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) }); await api(`/api/planejamento/plano/${id}/concluir`, { method: 'POST' }); dlg.close(); if (onSaved) onSaved(); }
         if (b.id === 'bt-descartar') { if (confirm('Este tratamento não precisa de etapas? (o paciente CONTINUA na Sucesso)')) { await api(`/api/planejamento/plano/${id}/descartar`, { method: 'POST' }); dlg.close(); if (onSaved) onSaved(); } }
-        if (b.classList.contains('exec-todos')) { await executarFluxo({ todos: true, itemId: Number(b.closest('fieldset').dataset.item) }); }
-        if (b.classList.contains('et-exec-filho')) { await executarFluxo({ etapaFilhoId: Number(b.closest('li').dataset.etapaFilho) }); }
+        if (b.classList.contains('exec-todos')) {
+          const fs = b.closest('fieldset');
+          const nome = fs.dataset.procName || (fs.querySelector('legend')?.textContent || '').split('×')[0].trim();
+          const nPend = [...fs.querySelectorAll('.etapas li')].filter(x => x.classList.contains('nova') || x.dataset.status === 'pendente').length
+            + fs.querySelectorAll('.etapas-filho .et-exec-filho').length;
+          const escopo = nPend
+            ? `Só o procedimento "${nome}" (${nPend} etapa(s) pendente(s)). Os demais procedimentos NÃO são afetados.`
+            : `Só o procedimento "${nome}" (sem etapas — será marcado como realizado). Os demais procedimentos NÃO são afetados.`;
+          await executarFluxo({ todos: true, itemId: Number(fs.dataset.item), escopo });
+        }
+        if (b.classList.contains('et-exec-filho')) {
+          const li = b.closest('li');
+          await executarFluxo({ etapaFilhoId: Number(li.dataset.etapaFilho), escopo: `Só a etapa "${(li.querySelector('span')?.textContent || '').trim()}".` });
+        }
         if (b.classList.contains('et-exec')) {
           const fs = b.closest('fieldset'); const li = b.closest('li');
           // índice ENTRE PENDENTES/NOVAS (mesmo predicado do filtro do PUT) — concluídas e filhos NÃO contam
           const pendentes = [...fs.querySelectorAll('.etapas li')].filter(x => x.classList.contains('nova') || x.dataset.status === 'pendente');
-          await executarFluxo({ itemId: Number(fs.dataset.item), etapaIndex: pendentes.indexOf(li) });
+          const nome = fs.dataset.procName || (fs.querySelector('legend')?.textContent || '').split('×')[0].trim();
+          await executarFluxo({ itemId: Number(fs.dataset.item), etapaIndex: pendentes.indexOf(li),
+            escopo: `Só a etapa "${(li.querySelector('.et-desc')?.value || '').trim()}" de "${nome}".` });
         }
       } catch (e) {
         if (ehErro403(e)) alert(MSG_SEM_PERMISSAO); else alert(e.message);
