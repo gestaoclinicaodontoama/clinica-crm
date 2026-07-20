@@ -10,9 +10,9 @@
   const fmtBRL = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const MSG_SEM_PERMISSAO = 'Você não tem permissão para planejar — peça a alguém com acesso de planejamento.';
 
-  // options do dropdown de executor (nomes de planejamento_dentistas); valor legado texto-livre vira option p/ não se perder
-  function optionsExecutor(dentistas, valor) {
-    const nomes = (dentistas || []).map(d => d.profissional_nome).filter(Boolean);
+  // options do dropdown de executor (lista de nomes — executores ativos do Clinicorp); valor legado texto-livre vira option p/ não se perder
+  function optionsExecutor(listaNomes, valor) {
+    const nomes = (listaNomes || []).filter(Boolean);
     const v = valor || '';
     if (v && !nomes.includes(v)) nomes.unshift(v);
     return '<option value=""></option>' + nomes.map(n =>
@@ -91,14 +91,17 @@
   async function abrir(id, opts) {
     const { api, onSaved } = opts || {};
     if (typeof api !== 'function') throw new Error('editor: api() é obrigatório');
-    let plano, itens, dentistas, padroes;
+    let plano, itens, dentistas, padroes, executores;
     try {
-      ({ plano, itens, dentistas, padroes } = await api(`/api/planejamento/plano/${id}`));
+      ({ plano, itens, dentistas, padroes, executores } = await api(`/api/planejamento/plano/${id}`));
     } catch (e) {
       if (ehErro403(e)) return alert(MSG_SEM_PERMISSAO);
       return alert(e.message);
     }
     const podeExecutar = !['concluido', 'descartado', 'cancelado'].includes(plano.status);
+    // executores = todos os profissionais ativos do Clinicorp (RPC executores_ativos, 90d de agenda/produção);
+    // fallback p/ os nomes de planejamento_dentistas se o servidor ainda não mandar o campo (cache pós-deploy)
+    const nomesExec = (executores && executores.length) ? executores : (dentistas || []).map(d => d.profissional_nome);
     const dlg = garantirDialog();
     dlg.innerHTML = `<h2>${esc(plano.paciente_nome)}</h2>
       <p class="espelho">Valor: <b>${fmtBRL(plano.valor)}</b> · Entrada: <b>${fmtBRL(plano.entrada)}</b>
@@ -109,12 +112,12 @@
       <div id="itens">${(itens || []).map(item => `
         <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(item.procedure_name)} × ${esc(item.quantidade)}
             <span class="item-mover"><button type="button" class="mv-up" title="Subir na ordem de execução">▲</button><button type="button" class="mv-down" title="Descer na ordem de execução">▼</button></span></legend>
-          <label class="item-exec">Executor <select class="item-prof">${optionsExecutor(dentistas, item.profissional_executor)}</select></label>
+          <label class="item-exec">Executor <select class="item-prof">${optionsExecutor(nomesExec,item.profissional_executor)}</select></label>
           <ol class="etapas">${(item.plano_etapas || []).sort((a, b) => a.ordem - b.ordem).map(e => {
             const pend = e.status === 'pendente';
             return `
             <li data-etapa="${esc(e.id)}" data-status="${esc(e.status)}"><input class="et-desc" value="${esc(e.descricao)}"${pend ? '' : ' disabled'}>
-              <select class="et-prof"${pend ? '' : ' disabled'}>${optionsExecutor(dentistas, e.profissional_executor)}</select>
+              <select class="et-prof"${pend ? '' : ' disabled'}>${optionsExecutor(nomesExec,e.profissional_executor)}</select>
               <input class="et-min" type="number" placeholder="min" value="${esc(e.tempo_planejado_min ?? '')}" style="width:70px"${pend ? '' : ' disabled'}> min
               ${pend ? `${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button>` : `<em>(${esc(e.status)})</em>`}</li>`; }).join('')}
           </ol>
@@ -202,7 +205,7 @@
           if (next && next.matches('fieldset[data-item]')) fs.parentNode.insertBefore(next, fs);
         }
         if (b.classList.contains('add-etapa')) { const fs = b.closest('fieldset'); fs.querySelector('.etapas').insertAdjacentHTML('beforeend',
-          `<li class="nova"><input class="et-desc" placeholder="descrição"><select class="et-prof">${optionsExecutor(dentistas, fs.querySelector('.item-prof')?.value || '')}</select><input class="et-min" type="number" style="width:70px"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`); atualizarSalvarPadrao(fs); }
+          `<li class="nova"><input class="et-desc" placeholder="descrição"><select class="et-prof">${optionsExecutor(nomesExec,fs.querySelector('.item-prof')?.value || '')}</select><input class="et-min" type="number" style="width:70px"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`); atualizarSalvarPadrao(fs); }
         if (b.classList.contains('et-rm')) { const fs = b.closest('fieldset'); b.closest('li').remove(); atualizarSalvarPadrao(fs); }
         if (b.classList.contains('dividir')) dividirSubLotes(b.closest('fieldset'));
         if (b.classList.contains('aplicar-padrao')) {
@@ -214,7 +217,7 @@
             if (!pendentes.length || confirm(`Substituir as etapas pendentes pelas do padrão "${padrao.procedure_name}"?`)) {
               pendentes.forEach(li => li.remove());
               ol.insertAdjacentHTML('beforeend', (padrao.etapas || []).map(e =>
-                `<li class="nova"><input class="et-desc" placeholder="descrição" value="${esc(e.descricao || '')}"><select class="et-prof">${optionsExecutor(dentistas, e.profissional_sugerido || '')}</select><input class="et-min" type="number" style="width:70px" value="${esc(e.tempo_sugerido_min ?? '')}"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`).join(''));
+                `<li class="nova"><input class="et-desc" placeholder="descrição" value="${esc(e.descricao || '')}"><select class="et-prof">${optionsExecutor(nomesExec,e.profissional_sugerido || '')}</select><input class="et-min" type="number" style="width:70px" value="${esc(e.tempo_sugerido_min ?? '')}"> min ${podeExecutar ? '<button class="et-exec" title="Marcar executado">✓</button>' : ''}<button class="et-rm">×</button></li>`).join(''));
               atualizarSalvarPadrao(fs);
             }
           }

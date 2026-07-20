@@ -5138,7 +5138,12 @@ app.get('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanej
       ? await supabase.from('processos_padrao').select('*').in('price_id', priceIds)
       : { data: [] };
     const { data: dentistas } = await supabase.from('planejamento_dentistas').select('*').eq('ativo', true);
-    res.json({ ...r, padroes: padroes || [], dentistas: dentistas || [] });
+    // executores do dropdown = TODOS os profissionais ativos no Clinicorp (agenda/produção 90d) +
+    // os mapeados do planejamento (garante o responsável mesmo sem atividade recente)
+    const { data: execNomes } = await supabase.rpc('executores_ativos');
+    const executores = [...new Set([...(execNomes || []).map(e => e.nome), ...(dentistas || []).map(d => d.profissional_nome)]
+      .filter(Boolean).map(n => String(n).trim()))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    res.json({ ...r, padroes: padroes || [], dentistas: dentistas || [], executores });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
