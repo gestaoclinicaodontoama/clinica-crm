@@ -5144,7 +5144,9 @@ app.get('/api/planejamento/plano/:id', requireAuth, blockParceiro, requirePlanej
     const { data: execNomes } = await supabase.rpc('executores_ativos');
     const executores = [...new Set([...(execNomes || []).map(e => e.nome), ...(dentistas || []).map(d => d.profissional_nome)]
       .filter(Boolean).map(n => String(n).trim()))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-    res.json({ ...r, padroes: padroes || [], dentistas: dentistas || [], executores });
+    const { data: fasesCatalogo } = await supabase.from('fases_externas_catalogo').select('nome').eq('ativo', true).order('nome');
+    const pode_planejar = roles.some(r => ['dentista', 'gestor', 'admin', 'mod_planejamento'].includes(r));
+    res.json({ ...r, padroes: padroes || [], dentistas: dentistas || [], executores, fases_catalogo: (fasesCatalogo || []).map(f => f.nome), pode_planejar });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -5356,6 +5358,61 @@ app.post('/api/planejamento/plano/:id/tracker-link', requireAuth, blockParceiro,
       .update({ tracker_token: t, atualizado_em: now }).eq('id', id);
     if (error) throw error;
     res.json({ url: `${base}/t/${t}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Fase externa (tomografia/exames — não é serviço Clinicorp): item tipo='externo', invisível ao re-sync.
+// ANTES da genérica /:acao (mesma aridade). CRC Sucesso PODE adicionar (rota própria; PUT/executar seguem sem ela).
+app.post('/api/planejamento/plano/:id/fase-externa', requireAuth, blockParceiro,
+  requireRole('crc_sucesso', 'dentista', 'gestor', 'admin', 'mod_planejamento'), rateLimit, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const nome = sanitizeStr((req.body && req.body.nome) || '', 120).trim();
+    if (!nome) return res.status(400).json({ error: 'nome é obrigatório' });
+    const { data: plano } = await supabase.from('plano_tratamento')
+      .select('id, status, trava_resync, dentista_avaliador_id').eq('id', id).maybeSingle();
+    if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    if (plano.trava_resync) return res.status(409).json({ error: 'plano travado — a gestora precisa resolver antes' });
+    if (['descartado', 'cancelado'].includes(plano.status)) return res.status(409).json({ error: `plano ${plano.status} — reative antes` });
+    if (plano.status === 'concluido') return res.status(409).json({ error: 'plano concluído — adicionar fase reabriria o tratamento; fale com a gestora' });
+    const roles = req.user.profile?.roles || [];
+    const soDentista = roles.includes('dentista') && !roles.some(rl => ['gestor', 'admin', 'mod_planejamento'].includes(rl));
+    if (soDentista && plano.dentista_avaliador_id !== req.user.id) return res.status(403).json({ error: 'plano de outro dentista' });
+    const { data: raizes } = await supabase.from('plano_itens').select('ordem').eq('plano_id', id).is('parent_id', null).is('removido_em', null);
+    const ordem = (raizes || []).reduce((m, r) => Math.max(m, Number(r.ordem) || 0), 0) + 1;
+    const { data: novo, error } = await supabase.from('plano_itens').insert({
+      plano_id: id, tipo: 'externo', price_id: null, procedure_name: nome, quantidade: 1, ordem }).select('id').single();
+    if (error) throw error;
+    if (req.body.salvar_lista) {   // best-effort: NUNCA derruba a criação do item
+      try { await supabase.from('fases_externas_catalogo').upsert({ nome, criado_por: req.user.id }, { onConflict: 'nome', ignoreDuplicates: true }); }
+      catch (eCat) { console.error('[fase-externa catálogo]', eCat.message); }
+    }
+    // guard: só em_andamento pode transicionar aqui (em_andamento→concluido); incondicional promoveria planejado/aguardando sem execução
+    const plano_status = plano.status === 'em_andamento' ? await avancarPlanoAposRegistro(id, plano.status) : plano.status;
+    res.json({ ok: true, item_id: novo.id, plano_status });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/planejamento/plano/:id/fase-externa/:itemId/remover', requireAuth, blockParceiro,
+  requireRole('crc_sucesso', 'dentista', 'gestor', 'admin', 'mod_planejamento'), rateLimit, async (req, res) => {
+  try {
+    const id = Number(req.params.id), itemId = Number(req.params.itemId);
+    const { data: plano } = await supabase.from('plano_tratamento')
+      .select('id, status, trava_resync, dentista_avaliador_id').eq('id', id).maybeSingle();
+    if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    if (plano.trava_resync) return res.status(409).json({ error: 'plano travado — a gestora precisa resolver antes' });
+    const roles = req.user.profile?.roles || [];
+    const soDentista = roles.includes('dentista') && !roles.some(rl => ['gestor', 'admin', 'mod_planejamento'].includes(rl));
+    if (soDentista && plano.dentista_avaliador_id !== req.user.id) return res.status(403).json({ error: 'plano de outro dentista' });
+    const { data: item } = await supabase.from('plano_itens').select('id, tipo').eq('id', itemId).eq('plano_id', id).maybeSingle();
+    if (!item || item.tipo !== 'externo') return res.status(404).json({ error: 'fase externa não encontrada neste plano' });
+    const { data: exec } = await supabase.from('plano_etapas').select('id').eq('item_id', itemId).neq('status', 'pendente').limit(1);
+    if (exec?.length) return res.status(409).json({ error: 'fase com execução registrada — desfazer é com a gestora' });
+    const { error } = await supabase.from('plano_itens').delete().eq('id', itemId);   // pendentes caem por FK CASCADE
+    if (error) throw error;
+    // guard idem add: remover a última fase pendente de um em_andamento CONCLUI; demais estados intocados
+    const plano_status = plano.status === 'em_andamento' ? await avancarPlanoAposRegistro(id, plano.status) : plano.status;
+    res.json({ ok: true, plano_status });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
