@@ -1132,7 +1132,7 @@ async function syncPlanejamento() {
     // Guards: trava_resync (plano JÁ travado devolve acoes:[] nas noites seguintes — guard explícito
     // obrigatório, espelho do 409 manual) + qualquer ação de estrutura NESTE giro (status em memória
     // obsoleto pós-executarAcoesResync) + laterais/concluído. Fase externa nunca casa (price_id null).
-    if (!plano.trava_resync && !acoes.length && !['descartado', 'concluido'].includes(plano.status)) {
+    if (!plano.trava_resync && !acoes.length && !['descartado', 'concluido'].includes(plano.status)) try {
       let baixouAlgo = false;
       for (const novo of itensNovos) {
         if (!novo.price_id || !(novo.executados >= novo.quantidade)) continue;   // só TOTALMENTE executado
@@ -1195,6 +1195,10 @@ async function syncPlanejamento() {
           await supabase.from('plano_tratamento').update({ status: final, atualizado_em: new Date().toISOString() }).eq('id', plano.id);
         }
       }
+    } catch (eBaixa) {
+      // isola falha por plano (filosofia do step()): a baixa deste plano fica p/ a próxima noite,
+      // sem derrubar o resto do re-sync, a criação de planos novos nem o conferidor.
+      log(`baixa automática falhou p/ plano ${plano.id}: ${eBaixa.message}`);
     }
   }
 
