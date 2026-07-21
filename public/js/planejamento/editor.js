@@ -57,6 +57,42 @@
     });
   }
 
+  // mini-diálogo do "+ fase externa": select do catálogo + "outra…" (input livre + salvar na lista)
+  function dialogoAddFase(catalogo) {
+    return new Promise(resolve => {
+      let d = document.getElementById('dlg-add-fase');
+      if (!d) { d = document.createElement('dialog'); d.id = 'dlg-add-fase'; document.body.appendChild(d); }
+      d.innerHTML = `<h3>+ fase externa</h3>
+        <label>Fase
+          <select id="af-sel">${(catalogo || []).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}<option value="__outra">outra…</option></select>
+        </label>
+        <div id="af-outra">
+          <label>Nome <input id="af-nome" placeholder="nome da fase"></label>
+          <label><input type="checkbox" id="af-salvar"> salvar na lista p/ próxima vez</label>
+        </div>
+        <footer><button id="af-ok" class="btn btn-primario">Adicionar</button>
+        <button id="af-cancel" class="btn btn-ghost">Cancelar</button></footer>`;
+      const sel = d.querySelector('#af-sel');
+      const bloco = d.querySelector('#af-outra');
+      bloco.style.display = sel.value === '__outra' ? '' : 'none';
+      d.onchange = ev => {
+        if (ev.target.id === 'af-sel') bloco.style.display = sel.value === '__outra' ? '' : 'none';
+      };
+      d.onclick = ev => {
+        if (ev.target.id === 'af-ok') {
+          const outra = sel.value === '__outra';
+          const nome = (outra ? d.querySelector('#af-nome').value : sel.value).trim();
+          if (!nome) { alert('Informe o nome da fase.'); return; }
+          resolve({ nome, salvar: outra && d.querySelector('#af-salvar').checked });
+          d.close();
+        }
+        if (ev.target.id === 'af-cancel') { resolve(null); d.close(); }
+      };
+      d.onclose = () => resolve(null);   // Esc fecha = cancelar
+      d.showModal();
+    });
+  }
+
   // botões do banco de processos (só em itens com price_id — sub-lotes não têm fieldset próprio)
   function botoesPadrao(item, padroes) {
     if (!item.price_id) return '';
@@ -93,14 +129,15 @@
   async function abrir(id, opts) {
     const { api, onSaved } = opts || {};
     if (typeof api !== 'function') throw new Error('editor: api() é obrigatório');
-    let plano, itens, dentistas, padroes, executores;
+    let plano, itens, dentistas, padroes, executores, fases_catalogo, pode_planejar;
     try {
-      ({ plano, itens, dentistas, padroes, executores } = await api(`/api/planejamento/plano/${id}`));
+      ({ plano, itens, dentistas, padroes, executores, fases_catalogo, pode_planejar } = await api(`/api/planejamento/plano/${id}`));
     } catch (e) {
       if (ehErro403(e)) return alert(MSG_SEM_PERMISSAO);
       return alert(e.message);
     }
-    const podeExecutar = !['concluido', 'descartado', 'cancelado'].includes(plano.status);
+    const planejador = pode_planejar !== false;   // default true p/ cache velho (campo ainda não vem no payload)
+    const podeExecutar = !['concluido', 'descartado', 'cancelado'].includes(plano.status) && planejador;
     // executores = todos os profissionais ativos do Clinicorp (RPC executores_ativos, 90d de agenda/produção);
     // fallback p/ os nomes de planejamento_dentistas se o servidor ainda não mandar o campo (cache pós-deploy)
     const nomesExec = (executores && executores.length) ? executores : (dentistas || []).map(d => d.profissional_nome);
@@ -112,7 +149,7 @@
         <select id="sel-dentista">${(dentistas || []).map(d =>
           `<option value="${esc(d.user_id)}" ${d.user_id === plano.dentista_avaliador_id ? 'selected' : ''}>${esc(d.profissional_nome)}</option>`).join('')}</select></label>
       <div id="itens">${(itens || []).map(item => `
-        <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(limparCod(item.procedure_name))} × ${esc(item.quantidade)}
+        <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(limparCod(item.procedure_name))}${item.tipo === 'externo' ? ' 🧪 externa' : ''} × ${esc(item.quantidade)}
             <span class="item-mover"><button type="button" class="mv-up" title="Subir na ordem de execução">▲</button><button type="button" class="mv-down" title="Descer na ordem de execução">▼</button></span></legend>
           <label class="item-exec">Executor <select class="item-prof">${optionsExecutor(nomesExec,item.profissional_executor)}</select></label>
           <ol class="etapas">${(item.plano_etapas || []).sort((a, b) => a.ordem - b.ordem).map(e => {
@@ -129,16 +166,17 @@
               <li data-etapa-filho="${esc(e.id)}"><span>${esc(e.descricao)}</span> <small>${esc(e.profissional_executor || '')}</small>
                 ${e.status === 'pendente' ? (podeExecutar ? '<button class="et-exec-filho" title="Marcar executado">✓</button>' : '') : `<em>(${esc(e.status)})</em>`}</li>`).join('')}</ul></div>` : '';
           }).join('')}
-          <button class="add-etapa">+ etapa</button> <button class="dividir">dividir em sub-lotes</button>${podeExecutar ? ' <button class="exec-todos" title="Conclui as etapas SÓ deste procedimento">✓ Executar procedimento</button>' : ''}${botoesPadrao(item, padroes)}
+          ${planejador ? '<button class="add-etapa">+ etapa</button> ' : ''}${item.tipo !== 'externo' && planejador ? '<button class="dividir">dividir em sub-lotes</button>' : ''}${podeExecutar ? ' <button class="exec-todos" title="Conclui as etapas SÓ deste procedimento">✓ Executar procedimento</button>' : ''}${planejador ? botoesPadrao(item, padroes) : ''}${item.tipo === 'externo' ? ' <button class="rm-fase">× remover fase</button>' : ''}
         </fieldset>`).join('') || '<p class="vazio">Sem itens de orçamento vinculados.</p>'}</div>
+      ${!['descartado', 'cancelado', 'concluido'].includes(plano.status) ? '<button id="bt-add-fase" class="btn btn-ghost">+ fase externa</button>' : ''}
       <label>Orientação clínica (p/ executor)<textarea id="txt-orientacao">${esc(plano.orientacao_clinica || '')}</textarea></label>
       <label>Recado p/ Sucesso do Cliente<textarea id="txt-recado">${esc(plano.recado_sucesso || '')}</textarea></label>
       <footer>${['descartado', 'cancelado'].includes(plano.status)
           ? `<span class="badge">${esc(plano.status)}${plano.status_motivo ? ' · ' + esc(plano.status_motivo) : ''}</span>
              <button id="bt-reativar" class="btn btn-primario">Reativar plano ↩</button>`
-          : `<button id="bt-salvar" class="btn btn-ghost">Salvar rascunho</button>
+          : `${planejador ? `<button id="bt-salvar" class="btn btn-ghost">Salvar rascunho</button>
              <button id="bt-concluir" class="btn btn-primario">Concluir planejamento ✓</button>
-             <button id="bt-descartar" class="btn btn-ghost">Não precisa de etapas</button>
+             <button id="bt-descartar" class="btn btn-ghost">Não precisa de etapas</button>` : ''}
              <button id="bt-tracker" class="btn btn-ghost" title="Copiar link de acompanhamento do paciente">🔗 link do paciente</button>
              <button id="bt-tracker-regen" class="btn btn-ghost" title="Gera um link novo; o antigo para de funcionar (gestora)">regenerar</button>
              <button id="bt-tracker-revogar" class="btn btn-ghost" title="Mata o link sem emitir outro (gestora)">revogar</button>`}
@@ -199,6 +237,25 @@
       try {
         if (b.id === 'bt-fechar') dlg.close();
         if (b.id === 'bt-reativar') { await api(`/api/planejamento/plano/${id}/reativar`, { method: 'POST' }); alert('Plano reativado — agora dá pra montar as etapas.'); dlg.close(); if (onSaved) onSaved(); }
+        if (b.id === 'bt-add-fase') {
+          const escolha = await dialogoAddFase(fases_catalogo);
+          if (!escolha) return;
+          try {
+            await api(`/api/planejamento/plano/${id}/fase-externa`, { method: 'POST',
+              body: JSON.stringify({ nome: escolha.nome, salvar_lista: escolha.salvar }) });
+            if (onSaved) onSaved();   // status do plano pode ter mudado
+            return reabrir();
+          } catch (e2) { alert(e2.message); }
+        }
+        if (b.classList.contains('rm-fase')) {
+          const fs = b.closest('fieldset[data-item]');
+          if (!confirm('Remover esta fase externa?')) return;
+          try {
+            await api(`/api/planejamento/plano/${id}/fase-externa/${fs.dataset.item}/remover`, { method: 'POST' });
+            if (onSaved) onSaved();   // status do plano pode ter mudado (ex.: era a última fase pendente → concluiu)
+            return reabrir();
+          } catch (e2) { alert(e2.message); }
+        }
         if (b.classList.contains('mv-up')) {
           const fs = b.closest('fieldset[data-item]');
           const prev = fs && fs.previousElementSibling;
