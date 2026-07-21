@@ -15,8 +15,8 @@ Para cada plano ativo com orçamento casado — **PULANDO todo plano que recebeu
 - **Fases externas (`tipo='externo'`) NUNCA são tocadas** (não têm par no orçamento — match por price_id já as ignora naturalmente; deixar comentário explícito).
 - Contador no log do sync: `baixas automáticas: N etapas em M planos`.
 
-## Dados novos no `agruparItens` (lib/planejamento/triagem.js — pura, testada)
-Acrescentar ao grupo: `ultima_execucao` (max `ExecutedDate` (`slice(0,10)`) das linhas `Executed==='X'`; null se nenhuma tem data) e `executor_person_id` (último `Dentist_PersonId` não-null das executadas). Campos novos são aditivos — `aplicarResync`/criação não mudam.
+## Lib
+`agruparItens`/triagem **INTOCADOS** (o `executados` que ele já computa basta; data/executor vêm de `producao_procedimentos` — ver Regra).
 
 ## O que NÃO muda
 - Marcação manual (✓ do modal) e registro da ASB continuam valendo e têm precedência natural (etapa já concluída = intocada).
@@ -26,7 +26,7 @@ Acrescentar ao grupo: `ultima_execucao` (max `ExecutedDate` (`slice(0,10)`) das 
 
 ## Segurança/robustez
 - Nenhuma rota nova, nenhuma tabela; escrita só via service_role no sync. Sem `.catch()` em builder.
-- Ordem dentro do `syncPlanejamento`: a baixa roda DEPOIS do `aplicarResync` do plano (estrutura primeiro; se o resync travar o plano, a baixa daquele plano é pulada nesta noite).
+- Ordem dentro do `syncPlanejamento`: a baixa roda DEPOIS do `aplicarResync` do plano (estrutura primeiro) e é PULADA para qualquer plano com `acoes.length > 0` no giro (ver Regra) — inclui travado/cancelado/regredido/ressuscitado.
 
 ## Testes
 - **Unit:** nenhum na lib (`agruparItens` intocado). A parte pura nova é mínima; cobertura fica no manual + idempotência.
