@@ -1105,7 +1105,7 @@ async function syncPlanejamento() {
     if (!o) continue;                                        // sumiu da tabela → NÃO cancela (regra V2)
     const itensNovos = nomear(agruparItens(o.procedure_list));
     const { data: itensPlano } = await supabase.from('plano_itens')
-      .select('id, parent_id, price_id, quantidade, removido_em, plano_etapas(status)')
+      .select('id, parent_id, tipo, price_id, quantidade, removido_em, plano_etapas(status)')
       .eq('plano_id', plano.id).is('removido_em', null);
     const filhosPor = new Map();
     for (const i of (itensPlano || [])) {
@@ -1114,7 +1114,7 @@ async function syncPlanejamento() {
       filhosPor.get(i.parent_id).push(i);
     }
     const temExec = i => (i.plano_etapas || []).some(e => e.status !== 'pendente');
-    const itensFmt = (itensPlano || []).filter(i => !i.parent_id).map(i => ({
+    const itensFmt = (itensPlano || []).filter(i => !i.parent_id && i.tipo !== 'externo').map(i => ({
       price_id: i.price_id, quantidade: i.quantidade,
       // etapas moram nas FOLHAS: item dividido tem execução nos filhos — protege a raiz do resync
       etapas_executadas: temExec(i) || (filhosPor.get(i.id) || []).some(temExec),
