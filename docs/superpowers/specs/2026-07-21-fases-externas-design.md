@@ -34,20 +34,23 @@ Nota: itens legados têm `tipo='clinicorp'` pelo DEFAULT — comportamento atual
 ## API — 2 rotas novas (⚠️ ANTES da genérica `POST /plano/:id/:acao`, mesma armadilha de sempre; conferir com grep)
 `POST /api/planejamento/plano/:id/fase-externa` — `requireAuth` → `blockParceiro` → `requireRole('crc_sucesso','dentista','gestor','admin','mod_planejamento')` → `rateLimit`.
 - Body `{ nome, salvar_lista?: bool }`. `nome` = `sanitizeStr(...,120)`, obrigatório.
-- Plano inexistente → 404; lateral (`descartado`/`cancelado`) → 409; `trava_resync` → 409. `soDentista` → 403 se plano de outro dentista (fórmula das irmãs).
+- Plano inexistente → 404; lateral (`descartado`/`cancelado`) → 409; **`concluido` → 409 "plano concluído"** (adicionar fase a plano fechado criaria "concluído com pendência" — reabrir é decisão humana); `trava_resync` → 409. `soDentista` → 403 se plano de outro dentista (fórmula das irmãs).
 - Insere `plano_itens { plano_id, tipo:'externo', price_id:null, procedure_name:nome, quantidade:1, ordem: max(ordem dos raízes)+1 }`.
-- `salvar_lista` → upsert em `fases_externas_catalogo` (`ON CONFLICT (nome) DO NOTHING` via select-then-insert; `criado_por=req.user.id`).
-- Retorna `{ ok:true, item_id }`.
+- `salvar_lista` (best-effort, NUNCA derruba a criação do item): **`upsert` atômico com `{ onConflict:'nome', ignoreDuplicates:true }`** (nada de select-then-insert — race 23505→500), num try/catch próprio; `criado_por=req.user.id`. O insert do item vem PRIMEIRO.
+- ⚠️ **Ao final, chamar `avancarPlanoAposRegistro(id, plano.status)`** — sem isso o status não é reavaliado.
+- Retorna `{ ok:true, item_id, plano_status }`.
 
 `POST /api/planejamento/plano/:id/fase-externa/:itemId/remover` — mesmos middlewares/checagens.
-- Item precisa: pertencer ao plano, `tipo='externo'`, e **sem etapa não-pendente** (própria; externo não tem sub-lote) → senão 409 "fase com execução registrada — desfazer é com a gestora/Claude". Remove com `DELETE` físico do item (etapas pendentes caem por FK CASCADE) — externo nunca veio do Clinicorp, não precisa de soft-delete de espelho.
+- Item precisa: pertencer ao plano, `tipo='externo'`, e **sem etapa não-pendente** (própria; externo não tem sub-lote) → senão 409 "fase com execução registrada — desfazer é com a gestora/Claude". Remove com `DELETE` físico do item (etapas pendentes caem por FK CASCADE — confirmado na migração 20260719042125) — externo nunca veio do Clinicorp, não precisa de soft-delete de espelho.
+- ⚠️ **Ao final, chamar `avancarPlanoAposRegistro(id, plano.status)`** — CRÍTICO: remover a última fase pendente de um plano com todo o resto concluído deve CONCLUIR o plano (sem isso ele fica preso em `em_andamento` para sempre, tracker nunca chega a 100%). Retorna `{ ok:true, plano_status }`.
 
 `GET /api/planejamento/plano/:id` passa a incluir `fases_catalogo` (nomes ativos, ordenados) no payload — o modal usa no diálogo de adicionar.
 
 ## UI (modal Planejar — `editor.js`)
 - Botão **"+ fase externa"** no nível do plano (após o `<div id="itens">`), visível sempre que o plano não é lateral — **CRC Sucesso vê e usa** (rota própria autoriza; nada do gate do PUT muda).
 - Mini-diálogo: `<select>` com o catálogo + opção "outra…" que revela input livre + checkbox "salvar na lista p/ próxima vez". Confirmar → POST → re-render (o item novo aparece como fieldset normal no fim).
-- Fieldset de item `tipo='externo'`: selo "🧪 externa" na legend; **esconder** "dividir em sub-lotes" (não se aplica; `botoesPadrao` já se esconde sozinho por não ter price_id); botão **"× remover fase"** (chama a rota remover; confirm). O resto (executor, + etapa, ✓, ▲▼) funciona como qualquer item. GET precisa mandar `tipo` nos itens (planCarregarPlano usa `select('*')` — já vem).
+- Fieldset de item `tipo='externo'`: selo "🧪 externa" na legend; **esconder EXPLICITAMENTE o botão `.dividir`** quando `item.tipo==='externo'` (⚠️ ele é hardcoded incondicional no template, editor.js ~132 — `botoesPadrao` só controla os botões de padrão, NÃO o dividir); botão **"× remover fase"** (chama a rota remover; confirm). O resto (executor, + etapa, ✓, ▲▼) funciona como qualquer item. GET precisa mandar `tipo` nos itens (planCarregarPlano usa `select('*')` — já vem).
+- **CRC no modal (novo flag `pode_planejar`):** o GET `/plano/:id` passa a incluir `pode_planejar: bool` calculado no servidor (roles do req.user têm dentista/gestor/admin/mod_planejamento). Com `pode_planejar=false` (CRC Sucesso), o editor **esconde** Salvar rascunho/Concluir/Descartar/+ etapa/✓/Executar procedimento/dividir/padrões — deixa visível só o que a CRC pode de fato usar: "+ fase externa", "× remover fase", "🔗 link do paciente" e Fechar. (Hoje a CRC vê tudo e toma 403 em tudo — wart pré-existente que esta entrega corrige de carona, pois amplia o uso do modal pela CRC.)
 - **Coletar()/PUT**: nada muda — item externo passa pelo PUT como os demais (ordem/executor/etapas). CRC não salva o PUT (gate atual); a fase adicionada pela CRC já nasce persistida pela rota própria.
 
 ## Fora de escopo
@@ -56,4 +59,4 @@ Nota: itens legados têm `tipo='clinicorp'` pelo DEFAULT — comportamento atual
 
 ## Testes
 - **Unit (sync):** `aplicarResync` não recebe externos — testar o filtro no builder de `itensFmt` (caso: plano com 1 item clinicorp + 1 externo; itensNovos só com o clinicorp → NENHUMA ação de remover/travar).
-- **Manual:** 1) + fase "Exames de sangue" da lista → aparece no modal/trilhas/tracker/sessão, plano não conclui sem ela; 2) fase livre + salvar na lista → aparece no catálogo na próxima; 3) ✓ Executar procedimento na fase → sintética concluída, tracker mostra "Realizado em…"; 4) remover fase sem execução OK; com execução → 409; 5) CRC Sucesso adiciona e remove; CRC não vê erro 403 ao adicionar; 6) rodar sync manual → fase externa intocada (sem travar/remover); 7) dentista-só não mexe em plano alheio (403).
+- **Manual:** 1) + fase "Exames de sangue" da lista → aparece no modal/trilhas/tracker/sessão, plano não conclui sem ela; 2) fase livre + salvar na lista → aparece no catálogo na próxima; 3) ✓ Executar procedimento na fase → sintética concluída, tracker mostra "Realizado em…"; 4) remover fase sem execução OK; com execução → 409; **remover a ÚLTIMA fase pendente com resto concluído → plano CONCLUI na hora**; 5) CRC Sucesso adiciona e remove sem 403; **com CRC o modal esconde os botões de planejamento** (só fase externa/remover/link/Fechar); 6) rodar sync manual → fase externa intocada (sem travar/remover); 7) dentista-só não mexe em plano alheio (403); 8) adicionar fase em plano concluído → 409.
