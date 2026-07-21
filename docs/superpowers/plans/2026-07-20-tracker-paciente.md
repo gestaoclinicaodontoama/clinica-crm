@@ -78,7 +78,7 @@ test('primeiroNome: remove sufixo (id) do fim, preserva parênteses no meio, agu
 
 test('resumoTracker: progresso conta item sem etapa como 1 pendente (filosofia temItemSemEtapa)', () => {
   const r = resumoTracker([
-    { procedure_name: 'Doc', profissional_executor: 'Thais', plano_etapas: [{ descricao: 'Doc', status: 'concluida', concluida_em: '2026-07-18T15:00:00Z', ordem: 999 }], sublotes: [] },
+    { procedure_name: 'Doc', profissional_executor: 'Thais', plano_etapas: [{ descricao: 'Procedimento realizado', status: 'concluida', concluida_em: '2026-07-18T15:00:00Z', ordem: 999 }], sublotes: [] },   // sintética detectada SÓ pelo ordem 999 (descricao ≠ nome — teste mais forte)
     { procedure_name: 'Prevenção', profissional_executor: null, plano_etapas: [], sublotes: [] },
   ], 'Marcos');
   assert.equal(r.pct, 50);                                    // 1 concluída ÷ (1 etapa + 1 item sem etapa)
@@ -380,7 +380,7 @@ git commit -m "feat(tracker): rota pública /t/:token (server-rendered, noindex,
   }
 ```
 
-E na última linha da IIFE: `window.TrilhasUI = { abrirDrawer, abrirPlanejar, copiarTracker };`
+E **SUBSTITUIR** (não duplicar) a linha existente `window.TrilhasUI = { abrirDrawer, abrirPlanejar };` (~247) por: `window.TrilhasUI = { abrirDrawer, abrirPlanejar, copiarTracker };`
 
 - [ ] **Step 2: `index.html` — botão na linha.** Logo após o bloco do botão `planejar` (~713, `tdActs.appendChild(planejar);`):
 
@@ -404,7 +404,7 @@ E na última linha da IIFE: `window.TrilhasUI = { abrirDrawer, abrirPlanejar, co
 
 (Seguir o formato exato dos branches vizinhos — se usam `if/else if` sem `return`, adaptar mantendo o estilo.)
 
-- [ ] **Step 4: `editor.js` — rodapé + handlers.** No template do `<footer>` (ramo NÃO-lateral), adicionar antes do `bt-fechar`:
+- [ ] **Step 4: `editor.js` — rodapé + handlers.** ⚠️ O `bt-fechar` fica FORA do ternário lateral/não-lateral — NÃO colar na linha dele (os botões apareceriam em plano cancelado). Colar **dentro da string do ramo NÃO-lateral do ternário** (a que tem `bt-salvar`/`bt-concluir`/`bt-descartar`), após o `bt-descartar`:
 
 ```js
              <button id="bt-tracker" class="btn btn-ghost" title="Copiar link de acompanhamento do paciente">🔗 link do paciente</button>
