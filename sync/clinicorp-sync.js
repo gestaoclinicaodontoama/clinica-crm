@@ -1052,7 +1052,7 @@ async function runSync(trigger = 'agendado') {
 // ─── Modo de Planejamento (Produção ①) ────────────────────────────────────────
 // Deriva TUDO da tabela `orcamentos` (zero chamadas novas à API).
 const { agruparItens, requerPlano, heuristicaDuplicata, tipoPagamento } = require('../lib/planejamento/triagem');
-const { aplicarResync } = require('../lib/planejamento/estados');
+const { aplicarResync, statusAposRegistro } = require('../lib/planejamento/estados');
 
 async function syncPlanejamento() {
   // 1) universo de CRIAÇÃO: aprovados PARTICULARES (paridade com a Conferência antiga, que
@@ -1096,7 +1096,7 @@ async function syncPlanejamento() {
   const nomear = itens => itens.map(i => ({ ...i, procedure_name: i.procedure_name || nomePorPrice.get(String(i.price_id)) || `PriceId ${i.price_id}` }));
   const comItens = orcs.map(o => ({ ...o, itens: nomear(agruparItens(o.procedure_list)) }));
 
-  let criadosSucesso = 0, criadosPlanos = 0, resyncs = 0;
+  let criadosSucesso = 0, criadosPlanos = 0, resyncs = 0, baixas = 0, planosComBaixa = 0;
 
   // 2) RE-SYNC dos planos existentes (qualquer status do orçamento — inclusive venda desfeita)
   for (const plano of planos) {
@@ -1105,7 +1105,7 @@ async function syncPlanejamento() {
     if (!o) continue;                                        // sumiu da tabela → NÃO cancela (regra V2)
     const itensNovos = nomear(agruparItens(o.procedure_list));
     const { data: itensPlano } = await supabase.from('plano_itens')
-      .select('id, parent_id, tipo, price_id, quantidade, removido_em, plano_etapas(status)')
+      .select('id, parent_id, tipo, price_id, quantidade, procedure_name, profissional_executor, removido_em, plano_etapas(status)')
       .eq('plano_id', plano.id).is('removido_em', null);
     const filhosPor = new Map();
     for (const i of (itensPlano || [])) {
@@ -1124,6 +1124,77 @@ async function syncPlanejamento() {
     // espelho de valor/entrada sempre atual
     if (Number(plano.valor) !== Number(o.valor_particular) || Number(plano.entrada) !== Number(o.entrada_valor)) {
       await supabase.from('plano_tratamento').update({ valor: o.valor_particular, entrada: o.entrada_valor, tipo_pagamento: tipoPagamento(o), atualizado_em: new Date().toISOString() }).eq('id', plano.id);
+    }
+
+    // ── BAIXA AUTOMÁTICA de executados (spec 2026-07-21-baixa-automatica-executados-design.md) ──
+    // O que o Clinicorp mostra Executed dá baixa sozinho (retroativa, data/executor reais);
+    // a ASB continua cobrada no /sessao/ (tempo_real_min fica NULL — filtro IS NOT NULL).
+    // Guards: trava_resync (plano JÁ travado devolve acoes:[] nas noites seguintes — guard explícito
+    // obrigatório, espelho do 409 manual) + qualquer ação de estrutura NESTE giro (status em memória
+    // obsoleto pós-executarAcoesResync) + laterais/concluído. Fase externa nunca casa (price_id null).
+    if (!plano.trava_resync && !acoes.length && !['descartado', 'concluido'].includes(plano.status)) {
+      let baixouAlgo = false;
+      for (const novo of itensNovos) {
+        if (!novo.price_id || !(novo.executados >= novo.quantidade)) continue;   // só TOTALMENTE executado
+        const raiz = (itensPlano || []).find(i => !i.parent_id && i.tipo !== 'externo' && String(i.price_id) === String(novo.price_id));
+        if (!raiz) continue;
+        const filhos = filhosPor.get(raiz.id) || [];
+        const { data: ets, error: eEts } = await supabase.from('plano_etapas')
+          .select('id, status, profissional_executor').in('item_id', [raiz.id, ...filhos.map(f => f.id)]);
+        if (eEts) throw eEts;
+        const pendentes = (ets || []).filter(e => e.status === 'pendente');
+        if ((ets || []).length && !pendentes.length) continue;                   // já todo concluído — idempotente
+        // data/executor reais vêm de producao_procedimentos (procedure_list NÃO tem ExecutedDate);
+        // linha com Amount<=0 ou fora dos 90d não está lá → fallback data do sync (borda aceita na spec)
+        const { data: prod, error: ePr } = await supabase.from('producao_procedimentos')
+          .select('executed_date, dentist_name')
+          .eq('clinicorp_estimate_id', plano.clinicorp_estimate_id).eq('price_id', novo.price_id)
+          .order('executed_date', { ascending: false }).limit(1);
+        if (ePr) throw ePr;
+        const dataExec = prod?.[0]?.executed_date || null;
+        const executorProd = prod?.[0]?.dentist_name || null;
+        const patch = {   // asb_responsavel e tempo_real_min ficam NULL de propósito (baixa automática)
+          status: 'concluida_retroativa',
+          concluida_em: dataExec ? `${dataExec}T12:00:00-03:00` : new Date().toISOString(),
+        };
+        if (pendentes.length) {
+          for (const pEt of pendentes) {
+            const { error: eUp } = await supabase.from('plano_etapas')
+              .update({ ...patch, profissional_executor: pEt.profissional_executor || executorProd || raiz.profissional_executor || null })
+              .eq('id', pEt.id);
+            if (eUp) throw eUp;
+          }
+          baixas += pendentes.length; baixouAlgo = true;
+        } else {
+          // ZERO etapas em item+filhos (guard idêntico ao Executar procedimento manual) → sintética retroativa
+          const { error: eIns } = await supabase.from('plano_etapas').insert({
+            item_id: raiz.id, ordem: 999, descricao: raiz.procedure_name || 'Procedimento realizado',
+            profissional_executor: executorProd || raiz.profissional_executor || null, ...patch });
+          if (eIns) throw eIns;
+          baixas += 1; baixouAlgo = true;
+        }
+      }
+      if (baixouAlgo) {
+        planosComBaixa++;
+        // recálculo do PLANO INTEIRO com dados FRESCOS (incl. tipo=externo) — espelho do
+        // avancarPlanoAposRegistro do server (itensPlano em memória ficou obsoleto pós-baixa)
+        const { data: itensFresco, error: eFr } = await supabase.from('plano_itens')
+          .select('id, parent_id, plano_etapas(status)').eq('plano_id', plano.id).is('removido_em', null);
+        if (eFr) throw eFr;
+        const fPor = new Map();
+        for (const i of (itensFresco || [])) {
+          if (!i.parent_id) continue;
+          if (!fPor.has(i.parent_id)) fPor.set(i.parent_id, []);
+          fPor.get(i.parent_id).push(i);
+        }
+        const etapasStatus = (itensFresco || []).flatMap(i => (i.plano_etapas || []).map(e => e.status));
+        const temItemSemEtapa = (itensFresco || []).filter(i => !i.parent_id).some(r =>
+          !(r.plano_etapas || []).length && !(fPor.get(r.id) || []).some(f => (f.plano_etapas || []).length));
+        const final = statusAposRegistro(plano.status, etapasStatus, temItemSemEtapa);
+        if (final !== plano.status) {
+          await supabase.from('plano_tratamento').update({ status: final, atualizado_em: new Date().toISOString() }).eq('id', plano.id);
+        }
+      }
     }
   }
 
@@ -1200,8 +1271,8 @@ async function syncPlanejamento() {
   if (semPlano || semSucesso) log(`⚠️ CONFERIDOR planejamento: ${semPlano} aprovados SEM plano, ${semSucesso} SEM Sucesso! ex: ${exemplos.join(', ')}`);
   else log('Conferidor planejamento: 0 aprovados sem plano, 0 sem Sucesso ✓');
 
-  log(`Planejamento: +${criadosSucesso} pacientes_sucesso, +${criadosPlanos} planos, ${resyncs} re-syncs`);
-  return { criadosSucesso, criadosPlanos, resyncs, semPlano, semSucesso };
+  log(`Planejamento: +${criadosSucesso} pacientes_sucesso, +${criadosPlanos} planos, ${resyncs} re-syncs, baixas automáticas: ${baixas} etapas em ${planosComBaixa} planos`);
+  return { criadosSucesso, criadosPlanos, resyncs, baixas, planosComBaixa, semPlano, semSucesso };
 }
 
 async function executarAcoesResync(plano, acoes, orc) {
