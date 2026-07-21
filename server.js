@@ -4997,6 +4997,7 @@ app.post('/api/comercial/conferencia/:estimateId', requireAuth, requireDashboard
 
 // ═══════════ MODO DE PLANEJAMENTO (Produção ①) ═══════════
 const { transicaoValida: planTransicao, validarSubLotes: planValidarSubLotes, avancarPorRegistro, statusAposRegistro: planStatusAposRegistro } = require('./lib/planejamento/estados');
+const trackerLib = require('./lib/planejamento/tracker');
 const { tipoPagamento: planTipoPagamento } = require('./lib/planejamento/triagem');
 const { resumoPlano } = require('./lib/planejamento/fiscalizacao');
 
@@ -5310,6 +5311,50 @@ app.post('/api/planejamento/plano/:id/executar', requireAuth, blockParceiro, req
 });
 
 // Transições de estado (concluir/descartar/reativar/destravar) — máquina de estados da lib
+// ④ Gera/copia/regenera/revoga o link do tracker. ANTES da genérica /plano/:id/:acao (ordem = requisito).
+// Revogação PEGAJOSA: copiar nunca ressuscita link revogado — só regenerar (gestor/admin).
+app.post('/api/planejamento/plano/:id/tracker-link', requireAuth, blockParceiro,
+  requireRole('crc_sucesso', 'gestor', 'admin', 'mod_planejamento', 'dentista'), rateLimit, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const acao = (req.body && req.body.acao) || null;    // 'regenerar' | 'revogar' | null (copiar)
+    const { data: plano } = await supabase.from('plano_tratamento')
+      .select('id, status, tracker_token, tracker_revogado_em').eq('id', id).maybeSingle();
+    if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
+    if (['descartado', 'cancelado'].includes(plano.status)) return res.status(409).json({ error: 'tratamento não ativo' });
+    const roles = req.user.profile?.roles || [];
+    const gestor = roles.some(r => ['gestor', 'admin'].includes(r));
+    const base = process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const now = new Date().toISOString();
+
+    if (acao === 'revogar') {
+      if (!gestor) return res.status(403).json({ error: 'revogar é da gestora' });
+      const { error } = await supabase.from('plano_tratamento')
+        .update({ tracker_revogado_em: now, atualizado_em: now }).eq('id', id);
+      if (error) throw error;
+      return res.json({ revogado: true });
+    }
+    if (acao === 'regenerar') {
+      if (!gestor) return res.status(403).json({ error: 'regenerar é da gestora' });
+      const t = crypto.randomBytes(24).toString('base64url');
+      const { error } = await supabase.from('plano_tratamento')
+        .update({ tracker_token: t, tracker_revogado_em: null, atualizado_em: now }).eq('id', id);
+      if (error) throw error;
+      return res.json({ url: `${base}/t/${t}` });
+    }
+    if (acao) return res.status(400).json({ error: 'ação inválida' });
+
+    // copiar (default)
+    if (plano.tracker_revogado_em) return res.status(409).json({ error: 'link revogado — peça à gestora para regenerar' });
+    if (plano.tracker_token) return res.json({ url: `${base}/t/${plano.tracker_token}` });
+    const t = crypto.randomBytes(24).toString('base64url');
+    const { error } = await supabase.from('plano_tratamento')
+      .update({ tracker_token: t, atualizado_em: now }).eq('id', id);
+    if (error) throw error;
+    res.json({ url: `${base}/t/${t}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/planejamento/plano/:id/:acao', requireAuth, blockParceiro, requirePlanejamentoOuCRC, rateLimit, async (req, res) => {
   try {
     const { id, acao } = req.params;
@@ -5463,6 +5508,57 @@ async function avancarPlanoAposRegistro(planoId, statusAtual) {
   }
   return final;
 }
+
+// ④ Tracker do paciente — página PÚBLICA tokenizada (sem login; rate limit por IP).
+// Registrada AQUI (antes do express.static/catch-all da SPA ~8300, que casaria /t/<token> e serviria o login).
+// Não colide com o POST /t do pixel (métodos diferentes). Colunas EXPLÍCITAS: financeiro/textos internos
+// não podem nem chegar à memória desta rota.
+app.get('/t/:token', rateLimit, async (req, res) => {
+  res.set({ 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store' });
+  const neutro = () => res.status(200).send(trackerLib.renderNeutro());
+  try {
+    const token = String(req.params.token || '');
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return neutro();
+    const { data: plano, error } = await supabase.from('plano_tratamento')
+      .select('id, status, paciente_nome, paciente_clinicorp_id, dentista_avaliador_id')
+      .eq('tracker_token', token).is('tracker_revogado_em', null).maybeSingle();
+    if (error) throw error;
+    if (!plano || ['descartado', 'cancelado'].includes(plano.status)) return neutro();
+
+    const { data: itensRaw, error: eIt } = await supabase.from('plano_itens')
+      .select('id, parent_id, procedure_name, ordem, profissional_executor, plano_etapas(descricao, status, concluida_em, ordem)')
+      .eq('plano_id', plano.id).is('removido_em', null).order('ordem');
+    if (eIt) throw eIt;
+    const raizes = (itensRaw || []).filter(i => !i.parent_id).map(r => ({
+      ...r, sublotes: (itensRaw || []).filter(i => i.parent_id === r.id) }));
+
+    // fallback do executor = dentista responsável (mesmo lookup determinístico do endpoint executar)
+    let respNome = null;
+    if (plano.dentista_avaliador_id) {
+      const { data: dd } = await supabase.from('planejamento_dentistas').select('profissional_nome')
+        .eq('user_id', plano.dentista_avaliador_id).eq('ativo', true).order('profissional_nome').limit(1);
+      respNome = dd?.[0]?.profissional_nome || null;
+    }
+
+    const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    let proxima = null;
+    if (plano.paciente_clinicorp_id) {
+      const { data: ag, error: eAg } = await supabase.from('agenda_appointments')
+        .select('appointment_date, from_time')
+        .eq('paciente_clinicorp_id', plano.paciente_clinicorp_id).eq('deleted', false)
+        .gte('appointment_date', hoje).order('appointment_date').order('from_time').limit(1);
+      if (eAg) throw eAg;
+      proxima = ag?.[0] || null;
+    }
+
+    res.send(trackerLib.renderTracker({
+      nome: trackerLib.primeiroNome(plano.paciente_nome),
+      concluido: plano.status === 'concluido',
+      resumo: trackerLib.resumoTracker(raizes, respNome),
+      proxima,
+    }));
+  } catch (e) { console.error('[tracker]', e.message); return neutro(); }   // erro interno também não vaza nada
+});
 
 // Agenda do dia: quem compareceu (dedup por paciente) + plano ativo (se houver) + se já foi registrado hoje.
 app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit, async (req, res) => {
