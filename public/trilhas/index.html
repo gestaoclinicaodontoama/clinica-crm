@@ -713,6 +713,16 @@ function diasStatusWppActs(tr, r) {
   if (!r.plano_id) planejar.disabled = true;
   tdActs.appendChild(planejar);
 
+  const tlink = document.createElement('button');
+  tlink.className = 'pac-act';
+  tlink.textContent = '🔗';
+  tlink.dataset.id = r.id;
+  tlink.dataset.act = 'tracker';
+  tlink.dataset.plano = r.plano_id || '';
+  tlink.title = r.plano_id ? 'Copiar link de acompanhamento do paciente' : 'Ainda sem planejamento vinculado';
+  if (!r.plano_id) tlink.disabled = true;
+  tdActs.appendChild(tlink);
+
   const ct = document.createElement('button');
   ct.className = 'pac-act';
   ct.textContent = '✓';
@@ -933,6 +943,11 @@ document.getElementById('pacTbody').addEventListener('click', async e => {
     if (act === 'planejar') {
       if (actBtn.disabled) return;
       if (window.TrilhasUI) window.TrilhasUI.abrirPlanejar(actBtn.dataset.plano);
+      return;
+    }
+    if (act === 'tracker') {
+      if (actBtn.disabled) return;
+      if (window.TrilhasUI) window.TrilhasUI.copiarTracker(actBtn.dataset.plano);
       return;
     }
 

@@ -137,7 +137,10 @@
              <button id="bt-reativar" class="btn btn-primario">Reativar plano ↩</button>`
           : `<button id="bt-salvar" class="btn btn-ghost">Salvar rascunho</button>
              <button id="bt-concluir" class="btn btn-primario">Concluir planejamento ✓</button>
-             <button id="bt-descartar" class="btn btn-ghost">Não precisa de etapas</button>`}
+             <button id="bt-descartar" class="btn btn-ghost">Não precisa de etapas</button>
+             <button id="bt-tracker" class="btn btn-ghost" title="Copiar link de acompanhamento do paciente">🔗 link do paciente</button>
+             <button id="bt-tracker-regen" class="btn btn-ghost" title="Gera um link novo; o antigo para de funcionar (gestora)">regenerar</button>
+             <button id="bt-tracker-revogar" class="btn btn-ghost" title="Mata o link sem emitir outro (gestora)">revogar</button>`}
         <button id="bt-fechar" class="btn btn-ghost">Fechar</button></footer>`;
     dlg.showModal();
     dlg.onchange = ev => {
@@ -237,6 +240,16 @@
         if (b.id === 'bt-salvar') { await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) }); alert('Salvo.'); }
         if (b.id === 'bt-concluir') { await api(`/api/planejamento/plano/${id}`, { method: 'PUT', body: JSON.stringify(coletar()) }); await api(`/api/planejamento/plano/${id}/concluir`, { method: 'POST' }); dlg.close(); if (onSaved) onSaved(); }
         if (b.id === 'bt-descartar') { if (confirm('Este tratamento não precisa de etapas? (o paciente CONTINUA na Sucesso)')) { await api(`/api/planejamento/plano/${id}/descartar`, { method: 'POST' }); dlg.close(); if (onSaved) onSaved(); } }
+        if (b.id === 'bt-tracker' || b.id === 'bt-tracker-regen' || b.id === 'bt-tracker-revogar') {
+          const acao = b.id === 'bt-tracker-regen' ? 'regenerar' : (b.id === 'bt-tracker-revogar' ? 'revogar' : null);
+          if (acao && !confirm('O link atual vai parar de funcionar. Continuar?')) return;
+          try {
+            const r = await api(`/api/planejamento/plano/${id}/tracker-link`, { method: 'POST', body: JSON.stringify(acao ? { acao } : {}) });
+            if (r.revogado) alert('Link revogado — o paciente não acessa mais.');
+            else { try { await navigator.clipboard.writeText(r.url); alert('Link copiado — cole no WhatsApp do paciente.'); } catch { prompt('Copie o link:', r.url); } }
+          } catch (e2) { alert(e2.message); }
+          return;
+        }
         if (b.classList.contains('exec-todos')) {
           const fs = b.closest('fieldset');
           const nome = fs.dataset.procName || (fs.querySelector('legend')?.textContent || '').split('×')[0].trim();

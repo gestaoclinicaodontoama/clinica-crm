@@ -136,6 +136,16 @@
     return window.PlanejamentoEditor.abrir(id, { api, onSaved: () => { fecharDrawer(); recarregarLista(); } });
   }
 
+  // ④ copia (ou regenera/revoga — gestora) o link público do tracker do paciente
+  async function copiarTracker(planoId, acao) {
+    try {
+      const r = await api(`/api/planejamento/plano/${planoId}/tracker-link`, { method: 'POST', body: JSON.stringify(acao ? { acao } : {}) });
+      if (r.revogado) return alert('Link revogado — o paciente não acessa mais.');
+      try { await navigator.clipboard.writeText(r.url); alert('Link copiado — cole no WhatsApp do paciente.'); }
+      catch { prompt('Copie o link:', r.url); }
+    } catch (e) { alert(e.message); }
+  }
+
   // ── + ADICIONAR PACIENTE ────────────────────────────────────────────────
   $('#btAdicionar').onclick = abrirAdicionar;
 
@@ -244,5 +254,5 @@
   }
 
   // Exposto para o script inline de index.html (botões "Trilha"/"Planejar" nas linhas da tabela).
-  window.TrilhasUI = { abrirDrawer, abrirPlanejar };
+  window.TrilhasUI = { abrirDrawer, abrirPlanejar, copiarTracker };
 })();
