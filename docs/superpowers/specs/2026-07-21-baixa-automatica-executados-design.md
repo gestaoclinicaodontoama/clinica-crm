@@ -31,3 +31,19 @@ Para cada plano ativo com orçamento casado — **PULANDO todo plano com `trava_
 ## Testes
 - **Unit:** nenhum na lib (`agruparItens` intocado). A parte pura nova é mínima; cobertura fica no manual + idempotência.
 - **Manual:** paciente com procedimento executado no Clinicorp (ex.: Vandercil 21493 — Documentação 30/06 e Raspagem 30/06) → rodar sync manual → itens ✅ com data 30/06 e executor na trilha/tracker; plano avança; /sessao/dia AINDA mostra o paciente como não-registrado (cobrança da ASB viva); rodar de novo → idempotente; fase externa intocada.
+
+## AJUSTE 21/07 (decisão Luiz pós-entrega): baixa carrega o TEMPO e libera a ASB
+> "Se o sistema já está com a baixa, não tem porquê aparecer pra ASB fazer alguma coisa. O tempo deve ser capturado pelo tempo de agendamento dos dias. Atentar: pode ter mais de um procedimento no dia com o mesmo profissional e até profissionais diferentes."
+
+**Reversão consciente da regra anterior** (tempo NULL p/ manter a cobrança): a baixa automática passa a gravar `tempo_real_min` da AGENDA — com tempo NOT NULL, `jaRegistrouHoje`/`ja_registrado_hoje` contam a baixa e o `/sessao/` **deixa de cobrar** a ASB pelo que o Clinicorp já baixou. O lembrete da ASB vale só para o que AINDA não tem baixa em lugar nenhum.
+
+**Captura do tempo (por dia de execução do plano):**
+1. `executed_date` da produção define o dia. Buscar `agenda_appointments` do `plano.paciente_clinicorp_id` naquele dia (`deleted=false`; preferir `compareceu=true`, aceitar sem check-in como fallback — a execução prova presença).
+2. **Atribuição POR PROFISSIONAL**: casar `dentist_person_id` da produção com o do agendamento → a `duration_minutes` DAQUELE agendamento vai para a PRIMEIRA etapa baixada daquele (dia, profissional); demais etapas do mesmo (dia, profissional) = **0** (anti-duplicação, mesma convenção do /sessao/). Profissionais DIFERENTES no mesmo dia = cada um consome o próprio agendamento.
+3. Sem match por profissional → agendamento do dia ainda não consumido (maior duração primeiro); sem agendamento nenhum → **0** (não NULL — a ASB não deve ser cobrada por algo já baixado; sem agendamento não há chair time a perder).
+4. **Consumo cruzado com registro manual**: antes de atribuir, verificar se já existe registro com tempo NOT NULL naquele (plano, dia) — etapa (via `concluida_em`) ou `sessao_avulsa` — → dia já consumido → 0 (precedência do que veio primeiro, igual hoje).
+5. `planos` do select do syncPlanejamento precisa incluir `paciente_clinicorp_id` (hoje não vem).
+
+**Backfill imediato:** etapas `concluida_retroativa` com `asb_responsavel IS NULL` e `tempo_real_min IS NULL` (criadas pela baixa antes deste ajuste) → recalcular o tempo pela mesma regra, via script/SQL único no deploy.
+
+**Testes (adicionais):** dia com 2 procedimentos do MESMO profissional → soma dos tempos = 1× a duração do agendamento; dia com 2 profissionais → cada agendamento contado 1×; ASB não vê mais no /sessao/ paciente cujo dia já foi baixado; fiscalização ③ passa a mostrar horas reais das baixas.
