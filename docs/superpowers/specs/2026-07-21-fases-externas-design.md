@@ -37,12 +37,12 @@ Nota: itens legados têm `tipo='clinicorp'` pelo DEFAULT — comportamento atual
 - Plano inexistente → 404; lateral (`descartado`/`cancelado`) → 409; **`concluido` → 409 "plano concluído"** (adicionar fase a plano fechado criaria "concluído com pendência" — reabrir é decisão humana); `trava_resync` → 409. `soDentista` → 403 se plano de outro dentista (fórmula das irmãs).
 - Insere `plano_itens { plano_id, tipo:'externo', price_id:null, procedure_name:nome, quantidade:1, ordem: max(ordem dos raízes)+1 }`.
 - `salvar_lista` (best-effort, NUNCA derruba a criação do item): **`upsert` atômico com `{ onConflict:'nome', ignoreDuplicates:true }`** (nada de select-then-insert — race 23505→500), num try/catch próprio; `criado_por=req.user.id`. O insert do item vem PRIMEIRO.
-- ⚠️ **Ao final, chamar `avancarPlanoAposRegistro(id, plano.status)`** — sem isso o status não é reavaliado.
+- ⚠️ **Ao final, SE `plano.status === 'em_andamento'`, chamar `avancarPlanoAposRegistro(id, plano.status)`** — a Única transição automática legítima aqui é em_andamento→concluido; chamada incondicional promoveria planejado/aguardando para em_andamento SEM execução alguma (avancarPorRegistro sobe esses estados sem olhar etapas).
 - Retorna `{ ok:true, item_id, plano_status }`.
 
 `POST /api/planejamento/plano/:id/fase-externa/:itemId/remover` — mesmos middlewares/checagens.
 - Item precisa: pertencer ao plano, `tipo='externo'`, e **sem etapa não-pendente** (própria; externo não tem sub-lote) → senão 409 "fase com execução registrada — desfazer é com a gestora/Claude". Remove com `DELETE` físico do item (etapas pendentes caem por FK CASCADE — confirmado na migração 20260719042125) — externo nunca veio do Clinicorp, não precisa de soft-delete de espelho.
-- ⚠️ **Ao final, chamar `avancarPlanoAposRegistro(id, plano.status)`** — CRÍTICO: remover a última fase pendente de um plano com todo o resto concluído deve CONCLUIR o plano (sem isso ele fica preso em `em_andamento` para sempre, tracker nunca chega a 100%). Retorna `{ ok:true, plano_status }`.
+- ⚠️ **Ao final, SE `plano.status === 'em_andamento'`, chamar `avancarPlanoAposRegistro(id, plano.status)`** (mesmo guard do add) — CRÍTICO: remover a última fase pendente de um plano com todo o resto concluído deve CONCLUIR o plano (sem isso ele fica preso em `em_andamento` para sempre, tracker nunca chega a 100%). Retorna `{ ok:true, plano_status }`.
 
 `GET /api/planejamento/plano/:id` passa a incluir `fases_catalogo` (nomes ativos, ordenados) no payload — o modal usa no diálogo de adicionar.
 

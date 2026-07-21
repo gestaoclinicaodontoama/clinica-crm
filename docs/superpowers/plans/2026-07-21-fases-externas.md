@@ -18,11 +18,16 @@ SQL da spec (§Dados): coluna `plano_itens.tipo` (default 'clinicorp', CHECK) + 
 **Files:** `sync/clinicorp-sync.js` (~1107-1121), `lib/planejamento/estados.test.js`.
 - Teste (append): monta `itensFmt` como o sync fará e roda `aplicarResync` — plano com 1 item clinicorp (price_id '10') + nada de externo no fmt; `itensNovos` só com o '10' → `acoes` vazio. (O filtro em si é no sync; o teste documenta o contrato: externo NUNCA entra em itensPlano.)
 ```js
-test('resync: fase externa fora do itensFmt não gera remover/travar', () => {
-  const { acoes } = aplicarResync({ plano: { status: 'em_andamento', trava_resync: null },
-    itensPlano: [{ price_id: '10', quantidade: 1, etapas_executadas: false }],   // externo já filtrado fora
-    itensNovos: [{ price_id: '10', quantidade: 1, procedure_name: 'X' }], statusClinicorp: 'APPROVED' });
-  assert.equal(acoes.length, 0);
+test('resync: fase externa DEVE ser filtrada antes do aplicarResync (sem filtro = remover_item indevido)', () => {
+  const externo = { price_id: null, quantidade: 1, etapas_executadas: false };   // shape cru de um tipo=externo
+  const clinicorp = { price_id: '10', quantidade: 1, etapas_executadas: false };
+  const novos = [{ price_id: '10', quantidade: 1, procedure_name: 'X' }];
+  // COM o externo no itensPlano (filtro esquecido): aplicarResync o vê como "removido no Clinicorp"
+  const sem = aplicarResync({ plano: { status: 'em_andamento', trava_resync: null }, itensPlano: [clinicorp, externo], itensNovos: novos, statusClinicorp: 'APPROVED' });
+  assert.ok(sem.acoes.some(a => a.tipo === 'remover_item'), 'sem filtro, o externo seria removido — por isso o sync PRECISA excluí-lo');
+  // SEM o externo (filtro aplicado, contrato do sync): nenhuma ação
+  const com = aplicarResync({ plano: { status: 'em_andamento', trava_resync: null }, itensPlano: [clinicorp], itensNovos: novos, statusClinicorp: 'APPROVED' });
+  assert.equal(com.acoes.length, 0);
 });
 ```
 - Sync: no select do re-sync (~1107) adicionar `tipo`: `select('id, parent_id, tipo, price_id, quantidade, removido_em, plano_etapas(status)')`; no builder de `itensFmt`, o filtro de raízes vira `.filter(i => !i.parent_id && i.tipo !== 'externo')`. **Só isso** — `filhosPor`/`temExec` intocados.
@@ -59,7 +64,8 @@ app.post('/api/planejamento/plano/:id/fase-externa', requireAuth, blockParceiro,
       try { await supabase.from('fases_externas_catalogo').upsert({ nome, criado_por: req.user.id }, { onConflict: 'nome', ignoreDuplicates: true }); }
       catch (eCat) { console.error('[fase-externa catálogo]', eCat.message); }
     }
-    const plano_status = await avancarPlanoAposRegistro(id, plano.status);   // reavaliar SEMPRE
+    // guard: só em_andamento pode transicionar aqui (em_andamento→concluido); incondicional promoveria planejado/aguardando sem execução
+    const plano_status = plano.status === 'em_andamento' ? await avancarPlanoAposRegistro(id, plano.status) : plano.status;
     res.json({ ok: true, item_id: novo.id, plano_status });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -81,7 +87,8 @@ app.post('/api/planejamento/plano/:id/fase-externa/:itemId/remover', requireAuth
     if (exec?.length) return res.status(409).json({ error: 'fase com execução registrada — desfazer é com a gestora' });
     const { error } = await supabase.from('plano_itens').delete().eq('id', itemId);   // pendentes caem por FK CASCADE
     if (error) throw error;
-    const plano_status = await avancarPlanoAposRegistro(id, plano.status);   // CRÍTICO: pode CONCLUIR o plano agora
+    // guard idem add: remover a última fase pendente de um em_andamento CONCLUI; demais estados intocados
+    const plano_status = plano.status === 'em_andamento' ? await avancarPlanoAposRegistro(id, plano.status) : plano.status;
     res.json({ ok: true, plano_status });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
