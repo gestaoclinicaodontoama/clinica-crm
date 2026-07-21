@@ -1054,13 +1054,66 @@ async function runSync(trigger = 'agendado') {
 const { agruparItens, requerPlano, heuristicaDuplicata, tipoPagamento } = require('../lib/planejamento/triagem');
 const { aplicarResync, statusAposRegistro } = require('../lib/planejamento/estados');
 
+
+// ── Ledger de consumo de agendamentos (spec 2026-07-21, ajuste do tempo) ──
+// Cada agendamento do dia é consumido no máx. 1×. Seeding: estado PRÉ-BAIXA do banco, UMA vez por
+// (paciente, dia); depois só a memória decide (as retroativas recém-gravadas têm tempo NOT NULL e
+// seriam relidas como "manual"). Manual pré-existente com tempo>0 consome o agendamento de MAIOR
+// duração (é o que duracaoSessao lhe deu); a baixa por profissional casa dentist_person_id e pega
+// o dele; sem match → maior não-consumido; nada → 0. NUNCA NULL (senão a ASB volta a ser cobrada).
+function criarLedgerAgendamentos() {
+  const dias = new Map();   // 'pac|dia' -> { appts: [{pid, dur, usado}] }
+  async function seed(pac, dia) {
+    const key = pac + '|' + dia;
+    if (dias.has(key)) return dias.get(key);
+    const { data: ags } = await supabase.from('agenda_appointments')
+      .select('dentist_person_id, duration_minutes, compareceu')
+      .eq('paciente_clinicorp_id', pac).eq('appointment_date', dia).eq('deleted', false);
+    const todos = (ags || []).map(a => ({ pid: a.dentist_person_id ? String(a.dentist_person_id) : null,
+      dur: Number(a.duration_minutes) || 0, comp: !!a.compareceu, usado: false }));
+    const comCheck = todos.filter(a => a.comp);
+    const appts = comCheck.length ? comCheck : todos;          // preferir compareceu; execução prova presença
+    // pré-consumo pelo manual (tempo>0 no paciente+dia — registro com 0 não consumiu nada)
+    let manual = false;
+    const { data: av } = await supabase.from('sessao_avulsa').select('id')
+      .eq('paciente_clinicorp_id', pac).eq('data', dia).gt('tempo_real_min', 0).limit(1);
+    if (av && av.length) manual = true;
+    if (!manual) {
+      const { data: ets } = await supabase.from('plano_etapas')
+        .select('id, plano_itens!inner(plano_tratamento!inner(paciente_clinicorp_id))')
+        .eq('plano_itens.plano_tratamento.paciente_clinicorp_id', pac)
+        .gt('tempo_real_min', 0)
+        .gte('concluida_em', dia + 'T00:00:00-03:00').lte('concluida_em', dia + 'T23:59:59-03:00').limit(1);
+      if (ets && ets.length) manual = true;
+    }
+    if (manual && appts.length) {
+      const maior = appts.reduce((m, a) => (a.dur > m.dur ? a : m), appts[0]);
+      maior.usado = true;
+    }
+    const st = { appts };
+    dias.set(key, st);
+    return st;
+  }
+  /** Consome e retorna a duração (0 se nada sobrou). personId pode ser null. */
+  async function consumir(pac, dia, personId) {
+    if (!pac || !dia) return 0;
+    const st = await seed(pac, dia);
+    let alvo = personId ? st.appts.find(a => !a.usado && a.pid === String(personId)) : null;
+    if (!alvo) alvo = st.appts.filter(a => !a.usado).sort((a, b) => b.dur - a.dur)[0] || null;
+    if (!alvo) return 0;
+    alvo.usado = true;
+    return alvo.dur || 0;
+  }
+  return { consumir };
+}
+
 async function syncPlanejamento() {
   // 1) universo de CRIAÇÃO: aprovados PARTICULARES (paridade com a Conferência antiga, que
   //    filtrava .gt('valor_particular', 0) — convênio NÃO entra, igual hoje)
   const orcs = await selectAll('orcamentos',
     'clinicorp_estimate_id, paciente_clinicorp_id, paciente_nome, telefone, profissional_nome, valor, valor_particular, entrada_valor, status, data_fechamento, lead_id, procedure_list',
     q => q.eq('status', 'APPROVED').gt('valor_particular', 0).not('data_fechamento', 'is', null));
-  const planos = await selectAll('plano_tratamento', 'id, clinicorp_estimate_id, status, trava_resync, valor, entrada');
+  const planos = await selectAll('plano_tratamento', 'id, clinicorp_estimate_id, paciente_clinicorp_id, status, trava_resync, valor, entrada');
   const planosByEst = new Map(planos.map(p => [p.clinicorp_estimate_id, p]));
 
   // 1b) universo de RE-SYNC: orçamentos dos planos EXISTENTES em QUALQUER status.
@@ -1097,6 +1150,7 @@ async function syncPlanejamento() {
   const comItens = orcs.map(o => ({ ...o, itens: nomear(agruparItens(o.procedure_list)) }));
 
   let criadosSucesso = 0, criadosPlanos = 0, resyncs = 0, baixas = 0, planosComBaixa = 0;
+  const ledger = criarLedgerAgendamentos();   // consumo de agendamentos (tempo real) — escopo do giro
 
   // 2) RE-SYNC dos planos existentes (qualquer status do orçamento — inclusive venda desfeita)
   for (const plano of planos) {
@@ -1140,35 +1194,41 @@ async function syncPlanejamento() {
         if (!raiz) continue;
         const filhos = filhosPor.get(raiz.id) || [];
         const { data: ets, error: eEts } = await supabase.from('plano_etapas')
-          .select('id, status, profissional_executor').in('item_id', [raiz.id, ...filhos.map(f => f.id)]);
+          .select('id, status, ordem, profissional_executor').in('item_id', [raiz.id, ...filhos.map(f => f.id)]);
         if (eEts) throw eEts;
         const pendentes = (ets || []).filter(e => e.status === 'pendente');
         if ((ets || []).length && !pendentes.length) continue;                   // já todo concluído — idempotente
         // data/executor reais vêm de producao_procedimentos (procedure_list NÃO tem ExecutedDate);
         // linha com Amount<=0 ou fora dos 90d não está lá → fallback data do sync (borda aceita na spec)
         const { data: prod, error: ePr } = await supabase.from('producao_procedimentos')
-          .select('executed_date, dentist_name')
+          .select('executed_date, dentist_name, dentist_person_id')
           .eq('clinicorp_estimate_id', plano.clinicorp_estimate_id).eq('price_id', novo.price_id)
           .order('executed_date', { ascending: false }).limit(1);
         if (ePr) throw ePr;
         const dataExec = prod?.[0]?.executed_date || null;
         const executorProd = prod?.[0]?.dentist_name || null;
-        const patch = {   // asb_responsavel e tempo_real_min ficam NULL de propósito (baixa automática)
+        const personProd = prod?.[0]?.dentist_person_id ? String(prod[0].dentist_person_id) : null;
+        // tempo real: consumo de agendamento por (paciente, dia, profissional) — 1ª etapa do grupo leva, demais 0
+        const tempoGrupo = dataExec ? await ledger.consumir(plano.paciente_clinicorp_id, dataExec, personProd) : 0;
+        const patch = {   // asb_responsavel fica NULL (baixa automática); tempo NUNCA NULL (?? 0)
           status: 'concluida_retroativa',
           concluida_em: dataExec ? `${dataExec}T12:00:00-03:00` : new Date().toISOString(),
         };
         if (pendentes.length) {
-          for (const pEt of pendentes) {
+          const ordenadas = pendentes.slice().sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+          for (const [iEt, pEt] of ordenadas.entries()) {
             const { error: eUp } = await supabase.from('plano_etapas')
-              .update({ ...patch, profissional_executor: pEt.profissional_executor || executorProd || raiz.profissional_executor || null })
+              .update({ ...patch, tempo_real_min: iEt === 0 ? tempoGrupo : 0,
+                profissional_executor: pEt.profissional_executor || executorProd || raiz.profissional_executor || null })
               .eq('id', pEt.id);
             if (eUp) throw eUp;
           }
-          baixas += pendentes.length; baixouAlgo = true;
+          baixas += ordenadas.length; baixouAlgo = true;
         } else {
           // ZERO etapas em item+filhos (guard idêntico ao Executar procedimento manual) → sintética retroativa
           const { error: eIns } = await supabase.from('plano_etapas').insert({
             item_id: raiz.id, ordem: 999, descricao: raiz.procedure_name || 'Procedimento realizado',
+            tempo_real_min: tempoGrupo,
             profissional_executor: executorProd || raiz.profissional_executor || null, ...patch });
           if (eIns) throw eIns;
           baixas += 1; baixouAlgo = true;
@@ -1315,4 +1375,4 @@ if (require.main === module) {
   runSync().then(r => process.exit(r.ok ? 0 : 1));
 }
 
-module.exports = { runSync, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, avancarFechamentos, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes, syncPrevencao, syncPlanejamento };
+module.exports = { runSync, criarLedgerAgendamentos, loadFunilConfig, syncAvaliacoes, syncOrcamentos, vincularLeads, avancarFechamentos, syncEntradas, syncProducao, syncAgenda, marcarAvaliacoesComOrcamento, reavaliarFechamentos, notificarPendentes, syncPrevencao, syncPlanejamento };
