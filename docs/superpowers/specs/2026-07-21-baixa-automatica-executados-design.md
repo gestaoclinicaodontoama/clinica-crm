@@ -6,7 +6,7 @@
 `Executed=X` do orçamento só é aproveitado NA CRIAÇÃO do plano (`clinicorp-sync.js` ~1177: etapas de padrão nascem `concluida_retroativa` quando `executados >= quantidade`). Depois disso, execução no Clinicorp não reflete no plano — a equipe marca manual.
 
 ## Regra nova (fase do re-sync noturno + sync manual, `syncPlanejamento`)
-Para cada plano ativo com orçamento casado — **PULANDO todo plano que recebeu QUALQUER ação do `aplicarResync` neste giro** (`acoes.length > 0`: travar/cancelar/regredir/ressuscitar/add/remove — o objeto `plano` em memória fica obsoleto após `executarAcoesResync`; baixar com status velho ressuscitaria plano recém-cancelado ou desfaria regressão; a baixa desses fica para a PRÓXIMA noite, com a estrutura assentada) — para cada **item raiz `tipo='clinicorp'`** casado por `price_id`:
+Para cada plano ativo com orçamento casado — **PULANDO todo plano com `trava_resync` setada (⚠️ plano JÁ travado devolve `acoes:[]` do aplicarResync nas noites seguintes — o guard explícito é obrigatório, igual ao 409 do endpoint manual) E todo plano que recebeu QUALQUER ação do `aplicarResync` neste giro** (`acoes.length > 0`: travar/cancelar/regredir/ressuscitar/add/remove — o objeto `plano` em memória fica obsoleto após `executarAcoesResync`; baixar com status velho ressuscitaria plano recém-cancelado ou desfaria regressão; a baixa desses fica para a PRÓXIMA noite, com a estrutura assentada) — para cada **item raiz `tipo='clinicorp'`** casado por `price_id`:
 - **Só item TOTALMENTE executado** (`novo.executados >= item.quantidade`) e ainda não concluído no nosso lado. Parcial fica pro manual/ASB (sub-lotes não são adivinháveis).
 - **Fonte da data/executor: `producao_procedimentos`** (⚠️ o `orcamentos.procedure_list` NÃO carrega `ExecutedDate` — só 6 campos; `agruparItens` fica INTOCADO, usa-se só o `executados` que ele já tem). Lookup por `clinicorp_estimate_id` + `price_id`: `ultima_execucao = max(executed_date)`, `executor_nome = dentist_name` da linha mais recente. Borda: linha executada com `Amount<=0` ou fora da janela de 90d da produção não está lá → fallback `concluida_em = data do sync` (documentado, aceitável).
 - **Baixa:** etapas pendentes do item **e dos sub-lotes filhos** → `status='concluida_retroativa'`, `concluida_em = ultima_execucao` (formato `YYYY-MM-DDT12:00:00-03:00`; fallback data do sync), `profissional_executor` = o da etapa (se tiver) → `executor_nome` da produção → executor do item; `asb_responsavel = NULL` (baixa automática), `tempo_real_min = NULL` (não mede cadeira; o filtro `IS NOT NULL` de `jaRegistrouHoje`/`ja_registrado_hoje` garante que **a ASB continua sendo cobrada no /sessao/** — exatamente a intenção).
@@ -26,7 +26,7 @@ Para cada plano ativo com orçamento casado — **PULANDO todo plano que recebeu
 
 ## Segurança/robustez
 - Nenhuma rota nova, nenhuma tabela; escrita só via service_role no sync. Sem `.catch()` em builder.
-- Ordem dentro do `syncPlanejamento`: a baixa roda DEPOIS do `aplicarResync` do plano (estrutura primeiro) e é PULADA para qualquer plano com `acoes.length > 0` no giro (ver Regra) — inclui travado/cancelado/regredido/ressuscitado.
+- Ordem dentro do `syncPlanejamento`: a baixa roda DEPOIS do `aplicarResync` do plano (estrutura primeiro) e é PULADA para qualquer plano com `plano.trava_resync` OU `acoes.length > 0` no giro (ver Regra) — cobre travado (nesta E nas noites seguintes)/cancelado/regredido/ressuscitado.
 
 ## Testes
 - **Unit:** nenhum na lib (`agruparItens` intocado). A parte pura nova é mínima; cobertura fica no manual + idempotência.
