@@ -5319,10 +5319,14 @@ app.post('/api/planejamento/plano/:id/tracker-link', requireAuth, blockParceiro,
     const id = Number(req.params.id);
     const acao = (req.body && req.body.acao) || null;    // 'regenerar' | 'revogar' | null (copiar)
     const { data: plano } = await supabase.from('plano_tratamento')
-      .select('id, status, tracker_token, tracker_revogado_em').eq('id', id).maybeSingle();
+      .select('id, status, tracker_token, tracker_revogado_em, dentista_avaliador_id').eq('id', id).maybeSingle();
     if (!plano) return res.status(404).json({ error: 'plano não encontrado' });
     if (['descartado', 'cancelado'].includes(plano.status)) return res.status(409).json({ error: 'tratamento não ativo' });
     const roles = req.user.profile?.roles || [];
+    // posse (mesma convenção das rotas irmãs GET/PUT/executar): usuário SÓ-dentista não emite
+    // link de paciente de outro dentista; CRC/gestora/planejamento são cross-paciente por função
+    const soDentista = roles.includes('dentista') && !roles.some(rl => ['gestor', 'admin', 'mod_planejamento'].includes(rl));
+    if (soDentista && plano.dentista_avaliador_id !== req.user.id) return res.status(403).json({ error: 'plano de outro dentista' });
     const gestor = roles.some(r => ['gestor', 'admin'].includes(r));
     const base = process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
     const now = new Date().toISOString();
