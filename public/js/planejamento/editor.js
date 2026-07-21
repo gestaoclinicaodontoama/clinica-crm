@@ -8,6 +8,7 @@
       .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
   const fmtBRL = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const limparCod = n => String(n || '').replace(/^\s*\d{2,}\s*[-–—.]\s*/, '').trim();   // tira o código Clinicorp do nome (só exibição)
   const MSG_SEM_PERMISSAO = 'Você não tem permissão para planejar — peça a alguém com acesso de planejamento.';
 
   // options do dropdown de executor (lista de nomes — executores ativos do Clinicorp); valor legado texto-livre vira option p/ não se perder
@@ -111,7 +112,7 @@
         <select id="sel-dentista">${(dentistas || []).map(d =>
           `<option value="${esc(d.user_id)}" ${d.user_id === plano.dentista_avaliador_id ? 'selected' : ''}>${esc(d.profissional_nome)}</option>`).join('')}</select></label>
       <div id="itens">${(itens || []).map(item => `
-        <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(item.procedure_name)} × ${esc(item.quantidade)}
+        <fieldset data-item="${esc(item.id)}"${item.price_id ? ` data-price-id="${esc(item.price_id)}" data-proc-name="${esc(item.procedure_name)}"` : ''}><legend>${esc(limparCod(item.procedure_name))} × ${esc(item.quantidade)}
             <span class="item-mover"><button type="button" class="mv-up" title="Subir na ordem de execução">▲</button><button type="button" class="mv-down" title="Descer na ordem de execução">▼</button></span></legend>
           <label class="item-exec">Executor <select class="item-prof">${optionsExecutor(nomesExec,item.profissional_executor)}</select></label>
           <ol class="etapas">${(item.plano_etapas || []).sort((a, b) => a.ordem - b.ordem).map(e => {
@@ -252,7 +253,7 @@
         }
         if (b.classList.contains('exec-todos')) {
           const fs = b.closest('fieldset');
-          const nome = fs.dataset.procName || (fs.querySelector('legend')?.textContent || '').split('×')[0].trim();
+          const nome = limparCod(fs.dataset.procName) || (fs.querySelector('legend')?.textContent || '').split('×')[0].trim();
           const nPend = [...fs.querySelectorAll('.etapas li')].filter(x => x.classList.contains('nova') || x.dataset.status === 'pendente').length
             + fs.querySelectorAll('.etapas-filho .et-exec-filho').length;
           const escopo = nPend
@@ -268,7 +269,7 @@
           const fs = b.closest('fieldset'); const li = b.closest('li');
           // índice ENTRE PENDENTES/NOVAS (mesmo predicado do filtro do PUT) — concluídas e filhos NÃO contam
           const pendentes = [...fs.querySelectorAll('.etapas li')].filter(x => x.classList.contains('nova') || x.dataset.status === 'pendente');
-          const nome = fs.dataset.procName || (fs.querySelector('legend')?.textContent || '').split('×')[0].trim();
+          const nome = limparCod(fs.dataset.procName) || (fs.querySelector('legend')?.textContent || '').split('×')[0].trim();
           await executarFluxo({ itemId: Number(fs.dataset.item), etapaIndex: pendentes.indexOf(li),
             escopo: `Só a etapa "${(li.querySelector('.et-desc')?.value || '').trim()}" de "${nome}".` });
         }

@@ -8,6 +8,7 @@ function esc(s) {
   return String(s == null ? '' : s)
     .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+  const limparCod = n => String(n || '').replace(/^\s*\d{2,}\s*[-–—.]\s*/, '').trim();   // tira o código Clinicorp do nome (só exibição)
 
 let token = null;
 let modo = 'dia';           // 'dia' | 'busca'
@@ -120,8 +121,8 @@ function chipPlano(plano) {
 }
 
 function etapaRowHtml(item, et) {
-  const meta = [item.procedure_name, et.profissional_executor].filter(Boolean).join(' · ');
-  const desc = et.descricao || item.procedure_name || '';
+  const meta = [limparCod(item.procedure_name), et.profissional_executor].filter(Boolean).join(' · ');
+  const desc = et.descricao || limparCod(item.procedure_name) || '';
   const done = et.status === 'concluida' || et.status === 'concluida_retroativa';
   if (done) {
     return `<div class="etapa-row done">

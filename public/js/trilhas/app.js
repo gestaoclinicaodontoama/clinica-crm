@@ -4,6 +4,7 @@
 // ("+ Adicionar paciente"). A lista/tabela em si é toda do script inline de index.html.
 (() => {
   const tokenKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+  const limparCod = n => String(n || '').replace(/^\s*\d{2,}\s*[-–—.]\s*/, '').trim();   // tira o código Clinicorp do nome (só exibição)
   const token = tokenKey ? JSON.parse(localStorage.getItem(tokenKey))?.access_token : null;
   if (!token) { location.href = '/'; return; }
   const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -94,11 +95,11 @@
   function itemBlocoHTML(item, currentId) {
     const raizEtapas = [...(item.plano_etapas || [])].sort((a, b) => a.ordem - b.ordem);
     const subs = [...(item.sublotes || [])].sort((a, b) => a.ordem - b.ordem);
-    let html = `<div class="item-bloco"><h3>${esc(item.procedure_name)} × ${esc(item.quantidade)}</h3>`;
+    let html = `<div class="item-bloco"><h3>${esc(limparCod(item.procedure_name))} × ${esc(item.quantidade)}</h3>`;
     if (raizEtapas.length) html += `<ol class="stepper">${raizEtapas.map(e => stepperLi(e, currentId)).join('')}</ol>`;
     for (const sub of subs) {
       const subEtapas = [...(sub.plano_etapas || [])].sort((a, b) => a.ordem - b.ordem);
-      html += `<div class="rotulo-sublote">${esc(sub.rotulo || sub.procedure_name)}</div>`;
+      html += `<div class="rotulo-sublote">${esc(sub.rotulo || limparCod(sub.procedure_name))}</div>`;
       html += subEtapas.length ? `<ol class="stepper">${subEtapas.map(e => stepperLi(e, currentId)).join('')}</ol>` : '<p class="vazio" style="padding:4px 0">Sem etapas.</p>';
     }
     if (!raizEtapas.length && !subs.length) html += '<p class="vazio" style="padding:4px 0">Sem etapas planejadas.</p>';
