@@ -227,9 +227,24 @@ td.td-acts .pac-act { margin-right: 3px; }
 .drawer .recado { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-bottom: 16px; white-space: pre-wrap; }
 .drawer .proximo { background: rgba(79,142,247,.08); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-bottom: 16px; }
 .drawer .proximo b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--accent); margin-bottom: 3px; }
-.item-bloco { margin-bottom: 18px; }
-.item-bloco h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
-.item-bloco .rotulo-sublote { font-size: 11px; color: var(--muted); font-weight: 400; }
+.trilha-prog { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+.trilha-prog .tp-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--bg3); overflow: hidden; }
+.trilha-prog .tp-bar i { display: block; height: 100%; background: var(--green); border-radius: 999px; transition: width .3s ease; }
+.trilha-prog .tp-num { font-size: 12px; font-weight: 700; color: var(--green); min-width: 34px; text-align: right; }
+.item-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--bg2); }
+.item-card.done { border-color: color-mix(in srgb, var(--green) 45%, var(--border)); }
+.item-card.doing { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.item-card.externo { border-style: dashed; }
+.item-head { display: flex; align-items: baseline; gap: 8px; }
+.item-head h3 { font-size: 13px; font-weight: 600; margin: 0; flex: 1; }
+.item-head h3 small { color: var(--muted); font-weight: 400; }
+.item-ico { font-size: 12px; }
+.item-lbl { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.item-card.done .item-lbl { color: var(--green); }
+.item-card.doing .item-lbl { color: var(--accent); }
+.item-exec { font-size: 11px; color: var(--muted); margin: 2px 0 0 20px; }
+.item-card .stepper { margin-top: 10px; }
+.item-card .rotulo-sublote { font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 8px; }
 .stepper { list-style: none; }
 .stepper li { position: relative; padding: 0 0 16px 24px; font-size: 12px; }
 .stepper li:last-child { padding-bottom: 0; }

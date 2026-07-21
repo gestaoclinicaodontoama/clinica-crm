@@ -92,17 +92,29 @@
     const meta = [e.profissional_executor, e.tempo_planejado_min ? `${e.tempo_planejado_min} min` : null].filter(Boolean).join(' · ');
     return `<li class="${cls}"><div class="desc">${esc(e.descricao)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ''}</li>`;
   }
+  // status do procedimento p/ o card da trilha (mesma leitura do tracker do paciente)
+  function statusItem(item) {
+    const ets = [...(item.plano_etapas || []), ...((item.sublotes || []).flatMap(s => s.plano_etapas || []))];
+    const conc = ets.filter(e => e.status !== 'pendente').length;
+    if (ets.length && conc === ets.length) return ['done', '✅', 'Concluído'];
+    if (conc) return ['doing', '🔵', 'Em andamento'];
+    return ['todo', '⚪', ets.length ? 'A fazer' : 'A detalhar'];
+  }
   function itemBlocoHTML(item, currentId) {
     const raizEtapas = [...(item.plano_etapas || [])].sort((a, b) => a.ordem - b.ordem);
     const subs = [...(item.sublotes || [])].sort((a, b) => a.ordem - b.ordem);
-    let html = `<div class="item-bloco"><h3>${esc(limparCod(item.procedure_name))} × ${esc(item.quantidade)}</h3>`;
+    const [cls, ico, lbl] = statusItem(item);
+    let html = `<div class="item-card ${cls}${item.tipo === 'externo' ? ' externo' : ''}">
+      <div class="item-head"><span class="item-ico">${ico}</span>
+        <h3>${esc(limparCod(item.procedure_name))}${Number(item.quantidade) > 1 ? ` <small>× ${esc(item.quantidade)}</small>` : ''}</h3>
+        <span class="item-lbl">${item.tipo === 'externo' ? '🧪 externa · ' : ''}${lbl}</span></div>
+      ${item.profissional_executor ? `<div class="item-exec">${esc(item.profissional_executor)}</div>` : ''}`;
     if (raizEtapas.length) html += `<ol class="stepper">${raizEtapas.map(e => stepperLi(e, currentId)).join('')}</ol>`;
     for (const sub of subs) {
       const subEtapas = [...(sub.plano_etapas || [])].sort((a, b) => a.ordem - b.ordem);
       html += `<div class="rotulo-sublote">${esc(sub.rotulo || limparCod(sub.procedure_name))}</div>`;
-      html += subEtapas.length ? `<ol class="stepper">${subEtapas.map(e => stepperLi(e, currentId)).join('')}</ol>` : '<p class="vazio" style="padding:4px 0">Sem etapas.</p>';
+      html += subEtapas.length ? `<ol class="stepper">${subEtapas.map(e => stepperLi(e, currentId)).join('')}</ol>` : '';
     }
-    if (!raizEtapas.length && !subs.length) html += '<p class="vazio" style="padding:4px 0">Sem etapas planejadas.</p>';
     html += '</div>';
     return html;
   }
@@ -114,6 +126,13 @@
     const corpo = (itens && itens.length)
       ? itens.map(item => itemBlocoHTML(item, currentId)).join('')
       : `<p class="vazio">${plano.descricao_manual ? esc(plano.descricao_manual) : 'Sem itens de orçamento vinculados a este plano.'}</p>`;
+    // barra de progresso da trilha (mesma fórmula do tracker: item sem etapa conta 1 pendente)
+    let _done = 0, _total = 0;
+    for (const it of (itens || [])) {
+      const ets = [...(it.plano_etapas || []), ...((it.sublotes || []).flatMap(s => s.plano_etapas || []))];
+      if (ets.length) { _total += ets.length; _done += ets.filter(e => e.status !== 'pendente').length; } else { _total += 1; }
+    }
+    const pct = _total ? Math.round((_done / _total) * 100) : 0;
     $('#drawerBody').innerHTML = `
       <h2>${esc(plano.paciente_nome) || '—'}</h2>
       <div class="sub">${fmtBRL(plano.valor)} · entrada ${fmtBRL(plano.entrada)}
@@ -121,6 +140,7 @@
         ${origemLbl ? `<span class="tag-origem">${esc(origemLbl)}</span>` : ''}
         <span class="status-badge ${info.cls}" style="margin-left:6px">${esc(info.label)}</span></div>
       ${plano.recado_sucesso ? `<div class="recado"><b>Recado p/ Sucesso do Cliente</b><br>${esc(plano.recado_sucesso)}</div>` : ''}
+      <div class="trilha-prog"><div class="tp-bar"><i style="width:${pct}%"></i></div><span class="tp-num">${pct}%</span></div>
       <div class="proximo"><b>Próximo passo</b>${esc(proximoPasso(itens))}</div>
       ${corpo}
       <footer>
