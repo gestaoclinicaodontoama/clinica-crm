@@ -919,6 +919,15 @@ async function runSync(trigger = 'agendado') {
     }
   }
 
+  // Fase 0: PASSADA RÁPIDA de planejamento (só lê o NOSSO banco — zero chamadas Clinicorp).
+  // Motivo: a fase completa roda por último, atrás de ~2h de fases de API (rate limit 25/h);
+  // esta passada dá as baixas/planos de tudo que JÁ está espelhado (até o último sync) em ~1min
+  // após o clique no sync manual. Idempotente — a fase do fim repete com os dados frescos do dia.
+  await step('planejamento_rapido', async () => {
+    const r = await syncPlanejamento();
+    result.steps.planejamento_rapido = `${r.criadosPlanos} planos, ${r.baixas ?? 0} baixas (espelho pré-sync)`;
+  });
+
   // Fase 1: agendamentos (2 requisições)
   const apptMap = await step('agendamentos', async () => {
     const m = await fetchAppointments();

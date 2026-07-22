@@ -339,7 +339,7 @@ dialog footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 
     </select>
     <select id="fTratamento" onchange="renderTable()"><option value="">Todos os tratamentos</option></select>
     <select id="fExecutor" onchange="renderTable()"><option value="">Todos os executores</option></select>
-    <button id="syncBtn" class="pac-sync" onclick="syncNow()" title="Puxa agora os dados do Clinicorp (agenda, financeiro, visitas) — sem isso, atualizam sozinhos 1x por dia às 02h">🔄 Atualizar dados</button>
+    <button id="syncBtn" class="pac-sync" onclick="syncNow()" title="Puxa agora os dados do Clinicorp. Planejamento/baixas atualizam em ~1min; agenda/financeiro/visitas de HOJE podem levar 1-2h (limite de 25 chamadas/h da API Clinicorp). Sem o botão, tudo atualiza sozinho às 02h.">🔄 Atualizar dados</button>
     <button id="btAdicionar" class="pac-sync primario" title="Incluir manualmente um paciente/orçamento na trilha de planejamento">+ Adicionar paciente</button>
     <span class="pac-count" id="pacCount"></span>
   </div>
@@ -1167,7 +1167,7 @@ async function carregarComRetry() {
 async function syncNow() {
   const btn = document.getElementById('syncBtn');
   btn.disabled = true;
-  btn.textContent = '⏳ Sincronizando… (pode levar uns minutos)';
+  btn.textContent = '⏳ Sincronizando… (planejamento atualiza em ~1min; dados do Clinicorp de hoje podem levar 1-2h — limite de 25 chamadas/h da API)';
   try {
     await Pacientes2API.sync();
     rows = await Pacientes2API.listar();
