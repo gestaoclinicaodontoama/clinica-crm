@@ -100,5 +100,7 @@ SELECT jsonb_build_object(
 );
 $$;
 
-REVOKE ALL ON FUNCTION protetico_resumo(date,date,text,text,text) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION protetico_data_efetiva(protetico_itens, protetico_notas) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION protetico_resumo(date,date,text,text,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION protetico_resumo(date,date,text,text,text) TO service_role;
+REVOKE ALL ON FUNCTION protetico_data_efetiva(protetico_itens, protetico_notas) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION protetico_data_efetiva(protetico_itens, protetico_notas) TO service_role;
