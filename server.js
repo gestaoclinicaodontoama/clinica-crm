@@ -5628,7 +5628,7 @@ app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit,
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
 
     const { data: agenda, error: eA } = await supabase.from('agenda_appointments')
-      .select('paciente_clinicorp_id, patient_name, from_time')
+      .select('paciente_clinicorp_id, patient_name, from_time, dentist_name')
       .eq('appointment_date', data).eq('compareceu', true).eq('deleted', false);
     if (eA) throw eA;
 
@@ -5636,7 +5636,7 @@ app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit,
     for (const a of (agenda || [])) {
       const pid = String(a.paciente_clinicorp_id || '');
       if (!pid || porPaciente.has(pid)) continue;
-      porPaciente.set(pid, { paciente_clinicorp_id: pid, nome: a.patient_name || '', horario: a.from_time || null });
+      porPaciente.set(pid, { paciente_clinicorp_id: pid, nome: a.patient_name || '', horario: a.from_time || null, dentista: a.dentist_name || '' });
     }
     const pids = [...porPaciente.keys()];
     if (!pids.length) return res.json({ data, pacientes: [] });
@@ -5681,7 +5681,7 @@ app.get('/api/sessao/dia', requireAuth, blockParceiro, requireSessao, rateLimit,
         itens = sessaoFlattenItens(carregado?.itens);
         if (planosConcluidosHoje.has(plano.id)) jaRegistrado = true;
       }
-      pacientes.push({ paciente_clinicorp_id: pid, nome: base.nome, horario: base.horario, plano: planoResumo, itens, ja_registrado_hoje: jaRegistrado });
+      pacientes.push({ paciente_clinicorp_id: pid, nome: base.nome, horario: base.horario, dentista: base.dentista, plano: planoResumo, itens, ja_registrado_hoje: jaRegistrado });
     }
     pacientes.sort((a, b) => (a.horario || '').localeCompare(b.horario || ''));
     res.json({ data, pacientes });

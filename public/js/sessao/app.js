@@ -17,6 +17,15 @@ const openSet = new Set();     // cards expandidos (paciente_clinicorp_id)
 const avulsoSet = new Set();   // formulário "Atendimento realizado" aberto (paciente_clinicorp_id)
 let buscaTimer = null;
 
+(function estilosGrupo() {
+  const st = document.createElement('style');
+  st.textContent = `.grp-dent{display:flex;align-items:center;gap:8px;font-weight:700;font-size:.95rem;margin:16px 2px 8px;padding-bottom:5px;border-bottom:2px solid var(--line,#e2e8f0)}
+.grp-dent:first-child{margin-top:4px}
+.grp-n{font-size:.7rem;font-weight:700;color:#64748b;background:rgba(100,116,139,.14);border-radius:999px;padding:1px 8px}
+.card-dent{color:#0d9488;font-weight:600}`;
+  document.head.appendChild(st);
+})();
+
 (function init() {
   const k = Object.keys(localStorage).find(kk => kk.startsWith('sb-') && kk.endsWith('-auth-token'));
   if (!k) return (window.location.href = '/');
@@ -172,16 +181,17 @@ function bodyHtml(p) {
   return html;
 }
 
-function cardHtml(p) {
+function cardHtml(p, showDent = true) {
   const pid = String(p.paciente_clinicorp_id);
   const open = openSet.has(pid);
   const horario = p.horario ? esc(String(p.horario).slice(0, 5)) : '';
+  const dent = showDent && p.dentista ? `<span class="card-dent">${esc(p.dentista)}</span>` : '';
   const ok = p.ja_registrado_hoje ? '<span class="chip chip-ok">✓ registrado</span>' : '';
   return `<div class="card ${open ? 'open' : ''}" data-pid="${esc(pid)}">
     <div class="card-head" data-toggle>
       <div class="card-name-wrap">
         <div class="card-name">${esc(p.nome)}</div>
-        <div class="card-sub">${horario ? `<span>${horario}</span>` : ''}${chipPlano(p.plano)}${ok}</div>
+        <div class="card-sub">${horario ? `<span>${horario}</span>` : ''}${dent}${chipPlano(p.plano)}${ok}</div>
       </div>
       <div class="card-arrow">▾</div>
     </div>
@@ -195,7 +205,21 @@ function render() {
     el.innerHTML = `<div class="empty">${modo === 'busca' ? 'Nenhum paciente encontrado.' : 'Nenhum comparecimento neste dia.'}</div>`;
     return;
   }
-  el.innerHTML = pacientesAtuais.map(cardHtml).join('');
+  // busca = lista simples (dentista aparece no próprio cartão)
+  if (modo === 'busca') { el.innerHTML = pacientesAtuais.map(p => cardHtml(p, true)).join(''); return; }
+  // dia = agrupa por dentista (o nome vira cabeçalho do grupo)
+  const grupos = new Map();
+  for (const p of pacientesAtuais) {
+    const d = (p.dentista || '').trim() || 'Sem dentista definido';
+    if (!grupos.has(d)) grupos.set(d, []);
+    grupos.get(d).push(p);
+  }
+  const nomes = [...grupos.keys()].sort((a, b) =>
+    a === 'Sem dentista definido' ? 1 : b === 'Sem dentista definido' ? -1 : a.localeCompare(b, 'pt'));
+  el.innerHTML = nomes.map(d =>
+    `<div class="grp-dent">🦷 ${esc(d)} <span class="grp-n">${grupos.get(d).length}</span></div>` +
+    grupos.get(d).map(p => cardHtml(p, false)).join('')
+  ).join('');
 }
 
 // ── ações ─────────────────────────────────────────────────────────────────
