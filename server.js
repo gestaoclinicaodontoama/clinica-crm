@@ -8510,9 +8510,11 @@ app.get('/api/pacientes/:id/clinicorp', requireAuth, rateLimit, async (req, res)
 app.get('/api/atribuicao', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const periodo = parseInt(req.query.periodo, 10) || 30;
-    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida: ' + s), { status: 400 }); return d.toISOString(); };
+    // data-pura (YYYY-MM-DD) é dia-calendário em Brasília: desde = 00:00 BRT, ate = fim do dia BRT
+    // (new Date('YYYY-MM-DD') seria meia-noite UTC = 21h do dia ANTERIOR em BRT — deslocava o período)
+    const _parseDate = (s, fimDoDia) => { const iso = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + (fimDoDia ? 'T23:59:59.999-03:00' : 'T00:00:00-03:00') : s; const d = new Date(iso); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida: ' + s), { status: 400 }); return d.toISOString(); };
     const desde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000).toISOString();
-    const ate = req.query.ate ? _parseDate(req.query.ate) : new Date().toISOString();
+    const ate = req.query.ate ? _parseDate(req.query.ate, true) : new Date().toISOString();
 
     const { data: leads, error } = await supabase.from('leads')
       .select('id,campanha,ctwa_clid,fbclid,gclid,status,valor,data_agendamento,data_comparecimento,criado_em')
@@ -8570,7 +8572,9 @@ app.get('/api/meta-insights', requireAuth, requireRole('admin', 'gestor'), rateL
     const TOKEN = process.env.META_ADS_TOKEN || process.env.META_ACCESS_TOKEN;
     if (!TOKEN) return res.status(200).json({ error: 'Token do Meta não configurado', sem_token: true, anuncios: [] });
 
-    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    // data-pura (YYYY-MM-DD) ancora ao MEIO-DIA de Brasília: o ymd() em BRT devolve o mesmo dia-calendário
+    // (new Date('YYYY-MM-DD') seria meia-noite UTC = dia ANTERIOR em BRT — período consultado ficava 1 dia atrás)
+    const _parseDate = (s) => { const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00-03:00' : s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
     const periodo = parseInt(req.query.periodo, 10) || 30;
     const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
     const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
@@ -8653,7 +8657,9 @@ app.get('/api/meta-insights', requireAuth, requireRole('admin', 'gestor'), rateL
 app.get('/api/marketing/campanhas', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
     const lente = req.query.lente === 'caixa' ? 'caixa' : 'safra';
-    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    // data-pura (YYYY-MM-DD) ancora ao MEIO-DIA de Brasília: o ymd() em BRT devolve o mesmo dia-calendário
+    // (new Date('YYYY-MM-DD') seria meia-noite UTC = dia ANTERIOR em BRT — período consultado ficava 1 dia atrás)
+    const _parseDate = (s) => { const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00-03:00' : s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
     const periodo = parseInt(req.query.periodo, 10) || 30;
     const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
     const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
@@ -8762,7 +8768,9 @@ app.get('/api/marketing/drill/paciente', requireAuth, requireRole('admin', 'gest
 
 app.get('/api/marketing/qualidade-lead', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
-    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    // data-pura (YYYY-MM-DD) ancora ao MEIO-DIA de Brasília: o ymd() em BRT devolve o mesmo dia-calendário
+    // (new Date('YYYY-MM-DD') seria meia-noite UTC = dia ANTERIOR em BRT — período consultado ficava 1 dia atrás)
+    const _parseDate = (s) => { const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00-03:00' : s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
     const periodo = parseInt(req.query.periodo, 10) || 30;
     const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
     const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
@@ -8828,7 +8836,9 @@ app.get('/api/marketing/qualidade-lead', requireAuth, requireRole('admin', 'gest
 
 app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
-    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    // data-pura (YYYY-MM-DD) ancora ao MEIO-DIA de Brasília: o ymd() em BRT devolve o mesmo dia-calendário
+    // (new Date('YYYY-MM-DD') seria meia-noite UTC = dia ANTERIOR em BRT — período consultado ficava 1 dia atrás)
+    const _parseDate = (s) => { const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00-03:00' : s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
     const periodo = parseInt(req.query.periodo, 10) || 30;
     const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
     const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
@@ -8863,7 +8873,9 @@ app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin',
 // Tudo casa por campanha real (leads.campanha = ad_id → campanha via Graph).
 app.get('/api/marketing/visao-geral', requireAuth, requireRole('admin', 'gestor'), rateLimit, async (req, res) => {
   try {
-    const _parseDate = (s) => { const d = new Date(s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
+    // data-pura (YYYY-MM-DD) ancora ao MEIO-DIA de Brasília: o ymd() em BRT devolve o mesmo dia-calendário
+    // (new Date('YYYY-MM-DD') seria meia-noite UTC = dia ANTERIOR em BRT — período consultado ficava 1 dia atrás)
+    const _parseDate = (s) => { const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00-03:00' : s); if (isNaN(d.getTime())) throw Object.assign(new Error('Data inválida'), { status: 400 }); return d; };
     const periodo = parseInt(req.query.periodo, 10) || 30;
     const dDesde = req.query.desde ? _parseDate(req.query.desde) : new Date(Date.now() - periodo * 86400000);
     const dAte   = req.query.ate   ? _parseDate(req.query.ate)   : new Date();
