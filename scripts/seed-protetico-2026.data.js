@@ -484,22 +484,22 @@ const marcosMirandaItens = [
   { data_entrada: '2026-04-25', data_entrega: '2026-04-27', paciente_nome: 'Virgílio Duarte', descricao_original: '01 onlay e-max', dente: '37', quantidade: 1, valor_total: 285, dentista_nome: 'Dr. Joaquim' },
 ];
 
-// ───────────────────────── Búcio — caderno manuscrito ─────────────────────────
-const bucio0601 = [
+// ───────────────────────── Lúcio — caderno manuscrito ─────────────────────────
+const lucio0601 = [
   { data_entrada: '2025-10-28', paciente_nome: 'Maione Pires', descricao_original: '01 Rest EMAX', dente: '46', quantidade: 1, valor_total: 380 },
   { data_entrada: '2025-11-17', paciente_nome: 'Margarethe', descricao_original: '01 c/impl', dente: '24', quantidade: 1, valor_total: 380 },
   { data_entrada: '2025-11-17', paciente_nome: 'José Manças', descricao_original: '01 c/impl', dente: '36', quantidade: 1, valor_total: 380, conferir: true }, // rasura no valor
   { data_entrada: '2025-12-04', paciente_nome: 'Sueli Costa', descricao_original: '01 c/EMAX', dente: '45', quantidade: 1, valor_total: 430.10, conferir: true }, // valor sobrescrito; soma não bate com o total 1.580
 ];
-const bucio0402 = [
+const lucio0402 = [
   { data_entrada: '2025-10-28', paciente_nome: 'Marlon Gomes', descricao_original: '01 c/impl', dente: '36', quantidade: 1, valor_total: 380 },
   { paciente_nome: 'Marcio Ferreira', descricao_original: '02 c/impl', dente: '36/46', quantidade: 2, valor_total: 760, conferir: true }, // sem data na linha
 ];
-const bucio0503 = [
+const lucio0503 = [
   { paciente_nome: 'Eduardo', descricao_original: '01 c/impl', quantidade: 1, valor_total: 380, dentista_nome: 'Dr. Joaquim', conferir: true }, // data "28-10-26" ambígua no caderno
   { paciente_nome: 'Eduardo', descricao_original: '01 gengiva', quantidade: 1, valor_total: 85, dentista_nome: 'Dr. Joaquim' },
 ];
-const bucio0705 = [
+const lucio0705 = [
   { data_entrada: '2026-01-20', paciente_nome: 'Vera Araujo', descricao_original: '02 c/impl', dente: '36/36', quantidade: 2, valor_total: 820, dentista_nome: 'Dr. Joaquim' },
   { data_entrada: '2026-01-20', paciente_nome: 'Vera Araujo', descricao_original: '01 c/EMAX', dente: '38', quantidade: 1, valor_total: 465, dentista_nome: 'Dr. Joaquim' },
   { data_entrada: '2026-01-20', paciente_nome: 'Mª da Penha', descricao_original: '02 c/impl', dente: '35/36', quantidade: 2, valor_total: 820, dentista_nome: 'Dr. Joaquim' },
@@ -515,10 +515,10 @@ const NOTAS = [
   { laboratorio: 'LAPROTEC', referencia: 'Nota 755', emitida_em: '2026-06-03', total_informado: 13000.00, origem: 'seed', itens: laprotec755 },
   { laboratorio: 'LAPROTEC', referencia: 'Nota 774', emitida_em: '2026-07-01', total_informado: 21990.00, origem: 'seed', itens: laprotec774 },
   { laboratorio: 'Marcos Miranda', referencia: 'Planilha MARÇO 2026', emitida_em: '2026-03-31', total_informado: 1710.00, origem: 'seed', itens: marcosMirandaItens },
-  { laboratorio: 'Búcio', referencia: 'Caderno 06/01/2026', emitida_em: '2026-01-06', total_informado: 1580.00, origem: 'seed', itens: bucio0601 },
-  { laboratorio: 'Búcio', referencia: 'Caderno 04/02/2026', emitida_em: '2026-02-04', total_informado: 1140.00, origem: 'seed', itens: bucio0402 },
-  { laboratorio: 'Búcio', referencia: 'Caderno 05/03/2026', emitida_em: '2026-03-05', total_informado: 465.00, origem: 'seed', itens: bucio0503 },
-  { laboratorio: 'Búcio', referencia: 'Caderno 07/05/2026', emitida_em: '2026-05-07', total_informado: 2105.00, origem: 'seed', itens: bucio0705 },
+  { laboratorio: 'Lúcio', referencia: 'Caderno 06/01/2026', emitida_em: '2026-01-06', total_informado: 1580.00, origem: 'seed', itens: lucio0601 },
+  { laboratorio: 'Lúcio', referencia: 'Caderno 04/02/2026', emitida_em: '2026-02-04', total_informado: 1140.00, origem: 'seed', itens: lucio0402 },
+  { laboratorio: 'Lúcio', referencia: 'Caderno 05/03/2026', emitida_em: '2026-03-05', total_informado: 465.00, origem: 'seed', itens: lucio0503 },
+  { laboratorio: 'Lúcio', referencia: 'Caderno 07/05/2026', emitida_em: '2026-05-07', total_informado: 2105.00, origem: 'seed', itens: lucio0705 },
 ];
 
 module.exports = { NOTAS };
