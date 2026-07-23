@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laboratórios — AMA</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="dark"] {
+  --bg: #0f1117; --bg2: #181b24; --bg3: #1e2230; --border: #2a2f42;
+  --text: #e8eaf0; --muted: #6b7280; --accent: #4f8ef7; --accent-hover: #3a78e0;
+  --green: #22c55e; --yellow: #f59e0b; --red: #ef4444;
+  --melhor-bg: rgba(34, 197, 94, .14); --pior-bg: rgba(239, 68, 68, .12); --nota-bg: rgba(245, 158, 11, .16);
+}
+:root[data-theme="light"] {
+  --bg: #f7f8fa; --bg2: #ffffff; --bg3: #f1f3f7; --border: #e3e6ed;
+  --text: #1a1d29; --muted: #6b7280; --accent: #3b82f6; --accent-hover: #2563eb;
+  --green: #16a34a; --yellow: #d97706; --red: #dc2626;
+  --melhor-bg: rgba(22, 163, 74, .12); --pior-bg: rgba(220, 38, 38, .09); --nota-bg: rgba(217, 119, 6, .14);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.fin-wrap { padding: 20px 24px; max-width: 1280px; }
+.fin-header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+.fin-header h1 { font-size: 20px; font-weight: 700; flex: 1; min-width: 200px; }
+.fin-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+.filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.filtros label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.filtros input, .filtros select { background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 13px; }
+.btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; font-family: inherit; transition: all .15s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: .6; cursor: default; }
+.btn-ghost { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.kpi .kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+.kpi .kpi-valor { font-size: 19px; font-weight: 700; }
+.kpi .kpi-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.card .h-sub { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.tbl-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+td.desc { text-align: left; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+td.melhor { background: var(--melhor-bg); color: var(--green); font-weight: 700; }
+td.pior { background: var(--pior-bg); color: var(--red); font-weight: 700; }
+td.cel-preco { cursor: pointer; }
+td.cel-preco:hover { outline: 1px solid var(--accent); }
+.cel-n { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.badge { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+.badge.rep { background: var(--pior-bg); color: var(--red); }
+.badge.conf { background: var(--nota-bg); color: var(--yellow); }
+.bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 13px; }
+.bar-row .bar-nome { width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .bar-track { flex: 1; background: var(--bg3); border-radius: 6px; height: 18px; position: relative; }
+.bar-row .bar-fill { background: var(--accent); height: 100%; border-radius: 6px; min-width: 2px; }
+.bar-row .bar-val { width: 120px; text-align: right; font-weight: 600; }
+.chart-wrap { height: 300px; position: relative; }
+.acao-btn { border: none; background: none; cursor: pointer; font-size: 14px; padding: 2px 4px; }
+.pag { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.vazio { padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
+.rodape { font-size: 11.5px; color: var(--muted); margin: 8px 0 24px; }
+.nota-aviso { padding: 10px 14px; margin: 10px 0; border-radius: 10px; font-size: 13px; background: var(--nota-bg); border: 1px solid var(--yellow); }
+/* modais */
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 4vh 12px; }
+.modal-bg.aberto { display: flex; }
+.modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: 100%; max-width: 1000px; }
+.modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+.modal .linha-cab { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: flex-end; }
+.modal .linha-cab > div { display: flex; flex-direction: column; gap: 4px; }
+.modal label { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.modal input, .modal select { background: var(--bg3); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 13px; }
+.modal table input, .modal table select { width: 100%; min-width: 70px; padding: 4px 6px; font-size: 12.5px; }
+.modal table input.i-desc { min-width: 180px; }
+.modal table input.i-num { min-width: 55px; text-align: right; }
+.modal .rodape-modal { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; align-items: center; }
+.drop { border: 2px dashed var(--border); border-radius: 12px; padding: 36px 16px; text-align: center; color: var(--muted); font-size: 14px; cursor: pointer; }
+.drop.arrastando { border-color: var(--accent); color: var(--accent); }
+.total-check { font-size: 13px; font-weight: 600; }
+.total-check.divergente { color: var(--red); }
+.total-check.ok { color: var(--green); }
+.spin { display: inline-block; animation: girar 1s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+@media (max-width: 700px) { .fin-wrap { padding: 12px; } .bar-row .bar-nome { width: 120px; } .chart-wrap { height: 220px; } }
+</style>
+</head>
+<body>
+<script src="/js/shared-nav.js" data-active="financeiro-laboratorios"></script>
+<div class="fin-wrap">
+  <div class="fin-header">
+    <h1>🦷 Laboratórios</h1>
+    <button class="btn btn-ghost" id="btn-categorias">⚙️ Categorias</button>
+    <button class="btn btn-ghost" id="btn-manual">✍️ Lançar na mão</button>
+    <button class="btn btn-primary" id="btn-importar">📥 Importar nota</button>
+  </div>
+  <div class="fin-sub">Serviços de prótese cobrados pelos laboratórios — preços, prazos e retrabalho comparados.</div>
+
+  <div class="filtros">
+    <label>De <input type="date" id="f-desde"></label>
+    <label>Até <input type="date" id="f-ate"></label>
+    <select id="f-lab"><option value="">Todos os laboratórios</option></select>
+    <select id="f-cat"><option value="">Todas as categorias</option></select>
+    <select id="f-dent"><option value="">Todos os dentistas</option></select>
+    <input type="search" id="f-busca" placeholder="🔍 paciente…" style="min-width:140px">
+    <button class="btn btn-ghost" id="btn-limpar">Limpar</button>
+  </div>
+
+  <div class="kpis" id="cards"></div>
+
+  <div class="card">
+    <h2>💰 Comparador de preços</h2>
+    <div class="h-sub">Preço mediano por unidade, por categoria × laboratório (reparos e cortesias fora). Verde = mais barato da linha, vermelho = mais caro. Clique numa célula para ver os itens.</div>
+    <div class="tbl-scroll"><table id="matriz-precos"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>⏱️ Prazo por laboratório</h2>
+    <div class="h-sub">Dias entre a entrada e a entrega. % de atraso só existe para laboratório que informa data prevista.</div>
+    <div class="tbl-scroll"><table id="prazos"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>🦷 Consumo por dentista</h2>
+    <div class="h-sub">Quanto de serviço de laboratório cada dentista consumiu no período (nome como está na nota).</div>
+    <div id="dentistas"></div>
+  </div>
+
+  <div class="card">
+    <h2>📈 Evolução mensal</h2>
+    <div class="h-sub">Gasto por mês, empilhado por laboratório (mês da entrega; sem entrega, da entrada).</div>
+    <div class="chart-wrap"><canvas id="chart-mensal"></canvas></div>
+  </div>
+
+  <div class="card" id="card-itens">
+    <h2>📋 Itens</h2>
+    <div class="h-sub" id="itens-info"></div>
+    <div class="tbl-scroll"><table id="tabela-itens"></table></div>
+    <div class="pag">
+      <button class="btn btn-ghost" id="pag-ant">←</button>
+      <span id="pag-info"></span>
+      <button class="btn btn-ghost" id="pag-prox">→</button>
+    </div>
+  </div>
+
+  <div class="rodape">Fonte: notas enviadas pelos laboratórios, importadas nesta página — a Clinicorp não expõe o Controle Protético via API. Nomes de paciente/dentista aparecem como estão nos documentos.</div>
+</div>
+
+<!-- Modal importar / lançar -->
+<div class="modal-bg" id="modal-importar">
+  <div class="modal">
+    <h3 id="mi-titulo">📥 Importar nota de laboratório</h3>
+    <div id="mi-passo1">
+      <div class="drop" id="drop">Arraste o PDF ou a foto da nota aqui, ou clique para escolher o arquivo<br><span style="font-size:12px">(PDF, JPG ou PNG · até 15 MB)</span></div>
+      <input type="file" id="mi-file" accept="application/pdf,image/jpeg,image/png" style="display:none">
+      <div id="mi-status" style="margin-top:10px;font-size:13px;color:var(--muted)"></div>
+    </div>
+    <div id="mi-passo2" style="display:none">
+      <div class="nota-aviso" id="mi-dup" style="display:none"></div>
+      <div class="linha-cab">
+        <div><label>Laboratório</label><input id="mi-lab" list="mi-labs" style="min-width:180px"><datalist id="mi-labs"></datalist></div>
+        <div><label>Referência (nº da nota)</label><input id="mi-ref" style="min-width:200px"></div>
+        <div><label>Emitida em</label><input type="date" id="mi-emitida"></div>
+        <div><label>Total impresso (R$)</label><input type="number" step="0.01" id="mi-total" class="i-num" style="min-width:110px"></div>
+      </div>
+      <div class="tbl-scroll"><table id="mi-tabela"></table></div>
+      <button class="btn btn-ghost" id="mi-add-linha" style="margin-top:8px">＋ adicionar linha na mão</button>
+      <div class="rodape-modal">
+        <span class="total-check" id="mi-check"></span>
+        <button class="btn btn-ghost" id="mi-cancelar">Cancelar</button>
+        <button class="btn btn-primary" id="mi-salvar">Salvar nota</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal categorias -->
+<div class="modal-bg" id="modal-categorias">
+  <div class="modal" style="max-width:640px">
+    <h3>⚙️ Categorias — como cada descrição vira categoria comparável</h3>
+    <div class="h-sub" style="font-size:12px;color:var(--muted);margin-bottom:10px">Se a descrição do lab contém o padrão (sem diferença de acento/caixa), o item entra na categoria. Depois de editar, use “Reaplicar” para recategorizar os itens já importados.</div>
+    <div class="linha-cab">
+      <div><label>Padrão (trecho da descrição)</label><input id="cat-padrao" placeholder="ex.: overlay"></div>
+      <div><label>Categoria</label><select id="cat-categoria"></select></div>
+      <button class="btn btn-primary" id="cat-add">Adicionar</button>
+    </div>
+    <div class="tbl-scroll" style="max-height:320px;overflow-y:auto"><table id="cat-tabela"></table></div>
+    <div class="rodape-modal">
+      <span id="cat-status" style="font-size:12.5px;color:var(--muted)"></span>
+      <button class="btn btn-ghost" id="cat-reaplicar">🔄 Reaplicar catálogo</button>
+      <button class="btn btn-ghost" id="cat-fechar">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
+<script>
+(function () {
+  'use strict';
+  // ── auth + fetch com retry 5xx (1,5s / 3s) ──
+  let _token = null;
+  function getToken() {
+    if (_token) return _token;
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+        try { _token = JSON.parse(localStorage.getItem(k))?.access_token; } catch (e) {}
+      }
+    }
+    return _token;
+  }
+  async function api(path, opts = {}, tentativa = 0) {
+    const headers = { 'Authorization': 'Bearer ' + getToken(), ...(opts.headers || {}) };
+    if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+    const r = await fetch(path, { ...opts, headers });
+    if (r.status === 401) _token = null;
+    if (r.status >= 500 && tentativa < 2) {
+      await new Promise(ok => setTimeout(ok, tentativa === 0 ? 1500 : 3000));
+      return api(path, opts, tentativa + 1);
+    }
+    const corpo = await r.json().catch(() => ({}));
+    if (!r.ok) { const err = new Error(corpo.error || r.statusText); err.status = r.status; err.corpo = corpo; throw err; }
+    return corpo;
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let RESUMO = null, CATS = [], pagina = 0, chartMensal = null;
+
+  // ── filtros ──
+  const hoje = new Date().toISOString().slice(0, 10);
+  $('f-desde').value = hoje.slice(0, 4) + '-01-01';
+  $('f-ate').value = hoje;
+  function filtros() {
+    return {
+      desde: $('f-desde').value || '', ate: $('f-ate').value || '',
+      lab: $('f-lab').value || '', categoria: $('f-cat').value || '', dentista: $('f-dent').value || '',
+    };
+  }
+  function qs(extra = {}) { return new URLSearchParams(Object.fromEntries(Object.entries({ ...filtros(), ...extra }).filter(([, v]) => v !== ''))); }
+
+  async function carregarTudo() { pagina = 0; await Promise.all([carregarResumo(), carregarItens()]); }
+
+  async function carregarResumo() {
+    try {
+      RESUMO = await api('/api/protetico/resumo?' + qs());
+      CATS = RESUMO.categorias_canonicas || [];
+      renderCards(); renderMatriz(); renderPrazos(); renderDentistas(); renderMensal(); preencherSelects();
+    } catch (err) { $('cards').innerHTML = `<div class="vazio">Erro ao carregar: ${esc(err.message)}</div>`; }
+  }
+
+  function renderCards() {
+    const c = RESUMO.cards || {};
+    $('cards').innerHTML = `
+      <div class="kpi"><div class="kpi-label">Gasto total</div><div class="kpi-valor">${brl(c.total)}</div></div>
+      <div class="kpi"><div class="kpi-label">Itens</div><div class="kpi-valor">${c.itens || 0}</div></div>
+      <div class="kpi"><div class="kpi-label">Ticket médio / item</div><div class="kpi-valor">${brl(c.ticket_medio)}</div><div class="kpi-sub">itens com valor; reparos R$ 0 fora</div></div>
+      <div class="kpi"><div class="kpi-label">Entregas com atraso</div><div class="kpi-valor">${c.pct_atraso == null ? '—' : c.pct_atraso + '%'}</div><div class="kpi-sub">só labs que informam data prevista</div></div>
+      <div class="kpi"><div class="kpi-label">Retrabalho (reparos)</div><div class="kpi-valor">${c.pct_reparo == null ? '—' : c.pct_reparo + '%'}</div><div class="kpi-sub">itens de reparo ÷ total de itens</div></div>`;
+  }
+
+  function renderMatriz() {
+    const precos = RESUMO.precos || [];
+    const tabela = $('matriz-precos');
+    if (!precos.length) { tabela.innerHTML = '<tr><td class="vazio">Sem dados no período.</td></tr>'; return; }
+    const labs = [...new Set(precos.map(p => p.laboratorio))];
+    const cats = CATS.filter(c => precos.some(p => p.categoria === c));
+    let html = '<tr><th>Categoria</th>' + labs.map(l => `<th>${esc(l)}</th>`).join('') + '</tr>';
+    for (const cat of cats) {
+      const linha = labs.map(l => precos.find(p => p.categoria === cat && p.laboratorio === l));
+      const valores = linha.filter(Boolean).map(p => Number(p.mediana));
+      const min = Math.min(...valores), max = Math.max(...valores);
+      html += `<tr><td>${esc(cat)}</td>` + linha.map((p, i) => {
+        if (!p) return '<td class="sem-dado">—</td>';
+        const v = Number(p.mediana);
+        const cls = valores.length > 1 ? (v === min ? ' melhor' : (v === max ? ' pior' : '')) : '';
+        return `<td class="cel-preco${cls}" data-cat="${esc(cat)}" data-lab="${esc(labs[i])}">${brl(v)}<span class="cel-n">${p.n} itens</span></td>`;
+      }).join('') + '</tr>';
+    }
+    tabela.innerHTML = html;
+    tabela.querySelectorAll('.cel-preco').forEach(td => td.addEventListener('click', () => {
+      $('f-cat').value = td.dataset.cat; $('f-lab').value = td.dataset.lab;
+      pagina = 0; carregarItens();
+      $('card-itens').scrollIntoView({ behavior: 'smooth' });
+    }));
+  }
+
+  function renderPrazos() {
+    const prazos = RESUMO.prazos || [];
+    const t = $('prazos');
+    if (!prazos.length) { t.innerHTML = '<tr><td class="vazio">Sem itens com entrada e entrega no período.</td></tr>'; return; }
+    t.innerHTML = '<tr><th>Laboratório</th><th>Prazo mediano</th><th>% com atraso</th><th>Itens ≥ 60 dias</th><th>Itens medidos</th></tr>' +
+      prazos.map(p => `<tr><td>${esc(p.laboratorio)}</td><td>${Math.round(p.dias_mediana)} dias</td><td>${p.pct_atraso == null ? '—' : p.pct_atraso + '%'}</td><td>${p.itens_60d || 0}</td><td>${p.n}</td></tr>`).join('');
+  }
+
+  function renderDentistas() {
+    const dent = RESUMO.dentistas || [];
+    const div = $('dentistas');
+    if (!dent.length) { div.innerHTML = '<div class="vazio">Sem dados no período.</div>'; return; }
+    const max = Math.max(...dent.map(d => Number(d.total)));
+    div.innerHTML = dent.slice(0, 12).map(d => `
+      <div class="bar-row">
+        <div class="bar-nome" title="${esc(d.dentista)}">${esc(d.dentista)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.max(2, Math.round(Number(d.total) / max * 100))}%"></div></div>
+        <div class="bar-val">${brl(d.total)} <span style="color:var(--muted);font-weight:400">· ${d.n}</span></div>
+      </div>`).join('');
+  }
+
+  function renderMensal() {
+    const mensal = RESUMO.mensal || [];
+    const meses = [...new Set(mensal.map(m => m.mes))].sort();
+    const labs = [...new Set(mensal.map(m => m.laboratorio))];
+    const cores = ['#4f8ef7', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#14b8a6', '#f97316'];
+    const datasets = labs.map((l, i) => ({
+      label: l, backgroundColor: cores[i % cores.length],
+      data: meses.map(m => { const r = mensal.find(x => x.mes === m && x.laboratorio === l); return r ? Number(r.total) : 0; }),
+    }));
+    if (chartMensal) chartMensal.destroy();
+    if (!window.Chart) return;
+    const css = getComputedStyle(document.documentElement);
+    chartMensal = new Chart($('chart-mensal'), {
+      type: 'bar',
+      data: { labels: meses, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, ticks: { color: css.getPropertyValue('--muted') }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: css.getPropertyValue('--muted'), callback: v => 'R$ ' + (v / 1000) + 'k' }, grid: { color: css.getPropertyValue('--border') } },
+        },
+        plugins: { legend: { labels: { color: css.getPropertyValue('--text') } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${brl(ctx.raw)}` } } },
+      },
+    });
+  }
+
+  function preencherSelects() {
+    const opts = (sel, vals, rotuloTodos) => {
+      const atual = sel.value;
+      sel.innerHTML = `<option value="">${rotuloTodos}</option>` + vals.map(v => `<option${v === atual ? ' selected' : ''}>${esc(v)}</option>`).join('');
+    };
+    opts($('f-lab'), (RESUMO.labs || []).map(l => l.laboratorio), 'Todos os laboratórios');
+    opts($('f-cat'), CATS, 'Todas as categorias');
+    opts($('f-dent'), (RESUMO.dentistas || []).map(d => d.dentista).filter(d => d !== '(sem dentista)'), 'Todos os dentistas');
+    $('mi-labs').innerHTML = (RESUMO.labs || []).map(l => `<option value="${esc(l.laboratorio)}">`).join('');
+  }
+
+  // ── tabela de itens ──
+  async function carregarItens() {
+    const t = $('tabela-itens');
+    try {
+      const busca = $('f-busca').value.trim();
+      const dados = await api('/api/protetico/itens?' + qs({ page: pagina, busca }));
+      const { itens, total } = dados;
+      $('itens-info').textContent = `${total} itens no filtro atual.`;
+      $('pag-info').textContent = `página ${pagina + 1} de ${Math.max(1, Math.ceil(total / 100))}`;
+      $('pag-ant').disabled = pagina === 0;
+      $('pag-prox').disabled = (pagina + 1) * 100 >= total;
+      if (!itens.length) { t.innerHTML = '<tr><td class="vazio">Nenhum item no filtro.</td></tr>'; return; }
+      t.innerHTML = '<tr><th>Data</th><th>Laboratório</th><th>Paciente</th><th>Dentista</th><th>Serviço</th><th>Dente</th><th>Qtd</th><th>Valor</th><th></th></tr>' +
+        itens.map(i => {
+          const data = i.data_entrega || i.data_entrada || i.protetico_notas?.emitida_em || '';
+          const badges = (i.reparo ? '<span class="badge rep">🔧 reparo</span>' : '') + (i.conferir ? '<span class="badge conf">⚠️ conferir</span>' : '') + (i.atrasado ? '<span class="badge conf">⏰ atrasou</span>' : '');
+          return `<tr data-id="${i.id}">
+            <td>${data ? data.split('-').reverse().join('/') : '—'}</td>
+            <td>${esc(i.protetico_notas?.laboratorio || '')}<span class="cel-n">${esc(i.protetico_notas?.referencia || '')}</span></td>
+            <td class="desc">${esc(i.paciente_nome)}</td>
+            <td class="desc">${esc(i.dentista_nome || '—')}</td>
+            <td class="desc" title="${esc(i.categoria)}">${esc(i.descricao_original)}${badges}<span class="cel-n">${esc(i.categoria)}</span></td>
+            <td>${esc(i.dente || '—')}</td><td>${i.quantidade}</td><td>${brl(i.valor_total)}</td>
+            <td><button class="acao-btn btn-editar" title="Editar">✏️</button><button class="acao-btn btn-excluir" title="Excluir">🗑️</button></td>
+          </tr>`;
+        }).join('');
+      t.querySelectorAll('.btn-excluir').forEach(b => b.addEventListener('click', async (e) => {
+        const tr = e.target.closest('tr');
+        if (!confirm('Excluir este item da nota?')) return;
+        try { await api('/api/protetico/itens/' + tr.dataset.id, { method: 'DELETE' }); carregarTudo(); }
+        catch (err) { alert('Erro: ' + err.message); }
+      }));
+      t.querySelectorAll('.btn-editar').forEach(b => b.addEventListener('click', (e) => {
+        const tr = e.target.closest('tr');
+        const item = itens.find(x => String(x.id) === tr.dataset.id);
+        editarItem(item);
+      }));
+    } catch (err) { t.innerHTML = `<tr><td class="vazio">Erro ao carregar itens: ${esc(err.message)}</td></tr>`; }
+  }
+
+  function editarItem(i) {
+    const paciente = prompt('Paciente:', i.paciente_nome); if (paciente === null) return;
+    const dentista = prompt('Dentista (vazio = sem):', i.dentista_nome || ''); if (dentista === null) return;
+    const descricao = prompt('Descrição do serviço:', i.descricao_original); if (descricao === null) return;
+    const qtd = prompt('Quantidade:', i.quantidade); if (qtd === null) return;
+    const valor = prompt('Valor total (R$):', i.valor_total); if (valor === null) return;
+    const entrega = prompt('Data de entrega (AAAA-MM-DD, vazio = sem):', i.data_entrega || ''); if (entrega === null) return;
+    api('/api/protetico/itens/' + i.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ paciente_nome: paciente, dentista_nome: dentista, descricao_original: descricao, quantidade: Number(qtd), valor_total: valor, data_entrega: entrega || null, conferir: false }),
+    }).then(carregarTudo).catch(err => alert('Erro: ' + err.message));
+  }
+
+  // ── modal importar / manual ──
+  let ITENS_IMPORT = [];
+  function abrirImportar(manual) {
+    $('modal-importar').classList.add('aberto');
+    $('mi-titulo').textContent = manual ? '✍️ Lançar nota na mão' : '📥 Importar nota de laboratório';
+    $('mi-dup').style.display = 'none'; $('mi-status').textContent = '';
+    if (manual) {
+      ITENS_IMPORT = [];
+      $('mi-lab').value = ''; $('mi-ref').value = ''; $('mi-emitida').value = ''; $('mi-total').value = '';
+      $('mi-passo1').style.display = 'none'; $('mi-passo2').style.display = 'block';
+      addLinha(); renderImportTabela();
+      $('mi-salvar').dataset.origem = 'manual';
+    } else {
+      $('mi-passo1').style.display = 'block'; $('mi-passo2').style.display = 'none';
+      $('mi-salvar').dataset.origem = 'import';
+    }
+  }
+  function fecharImportar() { $('modal-importar').classList.remove('aberto'); }
+
+  $('btn-importar').addEventListener('click', () => abrirImportar(false));
+  $('btn-manual').addEventListener('click', () => abrirImportar(true));
+  $('mi-cancelar').addEventListener('click', fecharImportar);
+  $('modal-importar').addEventListener('click', (e) => { if (e.target === $('modal-importar')) fecharImportar(); });
+
+  $('drop').addEventListener('click', () => $('mi-file').click());
+  $('drop').addEventListener('dragover', (e) => { e.preventDefault(); $('drop').classList.add('arrastando'); });
+  $('drop').addEventListener('dragleave', () => $('drop').classList.remove('arrastando'));
+  $('drop').addEventListener('drop', (e) => { e.preventDefault(); $('drop').classList.remove('arrastando'); if (e.dataTransfer.files[0]) enviarArquivo(e.dataTransfer.files[0]); });
+  $('mi-file').addEventListener('change', () => { if ($('mi-file').files[0]) enviarArquivo($('mi-file').files[0]); });
+
+  async function enviarArquivo(file) {
+    $('mi-status').innerHTML = '<span class="spin">⏳</span> Lendo a nota com IA — isso leva alguns segundos…';
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api('/api/protetico/importar', { method: 'POST', body: fd });
+      const ex = r.extraido;
+      $('mi-lab').value = ex.laboratorio || ''; $('mi-ref').value = ex.referencia || '';
+      $('mi-emitida').value = ex.emitida_em || ''; $('mi-total').value = ex.total_informado ?? '';
+      ITENS_IMPORT = ex.itens || [];
+      if (r.duplicata) { $('mi-dup').style.display = 'block'; $('mi-dup').textContent = '⚠️ Já existe uma nota deste laboratório com esta referência — salvar de novo vai ser recusado. Confira na tabela de itens.'; }
+      $('mi-passo1').style.display = 'none'; $('mi-passo2').style.display = 'block';
+      renderImportTabela();
+    } catch (err) {
+      $('mi-status').textContent = (err.status === 503 ? 'IA indisponível agora — tente de novo em instantes. ' : 'Erro: ') + err.message;
+    }
+  }
+
+  function addLinha() {
+    ITENS_IMPORT.push({ paciente_nome: '', dentista_nome: '', descricao_original: '', dente: '', quantidade: 1, valor_total: 0, data_entrada: '', data_prevista: '', data_entrega: '', categoria: 'Outros', conferir: false });
+  }
+
+  function renderImportTabela() {
+    const t = $('mi-tabela');
+    t.innerHTML = '<tr><th>Paciente</th><th>Dentista</th><th>Serviço</th><th>Categoria</th><th>Dente</th><th>Qtd</th><th>Valor (R$)</th><th>Entrada</th><th>Prevista</th><th>Entrega</th><th></th></tr>' +
+      ITENS_IMPORT.map((i, idx) => `<tr data-idx="${idx}" ${i.conferir ? 'style="background:var(--nota-bg)"' : ''}>
+        <td><input class="i-desc" data-campo="paciente_nome" value="${esc(i.paciente_nome)}"></td>
+        <td><input data-campo="dentista_nome" value="${esc(i.dentista_nome || '')}"></td>
+        <td><input class="i-desc" data-campo="descricao_original" value="${esc(i.descricao_original)}"></td>
+        <td><select data-campo="categoria">${(CATS.length ? CATS : ['Outros']).map(c => `<option${c === i.categoria ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></td>
+        <td><input class="i-num" data-campo="dente" value="${esc(i.dente || '')}"></td>
+        <td><input class="i-num" type="number" min="1" data-campo="quantidade" value="${i.quantidade || 1}"></td>
+        <td><input class="i-num" type="number" step="0.01" data-campo="valor_total" value="${i.valor_total ?? 0}"></td>
+        <td><input type="date" data-campo="data_entrada" value="${i.data_entrada || ''}"></td>
+        <td><input type="date" data-campo="data_prevista" value="${i.data_prevista || ''}"></td>
+        <td><input type="date" data-campo="data_entrega" value="${i.data_entrega || ''}"></td>
+        <td><button class="acao-btn mi-rm" title="Remover linha">🗑️</button></td>
+      </tr>`).join('');
+    t.querySelectorAll('input,select').forEach(inp => inp.addEventListener('input', (e) => {
+      const idx = Number(e.target.closest('tr').dataset.idx);
+      ITENS_IMPORT[idx][e.target.dataset.campo] = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
+      atualizarCheck();
+    }));
+    t.querySelectorAll('.mi-rm').forEach(b => b.addEventListener('click', (e) => {
+      ITENS_IMPORT.splice(Number(e.target.closest('tr').dataset.idx), 1); renderImportTabela();
+    }));
+    atualizarCheck();
+  }
+  $('mi-add-linha').addEventListener('click', () => { addLinha(); renderImportTabela(); });
+  $('mi-total').addEventListener('input', atualizarCheck);
+
+  function atualizarCheck() {
+    const soma = ITENS_IMPORT.reduce((s, i) => s + (Number(i.valor_total) || 0), 0);
+    const informado = $('mi-total').value === '' ? null : Number($('mi-total').value);
+    const el = $('mi-check');
+    if (informado == null) { el.className = 'total-check'; el.textContent = `Soma dos itens: ${brl(soma)}`; return; }
+    const bate = Math.abs(informado - soma) <= 0.01;
+    el.className = 'total-check ' + (bate ? 'ok' : 'divergente');
+    el.textContent = bate ? `✓ Soma bate com o total impresso (${brl(soma)})` : `Soma ${brl(soma)} ≠ total impresso ${brl(informado)}`;
+  }
+
+  $('mi-salvar').addEventListener('click', async () => {
+    $('mi-salvar').disabled = true;
+    try {
+      const r = await api('/api/protetico/notas', {
+        method: 'POST',
+        body: JSON.stringify({
+          laboratorio: $('mi-lab').value, referencia: $('mi-ref').value,
+          emitida_em: $('mi-emitida').value || null,
+          total_informado: $('mi-total').value === '' ? null : Number($('mi-total').value),
+          origem: $('mi-salvar').dataset.origem,
+          itens: ITENS_IMPORT.map(i => ({ ...i, dentista_nome: i.dentista_nome || null, dente: i.dente || null, data_entrada: i.data_entrada || null, data_prevista: i.data_prevista || null, data_entrega: i.data_entrega || null })),
+        }),
+      });
+      fecharImportar();
+      if (r.avisos?.length) alert('Nota salva com aviso:\n' + r.avisos.join('\n'));
+      carregarTudo();
+    } catch (err) {
+      alert(err.status === 409 ? 'Nota já importada — abra a existente na tabela de itens.' : 'Erro ao salvar: ' + err.message);
+    } finally { $('mi-salvar').disabled = false; }
+  });
+
+  // ── modal categorias ──
+  $('btn-categorias').addEventListener('click', async () => {
+    $('modal-categorias').classList.add('aberto');
+    await carregarCategorias();
+  });
+  $('cat-fechar').addEventListener('click', () => $('modal-categorias').classList.remove('aberto'));
+  $('modal-categorias').addEventListener('click', (e) => { if (e.target === $('modal-categorias')) $('modal-categorias').classList.remove('aberto'); });
+
+  async function carregarCategorias() {
+    try {
+      const { padroes, categorias } = await api('/api/protetico/categorias');
+      $('cat-categoria').innerHTML = categorias.map(c => `<option>${esc(c)}</option>`).join('');
+      $('cat-tabela').innerHTML = '<tr><th>Padrão</th><th>Categoria</th><th></th></tr>' +
+        padroes.map(p => `<tr><td>${esc(p.padrao)}</td><td style="text-align:left">${esc(p.categoria)}</td>
+          <td><button class="acao-btn cat-rm" data-id="${p.id}" title="Remover">🗑️</button></td></tr>`).join('');
+      document.querySelectorAll('.cat-rm').forEach(b => b.addEventListener('click', async (e) => {
+        try { await api('/api/protetico/categorias/' + e.target.dataset.id, { method: 'DELETE' }); carregarCategorias(); }
+        catch (err) { alert('Erro: ' + err.message); }
+      }));
+    } catch (err) { $('cat-status').textContent = 'Erro: ' + err.message; }
+  }
+  $('cat-add').addEventListener('click', async () => {
+    try {
+      await api('/api/protetico/categorias', { method: 'POST', body: JSON.stringify({ padrao: $('cat-padrao').value, categoria: $('cat-categoria').value }) });
+      $('cat-padrao').value = ''; carregarCategorias();
+    } catch (err) { alert('Erro: ' + err.message); }
+  });
+  $('cat-reaplicar').addEventListener('click', async () => {
+    $('cat-status').textContent = 'Reaplicando…';
+    try {
+      const r = await api('/api/protetico/categorias/reaplicar', { method: 'POST' });
+      $('cat-status').textContent = `${r.mudados} itens recategorizados.`;
+      carregarTudo();
+    } catch (err) { $('cat-status').textContent = 'Erro: ' + err.message; }
+  });
+
+  // ── eventos dos filtros / paginação ──
+  ['f-desde', 'f-ate', 'f-lab', 'f-cat', 'f-dent'].forEach(id => $(id).addEventListener('change', carregarTudo));
+  let buscaTimer;
+  $('f-busca').addEventListener('input', () => { clearTimeout(buscaTimer); buscaTimer = setTimeout(() => { pagina = 0; carregarItens(); }, 350); });
+  $('btn-limpar').addEventListener('click', () => {
+    $('f-desde').value = hoje.slice(0, 4) + '-01-01'; $('f-ate').value = hoje;
+    $('f-lab').value = ''; $('f-cat').value = ''; $('f-dent').value = ''; $('f-busca').value = '';
+    carregarTudo();
+  });
+  $('pag-ant').addEventListener('click', () => { if (pagina > 0) { pagina--; carregarItens(); } });
+  $('pag-prox').addEventListener('click', () => { pagina++; carregarItens(); });
+
+  carregarTudo();
+})();
+</script>
+</body>
+</html>
