@@ -10157,6 +10157,204 @@ app.options('/t', (req, res) => {
 // ========== FINANCEIRO / DRE ==========
 
 // DRE do período (agregada no Postgres — evita o limite de 1000 linhas do supabase-js)
+// ============== Protético (Financeiro → Laboratórios) ==============
+// Notas dos laboratórios de prótese: importador IA (Gemini) + conferência humana + análises.
+// A Clinicorp NÃO expõe o Controle Protético via API (401) — a fonte são os documentos dos labs.
+const { prepararNota: _protPreparar } = require('./lib/protetico/notas');
+const { resolverCategoria: _protResolver, PADROES_SEED: _PROT_SEED, CATEGORIAS: _PROT_CATS } = require('./lib/protetico/categoria');
+const _PROT_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
+const _RE_ISO_DATA = /^\d{4}-\d{2}-\d{2}$/;
+
+// Catálogo do banco + prioridade do seed (o catálogo editável não guarda prio)
+async function _protPadroes() {
+  const { data, error } = await supabase.from('protetico_categorias').select('id,padrao,categoria').order('padrao');
+  if (error) { const e = new Error(error.message); e.status = 500; throw e; }
+  const prioMap = new Map(_PROT_SEED.map(p => [p.padrao, p.prio]));
+  return (data || []).map(p => ({ ...p, prio: prioMap.has(p.padrao) ? prioMap.get(p.padrao) : 3 }));
+}
+
+async function _protNotaExiste(laboratorio, referencia) {
+  const { data, error } = await supabase.from('protetico_notas').select('id')
+    .eq('laboratorio', String(laboratorio || '').trim()).eq('referencia', String(referencia || '').trim()).maybeSingle();
+  if (error) { const e = new Error(error.message); e.status = 500; throw e; }
+  return data?.id || null;
+}
+
+app.get('/api/protetico/resumo', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const { desde, ate, lab, categoria, dentista } = req.query;
+    const { data, error } = await supabase.rpc('protetico_resumo', {
+      p_desde: _RE_ISO_DATA.test(desde || '') ? desde : null,
+      p_ate: _RE_ISO_DATA.test(ate || '') ? ate : null,
+      p_lab: lab || null, p_categoria: categoria || null, p_dentista: dentista || null,
+    });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ...data, categorias_canonicas: _PROT_CATS });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.get('/api/protetico/itens', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const { desde, ate, lab, categoria, dentista, busca } = req.query;
+    const page = Math.max(0, parseInt(req.query.page, 10) || 0);
+    let q = supabase.from('protetico_itens')
+      .select('*, protetico_notas!inner(laboratorio, referencia, emitida_em)', { count: 'exact' });
+    if (lab) q = q.eq('protetico_notas.laboratorio', lab);
+    if (categoria) q = q.eq('categoria', categoria);
+    if (dentista) q = q.eq('dentista_nome', dentista);
+    if (busca) q = q.ilike('paciente_nome', `%${String(busca).replace(/[%_]/g, '')}%`);
+    // Período pela data do item (entrega, senão entrada). Item sem data alguma só aparece sem filtro de período.
+    if (_RE_ISO_DATA.test(desde || '') && _RE_ISO_DATA.test(ate || '')) {
+      q = q.or(`and(data_entrega.gte.${desde},data_entrega.lte.${ate}),and(data_entrega.is.null,data_entrada.gte.${desde},data_entrada.lte.${ate})`);
+    }
+    q = q.order('data_entrega', { ascending: false, nullsFirst: false }).order('id', { ascending: false })
+      .range(page * 100, page * 100 + 99);
+    const { data, error, count } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ itens: data || [], total: count || 0, pagina: page, por_pagina: 100 });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.post('/api/protetico/importar', requireAuth, requireFinanceiro, _upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Envie o arquivo da nota (PDF, JPG ou PNG).' });
+    if (!_PROT_MIMES.includes(req.file.mimetype)) {
+      return res.status(400).json({ error: `Formato não aceito (${req.file.mimetype}). Envie PDF, JPG ou PNG.` });
+    }
+    const { extrairNotaProtetico } = require('./lib/gemini');
+    const { data } = await extrairNotaProtetico({ fileBuffer: req.file.buffer, mimeType: req.file.mimetype });
+    const padroes = await _protPadroes();
+    const itens = (data.itens || []).map(i => ({
+      paciente_nome: i.paciente, dentista_nome: i.dentista || null,
+      descricao_original: i.descricao, dente: i.dente || null,
+      quantidade: i.quantidade || 1, valor_total: i.valor_total,
+      data_entrada: i.data_entrada || null, data_prevista: i.data_prevista || null, data_entrega: i.data_entrega || null,
+      conferir: Boolean(i.incerto),
+      categoria: _protResolver(i.descricao, padroes),
+    }));
+    const dupId = await _protNotaExiste(data.laboratorio_sugerido, data.referencia);
+    res.json({
+      extraido: {
+        laboratorio: data.laboratorio_sugerido, referencia: data.referencia,
+        emitida_em: data.emitida_em || null, total_informado: data.total_informado, itens,
+      },
+      categorias: _PROT_CATS,
+      duplicata: Boolean(dupId), duplicata_id: dupId,
+    });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.post('/api/protetico/notas', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const padroes = await _protPadroes();
+    const origem = req.body?.origem === 'manual' ? 'manual' : 'import';
+    const { nota, itens, avisos } = _protPreparar({
+      ...req.body, origem, criado_por: req.user?.profile?.nome || req.user?.email || null, padroes,
+    });
+    const dupId = await _protNotaExiste(nota.laboratorio, nota.referencia);
+    if (dupId) return res.status(409).json({ error: 'Nota já importada — abra a existente.', nota_id: dupId });
+    const { data: notaIns, error: notaErr } = await supabase.from('protetico_notas').insert(nota).select('id').single();
+    if (notaErr) return res.status(500).json({ error: notaErr.message });
+    const { error: itensErr } = await supabase.from('protetico_itens')
+      .insert(itens.map(i => ({ ...i, nota_id: notaIns.id })));
+    if (itensErr) {
+      await supabase.from('protetico_notas').delete().eq('id', notaIns.id);
+      return res.status(500).json({ error: itensErr.message });
+    }
+    res.json({ ok: true, nota_id: notaIns.id, itens: itens.length, avisos });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.patch('/api/protetico/itens/:id', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Item inválido.' });
+    const { data: atual, error: getErr } = await supabase.from('protetico_itens').select('*').eq('id', id).maybeSingle();
+    if (getErr) return res.status(500).json({ error: getErr.message });
+    if (!atual) return res.status(404).json({ error: 'Item não encontrado.' });
+    const campos = ['paciente_nome', 'dentista_nome', 'descricao_original', 'dente', 'quantidade', 'valor_total', 'data_entrada', 'data_prevista', 'data_entrega', 'conferir'];
+    const patch = {};
+    for (const c of campos) if (c in (req.body || {})) patch[c] = req.body[c];
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    // Revalida/deriva reaproveitando prepararNota com 1 item fictício
+    const padroes = await _protPadroes();
+    const { itens: [prep] } = _protPreparar({
+      laboratorio: 'x', referencia: 'x', origem: 'manual', padroes,
+      itens: [{ ...atual, ...patch }],
+    });
+    const { error: upErr } = await supabase.from('protetico_itens').update({
+      paciente_nome: prep.paciente_nome, dentista_nome: prep.dentista_nome,
+      descricao_original: prep.descricao_original, categoria: prep.categoria, dente: prep.dente,
+      quantidade: prep.quantidade, valor_total: prep.valor_total,
+      data_entrada: prep.data_entrada, data_prevista: prep.data_prevista, data_entrega: prep.data_entrega,
+      atrasado: prep.atrasado, reparo: prep.reparo, conferir: 'conferir' in patch ? Boolean(patch.conferir) : atual.conferir,
+    }).eq('id', id);
+    if (upErr) return res.status(500).json({ error: upErr.message });
+    res.json({ ok: true });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.delete('/api/protetico/itens/:id', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Item inválido.' });
+    const { error } = await supabase.from('protetico_itens').delete().eq('id', id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.get('/api/protetico/categorias', requireAuth, requireFinanceiro, async (req, res) => {
+  try { res.json({ padroes: await _protPadroes(), categorias: _PROT_CATS }); }
+  catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.post('/api/protetico/categorias', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const padrao = String(req.body?.padrao || '').trim().toLowerCase();
+    const categoria = String(req.body?.categoria || '').trim();
+    if (!padrao || !categoria) return res.status(400).json({ error: 'Informe o padrão e a categoria.' });
+    if (!_PROT_CATS.includes(categoria)) return res.status(400).json({ error: `Categoria desconhecida: ${categoria}` });
+    const { error } = await supabase.from('protetico_categorias').upsert({ padrao, categoria }, { onConflict: 'padrao' });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+app.delete('/api/protetico/categorias/:id', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const { error } = await supabase.from('protetico_categorias').delete().eq('id', parseInt(req.params.id, 10) || 0);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+// Reaplica o catálogo em todos os itens (após editar padrões) — pagina de 1000 em 1000 (teto do Supabase)
+app.post('/api/protetico/categorias/reaplicar', requireAuth, requireFinanceiro, async (req, res) => {
+  try {
+    const padroes = await _protPadroes();
+    let desde = 0, mudados = 0;
+    for (;;) {
+      const { data, error } = await supabase.from('protetico_itens')
+        .select('id, descricao_original, categoria').order('id').range(desde, desde + 999);
+      if (error) return res.status(500).json({ error: error.message });
+      if (!data?.length) break;
+      for (const item of data) {
+        const nova = _protResolver(item.descricao_original, padroes);
+        if (nova !== item.categoria) {
+          const { error: upErr } = await supabase.from('protetico_itens')
+            .update({ categoria: nova, reparo: nova === 'Reparo' }).eq('id', item.id);
+          if (upErr) return res.status(500).json({ error: upErr.message });
+          mudados++;
+        }
+      }
+      if (data.length < 1000) break;
+      desde += 1000;
+    }
+    res.json({ ok: true, mudados });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
 app.get('/api/financeiro/dre', requireAuth, requireFinanceiro, async (req, res) => {
   const { from, to } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
