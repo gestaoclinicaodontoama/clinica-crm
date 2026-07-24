@@ -584,8 +584,11 @@ async function syncProducao() {
     const procs = est.ProcedureList || est.procedureList || [];
     for (const p of procs) {
       if (p.Executed !== 'X') continue;
+      // Mantém executados de valor 0 (sessões de pacote — clareamento, alinhadores — que
+      // saem como "Executado" na ficha sem baixa cobrável). São eventos clínicos reais:
+      // alimentam a auditoria do Registro Diário (executado = registrado) e dão data/executor
+      // reais à baixa automática. Receita não muda: RPCs usam SUM(amount) e somam +0.
       const amount = Number(p.Amount ?? 0);
-      if (amount <= 0) continue;
       const priceId = p.PriceId ? String(p.PriceId) : null;
       rows.push({
         clinicorp_estimate_id:  estId,
