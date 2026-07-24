@@ -38,6 +38,7 @@ const { agregarFunil } = require('./lib/funil/agregar');
 const { agregarFechamentos, temposPorFase } = require('./lib/funil/fechamentos');
 const { resolvePeriodo } = require('./lib/funil/periodo');
 const { montarDashboard } = require('./lib/funil/dashboard');
+const { buscarCoorte, montarCoorte, buscarCoorteUnificado, montarCoorteUnificado } = require('./lib/funil/eventos');
 const { buscarEventosNovos } = require('./lib/monitor/queries');
 const { montarMonitor } = require('./lib/monitor/diario');
 const { montarMonitorCrc, resumoCrcTexto } = require('./lib/monitor/crc');
@@ -10554,7 +10555,22 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
   const menosMeses = (n) => { const [y, m] = hoje.slice(0, 7).split('-').map(Number);
     return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10); };
   try {
-    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, leadsR, agdR, cmpR, agHR, inadCacheR, pesqR] = await Promise.all([
+    // Funil de COORTE — MESMA fonte/lógica do Dashboard Comercial (lib/funil). Segue os
+    // leads criados no período pelas etapas (leads distintos, tabela lead_eventos), em vez
+    // de contar 4 populações soltas de tabelas diferentes (o que dava taxas sem sentido e
+    // números que não batiam com o Comercial). Respeita o mesmo DASHBOARD_UNIFICADO.
+    const perFunil = resolvePeriodo('custom', from, to);
+    const funilCoorteP = (process.env.DASHBOARD_UNIFICADO === '1'
+      ? buscarCoorteUnificado(supabase, perFunil.from, perFunil.to)
+          .then(c => montarCoorteUnificado(c.criados, c.eventos, c.origemPorLead, c.leadValor, null))
+      : buscarCoorte(supabase, perFunil.from, perFunil.to)
+          .then(c => montarCoorte(c.criados, c.eventos, c.origemPorLead, null))
+    ).then(r => ({
+      leads: r.kpis.leads, agendaram: r.kpis.agendamentos, compareceram: r.kpis.comparecimentos,
+      orcaram: r.kpis.orcamentos, fecharam: r.kpis.fechamentos,
+    })).catch(e => { console.error('❌ /api/painel-gestor funil:', e.message); return null; });
+
+    const [totR, totLYR, aggR, vencR, recebR, analR, ticketR, agHR, inadCacheR, pesqR] = await Promise.all([
       supabase.rpc('fin_totais_periodo', { p_from: from, p_to: to }),
       supabase.rpc('fin_totais_periodo', { p_from: anoAntes(from), p_to: anoAntes(to) }),
       supabase.rpc('fin_dre_agg_mensal', { p_from: menosMeses(6), p_to: hoje }),
@@ -10563,16 +10579,12 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
       supabase.from('fin_saude_analises').select('dados').eq('id', 1).maybeSingle(),
       supabase.from('orcamentos').select('valor_particular,valor_aprovado,revisao_status')
         .eq('status', 'APPROVED').gt('valor_particular', 0).gte('data_fechamento', from).lte('data_fechamento', to),
-      // Funil (período) — contagens (head:true, sem trazer linhas). Leads pela data REAL
-      // de criação (criado_em); data_lead da base foi sobrescrita p/ jun/26 e não serve.
-      supabase.from('leads').select('*', { count: 'exact', head: true }).gte('criado_em', from).lte('criado_em', to + 'T23:59:59'),
-      supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).gte('data', from).lte('data', to),
-      supabase.from('avaliacoes').select('*', { count: 'exact', head: true }).eq('compareceu', true).gte('data', from).lte('data', to),
       supabase.rpc('agenda_horas_periodo', { p_from: from, p_to: to }),
       supabase.from('inadimplentes_cache').select('data').eq('id', 1).maybeSingle(),
       supabase.from('pesquisas_satisfacao').select('nps, status, enviado_em')
         .gte('criado_em', from + 'T00:00:00-03:00').lte('criado_em', to + 'T23:59:59-03:00').limit(2000),
     ]);
+    const funil = await funilCoorteP;
     // Faturamento (REVENUE do período) + crescimento vs o mesmo período do ano anterior
     const tot = (totR.data || [])[0] || {}, totLY = (totLYR.data || [])[0] || {};
     const faturamento = Number(tot.faturamento) || 0, fatLY = Number(totLY.faturamento) || 0;
@@ -10626,12 +10638,12 @@ app.get('/api/painel-gestor', requireAuth, requireGestor, async (req, res) => {
     res.json({
       periodo: { from, to },
       atualizado_em: new Date().toISOString(),
-      faturamento: { valor: faturamento, crescimentoAnual: crescimento },
-      lucro: { margem, resultado, pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
+      faturamento: { valor: faturamento, anterior: fatLY, crescimentoAnual: crescimento },
+      lucro: { margem, resultado, caixa, saidas, pontoEquilibrio: pe.erro ? null : pe.pe, folga: ms ? ms.pct : null },
       inadimplencia: { vencido, aReceber, pct: inadPct, taxaPerda,
         real: inadCacheR.data?.data?.totais?.real?.real || null },
       ticketSemConvenio: { valor: ticket, n: vals.length, min: FECHAMENTO_MIN },
-      funil: { leads: leadsR.count || 0, agendaram: agdR.count || 0, compareceram: cmpR.count || 0, fecharam: vals.length },
+      funil,
       ocupacao: { pct: ocupacaoPct, horasAgendadas: Math.round(horasAgendadas), horasCapacidade: Math.round(capacidadeH) },
       pesquisa,
     });

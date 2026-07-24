@@ -47,6 +47,9 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const mesPt = (ym) => { if (!ym) return ''; const [y, m] = ym.split('-');
     return ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][+m - 1] + '/' + y.slice(2); };
+  // "conferir": memória de cálculo. linhas = [[rótulo, valor], ...] (valor já formatado).
+  const confHTML = (linhas) => (linhas || []).filter(Boolean)
+    .map(([r, v]) => `<span class="l"><b>${esc(r)}:</b> ${esc(String(v))}</span>`).join('');
 
   const EXPLICA = {
     marketing: { oque: 'De cada R$ 1 gasto em anúncio, quanto voltou em faturamento — e quanto custou cada paciente que fechou.',
@@ -118,7 +121,8 @@
     .pg-sev.vermelho{background:rgba(239,68,68,.14);color:var(--red);} .pg-sev.neutro{background:var(--bg3);color:var(--muted);}
     .pg-card .pg-nota { font-size:12.5px; color:var(--muted); margin:2px 0 8px; }
     .pg-card .pg-mod { font-size:12px; color:var(--muted); }
-    .pg-ent { border:none; background:none; color:var(--accent); font:inherit; font-size:12px; font-weight:600; cursor:pointer; padding:0; float:right; }
+    .pg-acts { float:right; display:flex; gap:12px; }
+    .pg-ent { border:none; background:none; color:var(--accent); font:inherit; font-size:12px; font-weight:600; cursor:pointer; padding:0; }
     .pg-ent-box { display:none; clear:both; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); font-size:12.5px; line-height:1.5; }
     .pg-ent-box.aberto { display:block; }
     .pg-ent-box .l { display:block; margin:3px 0; } .pg-ent-box .l b { color:var(--text); }
@@ -141,17 +145,21 @@
   function cardHTML(chave, opts) {
     const { label, val, sev, trend, nota, modulo, href } = opts;
     const e = EXPLICA[chave] || {};
-    const id = 'pg-ent-' + chave;
+    const idEnt = 'pg-ent-' + chave, idConf = 'pg-conf-' + chave;
     const sevTxt = { verde: 'Saudável', amarelo: 'Atenção', vermelho: 'Crítico', neutro: 'Informação' }[sev];
     const it = (r, t) => t ? `<span class="l"><b>${r}:</b> ${esc(t)}</span>` : '';
     return `<div class="pg-card ${sev}">
-      <button class="pg-ent" data-alvo="${id}">▸ entenda</button>
+      <div class="pg-acts">
+        <button class="pg-ent" data-rot="entenda" data-alvo="${idEnt}">▸ entenda</button>
+        <button class="pg-ent" data-rot="conferir" data-alvo="${idConf}">▸ conferir</button>
+      </div>
       <div class="pg-label">${esc(label)}</div>
       <div class="pg-val">${val}${trend ? `<span class="pg-trend ${trend.c}">${trend.a} ${esc(trend.t)}</span>` : ''}</div>
       <div><span class="pg-sev ${sev}"><span class="pg-dot ${sev}"></span>${sevTxt}</span></div>
       <div class="pg-nota">${esc(nota)}</div>
       <div class="pg-mod">${opts.href ? `<a href="${opts.href}" style="color:var(--accent);text-decoration:none">${esc(modulo)} →</a>` : esc(modulo)}</div>
-      <div class="pg-ent-box" id="${id}">${it('O que é', e.oque)}${it('Quando é bom', e.bom)}${it('Quando é ruim', e.ruim)}${it('Ações', e.acoes)}</div>
+      <div class="pg-ent-box" id="${idEnt}">${it('O que é', e.oque)}${it('Quando é bom', e.bom)}${it('Quando é ruim', e.ruim)}${it('Ações', e.acoes)}</div>
+      <div class="pg-ent-box" id="${idConf}">${opts.conf || '<span class="l">Sem dados para conferir neste período.</span>'}</div>
     </div>`;
   }
 
@@ -184,13 +192,28 @@
     const pior = niveis.includes('vermelho') ? 'vermelho' : niveis.includes('amarelo') ? 'amarelo' : niveis.length ? 'verde' : 'neutro';
     const nFraco = niveis.filter(n => n !== 'verde').length;
     const e = EXPLICA.funil;
+    const conf = confHTML([
+      ['Leads (coorte do período)', f.leads ?? '–'],
+      ['Agendaram', f.agendaram ?? '–'],
+      ['Compareceram', f.compareceram ?? '–'],
+      f.orcaram != null ? ['Orçaram', f.orcaram] : null,
+      ['Fecharam', f.fecharam ?? '–'],
+      ['Agendamento', `${pct0(taxa(f.agendaram, f.leads))} (${f.agendaram ?? '–'} ÷ ${f.leads ?? '–'} · meta ${pct0(META_FUNIL.agendamento)})`],
+      ['Comparecimento', `${pct0(taxa(f.compareceram, f.agendaram))} (${f.compareceram ?? '–'} ÷ ${f.agendaram ?? '–'} · meta ${pct0(META_FUNIL.comparecimento)})`],
+      ['Fechamento', `${pct0(taxa(f.fecharam, f.compareceram))} (${f.fecharam ?? '–'} ÷ ${f.compareceram ?? '–'} · meta ${pct0(META_FUNIL.fechamento)})`],
+      ['Como é medido', 'coorte: segue os mesmos leads criados no período pelas etapas (leads distintos, base lead_eventos) — mesma fonte do Dashboard Comercial'],
+    ]);
     return `<div class="pg-funil">
-      <button class="pg-ent" data-alvo="pg-ent-funil">▸ entenda</button>
+      <div class="pg-acts">
+        <button class="pg-ent" data-rot="entenda" data-alvo="pg-ent-funil">▸ entenda</button>
+        <button class="pg-ent" data-rot="conferir" data-alvo="pg-conf-funil">▸ conferir</button>
+      </div>
       <div class="pg-label">Funil comercial — onde se perde paciente (${rotuloPer})</div>
       <div style="margin:4px 0"><span class="pg-sev ${pior}"><span class="pg-dot ${pior}"></span>${nFraco ? nFraco + ' etapa(s) abaixo da meta' : 'no ritmo'}</span></div>
       <div class="pg-funil-meta">Saudável: <b>40 / 40 / 30</b> · Meta 2026: <b>45 / 50 / 25</b> (agendamento / comparecimento / fechamento)</div>
       <div class="pg-flow">${flow}</div>
       <div class="pg-ent-box" id="pg-ent-funil"><span class="l"><b>O que é:</b> ${esc(e.oque)}</span><span class="l"><b>Quando é bom:</b> ${esc(e.bom)}</span><span class="l"><b>Quando é ruim:</b> ${esc(e.ruim)}</span><span class="l"><b>Ações:</b> ${esc(e.acoes)}</span></div>
+      <div class="pg-ent-box" id="pg-conf-funil">${conf}</div>
     </div>`;
   }
 
@@ -223,10 +246,21 @@
       cards.a.push(cardHTML('marketing', { label: 'Retorno do marketing', sev,
         val: tot.roas != null ? tot.roas.toFixed(1).replace('.', ',') + '×' : '–',
         nota: `Cada R$ 1 em anúncio voltou ${tot.roas != null ? 'R$ ' + tot.roas.toFixed(2).replace('.', ',') : '–'}` +
-          (tot.cpa != null ? ` · custo por paciente ${fmt(tot.cpa)}` : ''), modulo: 'Agente de Marketing' }));
+          (tot.cpa != null ? ` · custo por paciente ${fmt(tot.cpa)}` : ''),
+        conf: confHTML([
+          ['Investido em anúncio', tot.spend != null ? fmt(tot.spend) : '–'],
+          ['Retorno atribuído', tot.receita != null ? fmt(tot.receita) : '–'],
+          tot.fechados != null ? ['Pacientes que fecharam', tot.fechados] : null,
+          ['ROAS', tot.roas != null ? tot.roas.toFixed(2).replace('.', ',') + '×' : '–'],
+          tot.cpa != null ? ['Custo por paciente (CPA)', fmt(tot.cpa)] : null,
+          ['Conta', 'ROAS = retorno ÷ investido · CPA = investido ÷ fechados · fonte: Meta Ads'],
+        ]),
+        modulo: 'Agente de Marketing' }));
     } else {
       cards.a.push(cardHTML('marketing', { label: 'Retorno do marketing', sev: 'neutro', val: '–',
-        nota: 'Sem dado — o token do Meta não está configurado no ambiente.', modulo: 'Agente de Marketing' }));
+        nota: 'Sem dado — o token do Meta não está configurado no ambiente.',
+        conf: confHTML([['Status', 'Sem dado — o token do Meta não está configurado no ambiente.']]),
+        modulo: 'Agente de Marketing' }));
     }
 
     // ── Elo 2: funil + ticket + ocupação ──
@@ -241,16 +275,30 @@
     const tk = fin && fin.ticketSemConvenio;
     cards.b.push(cardHTML('ticket', { label: 'Ticket médio (particular > R$ 1.000)', sev: 'neutro',
       val: tk ? fmt(tk.valor) : '–', nota: tk && tk.n ? `Média de ${tk.n} tratamentos acima de R$ 1.000 no período (limpezas e pequenos fora).` : 'Sem fechamentos no período.',
+      conf: confHTML([
+        ['Tratamentos particulares ≥ R$ 1.000', tk && tk.n != null ? tk.n : 0],
+        ['Ticket médio', tk && tk.valor != null ? fmt(tk.valor) : '–'],
+        ['Conta', 'soma dos tratamentos ≥ R$ 1.000 ÷ quantidade (convênio e < R$ 1.000 fora)'],
+      ]),
       modulo: 'Comercial' }));
     const oc = fin && fin.ocupacao;
     if (oc && oc.pct != null) {
       const sevOc = P.semOcupacao(oc.pct);
       niveisContados.push(sevOc);
       cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: sevOc, val: pct0(oc.pct),
-        nota: `${oc.horasAgendadas}h agendadas de ${oc.horasCapacidade}h de cadeira no período (5 salas).`, modulo: 'Produção' }));
+        nota: `${oc.horasAgendadas}h agendadas de ${oc.horasCapacidade}h de cadeira no período (5 salas).`,
+        conf: confHTML([
+          ['Horas agendadas', oc.horasAgendadas + 'h'],
+          ['Capacidade das cadeiras', oc.horasCapacidade + 'h'],
+          ['Ocupação', pct0(oc.pct)],
+          ['Conta', 'horas agendadas ÷ capacidade (5 salas · seg-sex 8h úteis + sáb 4h)'],
+        ]),
+        modulo: 'Produção' }));
     } else {
       cards.b.push(cardHTML('ocupacao', { label: 'Ocupação da agenda', sev: 'neutro', val: '–',
-        nota: 'Sem agenda no período.', modulo: 'Produção' }));
+        nota: 'Sem agenda no período.',
+        conf: confHTML([['Status', 'Sem agenda no período.']]),
+        modulo: 'Produção' }));
     }
     const pq = fin && fin.pesquisa;
     if (pq && pq.respostas > 0 && pq.nps_media != null) {
@@ -259,10 +307,18 @@
       cards.b.push(cardHTML('pesquisa', { label: 'Satisfação dos pacientes', sev: sevPq,
         val: pq.nps_media.toFixed(1).replace('.', ','),
         nota: pq.respostas + ' resposta' + (pq.respostas > 1 ? 's' : '') + ' de ' + pq.enviadas + ' enviadas',
+        conf: confHTML([
+          ['Respostas consideradas', pq.respostas],
+          ['Pesquisas enviadas', pq.enviadas],
+          ['Nota média (recomendação)', pq.nps_media.toFixed(1).replace('.', ',')],
+          ['Conta', 'média do campo recomendação (0 a 10) das respostas no período'],
+        ]),
         modulo: 'Pesquisa de Satisfação' }));
     } else {
       cards.b.push(cardHTML('pesquisa', { label: 'Satisfação dos pacientes', sev: 'neutro', val: '–',
-        nota: 'Sem respostas no período.', modulo: 'Pesquisa de Satisfação' }));
+        nota: 'Sem respostas no período.',
+        conf: confHTML([['Status', 'Sem respostas no período.']]),
+        modulo: 'Pesquisa de Satisfação' }));
     }
 
     // ── Elo 3: financeiro ──
@@ -272,7 +328,14 @@
       if (f.crescimentoAnual != null) niveisContados.push(sevFat);
       cards.c.push(cardHTML('faturamento', { label: 'Faturamento (' + rotuloPer + ')', sev: sevFat, val: fmt(f.valor),
         trend: f.crescimentoAnual != null ? { ...trendGood(f.crescimentoAnual >= 0), t: pct0(Math.abs(f.crescimentoAnual)) + ' vs ano anterior' } : null,
-        nota: 'O que foi vendido no período (competência). Comparado com o mesmo período do ano passado.', modulo: 'DRE' }));
+        nota: 'O que foi vendido no período (competência). Comparado com o mesmo período do ano passado.',
+        conf: confHTML([
+          ['Faturamento no período', fmt(f.valor)],
+          ['Mesmo período do ano passado', f.anterior ? fmt(f.anterior) : '–'],
+          ['Crescimento', f.crescimentoAnual != null ? (f.crescimentoAnual >= 0 ? '+' : '−') + pct0(Math.abs(f.crescimentoAnual)) : '–'],
+          ['Conta', 'crescimento = faturamento atual ÷ mesmo período do ano anterior − 1'],
+        ]),
+        modulo: 'DRE' }));
 
       const sevM = l.margem != null ? P.semMargem(l.margem) : 'neutro';
       const sevFolga = l.folga != null ? P.semFolga(l.folga) : 'neutro';
@@ -280,7 +343,17 @@
       if (l.margem != null) niveisContados.push(pior);
       cards.c.push(cardHTML('lucro', { label: 'Lucro e folga de segurança', sev: l.margem != null ? pior : 'neutro',
         val: 'Margem ' + pct0(l.margem),
-        nota: l.folga != null ? `Folga de ${pct0(l.folga)} sobre o mínimo (${fmt(l.pontoEquilibrio)}/mês).` : '', modulo: 'DRE' }));
+        nota: l.folga != null ? `Folga de ${pct0(l.folga)} sobre o mínimo (${fmt(l.pontoEquilibrio)}/mês).` : '',
+        conf: confHTML([
+          ['Caixa recebido', l.caixa != null ? fmt(l.caixa) : '–'],
+          ['Saídas (custos e despesas)', l.saidas != null ? fmt(l.saidas) : '–'],
+          ['Resultado (sobra)', l.resultado != null ? fmt(l.resultado) : '–'],
+          ['Margem', pct0(l.margem)],
+          ['Ponto de equilíbrio', l.pontoEquilibrio != null ? fmt(l.pontoEquilibrio) + '/mês' : '–'],
+          ['Folga de segurança', l.folga != null ? pct0(l.folga) : '–'],
+          ['Conta', 'resultado = caixa − saídas · margem = resultado ÷ caixa (regime de caixa)'],
+        ]),
+        modulo: 'DRE' }));
 
       // Meta de entrada do mês (Análise de Receita) — sempre o mês corrente,
       // não muda com o seletor de período. Semáforo = RITMO (progresso ÷ fração do mês).
@@ -296,10 +369,20 @@
           val: pr.batida ? '✅ batida' : 'faltam ' + fmt(pr.restante),
           nota: (pr.fechamentos != null ? `~${pr.fechamentos} fechamentos · ` : '') +
             `${receita.diasUteisRestantes ?? '–'} dias úteis · alvo: ${receita.meta.comLucro ? 'lucro desejado' : 'empatar o mês'}`,
+          conf: confHTML([
+            ['Alvo do mês', pr.alvo != null ? fmt(pr.alvo) : '–'],
+            ['Já entrou', (pr.alvo != null && pr.restante != null) ? fmt(Math.max(0, pr.alvo - pr.restante)) : '–'],
+            ['Falta entrar', pr.restante != null ? fmt(pr.restante) : '–'],
+            ['Progresso', pct0(progresso)],
+            ['Mês decorrido', pct0(fracao)],
+            ['Ritmo (progresso ÷ mês decorrido)', razao != null ? razao.toFixed(2).replace('.', ',') : '–'],
+            ['Conta', 'verde se ritmo ≥ 0,9 ou meta batida · alvo: ' + (receita.meta.comLucro ? 'lucro desejado' : 'empatar o mês')],
+          ]),
           modulo: 'Análise de Receita', href: '/financeiro/receita/' }));
       } else {
         cards.c.push(cardHTML('metaEntrada', { label: 'Meta de entrada do mês', sev: 'neutro', val: '–',
           nota: 'Sem análise ainda — abra a Análise de Receita e clique em Atualizar dados.',
+          conf: confHTML([['Status', 'Sem análise ainda — abra a Análise de Receita e clique em Atualizar dados.']]),
           modulo: 'Análise de Receita', href: '/financeiro/receita/' }));
       }
 
@@ -308,12 +391,24 @@
       cards.c.push(cardHTML('inadimplencia', { label: 'Inadimplência', sev: sevInad, val: pct0(inad.pct),
         nota: (inad.vencido ? `${fmt(inad.vencido)} vencidos da carteira a receber.` : '') +
           (inad.real ? ` Real (parou de pagar e de vir, fez mais que pagou): ${fmt(inad.real.vencidoA)} vencido · exposição ${fmt(inad.real.exposicaoB)}.` : ''),
+        conf: confHTML([
+          ['Vencido (não entrou)', inad.vencido != null ? fmt(inad.vencido) : '–'],
+          ['Carteira a receber', inad.aReceber != null ? fmt(inad.aReceber) : '–'],
+          ['Inadimplência', pct0(inad.pct)],
+          inad.real ? ['Inadimplência real (vencido)', fmt(inad.real.vencidoA)] : null,
+          ['Conta', 'inadimplência = vencido ÷ carteira a receber'],
+        ]),
         modulo: 'A Receber / A Pagar' }));
     }
     if (abc) {
       niveisContados.push('amarelo');
       cards.c.push(cardHTML('retencao', { label: 'Retenção de pacientes', sev: 'amarelo', val: String(abc.total ?? '–'),
-        nota: 'Pacientes com prevenção vencida — voltam por quase nada.', modulo: 'Retorno de Prevenção' }));
+        nota: 'Pacientes com prevenção vencida — voltam por quase nada.',
+        conf: confHTML([
+          ['Pacientes com prevenção vencida', abc.total ?? '–'],
+          ['Conta', 'mais de 180 dias sem vir e sem agenda futura · fonte: Retorno de Prevenção'],
+        ]),
+        modulo: 'Retorno de Prevenção' }));
     }
 
     const r = P.resumo(niveisContados);
@@ -358,6 +453,6 @@
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.pg-ent'); if (!btn) return;
     const box = document.getElementById(btn.dataset.alvo); if (!box) return;
-    const ab = box.classList.toggle('aberto'); btn.textContent = (ab ? '▾ ' : '▸ ') + 'entenda';
+    const ab = box.classList.toggle('aberto'); btn.textContent = (ab ? '▾ ' : '▸ ') + (btn.dataset.rot || 'entenda');
   });
 })();
