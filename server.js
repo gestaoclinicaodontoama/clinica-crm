@@ -8846,25 +8846,32 @@ app.get('/api/marketing/qualidade-lead/drill', requireAuth, requireRole('admin',
     const ymd = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 
     // metrica vinda do cliente é validada contra a lista conhecida (nunca status cru no filtro).
-    const metrica = mktMetricaPorKey(String(req.query.metrica || 'sem_interesse'));
+    // 'todos' e 'fora_regiao' são métricas extras (sem filtro de status; fora = DDD ≠ 31).
+    const mkey = String(req.query.metrica || 'sem_interesse');
+    const especial = mkey === 'todos' || mkey === 'fora_regiao';
+    const metrica = especial ? null : mktMetricaPorKey(mkey);
     const campId = String(req.query.campanha_id || '');
     // ad_ids = conjunto de anúncios de uma campanha (drill por campanha). leads.campanha guarda o ad_id.
     const adIds = String(req.query.ad_ids || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 300);
 
     let q = supabase.from('leads')
-      .select('id, nome, status, criado_em')
-      .in('status', metrica.status)
+      .select('id, nome, status, criado_em, telefone, motivo_perda')
       .gte('criado_em', ymd(dDesde) + 'T00:00:00-03:00')
       .lt('criado_em', ymd(new Date(dAte.getTime() + 86400000)) + 'T00:00:00-03:00')
       .order('criado_em', { ascending: false })
-      .limit(200);
+      .limit(especial ? 500 : 200);
+    if (!especial) q = q.in('status', metrica.status);
     if (campId === '__none__') q = q.or('campanha.is.null,campanha.eq.');
     else if (adIds.length) q = q.in('campanha', adIds);
     else q = q.eq('campanha', campId);
 
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    res.json({ leads: (data || []).map(l => ({ lead_id: l.id, nome: l.nome, status: l.status, criado_em: l.criado_em })) });
+    // Mesma régua da coluna "Fora reg." da matriz: DDD conhecido e ≠ 31 (33 conta como fora).
+    const dddDe = (tel) => { const t = String(tel || '').replace(/\D/g, ''); const m = t.match(/^(?:55)?([1-9]\d)\d{8,9}$/); return m ? m[1] : null; };
+    let rows = data || [];
+    if (mkey === 'fora_regiao') rows = rows.filter(l => { const d = dddDe(l.telefone); return d && d !== '31'; }).slice(0, 200);
+    res.json({ leads: rows.map(l => ({ lead_id: l.id, nome: l.nome, status: l.status, criado_em: l.criado_em, motivo: l.motivo_perda || null, ddd: dddDe(l.telefone) })) });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

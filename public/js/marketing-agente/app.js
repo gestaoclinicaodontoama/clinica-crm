@@ -90,15 +90,19 @@ function _cellRoas(o) {
   const cls = r >= meta ? 'q-roas-bom' : 'q-roas-ruim';
   return `<td class="q-num q-money"><span class="${cls}">${r.toFixed(1)}x</span></td>`;
 }
-// Célula "% fora da região" (DDD ≠ 31). Verde <10%, vermelho ≥25%.
-function _cellFora(o) {
+// Célula "% fora da região" (DDD ≠ 31). Verde <10%, vermelho ≥25%. Clicável → lista os leads de fora.
+function _cellFora(o, target) {
   const p = _pctFora(o);
   if (p == null) return `<td class="q-num"><span class="q-zero">·</span></td>`;
   const d = o.ddd || {};
   const pct = Math.round(p * 100);
+  const nFora = (d.regional || 0) + (d.fora || 0);
   const cls = pct >= 25 ? 'q-roas-ruim' : (pct < 10 ? 'q-roas-bom' : '');
   const tip = `DDD 31 (local): ${d.local || 0} · DDD 33: ${d.regional || 0} · outros DDDs: ${d.fora || 0}` + (d.nd ? ` · sem DDD: ${d.nd}` : '');
-  return `<td class="q-num" title="${esc(tip)}"><span class="${cls}">${pct}%</span></td>`;
+  const span = nFora > 0 && target
+    ? `<span class="q-cell ${cls}" data-fdrill='${target}' data-mkey="fora_regiao">${pct}%</span>`
+    : `<span class="${cls}">${pct}%</span>`;
+  return `<td class="q-num" title="${esc(tip)}">${span}</td>`;
 }
 
 function render() {
@@ -115,8 +119,12 @@ function render() {
   if (!rows.length && !sc.total) { document.getElementById('q-lista').innerHTML = '<p>Nenhum dado no período.</p>'; return; }
 
   const th = (key, label, cls, title) => `<th class="${cls || ''}${_sort === key ? ' q-sorted' : ''}" data-sort="${esc(key)}" title="${esc(title || ('Ordenar por ' + label))}">${esc(label)}</th>`;
-  // Célula da coluna Leads: total + custo por lead (CPL) embaixo.
-  const leadsCell = o => `<td class="q-num q-total q-sep">${o.total}${o.spend > 0 && o.total > 0 ? `<div class="q-sub" title="custo por lead">${fmtK(o.spend / o.total)}</div>` : ''}</td>`;
+  // Célula da coluna Leads: total (clicável → lista) + custo por lead embaixo.
+  const leadsCell = (o, target) => {
+    const cpl = o.spend > 0 && o.total > 0 ? `<div class="q-sub" title="custo por lead">${fmtK(o.spend / o.total)}</div>` : '';
+    const n = o.total ? `<span class="q-cell" data-fdrill='${target}' data-mkey="todos">${o.total}</span>` : '<span class="q-zero">·</span>';
+    return `<td class="q-num q-total q-sep">${n}${cpl}</td>`;
+  };
   let html = `<div class="q-tablewrap"><table class="q-matrix"><thead><tr>
     <th class="q-th-camp">Campanha</th>
     ${th('spend', 'Gasto', 'q-num q-money q-sep')}
@@ -139,16 +147,16 @@ function render() {
     html += `<tr class="q-row">
       <td class="q-camp"><span class="q-caret" data-exp="${ci}">${exp ? '▾' : '▸'}</span><span class="q-name" title="${esc(c.campanha_nome)}">${esc(c.campanha_nome)}</span></td>
       ${moneyCells(c, JSON.stringify({ ci }))}
-      ${leadsCell(c)}
-      ${_cellFora(c)}
+      ${leadsCell(c, JSON.stringify({ ci }))}
+      ${_cellFora(c, JSON.stringify({ ci }))}
       ${Q_COLS.map(col => _cellFunil(c, col, JSON.stringify({ ci }))).join('')}
     </tr>`;
     if (exp) (c.anuncios || []).forEach((a, ai) => {
       html += `<tr class="q-adrow">
         <td class="q-camp q-ad"><span class="q-name" title="${esc(a.ad_name)}">↳ ${esc(a.ad_name)}</span></td>
         ${moneyCells(a, JSON.stringify({ ci, ai }))}
-        ${leadsCell(a)}
-        ${_cellFora(a)}
+        ${leadsCell(a, JSON.stringify({ ci, ai }))}
+        ${_cellFora(a, JSON.stringify({ ci, ai }))}
         ${Q_COLS.map(col => _cellFunil(a, col, JSON.stringify({ ci, ai }))).join('')}
       </tr>`;
     });
@@ -157,8 +165,8 @@ function render() {
   if (sc.total) html += `<tr class="q-row q-semcamp">
     <td class="q-camp"><span class="q-name">(sem campanha · orgânico/manual)</span></td>
     <td class="q-num q-money q-sep"><span class="q-zero">·</span></td><td class="q-num q-money"><span class="q-zero">·</span></td><td class="q-num q-money"><span class="q-zero">·</span></td><td class="q-num q-money"><span class="q-zero">·</span></td>
-    <td class="q-num q-total q-sep">${sc.total}</td>
-    ${_cellFora(sc)}
+    ${leadsCell(sc, JSON.stringify({ none: true }))}
+    ${_cellFora(sc, JSON.stringify({ none: true }))}
     ${Q_COLS.map(col => _cellFunil(sc, col, JSON.stringify({ none: true }))).join('')}
   </tr>`;
 
@@ -179,18 +187,32 @@ function _alvo(target) {
   return { adIds: (c.anuncios || []).map(a => a.ad_id), nome: c.campanha_nome };
 }
 
+// Métricas extras (fora do funil): total de leads e leads de fora da região.
+const M_EXTRA = { todos: 'Leads', fora_regiao: 'Fora da região (DDD ≠ 31)' };
+
 async function drillEtapa(target, metricaKey) {
   const box = document.getElementById('q-drill');
-  const col = Q_COLS.find(c => c.key === metricaKey); const label = (col && col.label) || metricaKey;
+  const col = Q_COLS.find(c => c.key === metricaKey); const label = M_EXTRA[metricaKey] || (col && col.label) || metricaKey;
   const t = _alvo(target);
   const base = t.none ? `campanha_id=__none__` : `ad_ids=${encodeURIComponent(t.adIds.join(','))}`;
   box.innerHTML = '<div class="mkt-card">Carregando leads…</div>'; box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   try {
     const r = await mktApi(`/api/marketing/qualidade-lead/drill?${base}&metrica=${encodeURIComponent(metricaKey)}&${periodoQuery()}`);
-    const lista = r.leads.length ? r.leads.map(l =>
-      `<div class="q-leadrow">• <a class="mkt-clickable" href="/?abrir_lead=${encodeURIComponent(l.lead_id)}" target="_blank" rel="noopener">${esc(l.nome || '(sem nome)')}</a>
-        <span class="mkt-cobertura">— ${esc(l.status)} · ${esc((l.criado_em || '').slice(0, 10))}</span></div>`).join('') : '<i>Sem leads.</i>';
-    box.innerHTML = `<div class="mkt-card"><div class="q-drill-head"><b>${esc(t.nome)} · ${esc(label)}</b> <span class="mkt-cobertura">(${r.leads.length})</span> <span class="mkt-clickable" id="q-drill-x">fechar ✕</span></div>${lista}</div>`;
+    // Perdidos: resumo dos motivos passados pelas CRCs no topo da lista.
+    let resumo = '';
+    if (metricaKey === 'sem_interesse' || metricaKey === 'perdido') {
+      const cont = {};
+      r.leads.forEach(l => { const m = l.motivo || 'sem motivo registrado'; cont[m] = (cont[m] || 0) + 1; });
+      const tops = Object.entries(cont).sort((a, b) => b[1] - a[1]);
+      if (tops.length) resumo = `<div class="mkt-cobertura" style="margin-bottom:6px"><b>Motivos:</b> ${tops.map(([m, n]) => `${esc(m)} (${n})`).join(' · ')}</div>`;
+    }
+    const lista = r.leads.length ? r.leads.map(l => {
+      const extra = (l.motivo ? ` · <span class="q-motivo">${esc(l.motivo)}</span>` : '')
+        + (metricaKey === 'fora_regiao' && l.ddd ? ` · DDD ${esc(l.ddd)}` : '');
+      return `<div class="q-leadrow">• <a class="mkt-clickable" href="/?abrir_lead=${encodeURIComponent(l.lead_id)}" target="_blank" rel="noopener">${esc(l.nome || '(sem nome)')}</a>
+        <span class="mkt-cobertura">— ${esc(l.status)} · ${esc((l.criado_em || '').slice(0, 10))}${extra}</span></div>`;
+    }).join('') : '<i>Sem leads.</i>';
+    box.innerHTML = `<div class="mkt-card"><div class="q-drill-head"><b>${esc(t.nome)} · ${esc(label)}</b> <span class="mkt-cobertura">(${r.leads.length})</span> <span class="mkt-clickable" id="q-drill-x">fechar ✕</span></div>${resumo}${lista}</div>`;
     const x = document.getElementById('q-drill-x'); if (x) x.onclick = () => { box.innerHTML = ''; };
   } catch (e) { erro(box, e.message); }
 }

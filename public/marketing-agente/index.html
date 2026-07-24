@@ -32,7 +32,7 @@
     /* Matriz de qualidade de lead por campanha */
     .q-tablewrap { overflow-x:auto; border:1px solid var(--border); border-radius:12px; background:var(--bg2); }
     .q-matrix { width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed; }
-    .q-matrix th, .q-matrix td { padding:5px 6px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    .q-matrix th, .q-matrix td { padding:4px 5px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
     .q-sub { font-size:9.5px; line-height:1.1; color:var(--muted); margin-top:1px; font-weight:400; }
     td.q-bad .q-sub { color:color-mix(in srgb, var(--red) 70%, var(--muted)); }
     .q-matrix tbody tr:last-child td { border-bottom:none; }
@@ -41,10 +41,12 @@
     .q-matrix th.q-sorted { color:var(--text); }
     .q-matrix th.q-sorted::after { content:" ▾"; }
     .q-matrix th.q-th-camp, .q-matrix td.q-camp { text-align:left; }
-    .q-th-camp { width:240px; }
+    /* Nome completo da campanha: quebra em linhas em vez de cortar com "…" */
+    .q-matrix td.q-camp { white-space:normal; line-height:1.25; }
+    .q-th-camp { width:230px; }
     .q-bad-h { color:var(--red); }
-    .q-name { display:inline-block; max-width:205px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
-    .q-ad .q-name { max-width:190px; color:var(--muted); }
+    .q-name { display:inline; white-space:normal; }
+    .q-ad .q-name { color:var(--muted); }
     .q-caret { cursor:pointer; color:var(--muted); margin-right:7px; display:inline-block; width:10px; }
     .q-caret:hover { color:var(--accent); }
     .q-row:hover { background:var(--bg3); }
@@ -64,6 +66,7 @@
     .q-semcamp .q-name { color:var(--muted); font-style:italic; }
     .q-drill-head { display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
     .q-leadrow { padding:3px 0; font-size:13px; }
+    .q-motivo { color:var(--red); }
     .mkt-modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:50; }
     .mkt-modal-bg.open { display:flex; }
     .mkt-modal { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:18px; width:320px; max-width:92vw; }
@@ -88,8 +91,7 @@
          no tamanho natural, a tabela rola na horizontal e a coluna da campanha fica fixa. */
       .q-matrix { table-layout:auto; width:max-content; min-width:100%; }
       .q-th-camp { width:auto; }
-      .q-name { max-width:120px; }
-      .q-ad .q-name { max-width:104px; }
+      .q-matrix td.q-camp, .q-matrix th.q-th-camp { max-width:150px; }
       .q-matrix th.q-th-camp, .q-matrix td.q-camp {
         position:sticky; left:0; z-index:2; box-shadow:6px 0 6px -6px rgba(0,0,0,.35);
       }
