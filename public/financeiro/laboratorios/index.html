@@ -53,6 +53,8 @@ td.pior { background: var(--pior-bg); color: var(--red); font-weight: 700; }
 td.cel-preco { cursor: pointer; }
 td.cel-preco:hover { outline: 1px solid var(--accent); }
 .cel-n { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+td.sem-dado { color: var(--muted); }
+tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
 .badge { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
 .badge.rep { background: var(--pior-bg); color: var(--red); }
 .badge.conf { background: var(--nota-bg); color: var(--yellow); }
@@ -135,6 +137,12 @@ td.cel-preco:hover { outline: 1px solid var(--accent); }
     <h2>📈 Evolução mensal</h2>
     <div class="h-sub">Gasto por mês, empilhado por laboratório (mês da entrega; sem entrega, da entrada).</div>
     <div class="chart-wrap"><canvas id="chart-mensal"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>🧾 Mês a mês por laboratório</h2>
+    <div class="h-sub">Gasto por mês da entrega, participação no gasto total e média mensal de cada laboratório (média = total ÷ meses com movimento). Célula em vermelho = mês que passou da média do próprio lab — candidato à regra "excedente em 3x".</div>
+    <div class="tbl-scroll"><table id="tabela-mensal"></table></div>
   </div>
 
   <div class="card" id="card-itens">
@@ -251,7 +259,7 @@ td.cel-preco:hover { outline: 1px solid var(--accent); }
     try {
       RESUMO = await api('/api/protetico/resumo?' + qs());
       CATS = RESUMO.categorias_canonicas || [];
-      renderCards(); renderMatriz(); renderPrazos(); renderDentistas(); renderMensal(); preencherSelects();
+      renderCards(); renderMatriz(); renderPrazos(); renderDentistas(); renderMensal(); renderTabelaMensal(); preencherSelects();
     } catch (err) { $('cards').innerHTML = `<div class="vazio">Erro ao carregar: ${esc(err.message)}</div>`; }
   }
 
@@ -337,6 +345,46 @@ td.cel-preco:hover { outline: 1px solid var(--accent); }
           tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${brl(ctx.raw)}` } } },
       },
     });
+  }
+
+  // Tabela mês a mês: linhas = labs, colunas = meses, + Total, % do gasto e Média/mês.
+  // Derivada de RESUMO.mensal — respeita os filtros da página e atualiza a cada nota importada.
+  function renderTabelaMensal() {
+    const mensal = RESUMO.mensal || [];
+    const t = $('tabela-mensal');
+    if (!mensal.length) { t.innerHTML = '<tr><td class="vazio">Sem dados no período.</td></tr>'; return; }
+    const meses = [...new Set(mensal.map(m => m.mes))].sort();
+    const labs = (RESUMO.labs || []).map(l => l.laboratorio);
+    const rotuloMes = (ym) => {
+      const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+      const [ano, mes] = ym.split('-');
+      return nomes[Number(mes) - 1] + '/' + ano.slice(2);
+    };
+    const valor = (lab, mes) => { const r = mensal.find(x => x.laboratorio === lab && x.mes === mes); return r ? Number(r.total) : 0; };
+    const brlCheio = (v) => Math.round(v).toLocaleString('pt-BR');
+    const totalGeral = labs.reduce((s, l) => s + meses.reduce((a, m) => a + valor(l, m), 0), 0);
+
+    let html = '<tr><th>Laboratório</th>' + meses.map(m => `<th>${rotuloMes(m)}</th>`).join('') +
+      '<th>Total</th><th>% do gasto</th><th>Média/mês</th></tr>';
+    for (const lab of labs) {
+      const linha = meses.map(m => valor(lab, m));
+      const total = linha.reduce((a, b) => a + b, 0);
+      const mesesComMov = linha.filter(v => v > 0).length;
+      const media = mesesComMov ? total / mesesComMov : 0;
+      html += `<tr><td>${esc(lab)}</td>` + linha.map(v => {
+        if (!v) return '<td class="sem-dado">—</td>';
+        const acima = mesesComMov > 1 && v > media * 1.001;
+        return `<td${acima ? ` class="pior" title="R$ ${brlCheio(v - media)} acima da média do lab — candidato a excedente em 3x"` : ''}>${brlCheio(v)}</td>`;
+      }).join('') +
+        `<td><b>${brlCheio(total)}</b></td>` +
+        `<td><b>${totalGeral ? (total / totalGeral * 100).toFixed(1).replace('.', ',') : '0'}%</b></td>` +
+        `<td><b>${brlCheio(media)}</b></td></tr>`;
+    }
+    const totMes = meses.map(m => labs.reduce((s, l) => s + valor(l, m), 0));
+    const mesesTotComMov = totMes.filter(v => v > 0).length;
+    html += `<tr class="tot"><td>TOTAL</td>` + totMes.map(v => `<td>${v ? brlCheio(v) : '—'}</td>`).join('') +
+      `<td>${brlCheio(totalGeral)}</td><td>100%</td><td>${brlCheio(mesesTotComMov ? totalGeral / mesesTotComMov : 0)}</td></tr>`;
+    t.innerHTML = html;
   }
 
   function preencherSelects() {
