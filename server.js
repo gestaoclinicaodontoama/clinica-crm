@@ -10208,8 +10208,21 @@ app.get('/api/protetico/itens', requireAuth, requireFinanceiro, async (req, res)
     if (_RE_ISO_DATA.test(desde || '') && _RE_ISO_DATA.test(ate || '')) {
       q = q.or(`and(data_entrega.gte.${desde},data_entrega.lte.${ate}),and(data_entrega.is.null,data_entrada.gte.${desde},data_entrada.lte.${ate})`);
     }
-    q = q.order('data_entrega', { ascending: false, nullsFirst: false }).order('id', { ascending: false })
-      .range(page * 100, page * 100 + 99);
+    // Ordenação clicável (whitelist; 'lab' ordena pela coluna da nota via foreignTable)
+    const asc = req.query.dir === 'asc';
+    const sort = String(req.query.sort || 'data');
+    if (sort === 'lab') {
+      q = q.order('laboratorio', { foreignTable: 'protetico_notas', ascending: asc });
+    } else {
+      const col = {
+        data: 'data_entrega', paciente: 'paciente_nome', dentista: 'dentista_nome',
+        servico: 'descricao_original', categoria: 'categoria', dente: 'dente',
+        qtd: 'quantidade', valor: 'valor_total',
+      }[sort] || 'data_entrega';
+      q = q.order(col, { ascending: asc, nullsFirst: false });
+      if (col === 'data_entrega') q = q.order('data_entrada', { ascending: asc, nullsFirst: false });
+    }
+    q = q.order('id', { ascending: false }).range(page * 100, page * 100 + 99);
     const { data, error, count } = await q;
     if (error) return res.status(500).json({ error: error.message });
     res.json({ itens: data || [], total: count || 0, pagina: page, por_pagina: 100 });

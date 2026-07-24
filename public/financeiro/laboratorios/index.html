@@ -54,6 +54,8 @@ td.cel-preco { cursor: pointer; }
 td.cel-preco:hover { outline: 1px solid var(--accent); }
 .cel-n { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
 td.sem-dado { color: var(--muted); }
+th.th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+th.th-sort:hover { color: var(--accent); }
 tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
 .badge { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
 .badge.rep { background: var(--pior-bg); color: var(--red); }
@@ -240,6 +242,7 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   let RESUMO = null, CATS = [], pagina = 0, chartMensal = null;
+  let sortCol = 'data', sortDir = 'desc';
 
   // ── filtros ──
   const hoje = new Date().toISOString().slice(0, 10);
@@ -403,14 +406,20 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
     const t = $('tabela-itens');
     try {
       const busca = $('f-busca').value.trim();
-      const dados = await api('/api/protetico/itens?' + qs({ page: pagina, busca }));
+      const dados = await api('/api/protetico/itens?' + qs({ page: pagina, busca, sort: sortCol, dir: sortDir }));
       const { itens, total } = dados;
-      $('itens-info').textContent = `${total} itens no filtro atual.`;
+      $('itens-info').textContent = `${total} itens no filtro atual. Clique no cabeçalho para ordenar.`;
       $('pag-info').textContent = `página ${pagina + 1} de ${Math.max(1, Math.ceil(total / 100))}`;
       $('pag-ant').disabled = pagina === 0;
       $('pag-prox').disabled = (pagina + 1) * 100 >= total;
       if (!itens.length) { t.innerHTML = '<tr><td class="vazio">Nenhum item no filtro.</td></tr>'; return; }
-      t.innerHTML = '<tr><th>Data</th><th>Laboratório</th><th>Paciente</th><th>Dentista</th><th>Serviço</th><th>Dente</th><th>Qtd</th><th>Valor</th><th></th></tr>' +
+      const th = (chave, rotulo) => {
+        const seta = sortCol === chave ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+        return `<th class="th-sort" data-sort="${chave}">${rotulo}${seta}</th>`;
+      };
+      t.innerHTML = '<tr>' + th('data', 'Data') + th('lab', 'Laboratório') + th('paciente', 'Paciente') +
+        th('dentista', 'Dentista') + th('servico', 'Serviço') + th('dente', 'Dente') +
+        th('qtd', 'Qtd') + th('valor', 'Valor') + '<th></th></tr>' +
         itens.map(i => {
           const data = i.data_entrega || i.data_entrada || i.protetico_notas?.emitida_em || '';
           const badges = (i.reparo ? '<span class="badge rep">🔧 reparo</span>' : '') + (i.conferir ? '<span class="badge conf">⚠️ conferir</span>' : '') + (i.atrasado ? '<span class="badge conf">⏰ atrasou</span>' : '');
@@ -424,6 +433,12 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
             <td><button class="acao-btn btn-editar" title="Editar">✏️</button><button class="acao-btn btn-excluir" title="Excluir">🗑️</button></td>
           </tr>`;
         }).join('');
+      t.querySelectorAll('.th-sort').forEach(cab => cab.addEventListener('click', () => {
+        const chave = cab.dataset.sort;
+        if (sortCol === chave) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+        else { sortCol = chave; sortDir = (chave === 'valor' || chave === 'qtd' || chave === 'data') ? 'desc' : 'asc'; }
+        pagina = 0; carregarItens();
+      }));
       t.querySelectorAll('.btn-excluir').forEach(b => b.addEventListener('click', async (e) => {
         const tr = e.target.closest('tr');
         if (!confirm('Excluir este item da nota?')) return;
